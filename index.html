@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Big Dog Dynasty — WAR Board</title>
+<style>
+  :root{--bg:#0e1116;--card:#161b23;--line:#242c38;--txt:#e6ebf2;--dim:#8b96a5;
+        --acc:#f0a01e;--good:#3fb26f;--bad:#e05b5b;}
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--bg);color:var(--txt);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
+  header{padding:20px 24px 0;display:flex;flex-wrap:wrap;align-items:baseline;gap:14px}
+  header h1{font-size:22px} header h1 span{color:var(--acc)}
+  #updated{color:var(--dim);font-size:12px;margin-left:auto}
+  nav{display:flex;gap:6px;padding:14px 24px;flex-wrap:wrap}
+  nav button, .chip, select, input[type=search]{
+    background:var(--card);border:1px solid var(--line);color:var(--txt);
+    padding:7px 14px;border-radius:8px;font-size:14px;cursor:pointer}
+  nav button.on{background:var(--acc);color:#14161a;border-color:var(--acc);font-weight:600}
+  .bar{display:flex;gap:8px;padding:0 24px 14px;flex-wrap:wrap;align-items:center}
+  .chip.on{background:var(--acc);color:#14161a;border-color:var(--acc);font-weight:600}
+  input[type=search]{cursor:text;min-width:200px}
+  main{padding:0 24px 60px;max-width:1150px;margin:0 auto}
+  table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden}
+  th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
+  th{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;user-select:none}
+  th.sorted{color:var(--acc)}
+  tbody tr:hover{background:#1c2330;cursor:pointer}
+  .pos{font-size:11px;padding:1px 7px;border-radius:5px;font-weight:700}
+  .QB{background:#5b3ce0}.RB{background:#1f7a4d}.WR{background:#1e6fd9}.TE{background:#c2571c}
+  .num.good{color:var(--good)} .num.bad{color:var(--bad)}
+  .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;cursor:pointer}
+  .card:hover{border-color:var(--acc)}
+  .card h3{font-size:16px} .card .mgr{color:var(--dim);font-size:13px}
+  .card .rec{margin-top:8px;font-size:14px} .card .rec b{color:var(--acc)}
+  #teamDetail h2{margin:18px 0 4px} #teamDetail .mgr{color:var(--dim);margin-bottom:12px}
+  .back{color:var(--acc);cursor:pointer;font-size:14px;display:inline-block;margin:10px 0}
+  .wkbox td{background:#11151c;font-size:13px;color:var(--dim)}
+  .about{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px;max-width:800px}
+  .about h2{margin:14px 0 6px;font-size:17px;color:var(--acc)} .about p{margin-bottom:8px;color:#c6cdd7}
+  .empty{color:var(--dim);padding:30px;text-align:center}
+  .tag{font-size:10px;border:1px solid var(--line);color:var(--dim);border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:middle}
+</style>
+</head>
+<body>
+<header>
+  <h1>🏈 <span id="lgName">Big Dog Dynasty</span> — WAR Board</h1>
+  <div id="updated"></div>
+</header>
+<nav>
+  <button data-v="players" class="on">Players</button>
+  <button data-v="teams">Teams</button>
+  <button data-v="about">Methodology</button>
+  <select id="season" style="margin-left:auto"></select>
+</nav>
+<div class="bar" id="playerBar">
+  <span class="chip on" data-pos="ALL">All</span>
+  <span class="chip" data-pos="QB">QB</span>
+  <span class="chip" data-pos="RB">RB</span>
+  <span class="chip" data-pos="WR">WR</span>
+  <span class="chip" data-pos="TE">TE</span>
+  <input type="search" id="search" placeholder="Search player…">
+</div>
+<main id="main"><div class="empty">Loading…</div></main>
+<script>
+const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+const state={view:"players",season:null,pos:"ALL",q:"",sort:6,dir:-1,
+             meta:null,players:{},summary:[],teams:[],weekly:null,openTeam:null};
+const fmt=(n,d=2)=>n.toFixed(d);
+const cls=n=>n>0.0005?"num good":n<-0.0005?"num bad":"num";
+const j=async p=>{const r=await fetch(p+"?v="+(state.meta?state.meta.updated:Math.random()));
+                  if(!r.ok)throw new Error(p);return r.json()};
+
+async function boot(){
+  state.meta=await j("data/meta.json");
+  state.players=await j("data/players_min.json");
+  $("#lgName").textContent=state.meta.league;
+  $("#updated").textContent="updated "+state.meta.updated;
+  const sel=$("#season");
+  state.meta.seasons.slice().reverse().forEach(s=>sel.add(new Option(s,s)));
+  state.season=sel.value;
+  sel.onchange=()=>{state.season=sel.value;state.openTeam=null;loadSeason()};
+  $$("nav button").forEach(b=>b.onclick=()=>{ $$("nav button").forEach(x=>x.classList.remove("on"));
+    b.classList.add("on");state.view=b.dataset.v;render()});
+  $$("#playerBar .chip").forEach(c=>c.onclick=()=>{ $$("#playerBar .chip").forEach(x=>x.classList.remove("on"));
+    c.classList.add("on");state.pos=c.dataset.pos;render()});
+  $("#search").oninput=e=>{state.q=e.target.value.toLowerCase();render()};
+  await loadSeason();
+}
+async function loadSeason(){
+  state.weekly=null;
+  [state.summary,state.teams]=await Promise.all([
+    j(`data/${state.season}/summary.json`), j(`data/${state.season}/teams.json`)]);
+  render();
+}
+function pInfo(pid){return state.players[pid]||["#"+pid,"?",""]}
+function ownerOf(){ const map={}; state.teams.forEach(t=>t.players.forEach(p=>map[p]=t.team)); return map}
+
+function render(){
+  $("#playerBar").style.display=state.view==="players"?"flex":"none";
+  if(state.view==="players")renderPlayers();
+  else if(state.view==="teams")renderTeams();
+  else renderAbout();
+}
+
+function renderPlayers(){
+  if(!state.summary.length){$("#main").innerHTML='<div class="empty">No scored weeks yet for this season — check back after week 1.</div>';return}
+  const owners=ownerOf();
+  let rows=state.summary.map(r=>{const[i,pos,gp,pts,ppg,waa,war]=r;const[nm]=pInfo(i);
+    return{id:i,nm,pos,team:owners[i]||"—",gp,pts,ppg,waa,war}});
+  if(state.pos!=="ALL")rows=rows.filter(r=>r.pos===state.pos);
+  if(state.q)rows=rows.filter(r=>r.nm.toLowerCase().includes(state.q));
+  const cols=["Player","Roster","Pos","GP","Pts","PPG","WAA","WAR"];
+  const keys=["nm","team","pos","gp","pts","ppg","waa","war"];
+  const k=keys[state.sortCol??7]??"war";
+  rows.sort((a,b)=>typeof a[k]==="string"?a[k].localeCompare(b[k])*state.dir:(a[k]-b[k])*state.dir);
+  $("#main").innerHTML=`<table><thead><tr>${cols.map((c,i)=>
+    `<th data-i="${i}" class="${(state.sortCol??7)===i?'sorted':''}">${c}${(state.sortCol??7)===i?(state.dir<0?" ▼":" ▲"):""}</th>`).join("")}
+    </tr></thead><tbody>${rows.map(r=>`<tr data-p="${r.id}">
+      <td>${r.nm}</td><td>${r.team}</td><td><span class="pos ${r.pos}">${r.pos}</span></td>
+      <td>${r.gp}</td><td>${fmt(r.pts,1)}</td><td>${fmt(r.ppg)}</td>
+      <td class="${cls(r.waa)}">${fmt(r.waa,3)}</td><td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}
+    </tbody></table>`;
+  $$("th").forEach(h=>h.onclick=()=>{const i=+h.dataset.i;
+    if((state.sortCol??7)===i)state.dir*=-1;else{state.sortCol=i;state.dir=i<3?1:-1}
+    renderPlayers()});
+  $$("tbody tr").forEach(tr=>tr.onclick=()=>toggleWeekly(tr));
+}
+
+async function toggleWeekly(tr){
+  const nxt=tr.nextElementSibling;
+  if(nxt&&nxt.classList.contains("wkbox")){nxt.remove();return}
+  $$(".wkbox").forEach(x=>x.remove());
+  if(!state.weekly)state.weekly=await j(`data/${state.season}/weekly.json`);
+  const wks=(state.weekly[tr.dataset.p]||[]).sort((a,b)=>a[0]-b[0]);
+  const box=document.createElement("tr");box.className="wkbox";
+  box.innerHTML=`<td colspan="8">${wks.length?wks.map(w=>
+    `W${w[0]}: <b style="color:#e6ebf2">${fmt(w[1],1)}</b> pts (${w[5]>=0?"+":""}${fmt(w[5],3)} WAR)`).join(" &nbsp;·&nbsp; ")
+    :"no weekly data"}</td>`;
+  tr.after(box);
+}
+
+function renderTeams(){
+  if(state.openTeam!==null){return renderTeamDetail()}
+  const bySum={};
+  state.summary.forEach(([i,, , , ,waa,war])=>bySum[i]=[waa,war]);
+  const cards=state.teams.slice().sort((a,b)=>b.wins-a.wins||b.fpts-a.fpts).map(t=>{
+    const war=t.players.reduce((s,p)=>s+(bySum[p]?.[1]||0),0);
+    return`<div class="card" data-r="${t.roster_id}"><h3>${t.team}</h3><div class="mgr">${t.manager}</div>
+      <div class="rec">${t.wins}-${t.losses}${t.ties?"-"+t.ties:""} · ${fmt(t.fpts,1)} pts<br>
+      roster WAR: <b>${fmt(war,2)}</b></div></div>`}).join("");
+  $("#main").innerHTML=`<div class="cards">${cards}</div>`;
+  $$(".card").forEach(c=>c.onclick=()=>{state.openTeam=+c.dataset.r;renderTeamDetail()});
+}
+
+function renderTeamDetail(){
+  const t=state.teams.find(x=>x.roster_id===state.openTeam);
+  const bySum={};state.summary.forEach(r=>bySum[r[0]]=r);
+  const rows=t.players.map(p=>{const[nm,pos]=pInfo(p);const s=bySum[p];
+    const tag=t.taxi.includes(p)?'<span class="tag">TAXI</span>':t.reserve.includes(p)?'<span class="tag">IR</span>':
+              t.starters.includes(p)?'<span class="tag" style="color:var(--acc);border-color:var(--acc)">START</span>':"";
+    return{id:p,nm:nm+tag,pos,gp:s?s[2]:0,pts:s?s[3]:0,ppg:s?s[4]:0,waa:s?s[5]:0,war:s?s[6]:0}})
+    .sort((a,b)=>b.war-a.war);
+  $("#main").innerHTML=`<span class="back">← all teams</span><div id="teamDetail">
+    <h2>${t.team}</h2><div class="mgr">${t.manager} · ${t.wins}-${t.losses}${t.ties?"-"+t.ties:""} · ${fmt(t.fpts,1)} pts</div>
+    <table><thead><tr><th>Player</th><th></th><th>Pos</th><th>GP</th><th>Pts</th><th>PPG</th><th>WAA</th><th>WAR</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr data-p="${r.id}"><td>${r.nm}</td><td></td>
+      <td><span class="pos ${r.pos}">${r.pos}</span></td><td>${r.gp}</td><td>${fmt(r.pts,1)}</td>
+      <td>${fmt(r.ppg)}</td><td class="${cls(r.waa)}">${fmt(r.waa,3)}</td>
+      <td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}</tbody></table></div>`;
+  $(".back").onclick=()=>{state.openTeam=null;renderTeams()};
+  $$("tbody tr").forEach(tr=>tr.onclick=()=>toggleWeekly(tr));
+}
+
+function renderAbout(){
+  $("#main").innerHTML=`<div class="about">
+  <h2>What is WAR / WAA?</h2>
+  <p><b>WAR</b> (wins above replacement) and <b>WAA</b> (wins above average) estimate how many
+  head-to-head wins a player added over a season, using this league's exact scoring and lineup rules.</p>
+  <h2>The startable pool</h2>
+  <p>Each week, all scored players fill the league's 108 lineup slots by actual points:
+  12 QB, 24 RB, 36 WR, 12 TE, then the best remaining players take the 12 SUPER_FLEX (QB/RB/WR/TE)
+  and 12 FLEX (RB/WR/TE) spots. Whether WR40 beats out RB26 for a flex is decided by the scoreboard.</p>
+  <h2>Baselines</h2>
+  <p><b>Average</b> = mean score of startable players at the position that week.
+  <b>Replacement</b> = the best player at the position left out of the pool entirely (the next man up).</p>
+  <h2>Points → wins</h2>
+  <p>A player's weekly margin over baseline is converted to a win-probability shift using that week's
+  actual spread of team scores: Φ(margin / (σ<sub>week</sub>·√2)) − 0.5. Big games in low-scoring
+  weeks are worth more wins than the same line in a shootout. Weekly shifts are summed over the regular season.</p>
+  <p>Byes and missed games contribute zero — players aren't penalized for weeks they didn't play,
+  but they can't accumulate value either. Availability is part of the stat.</p>
+  <h2>Reading the numbers</h2>
+  <p>WAA ≈ 0 means "average starter." Negative WAA just means below the average <i>starter</i> —
+  half the startable pool lands there by definition. In a 14-week season, +2 WAR is a superstar season.</p>
+  </div>`;
+}
+boot().catch(e=>{$("#main").innerHTML=`<div class="empty">Failed to load data: ${e.message}</div>`});
+</script>
+</body>
+</html>
