@@ -100,15 +100,32 @@ def main():
                 txt = f"drafted {pk.get('round','?')}.{pk.get('draft_slot','?')} by {team}"
                 own.setdefault(pid, []).append(((season, 0, pk.get("pick_no", 0)), season, 0, txt))
                 used_ids.add(pid)
+        def pname(pid):
+            pl = players.get(pid)
+            return f"{pl.get('first_name','')} {pl.get('last_name','')}".strip() if pl else f"#{pid}"
+        ORD = {1: "1st", 2: "2nd", 3: "3rd"}
         for tf in sorted((sdir / "transactions").glob("week_*.json")) if (sdir / "transactions").exists() else []:
             for tx in load(tf) or []:
                 if tx.get("status") != "complete":
                     continue
                 typ, wk, ts = tx.get("type"), tx.get("leg", 0), tx.get("created", 0)
                 adds, drops = tx.get("adds") or {}, tx.get("drops") or {}
+                trade_note = ""
+                if typ == "trade":
+                    got = {}   # roster_id -> assets received in this deal
+                    for pid, rid in adds.items():
+                        got.setdefault(rid, []).append(pname(pid))
+                    for pk in tx.get("draft_picks") or []:
+                        r = pk.get("round")
+                        got.setdefault(pk.get("owner_id"), []).append(
+                            f"{pk.get('season')} {ORD.get(r, str(r) + 'th')}")
+                    for wb in tx.get("waiver_budget") or []:
+                        got.setdefault(wb.get("receiver"), []).append(f"${wb.get('amount')} FAAB")
+                    trade_note = "; ".join(
+                        f"{tname.get(rid, '?')} get {', '.join(a)}" for rid, a in got.items())
                 for pid, rid in adds.items():
                     team = tname.get(rid, "?")
-                    txt = {"trade": f"traded to {team}",
+                    txt = {"trade": f"traded to {team}" + (f" — {trade_note}" if trade_note else ""),
                            "waiver": f"waiver claim by {team}",
                            "free_agent": f"signed by {team}"}.get(typ, f"{typ} to {team}")
                     own.setdefault(pid, []).append(((season, 1, ts), season, wk, txt))
