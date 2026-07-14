@@ -27,8 +27,8 @@
   th{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;user-select:none}
   th.sorted{color:var(--acc)}
   tbody tr:hover{background:#1c2330;cursor:pointer}
-  .pos{font-size:11px;padding:1px 7px;border-radius:5px;font-weight:700}
-  .QB{background:#5b3ce0}.RB{background:#1f7a4d}.WR{background:#1e6fd9}.TE{background:#c2571c}
+  .pos{font-size:11px;padding:1px 7px;border-radius:5px;font-weight:700;color:#fff}
+  .QB{background:#9333ea}.RB{background:#1f7a4d}.WR{background:#1e6fd9}.TE{background:#c2571c}
   .num.good{color:var(--good)} .num.bad{color:var(--bad)}
   .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;cursor:pointer}
@@ -48,6 +48,7 @@
   .wktbl th:first-child,.wktbl td:first-child{text-align:left}
   .wktbl tbody tr:hover{background:transparent;cursor:default}
   .wkflex{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .wkbox .pos{display:inline-block;margin:2px 0 4px}
   .wkright{min-width:260px;max-width:360px;flex:1}
   td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
   .tlink{color:var(--acc);cursor:pointer}
@@ -262,6 +263,14 @@ async function renderTeams(){
   for(const[pid,rws]of Object.entries(state.weekly))
     for(const w of rws)(wkIdx[pid]??={})[w[0]]=[w[4],w[5]];
   const bySum={};state.summary.forEach(r=>bySum[r[0]]=r);
+  const weekPts={};
+  for(const list of Object.values(state.mw.teams||{}))
+    for(const e of list)if(e[0]<ps)(weekPts[e[0]]??=[]).push(e[1]);
+  const medians={};
+  for(const[wk,pts]of Object.entries(weekPts)){
+    const v=pts.slice().sort((a,b)=>a-b),n=v.length;
+    medians[wk]=n%2?v[(n-1)/2]:(v[n/2-1]+v[n/2])/2;
+  }
   let rows=state.teams.map(t=>{
     const ent=(state.mw.teams[String(t.roster_id)]||[]);
     const reg=ent.filter(e=>e[0]<ps);
@@ -269,26 +278,33 @@ async function renderTeams(){
     let waa=0,war=0;
     for(const e of reg)for(const p of e[4]){const v=wkIdx[p]?.[e[0]];if(v){waa+=v[0];war+=v[1]}}
     const g=t.wins+t.losses+t.ties;
-    return{rid:t.roster_id,team:t.team,manager:t.manager,wins:t.wins,fpts:t.fpts,
+    let mwin=0,mloss=0,mtie=0;
+    for(const e of reg){const m=medians[e[0]];
+      if(m==null)continue;
+      e[1]>m?mwin++:e[1]<m?mloss++:mtie++;}
+    return{rid:t.roster_id,team:t.team,manager:t.manager,wins:t.wins,fpts:t.fpts,medw:mwin,
       rec:`${t.wins}-${t.losses}${t.ties?"-"+t.ties:""}`,
+      med:`${mwin}-${mloss}${mtie?"-"+mtie:""}`,
       ppg:pts.length?pts.reduce((a,b)=>a+b,0)/pts.length:(g?t.fpts/g:0),
       sdv:sd(pts),waa,war,ent}});
   const seedOrder=rows.slice().sort((a,b)=>b.wins-a.wins||b.fpts-a.fpts);
   rows.forEach(r=>r.seed=seedOrder.indexOf(r)+1);
-  const cols=["Seed","Team","Manager","Record","PPG","<span style=\"text-transform:none\">σ</span>","WAA","WAR"];
-  const keys=["seed","team","manager","wins","ppg","sdv","waa","war"];
-  const hm=[false,false,true,false,false,false,false,false];
+  const cols=["Seed","Team","Manager","Record","vs Median","PPG","<span style=\"text-transform:none\">σ</span>","WAA","WAR"];
+  const keys=["seed","team","manager","wins","medw","ppg","sdv","waa","war"];
+  const hm=[false,false,true,false,true,false,false,false,false];
+  const ws=["width:44px","","text-align:left;width:170px","width:88px","width:96px","width:80px","width:70px","width:92px","width:92px"];
   const ci=state.tCol??0,dir=state.tDir??1,k=keys[ci];
   rows.sort((a,b)=>typeof a[k]==="string"?a[k].localeCompare(b[k])*dir:(a[k]-b[k])*dir);
   $("#main").innerHTML=`<table><thead><tr>${cols.map((c,i)=>
-    `<th data-i="${i}" class="${hm[i]?'hm ':''}${ci===i?'sorted':''}">${c}${ci===i?(dir<0?" ▼":" ▲"):""}</th>`).join("")}
+    `<th data-i="${i}" style="${ws[i]}" class="${hm[i]?'hm ':''}${ci===i?'sorted':''}">${c}${ci===i?(dir<0?" ▼":" ▲"):""}</th>`).join("")}
     </tr></thead><tbody>${rows.map(r=>`<tr data-r="${r.rid}">
       <td style="color:var(--dim)">${r.seed}</td><td><span class="tlink" data-open="${r.rid}">${r.team}</span></td>
       <td class="hm" style="text-align:left;color:var(--dim)">${r.manager}</td>
-      <td>${r.rec}</td><td>${fmt(r.ppg,1)}</td><td>${fmt(r.sdv,1)}</td>
+      <td>${r.rec}</td><td class="hm">${r.med}</td><td>${fmt(r.ppg,1)}</td><td>${fmt(r.sdv,1)}</td>
       <td class="${cls(r.waa)}">${fmt(r.waa,3)}</td><td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}
     </tbody></table>
     <div style="color:var(--dim);font-size:12px;margin-top:8px">WAA / WAR are summed from each week's actual starting lineup.
+    Lineup WAA is measured against the league-wide <i>optimal</i> starter pool, so most teams land below zero — compare teams to each other, not to 0.
     Click a row for matchups &amp; roster highlights · click a team name for the full roster.</div>`;
   $$("th").forEach(h=>h.onclick=()=>{const i=+h.dataset.i;
     if((state.tCol??0)===i)state.tDir=-(state.tDir??1);
@@ -363,14 +379,18 @@ async function renderWeeklyView(){
   const wks=Object.keys(byWeek).map(Number).sort((a,b)=>a-b);
   if(!wks.length){$("#main").innerHTML='<div class="empty">No scored weeks yet for this season.</div>';return}
   const line=e=>`${pInfo(e.pid)[0]} <span class="pos ${e.pos}">${e.pos}</span> <span style="color:var(--dim)">${fmt(e.pts,1)} pts</span>`;
+  const startedBy={};   // week -> Set of player_ids actually in a starting lineup
+  for(const list of Object.values(state.mw.teams||{}))
+    for(const e of list)for(const p of e[4]||[])(startedBy[e[0]]??=new Set()).add(p);
   $("#main").innerHTML=`<table><thead><tr><th>Week</th><th style="text-align:left">Biggest WAR</th>
-    <th>WAR</th><th style="text-align:left" class="hm">Biggest WAA</th><th class="hm">WAA</th></tr></thead>
+    <th>WAR</th><th style="text-align:left" class="hm">Lowest WAR (started)</th><th class="hm">WAR</th></tr></thead>
     <tbody>${wks.map(w=>{const a=byWeek[w];
       const topWar=a.reduce((m,e)=>e.war>m.war?e:m);
-      const topWaa=a.reduce((m,e)=>e.waa>m.waa?e:m);
+      const started=a.filter(e=>startedBy[w]?.has(e.pid));
+      const lowWar=(started.length?started:a).reduce((m,e)=>e.war<m.war?e:m);
       return`<tr data-w="${w}"><td style="text-align:left"><span class="tlink" data-open="${w}">W${w}</span></td>
         <td style="text-align:left">${line(topWar)}</td><td class="${cls(topWar.war)}">${fmt(topWar.war,3)}</td>
-        <td style="text-align:left" class="hm">${line(topWaa)}</td><td class="hm ${cls(topWaa.waa)}">${fmt(topWaa.waa,3)}</td></tr>`}).join("")}
+        <td style="text-align:left" class="hm">${line(lowWar)}</td><td class="hm ${cls(lowWar.war)}">${fmt(lowWar.war,3)}</td></tr>`}).join("")}
     </tbody></table>
     <div style="color:var(--dim);font-size:12px;margin-top:8px">Click a row for the top 5 at each position · click the week number for full matchups &amp; leaders.</div>`;
   $$(".tlink").forEach(el=>el.onclick=e=>{e.stopPropagation();state.openWeek=+el.dataset.open;renderWeekDetail()});
