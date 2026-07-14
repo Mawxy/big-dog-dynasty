@@ -28,6 +28,7 @@ def main():
 
     players = load(root / "players.json")
     used_ids, seasons, league_name = set(), [], "League"
+    own = {}          # player_id -> [(sortkey, season, week, text), ...]
 
     for sdir in sorted((d for d in root.iterdir() if d.is_dir() and (d / "league.json").exists())):
         league = load(sdir / "league.json")
@@ -80,6 +81,42 @@ def main():
                          float(row["pts_above_avg"]), float(row["pts_above_repl"]),
                          float(row["WAA_week"]), float(row["WAR_week"])])
         (sout / "weekly.json").write_text(json.dumps(weekly))
+
+        # --- ownership history: drafts + transactions ---
+        tname = {t["roster_id"]: t["team"] for t in teams}
+        for df in sorted(sdir.glob("draft_*_picks.json")):
+            if df.name.endswith("_traded_picks.json"):
+                continue
+            for pk in load(df) or []:
+                pid = pk.get("player_id")
+                rid = pk.get("roster_id")
+                try:
+                    rid = int(rid)
+                except (TypeError, ValueError):
+                    rid = None
+                team = tname.get(rid, "?")
+                txt = f"drafted {pk.get('round','?')}.{pk.get('draft_slot','?')} by {team}"
+                own.setdefault(pid, []).append(((season, 0, pk.get("pick_no", 0)), season, 0, txt))
+                used_ids.add(pid)
+        for tf in sorted((sdir / "transactions").glob("week_*.json")) if (sdir / "transactions").exists() else []:
+            for tx in load(tf) or []:
+                if tx.get("status") != "complete":
+                    continue
+                typ, wk, ts = tx.get("type"), tx.get("leg", 0), tx.get("created", 0)
+                adds, drops = tx.get("adds") or {}, tx.get("drops") or {}
+                for pid, rid in adds.items():
+                    team = tname.get(rid, "?")
+                    txt = {"trade": f"traded to {team}",
+                           "waiver": f"waiver claim by {team}",
+                           "free_agent": f"signed by {team}"}.get(typ, f"{typ} to {team}")
+                    own.setdefault(pid, []).append(((season, 1, ts), season, wk, txt))
+                    used_ids.add(pid)
+                for pid, rid in drops.items():
+                    if pid in adds:
+                        continue
+                    team = tname.get(rid, "?")
+                    own.setdefault(pid, []).append(((season, 1, ts), season, wk, f"dropped by {team}"))
+                    used_ids.add(pid)
         seasons.append(season)
 
     pmin = {}
@@ -91,6 +128,9 @@ def main():
         else:
             pmin[pid] = [f"#{pid}", "?", ""]   # team defenses etc.
     (out / "players_min.json").write_text(json.dumps(pmin))
+    (out / "ownership.json").write_text(json.dumps(
+        {pid: [[sn, wk, txt] for _, sn, wk, txt in sorted(evts)]
+         for pid, evts in own.items()}))
     (out / "meta.json").write_text(json.dumps({
         "league": league_name, "seasons": seasons,
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
