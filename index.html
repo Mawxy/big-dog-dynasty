@@ -49,6 +49,10 @@
   .wktbl tbody tr:hover{background:transparent;cursor:default}
   .wkflex{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
   .wkbox .pos{display:inline-block;margin:2px 0 4px}
+  .ownevt{margin:7px 0;line-height:1.5}
+  .ownwk{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:4px;
+         padding:0 6px;font-size:11px;color:var(--dim);margin-right:7px;white-space:nowrap}
+  .ownsides{margin:4px 0 0 12px;padding-left:9px;border-left:2px solid var(--line)}
   .wkright{min-width:260px;max-width:360px;flex:1}
   td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
   .tlink{color:var(--acc);cursor:pointer}
@@ -149,6 +153,16 @@ function boxplot(vals){
 }
 const cls=n=>n>0.0005?"num good":n<-0.0005?"num bad":"num";
 const sgn=(v,d=3)=>(v>0?"+":"")+fmt(v,d);
+function ownEvt(h){
+  const wk=`<span class="ownwk">${h[0]}${h[1]?" W"+h[1]:""}</span>`;
+  const i=h[2].indexOf(" — ");
+  if(i<0)return`<div class="ownevt">${wk}${h[2]}</div>`;
+  const evt=h[2].slice(0,i);
+  const sides=h[2].slice(i+3).split("; ").map(x=>{
+    const g=x.indexOf(" get ");
+    return g<0?x:`<b style="color:var(--txt)">${x.slice(0,g)}</b> received ${x.slice(g+5)}`;});
+  return`<div class="ownevt">${wk}${evt}<div class="ownsides">${sides.join("<br>")}</div></div>`;
+}
 const j=async p=>{const r=await fetch(p+"?v="+(state.meta?state.meta.updated:Math.random()));
                   if(!r.ok)throw new Error(p);return r.json()};
 
@@ -247,8 +261,7 @@ async function toggleWeekly(tr){
       <div class="wkright">
         ${ptsArr.length>=4?`<div style="color:var(--txt);font-size:12.5px"><b>Weekly points spread</b></div>${boxplot(ptsArr)}`:""}
         ${hist.length?`<div style="margin-top:8px;font-size:12.5px;color:var(--dim)">
-          <b style="color:var(--txt)">Ownership history</b><br>${hist.map(h=>
-          `${h[0]}${h[1]?` W${h[1]}`:""} — ${h[2]}`).join("<br>")}</div>`:""}
+          <b style="color:var(--txt)">Ownership history</b>${hist.map(ownEvt).join("")}</div>`:""}
       </div>
     </div></td>`;
   tr.after(box);
