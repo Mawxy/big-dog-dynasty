@@ -79,6 +79,35 @@ def main():
                          float(row["pts_above_avg"]), float(row["pts_above_repl"]),
                          float(row["WAA_week"]), float(row["WAR_week"])])
         (sout / "weekly.json").write_text(json.dumps(weekly))
+
+        # --- weekly matchups: points, opponent, starters per team ---
+        mws = {}
+        mdir = sdir / "matchups"
+        if mdir.exists():
+            for wf in sorted(mdir.glob("week_*.json")):
+                wk = int(wf.stem.split("_")[1])
+                teamsw = load(wf) or []
+                pts = {t["roster_id"]: t.get("points") or 0 for t in teamsw}
+                if not any(pts.values()):
+                    continue
+                bym = {}
+                for t in teamsw:
+                    if t.get("matchup_id") is not None:
+                        bym.setdefault(t["matchup_id"], []).append(t["roster_id"])
+                opp = {}
+                for rids in bym.values():
+                    if len(rids) == 2:
+                        opp[rids[0]], opp[rids[1]] = rids[1], rids[0]
+                for t in teamsw:
+                    rid = t["roster_id"]
+                    o = opp.get(rid)
+                    mws.setdefault(str(rid), []).append(
+                        [wk, round(pts.get(rid, 0), 2), o,
+                         round(pts.get(o, 0), 2) if o else None,
+                         t.get("starters") or []])
+        (sout / "matchups.json").write_text(json.dumps(
+            {"playoff_start": league.get("settings", {}).get("playoff_week_start", 15),
+             "teams": mws}))
         for row in summary:                      # append point st-dev per player
             v = [w[1] for w in weekly.get(row[0], [])]
             row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)
