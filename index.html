@@ -173,6 +173,7 @@ async function boot(){
   $("#updated").textContent="updated "+state.meta.updated;
   const sel=$("#season");
   state.meta.seasons.slice().reverse().forEach(s=>sel.add(new Option(s,s)));
+  sel.add(new Option("All-time","ALL"));
   state.season=sel.value;
   sel.onchange=()=>{state.season=sel.value;state.openTeam=null;loadSeason()};
   $$("nav button").forEach(b=>b.onclick=()=>{ $$("nav button").forEach(x=>x.classList.remove("on"));
@@ -184,15 +185,66 @@ async function boot(){
   await loadSeason();
 }
 async function loadSeason(){
-  state.weekly=null;state.mw=null;state.openWeek=null;
-  [state.summary,state.teams]=await Promise.all([
-    j(`data/${state.season}/summary.json`), j(`data/${state.season}/teams.json`)]);
-  // default min-GP = 45% of the most games anyone has played this season
+  state.weekly=null;state.mw=null;state.openWeek=null;state.allData=null;
+  if(state.season==="ALL"){
+    const seasons=state.meta.seasons;
+    const sums=await Promise.all(seasons.map(s=>j(`data/${s}/summary.json`).catch(()=>[])));
+    const weeks=await Promise.all(seasons.map(s=>j(`data/${s}/weekly.json`).catch(()=>({}))));
+    state.allData={};seasons.forEach((s,i)=>state.allData[s]={summary:sums[i],weekly:weeks[i]});
+    const agg={};
+    seasons.forEach((s,i)=>{for(const r of sums[i]){
+      const a=agg[r[0]]??={pos:r[1],gp:0,pts:0,waa:0,war:0,wpts:[]};
+      a.gp+=r[2];a.pts+=r[3];a.waa+=r[5];a.war+=r[6];a.pos=r[1];
+      for(const w of(weeks[i][r[0]]||[]))a.wpts.push(w[1]);
+    }});
+    state.summary=Object.entries(agg).map(([pid,a])=>[pid,a.pos,a.gp,
+      +a.pts.toFixed(1),+(a.pts/a.gp).toFixed(2),+a.waa.toFixed(3),+a.war.toFixed(3),+sd(a.wpts).toFixed(2)]);
+    state.teams=await j(`data/${seasons[seasons.length-1]}/teams.json`);
+  }else{
+    [state.summary,state.teams]=await Promise.all([
+      j(`data/${state.season}/summary.json`), j(`data/${state.season}/teams.json`)]);
+  }
+  // default min-GP = 45% of the most games anyone has played in the selection
   const maxGp=state.summary.reduce((m,r)=>Math.max(m,r[2]),0);
   state.minGp=Math.round(maxGp*0.45);
   $("#minGp").value=state.minGp;
   render();
 }
+
+async function allTimePanel(tr){
+  if(!state.own)state.own=await j("data/ownership.json").catch(()=>({}));
+  const pid=tr.dataset.p;
+  const[nm,pos]=pInfo(pid);
+  const owner=ownerOf()[pid];
+  const hist=(state.own[pid]||[]);
+  const rows=[],ptsAll=[];
+  for(const s of state.meta.seasons){
+    const r=(state.allData[s].summary||[]).find(x=>x[0]===pid);
+    if(r)rows.push([s,r[2],r[3],r[4],r[5],r[6]]);
+    for(const w of(state.allData[s].weekly[pid]||[]))ptsAll.push(w[1]);
+  }
+  const mean=ptsAll.length?ptsAll.reduce((a,b)=>a+b,0)/ptsAll.length:0;
+  const tbl=rows.length?`<div class="wkwrap"><table class="wktbl"><thead><tr>
+    <th>Season</th><th>GP</th><th>Pts</th><th>PPG</th><th>WAA</th><th>WAR</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr><td>${r[0]}</td><td>${r[1]}</td><td>${fmt(r[2],1)}</td><td>${fmt(r[3])}</td>
+      <td class="${cls(r[4])}">${fmt(r[4],3)}</td><td class="${cls(r[5])}">${fmt(r[5],3)}</td></tr>`).join("")}
+    </tbody></table></div>`:`<div style="color:var(--dim)">no data</div>`;
+  const box=document.createElement("tr");box.className="wkbox";
+  box.innerHTML=`<td colspan="${tr.children.length}">
+    <div class="wkhead"><b>${nm}</b> <span class="pos ${pos}">${pos}</span>
+      &nbsp;·&nbsp; ${owner?`currently owned by <span class="own">${owner}</span>`:"free agent"}
+      ${ptsAll.length?`&nbsp;·&nbsp; ${ptsAll.length} games, ${fmt(mean,1)} ppg, σ ${fmt(sd(ptsAll),1)}`:""}</div>
+    <div class="wkflex">
+      <div>${tbl}</div>
+      <div class="wkright">
+        ${ptsAll.length>=4?`<div style="color:var(--txt);font-size:12.5px"><b>Weekly points spread (all seasons)</b></div>${boxplot(ptsAll)}`:""}
+        ${hist.length?`<div style="margin-top:8px;font-size:12.5px;color:var(--dim)">
+          <b style="color:var(--txt)">Ownership history</b>${hist.map(ownEvt).join("")}</div>`:""}
+      </div>
+    </div></td>`;
+  tr.after(box);
+}
+
 function pInfo(pid){return state.players[pid]||["#"+pid,"?",""]}
 function ownerOf(){ const map={}; state.teams.forEach(t=>t.players.forEach(p=>map[p]=t.team)); return map}
 
@@ -236,6 +288,7 @@ async function toggleWeekly(tr){
   const nxt=tr.nextElementSibling;
   if(nxt&&nxt.classList.contains("wkbox")){nxt.remove();return}
   $$(".wkbox").forEach(x=>x.remove());
+  if(state.allData)return allTimePanel(tr);
   if(!state.weekly)state.weekly=await j(`data/${state.season}/weekly.json`);
   if(!state.own)state.own=await j("data/ownership.json").catch(()=>({}));
   const pid=tr.dataset.p;
@@ -268,6 +321,7 @@ async function toggleWeekly(tr){
 }
 
 async function renderTeams(){
+  if(state.season==="ALL"){$("#main").innerHTML='<div class="empty">Teams are a per-season view — pick a year from the dropdown.</div>';return}
   if(state.openTeam!==null){return renderTeamDetail()}
   if(!state.weekly)state.weekly=await j(`data/${state.season}/weekly.json`);
   if(!state.mw)state.mw=await j(`data/${state.season}/matchups.json`).catch(()=>({playoff_start:15,teams:{}}));
@@ -379,6 +433,7 @@ function renderTeamDetail(){
 }
 
 async function renderWeeklyView(){
+  if(state.season==="ALL"){$("#main").innerHTML='<div class="empty">Weekly is a per-season view — pick a year from the dropdown.</div>';return}
   if(!state.weekly){
     $("#main").innerHTML='<div class="empty">Loading weekly data…</div>';
     state.weekly=await j(`data/${state.season}/weekly.json`);
