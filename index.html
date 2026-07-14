@@ -39,6 +39,14 @@
   .back{color:var(--acc);cursor:pointer;font-size:14px;display:inline-block;margin:10px 0}
   .wkbox td{background:#11151c;font-size:13px;color:var(--dim);white-space:normal;line-height:2}
   thead th{position:sticky;top:0;background:var(--card);z-index:1}
+  .wkhead{color:var(--txt);font-size:13px;margin:2px 0 6px}
+  .wkhead .own{color:var(--acc)}
+  .wkwrap{overflow-x:auto}
+  .wktbl{width:auto;background:transparent;border-radius:0}
+  .wktbl th{position:static;font-size:11px;padding:2px 14px 4px 0;text-align:right;cursor:default}
+  .wktbl td{padding:2px 14px 2px 0;font-size:12.5px;border:0;text-align:right;color:var(--txt)}
+  .wktbl th:first-child,.wktbl td:first-child{text-align:left}
+  .wktbl tbody tr:hover{background:transparent;cursor:default}
   @media (max-width:640px){
     header{padding:14px 12px 0} header h1{font-size:18px}
     #updated{width:100%;margin-left:0}
@@ -64,6 +72,7 @@
 <nav>
   <button data-v="players" class="on">Players</button>
   <button data-v="teams">Teams</button>
+  <button data-v="weekly">Weekly</button>
   <button data-v="about">Methodology</button>
   <select id="season" style="margin-left:auto"></select>
 </nav>
@@ -122,6 +131,7 @@ function render(){
   $("#playerBar").style.display=state.view==="players"?"flex":"none";
   if(state.view==="players")renderPlayers();
   else if(state.view==="teams")renderTeams();
+  else if(state.view==="weekly")renderWeeklyView();
   else renderAbout();
 }
 
@@ -129,25 +139,27 @@ function renderPlayers(){
   if(!state.summary.length){$("#main").innerHTML='<div class="empty">No scored weeks yet for this season — check back after week 1.</div>';return}
   const owners=ownerOf();
   let rows=state.summary.map(r=>{const[i,pos,gp,pts,ppg,waa,war]=r;const[nm]=pInfo(i);
-    return{id:i,nm,pos,team:owners[i]||"—",gp,pts,ppg,waa,war}});
+    return{id:i,nm,pos,team:owners[i]||"—",gp,pts,ppg,waa,war,
+           waaG:gp?waa/gp:0,warG:gp?war/gp:0}});
   if(state.minGp)rows=rows.filter(r=>r.gp>=state.minGp);
   if(state.pos!=="ALL")rows=rows.filter(r=>r.pos===state.pos);
   if(state.q)rows=rows.filter(r=>r.nm.toLowerCase().includes(state.q));
   if(!rows.length){$("#main").innerHTML='<div class="empty">No players match — try lowering the min-GP filter (early in a season, few players have '+state.minGp+'+ games).</div>';return}
-  const cols=["Player","Roster","Pos","GP","Pts","PPG","WAA","WAR"];
-  const hm=[false,true,false,true,true,false,false,false];
-  const keys=["nm","team","pos","gp","pts","ppg","waa","war"];
-  const k=keys[state.sortCol??7]??"war";
+  const cols=["Player","Roster","Pos","GP","Pts","PPG","WAA","WAA/G","WAR","WAR/G"];
+  const hm=[false,true,false,true,true,false,false,true,false,true];
+  const keys=["nm","team","pos","gp","pts","ppg","waa","waaG","war","warG"];
+  const k=keys[state.sortCol??8]??"war";
   rows.sort((a,b)=>typeof a[k]==="string"?a[k].localeCompare(b[k])*state.dir:(a[k]-b[k])*state.dir);
   $("#main").innerHTML=`<table><thead><tr>${cols.map((c,i)=>
-    `<th data-i="${i}" class="${hm[i]?'hm ':''}${(state.sortCol??7)===i?'sorted':''}">${c}${(state.sortCol??7)===i?(state.dir<0?" ▼":" ▲"):""}</th>`).join("")}
+    `<th data-i="${i}" class="${hm[i]?'hm ':''}${(state.sortCol??8)===i?'sorted':''}">${c}${(state.sortCol??8)===i?(state.dir<0?" ▼":" ▲"):""}</th>`).join("")}
     </tr></thead><tbody>${rows.map(r=>`<tr data-p="${r.id}">
       <td>${r.nm}</td><td class="hm">${r.team}</td><td><span class="pos ${r.pos}">${r.pos}</span></td>
       <td class="hm">${r.gp}</td><td class="hm">${fmt(r.pts,1)}</td><td>${fmt(r.ppg)}</td>
-      <td class="${cls(r.waa)}">${fmt(r.waa,3)}</td><td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}
+      <td class="${cls(r.waa)}">${fmt(r.waa,3)}</td><td class="hm ${cls(r.waaG)}">${fmt(r.waaG,3)}</td>
+      <td class="${cls(r.war)}">${fmt(r.war,3)}</td><td class="hm ${cls(r.warG)}">${fmt(r.warG,3)}</td></tr>`).join("")}
     </tbody></table>`;
   $$("th").forEach(h=>h.onclick=()=>{const i=+h.dataset.i;
-    if((state.sortCol??7)===i)state.dir*=-1;else{state.sortCol=i;state.dir=i<3?1:-1}
+    if((state.sortCol??8)===i)state.dir*=-1;else{state.sortCol=i;state.dir=i<3?1:-1}
     renderPlayers()});
   $$("tbody tr").forEach(tr=>tr.onclick=()=>toggleWeekly(tr));
 }
@@ -157,11 +169,21 @@ async function toggleWeekly(tr){
   if(nxt&&nxt.classList.contains("wkbox")){nxt.remove();return}
   $$(".wkbox").forEach(x=>x.remove());
   if(!state.weekly)state.weekly=await j(`data/${state.season}/weekly.json`);
-  const wks=(state.weekly[tr.dataset.p]||[]).sort((a,b)=>a[0]-b[0]);
+  const pid=tr.dataset.p;
+  const wks=(state.weekly[pid]||[]).sort((a,b)=>a[0]-b[0]);
+  const[nm,pos]=pInfo(pid);
+  const owner=ownerOf()[pid];
   const box=document.createElement("tr");box.className="wkbox";
-  box.innerHTML=`<td colspan="8">${wks.length?wks.map(w=>
-    `W${w[0]}: <b style="color:#e6ebf2">${fmt(w[1],1)}</b> pts (${w[5]>=0?"+":""}${fmt(w[5],3)} WAR)`).join(" &nbsp;·&nbsp; ")
-    :"no weekly data"}</td>`;
+  const sgn=(v,d=3)=>(v>0?"+":"")+fmt(v,d);
+  box.innerHTML=`<td colspan="${tr.children.length}">
+    <div class="wkhead"><b>${nm}</b> <span class="pos ${pos}">${pos}</span>
+      &nbsp;·&nbsp; ${owner?`owned by <span class="own">${owner}</span>`:"free agent"}</div>
+    ${wks.length?`<div class="wkwrap"><table class="wktbl"><thead><tr>
+      <th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
+      <tbody>${wks.map(w=>`<tr><td>W${w[0]}</td><td><b>${fmt(w[1],1)}</b></td>
+        <td class="${cls(w[2])}">${sgn(w[2],1)}</td><td class="${cls(w[3])}">${sgn(w[3],1)}</td>
+        <td class="${cls(w[4])}">${sgn(w[4])}</td><td class="${cls(w[5])}">${sgn(w[5])}</td></tr>`).join("")}
+      </tbody></table></div>`:"no weekly data"}</td>`;
   tr.after(box);
 }
 
@@ -195,6 +217,40 @@ function renderTeamDetail(){
       <td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}</tbody></table></div>`;
   $(".back").onclick=()=>{state.openTeam=null;renderTeams()};
   $$("tbody tr").forEach(tr=>tr.onclick=()=>toggleWeekly(tr));
+}
+
+async function renderWeeklyView(){
+  if(!state.weekly){
+    $("#main").innerHTML='<div class="empty">Loading weekly data…</div>';
+    state.weekly=await j(`data/${state.season}/weekly.json`);
+  }
+  const byWeek={};
+  for(const[pid,rows]of Object.entries(state.weekly))
+    for(const[wk,pts,,,waa,war]of rows)
+      (byWeek[wk]??=[]).push({pid,pts,waa,war});
+  const wks=Object.keys(byWeek).map(Number).sort((a,b)=>a-b);
+  if(!wks.length){$("#main").innerHTML='<div class="empty">No scored weeks yet for this season.</div>';return}
+  const owners=ownerOf();
+  const line=e=>{const[nm,pos]=pInfo(e.pid);
+    return`${nm} <span class="pos ${pos}">${pos}</span> <span style="color:var(--dim)">${fmt(e.pts,1)} pts</span>`};
+  $("#main").innerHTML=`<table><thead><tr><th>Week</th><th style="text-align:left">Biggest WAR</th>
+    <th>WAR</th><th style="text-align:left" class="hm">Biggest WAA</th><th class="hm">WAA</th></tr></thead>
+    <tbody>${wks.map(w=>{const a=byWeek[w];
+      const topWar=a.reduce((m,e)=>e.war>m.war?e:m);
+      const topWaa=a.reduce((m,e)=>e.waa>m.waa?e:m);
+      return`<tr data-w="${w}"><td style="text-align:left">W${w}</td>
+        <td style="text-align:left">${line(topWar)}</td><td class="${cls(topWar.war)}">${fmt(topWar.war,3)}</td>
+        <td style="text-align:left" class="hm">${line(topWaa)}</td><td class="hm ${cls(topWaa.waa)}">${fmt(topWaa.waa,3)}</td></tr>`}).join("")}
+    </tbody></table>`;
+  $$("tbody tr").forEach(tr=>tr.onclick=()=>{
+    const nxt=tr.nextElementSibling;
+    if(nxt&&nxt.classList.contains("wkbox")){nxt.remove();return}
+    $$(".wkbox").forEach(x=>x.remove());
+    const top=byWeek[+tr.dataset.w].slice().sort((x,y)=>y.war-x.war).slice(0,10);
+    const box=document.createElement("tr");box.className="wkbox";
+    box.innerHTML=`<td colspan="${tr.children.length}">${top.map((e,i)=>{const[nm,pos]=pInfo(e.pid);
+      return`${i+1}. <b style="color:#e6ebf2">${nm}</b> (${pos}, ${owners[e.pid]||"FA"}) ${fmt(e.pts,1)} pts · ${fmt(e.war,3)} WAR · ${fmt(e.waa,3)} WAA`}).join("<br>")}</td>`;
+    tr.after(box)});
 }
 
 function renderAbout(){
