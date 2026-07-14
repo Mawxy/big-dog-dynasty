@@ -253,14 +253,32 @@ async function toggleWeekly(tr){
 function renderTeams(){
   if(state.openTeam!==null){return renderTeamDetail()}
   const bySum={};
-  state.summary.forEach(([i,, , , ,waa,war])=>bySum[i]=[waa,war]);
-  const cards=state.teams.slice().sort((a,b)=>b.wins-a.wins||b.fpts-a.fpts).map(t=>{
-    const war=t.players.reduce((s,p)=>s+(bySum[p]?.[1]||0),0);
-    return`<div class="card" data-r="${t.roster_id}"><h3>${t.team}</h3><div class="mgr">${t.manager}</div>
-      <div class="rec">${t.wins}-${t.losses}${t.ties?"-"+t.ties:""} · ${fmt(t.fpts,1)} pts<br>
-      roster WAR: <b>${fmt(war,2)}</b></div></div>`}).join("");
-  $("#main").innerHTML=`<div class="cards">${cards}</div>`;
-  $$(".card").forEach(c=>c.onclick=()=>{state.openTeam=+c.dataset.r;renderTeamDetail()});
+  state.summary.forEach(r=>bySum[r[0]]=r);
+  let rows=state.teams.map(t=>{
+    const waa=t.players.reduce((s,p)=>s+(bySum[p]?.[5]||0),0);
+    const war=t.players.reduce((s,p)=>s+(bySum[p]?.[6]||0),0);
+    const g=t.wins+t.losses+t.ties;
+    return{rid:t.roster_id,team:t.team,manager:t.manager,wins:t.wins,fpts:t.fpts,
+      rec:`${t.wins}-${t.losses}${t.ties?"-"+t.ties:""}`,ppg:g?t.fpts/g:0,waa,war}});
+  const seedOrder=rows.slice().sort((a,b)=>b.wins-a.wins||b.fpts-a.fpts);
+  rows.forEach(r=>r.seed=seedOrder.indexOf(r)+1);
+  const cols=["Seed","Team","Manager","Record","PPG","WAA","WAR"];
+  const keys=["seed","team","manager","wins","ppg","waa","war"];
+  const hm=[false,false,true,false,false,false,false];
+  const ci=state.tCol??0, dir=state.tDir??1, k=keys[ci];
+  rows.sort((a,b)=>typeof a[k]==="string"?a[k].localeCompare(b[k])*dir:(a[k]-b[k])*dir);
+  $("#main").innerHTML=`<table><thead><tr>${cols.map((c,i)=>
+    `<th data-i="${i}" class="${hm[i]?'hm ':''}${ci===i?'sorted':''}">${c}${ci===i?(dir<0?" ▼":" ▲"):""}</th>`).join("")}
+    </tr></thead><tbody>${rows.map(r=>`<tr data-r="${r.rid}">
+      <td>${r.seed}</td><td>${r.team}</td><td class="hm" style="text-align:left">${r.manager}</td>
+      <td>${r.rec}</td><td>${fmt(r.ppg,1)}</td>
+      <td class="${cls(r.waa)}">${fmt(r.waa,3)}</td><td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}
+    </tbody></table>`;
+  $$("th").forEach(h=>h.onclick=()=>{const i=+h.dataset.i;
+    if((state.tCol??0)===i)state.tDir=-(state.tDir??1);
+    else{state.tCol=i;state.tDir=i<=2?1:-1}
+    renderTeams()});
+  $$("tbody tr").forEach(tr=>tr.onclick=()=>{state.openTeam=+tr.dataset.r;renderTeamDetail()});
 }
 
 function renderTeamDetail(){
