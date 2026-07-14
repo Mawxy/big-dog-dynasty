@@ -47,6 +47,9 @@
   .wktbl td{padding:2px 14px 2px 0;font-size:12.5px;border:0;text-align:right;color:var(--txt)}
   .wktbl th:first-child,.wktbl td:first-child{text-align:left}
   .wktbl tbody tr:hover{background:transparent;cursor:default}
+  .wkflex{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+  .wkright{min-width:260px;max-width:360px;flex:1}
+  td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
   @media (max-width:640px){
     header{padding:14px 12px 0} header h1{font-size:18px}
     #updated{width:100%;margin-left:0}
@@ -124,18 +127,21 @@ const quart=(s,q)=>{const pos=(s.length-1)*q,b=Math.floor(pos),r=pos-b;
   return s[b]+(s[b+1]!==undefined?r*(s[b+1]-s[b]):0)};
 function boxplot(vals){
   if(vals.length<4)return"";
-  const s=[...vals].sort((a,b)=>a-b);
-  const mn=s[0],q1=quart(s,.25),md=quart(s,.5),q3=quart(s,.75),mx=s[s.length-1];
-  const L=14,R=326,x=v=>L+(v-mn)/((mx-mn)||1)*(R-L),y=14,h=20,c="#8b96a5";
-  const lab=(v,px)=>`<text x="${px}" y="${y+h+15}" font-size="9" fill="${c}" text-anchor="middle">${v.toFixed(1)}</text>`;
-  return`<svg width="340" height="62" style="display:block;margin:4px 0">
+  const v=[...vals].sort((a,b)=>a-b);
+  const mn=v[0],q1=quart(v,.25),md=quart(v,.5),q3=quart(v,.75),mx=v[v.length-1];
+  const L=16,R=324,x=t=>L+(t-mn)/((mx-mn)||1)*(R-L),y=16,h=20,c="#8b96a5";
+  // median label on top; q1/q3 and min/max on two staggered rows below, smaller font
+  const lab=(t,px,py,col=c)=>`<text x="${px}" y="${py}" font-size="8.5" fill="${col}" text-anchor="middle">${t.toFixed(1)}</text>`;
+  return`<svg width="340" height="74" style="display:block;margin:4px 0">
     <line x1="${x(mn)}" x2="${x(q1)}" y1="${y+h/2}" y2="${y+h/2}" stroke="${c}"/>
     <line x1="${x(q3)}" x2="${x(mx)}" y1="${y+h/2}" y2="${y+h/2}" stroke="${c}"/>
     <line x1="${x(mn)}" x2="${x(mn)}" y1="${y+4}" y2="${y+h-4}" stroke="${c}"/>
     <line x1="${x(mx)}" x2="${x(mx)}" y1="${y+4}" y2="${y+h-4}" stroke="${c}"/>
     <rect x="${x(q1)}" y="${y}" width="${Math.max(1,x(q3)-x(q1))}" height="${h}" fill="#1e6fd933" stroke="#1e6fd9"/>
     <line x1="${x(md)}" x2="${x(md)}" y1="${y}" y2="${y+h}" stroke="var(--acc)" stroke-width="2"/>
-    ${lab(mn,x(mn))}${lab(q1,x(q1))}${lab(md,x(md))}${lab(q3,x(q3))}${lab(mx,x(mx))}</svg>`;
+    ${lab(md,x(md),y-5,"var(--acc)")}
+    ${lab(q1,x(q1),y+h+12)}${lab(q3,x(q3),y+h+12)}
+    ${lab(mn,x(mn),y+h+23)}${lab(mx,x(mx),y+h+23)}</svg>`;
 }
 const cls=n=>n>0.0005?"num good":n<-0.0005?"num bad":"num";
 const j=async p=>{const r=await fetch(p+"?v="+(state.meta?state.meta.updated:Math.random()));
@@ -181,28 +187,28 @@ function render(){
 function renderPlayers(){
   if(!state.summary.length){$("#main").innerHTML='<div class="empty">No scored weeks yet for this season — check back after week 1.</div>';return}
   const owners=ownerOf();
-  let rows=state.summary.map(r=>{const[i,pos,gp,pts,ppg,waa,war]=r;const[nm]=pInfo(i);
-    return{id:i,nm,pos,team:owners[i]||"—",gp,pts,ppg,waa,war,
+  let rows=state.summary.map(r=>{const[i,pos,gp,pts,ppg,waa,war,sdv]=r;const[nm]=pInfo(i);
+    return{id:i,nm,pos,team:owners[i]||"—",gp,pts,ppg,sdv:sdv||0,waa,war,
            waaG:gp?waa/gp:0,warG:gp?war/gp:0}});
   if(state.minGp)rows=rows.filter(r=>r.gp>=state.minGp);
   if(state.pos!=="ALL")rows=rows.filter(r=>r.pos===state.pos);
   if(state.q)rows=rows.filter(r=>r.nm.toLowerCase().includes(state.q));
   if(!rows.length){$("#main").innerHTML='<div class="empty">No players match — try lowering the min-GP filter (early in a season, few players have '+state.minGp+'+ games).</div>';return}
-  const cols=["Player","Roster","Pos","GP","Pts","PPG","WAA","WAA/G","WAR","WAR/G"];
-  const hm=[false,true,false,true,true,false,false,true,false,true];
-  const keys=["nm","team","pos","gp","pts","ppg","waa","waaG","war","warG"];
-  const k=keys[state.sortCol??8]??"war";
+  const cols=["Player","Roster","Pos","GP","Pts","PPG","σ","WAA","WAA/G","WAR","WAR/G"];
+  const hm=[false,true,false,true,true,false,false,false,true,false,true];
+  const keys=["nm","team","pos","gp","pts","ppg","sdv","waa","waaG","war","warG"];
+  const k=keys[state.sortCol??9]??"war";
   rows.sort((a,b)=>typeof a[k]==="string"?a[k].localeCompare(b[k])*state.dir:(a[k]-b[k])*state.dir);
   $("#main").innerHTML=`<table><thead><tr>${cols.map((c,i)=>
-    `<th data-i="${i}" class="${hm[i]?'hm ':''}${(state.sortCol??8)===i?'sorted':''}">${c}${(state.sortCol??8)===i?(state.dir<0?" ▼":" ▲"):""}</th>`).join("")}
+    `<th data-i="${i}" class="${hm[i]?'hm ':''}${(state.sortCol??9)===i?'sorted':''}">${c}${(state.sortCol??9)===i?(state.dir<0?" ▼":" ▲"):""}</th>`).join("")}
     </tr></thead><tbody>${rows.map(r=>`<tr data-p="${r.id}">
-      <td>${r.nm}</td><td class="hm">${r.team}</td><td><span class="pos ${r.pos}">${r.pos}</span></td>
-      <td class="hm">${r.gp}</td><td class="hm">${fmt(r.pts,1)}</td><td>${fmt(r.ppg)}</td>
+      <td>${r.nm}</td><td class="hm roster" title="${r.team}">${r.team}</td><td><span class="pos ${r.pos}">${r.pos}</span></td>
+      <td class="hm">${r.gp}</td><td class="hm">${fmt(r.pts,1)}</td><td>${fmt(r.ppg)}</td><td>${fmt(r.sdv,1)}</td>
       <td class="${cls(r.waa)}">${fmt(r.waa,3)}</td><td class="hm ${cls(r.waaG)}">${fmt(r.waaG,3)}</td>
       <td class="${cls(r.war)}">${fmt(r.war,3)}</td><td class="hm ${cls(r.warG)}">${fmt(r.warG,3)}</td></tr>`).join("")}
     </tbody></table>`;
   $$("th").forEach(h=>h.onclick=()=>{const i=+h.dataset.i;
-    if((state.sortCol??8)===i)state.dir*=-1;else{state.sortCol=i;state.dir=i<3?1:-1}
+    if((state.sortCol??9)===i)state.dir*=-1;else{state.sortCol=i;state.dir=i<3?1:-1}
     renderPlayers()});
   $$("tbody tr").forEach(tr=>tr.onclick=()=>toggleWeekly(tr));
 }
@@ -220,22 +226,27 @@ async function toggleWeekly(tr){
   const box=document.createElement("tr");box.className="wkbox";
   const sgn=(v,d=3)=>(v>0?"+":"")+fmt(v,d);
   const ptsArr=wks.map(w=>w[1]);
-  const mean=ptsArr.length?ptsArr.reduce((a,b)=>a+b,0)/ptsArr.length:0;
+  const mean=ptsArr.length?ptsArr.reduce((x,y)=>x+y,0)/ptsArr.length:0;
   const hist=(state.own[pid]||[]);
-  box.innerHTML=`<td colspan="${tr.children.length}">
-    <div class="wkhead"><b>${nm}</b> <span class="pos ${pos}">${pos}</span>
-      &nbsp;·&nbsp; ${owner?`owned by <span class="own">${owner}</span>`:"free agent"}
-      ${ptsArr.length?`&nbsp;·&nbsp; ${ptsArr.length} games, ${fmt(mean,1)} ppg, σ ${fmt(sd(ptsArr),1)}`:""}</div>
-    ${boxplot(ptsArr)}
-    ${hist.length?`<div style="margin:4px 0 8px;font-size:12.5px;color:var(--dim)">
-      <b style="color:var(--txt)">Ownership history:</b><br>${hist.map(h=>
-      `${h[0]}${h[1]?` W${h[1]}`:""} — ${h[2]}`).join("<br>")}</div>`:""}
-    ${wks.length?`<div class="wkwrap"><table class="wktbl"><thead><tr>
+  const tbl=wks.length?`<div class="wkwrap"><table class="wktbl"><thead><tr>
       <th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
       <tbody>${wks.map(w=>`<tr><td>W${w[0]}</td><td><b>${fmt(w[1],1)}</b></td>
         <td class="${cls(w[2])}">${sgn(w[2],1)}</td><td class="${cls(w[3])}">${sgn(w[3],1)}</td>
         <td class="${cls(w[4])}">${sgn(w[4])}</td><td class="${cls(w[5])}">${sgn(w[5])}</td></tr>`).join("")}
-      </tbody></table></div>`:"no weekly data"}</td>`;
+      </tbody></table></div>`:`<div style="color:var(--dim)">no weekly data</div>`;
+  box.innerHTML=`<td colspan="${tr.children.length}">
+    <div class="wkhead"><b>${nm}</b> <span class="pos ${pos}">${pos}</span>
+      &nbsp;·&nbsp; ${owner?`owned by <span class="own">${owner}</span>`:"free agent"}
+      ${ptsArr.length?`&nbsp;·&nbsp; ${ptsArr.length} games, ${fmt(mean,1)} ppg, σ ${fmt(sd(ptsArr),1)}`:""}</div>
+    <div class="wkflex">
+      <div>${tbl}</div>
+      <div class="wkright">
+        ${ptsArr.length>=4?`<div style="color:var(--txt);font-size:12.5px"><b>Weekly points spread</b></div>${boxplot(ptsArr)}`:""}
+        ${hist.length?`<div style="margin-top:8px;font-size:12.5px;color:var(--dim)">
+          <b style="color:var(--txt)">Ownership history</b><br>${hist.map(h=>
+          `${h[0]}${h[1]?` W${h[1]}`:""} — ${h[2]}`).join("<br>")}</div>`:""}
+      </div>
+    </div></td>`;
   tr.after(box);
 }
 
