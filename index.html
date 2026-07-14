@@ -73,7 +73,6 @@
   <button data-v="players" class="on">Players</button>
   <button data-v="teams">Teams</button>
   <button data-v="weekly">Weekly</button>
-  <button data-v="about">Methodology</button>
   <select id="season" style="margin-left:auto"></select>
 </nav>
 <div class="bar" id="playerBar">
@@ -88,11 +87,56 @@
       border:1px solid var(--line);color:var(--txt);padding:6px 8px;border-radius:8px"></label>
 </div>
 <main id="main"><div class="empty">Loading…</div></main>
+<footer style="max-width:1150px;margin:0 auto;padding:10px 24px 50px;color:var(--dim)">
+<details>
+<summary style="cursor:pointer;color:var(--acc);font-size:14px">Methodology — how WAR &amp; WAA are computed</summary>
+<div class="about" style="margin-top:12px">
+  <h2>What is WAR / WAA?</h2>
+  <p><b>WAR</b> (wins above replacement) and <b>WAA</b> (wins above average) estimate how many
+  head-to-head wins a player added over a season, using this league's exact scoring and lineup rules.</p>
+  <h2>The startable pool</h2>
+  <p>Each week, all scored players fill the league's 108 lineup slots by actual points:
+  12 QB, 24 RB, 36 WR, 12 TE, then the best remaining players take the 12 SUPER_FLEX (QB/RB/WR/TE)
+  and 12 FLEX (RB/WR/TE) spots. Whether WR40 beats out RB26 for a flex is decided by the scoreboard.</p>
+  <h2>Baselines</h2>
+  <p><b>Average</b> = mean score of startable players at the position that week.
+  <b>Replacement</b> = the best player at the position left out of the pool entirely (the next man up).</p>
+  <h2>Points → wins</h2>
+  <p>A player's weekly margin over baseline is converted to a win-probability shift using that week's
+  actual spread of team scores: Φ(margin / (σ<sub>week</sub>·√2)) − 0.5. Big games in low-scoring
+  weeks are worth more wins than the same line in a shootout. Weekly shifts are summed over the regular season.</p>
+  <p>Byes and missed games contribute zero — players aren't penalized for weeks they didn't play,
+  but they can't accumulate value either. Availability is part of the stat.</p>
+  <h2>Reading the numbers</h2>
+  <p>WAA ≈ 0 means "average starter." Negative WAA just means below the average <i>starter</i> —
+  half the startable pool lands there by definition. In a 14-week season, +2 WAR is a superstar season.</p>
+</div>
+</details>
+</footer>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
 const state={view:"players",season:null,pos:"ALL",q:"",minGp:0,sort:6,dir:-1,
-             meta:null,players:{},summary:[],teams:[],weekly:null,openTeam:null};
+             meta:null,players:{},summary:[],teams:[],weekly:null,own:null,openTeam:null};
 const fmt=(n,d=2)=>n.toFixed(d);
+const sd=a=>{if(a.length<2)return 0;const m=a.reduce((x,y)=>x+y,0)/a.length;
+  return Math.sqrt(a.reduce((s,v)=>s+(v-m)**2,0)/(a.length-1))};
+const quart=(s,q)=>{const pos=(s.length-1)*q,b=Math.floor(pos),r=pos-b;
+  return s[b]+(s[b+1]!==undefined?r*(s[b+1]-s[b]):0)};
+function boxplot(vals){
+  if(vals.length<4)return"";
+  const s=[...vals].sort((a,b)=>a-b);
+  const mn=s[0],q1=quart(s,.25),md=quart(s,.5),q3=quart(s,.75),mx=s[s.length-1];
+  const L=14,R=326,x=v=>L+(v-mn)/((mx-mn)||1)*(R-L),y=14,h=20,c="#8b96a5";
+  const lab=(v,px)=>`<text x="${px}" y="${y+h+15}" font-size="9" fill="${c}" text-anchor="middle">${v.toFixed(1)}</text>`;
+  return`<svg width="340" height="62" style="display:block;margin:4px 0">
+    <line x1="${x(mn)}" x2="${x(q1)}" y1="${y+h/2}" y2="${y+h/2}" stroke="${c}"/>
+    <line x1="${x(q3)}" x2="${x(mx)}" y1="${y+h/2}" y2="${y+h/2}" stroke="${c}"/>
+    <line x1="${x(mn)}" x2="${x(mn)}" y1="${y+4}" y2="${y+h-4}" stroke="${c}"/>
+    <line x1="${x(mx)}" x2="${x(mx)}" y1="${y+4}" y2="${y+h-4}" stroke="${c}"/>
+    <rect x="${x(q1)}" y="${y}" width="${Math.max(1,x(q3)-x(q1))}" height="${h}" fill="#1e6fd933" stroke="#1e6fd9"/>
+    <line x1="${x(md)}" x2="${x(md)}" y1="${y}" y2="${y+h}" stroke="var(--acc)" stroke-width="2"/>
+    ${lab(mn,x(mn))}${lab(q1,x(q1))}${lab(md,x(md))}${lab(q3,x(q3))}${lab(mx,x(mx))}</svg>`;
+}
 const cls=n=>n>0.0005?"num good":n<-0.0005?"num bad":"num";
 const j=async p=>{const r=await fetch(p+"?v="+(state.meta?state.meta.updated:Math.random()));
                   if(!r.ok)throw new Error(p);return r.json()};
@@ -132,7 +176,6 @@ function render(){
   if(state.view==="players")renderPlayers();
   else if(state.view==="teams")renderTeams();
   else if(state.view==="weekly")renderWeeklyView();
-  else renderAbout();
 }
 
 function renderPlayers(){
@@ -169,15 +212,24 @@ async function toggleWeekly(tr){
   if(nxt&&nxt.classList.contains("wkbox")){nxt.remove();return}
   $$(".wkbox").forEach(x=>x.remove());
   if(!state.weekly)state.weekly=await j(`data/${state.season}/weekly.json`);
+  if(!state.own)state.own=await j("data/ownership.json").catch(()=>({}));
   const pid=tr.dataset.p;
   const wks=(state.weekly[pid]||[]).sort((a,b)=>a[0]-b[0]);
   const[nm,pos]=pInfo(pid);
   const owner=ownerOf()[pid];
   const box=document.createElement("tr");box.className="wkbox";
   const sgn=(v,d=3)=>(v>0?"+":"")+fmt(v,d);
+  const ptsArr=wks.map(w=>w[1]);
+  const mean=ptsArr.length?ptsArr.reduce((a,b)=>a+b,0)/ptsArr.length:0;
+  const hist=(state.own[pid]||[]);
   box.innerHTML=`<td colspan="${tr.children.length}">
     <div class="wkhead"><b>${nm}</b> <span class="pos ${pos}">${pos}</span>
-      &nbsp;·&nbsp; ${owner?`owned by <span class="own">${owner}</span>`:"free agent"}</div>
+      &nbsp;·&nbsp; ${owner?`owned by <span class="own">${owner}</span>`:"free agent"}
+      ${ptsArr.length?`&nbsp;·&nbsp; ${ptsArr.length} games, ${fmt(mean,1)} ppg, σ ${fmt(sd(ptsArr),1)}`:""}</div>
+    ${boxplot(ptsArr)}
+    ${hist.length?`<div style="margin:4px 0 8px;font-size:12.5px;color:var(--dim)">
+      <b style="color:var(--txt)">Ownership history:</b><br>${hist.map(h=>
+      `${h[0]}${h[1]?` W${h[1]}`:""} — ${h[2]}`).join("<br>")}</div>`:""}
     ${wks.length?`<div class="wkwrap"><table class="wktbl"><thead><tr>
       <th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
       <tbody>${wks.map(w=>`<tr><td>W${w[0]}</td><td><b>${fmt(w[1],1)}</b></td>
@@ -253,29 +305,6 @@ async function renderWeeklyView(){
     tr.after(box)});
 }
 
-function renderAbout(){
-  $("#main").innerHTML=`<div class="about">
-  <h2>What is WAR / WAA?</h2>
-  <p><b>WAR</b> (wins above replacement) and <b>WAA</b> (wins above average) estimate how many
-  head-to-head wins a player added over a season, using this league's exact scoring and lineup rules.</p>
-  <h2>The startable pool</h2>
-  <p>Each week, all scored players fill the league's 108 lineup slots by actual points:
-  12 QB, 24 RB, 36 WR, 12 TE, then the best remaining players take the 12 SUPER_FLEX (QB/RB/WR/TE)
-  and 12 FLEX (RB/WR/TE) spots. Whether WR40 beats out RB26 for a flex is decided by the scoreboard.</p>
-  <h2>Baselines</h2>
-  <p><b>Average</b> = mean score of startable players at the position that week.
-  <b>Replacement</b> = the best player at the position left out of the pool entirely (the next man up).</p>
-  <h2>Points → wins</h2>
-  <p>A player's weekly margin over baseline is converted to a win-probability shift using that week's
-  actual spread of team scores: Φ(margin / (σ<sub>week</sub>·√2)) − 0.5. Big games in low-scoring
-  weeks are worth more wins than the same line in a shootout. Weekly shifts are summed over the regular season.</p>
-  <p>Byes and missed games contribute zero — players aren't penalized for weeks they didn't play,
-  but they can't accumulate value either. Availability is part of the stat.</p>
-  <h2>Reading the numbers</h2>
-  <p>WAA ≈ 0 means "average starter." Negative WAA just means below the average <i>starter</i> —
-  half the startable pool lands there by definition. In a 14-week season, +2 WAR is a superstar season.</p>
-  </div>`;
-}
 boot().catch(e=>{$("#main").innerHTML=`<div class="empty">Failed to load data: ${e.message}</div>`});
 </script>
 </body>
