@@ -12,7 +12,7 @@ Outputs:
   data/<season>/teams.json      fantasy teams: manager, record, roster
   data/<season>/weekly.json     player_id -> [[week, pts, pAA, pAR, WAA, WAR], ...]
 """
-import argparse, csv, json, time
+import argparse, csv, json, statistics, time
 from pathlib import Path
 
 def load(p):
@@ -69,8 +69,6 @@ def main():
                     summary.append([row["player_id"], row["pos"], int(row["gp"]),
                                     float(row["pts"]), float(row["ppg"]),
                                     float(row["WAA"]), float(row["WAR"])])
-        (sout / "summary.json").write_text(json.dumps(summary))
-
         wcsv = root / "analysis" / f"weekly_detail_{season}.csv"
         weekly = {}
         if wcsv.exists():
@@ -81,6 +79,10 @@ def main():
                          float(row["pts_above_avg"]), float(row["pts_above_repl"]),
                          float(row["WAA_week"]), float(row["WAR_week"])])
         (sout / "weekly.json").write_text(json.dumps(weekly))
+        for row in summary:                      # append point st-dev per player
+            v = [w[1] for w in weekly.get(row[0], [])]
+            row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)
+        (sout / "summary.json").write_text(json.dumps(summary))
 
         # --- ownership history: drafts + transactions ---
         tname = {t["roster_id"]: t["team"] for t in teams}
