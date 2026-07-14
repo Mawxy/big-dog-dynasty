@@ -37,7 +37,19 @@
   .card .rec{margin-top:8px;font-size:14px} .card .rec b{color:var(--acc)}
   #teamDetail h2{margin:18px 0 4px} #teamDetail .mgr{color:var(--dim);margin-bottom:12px}
   .back{color:var(--acc);cursor:pointer;font-size:14px;display:inline-block;margin:10px 0}
-  .wkbox td{background:#11151c;font-size:13px;color:var(--dim)}
+  .wkbox td{background:#11151c;font-size:13px;color:var(--dim);white-space:normal;line-height:2}
+  thead th{position:sticky;top:0;background:var(--card);z-index:1}
+  @media (max-width:640px){
+    header{padding:14px 12px 0} header h1{font-size:18px}
+    #updated{width:100%;margin-left:0}
+    nav{padding:10px 12px} nav button{padding:7px 11px}
+    .bar{padding:0 12px 10px} input[type=search]{flex:1;min-width:110px}
+    main{padding:0 8px 40px}
+    th,td{padding:7px 8px;font-size:13px}
+    .hm{display:none}
+    .cards{grid-template-columns:1fr 1fr}
+    .card{padding:11px} .card h3{font-size:14px} .card .rec{font-size:12px}
+  }
   .about{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px;max-width:800px}
   .about h2{margin:14px 0 6px;font-size:17px;color:var(--acc)} .about p{margin-bottom:8px;color:#c6cdd7}
   .empty{color:var(--dim);padding:30px;text-align:center}
@@ -113,14 +125,15 @@ function renderPlayers(){
   if(state.pos!=="ALL")rows=rows.filter(r=>r.pos===state.pos);
   if(state.q)rows=rows.filter(r=>r.nm.toLowerCase().includes(state.q));
   const cols=["Player","Roster","Pos","GP","Pts","PPG","WAA","WAR"];
+  const hm=[false,true,false,true,true,false,false,false];
   const keys=["nm","team","pos","gp","pts","ppg","waa","war"];
   const k=keys[state.sortCol??7]??"war";
   rows.sort((a,b)=>typeof a[k]==="string"?a[k].localeCompare(b[k])*state.dir:(a[k]-b[k])*state.dir);
   $("#main").innerHTML=`<table><thead><tr>${cols.map((c,i)=>
-    `<th data-i="${i}" class="${(state.sortCol??7)===i?'sorted':''}">${c}${(state.sortCol??7)===i?(state.dir<0?" ▼":" ▲"):""}</th>`).join("")}
+    `<th data-i="${i}" class="${hm[i]?'hm ':''}${(state.sortCol??7)===i?'sorted':''}">${c}${(state.sortCol??7)===i?(state.dir<0?" ▼":" ▲"):""}</th>`).join("")}
     </tr></thead><tbody>${rows.map(r=>`<tr data-p="${r.id}">
-      <td>${r.nm}</td><td>${r.team}</td><td><span class="pos ${r.pos}">${r.pos}</span></td>
-      <td>${r.gp}</td><td>${fmt(r.pts,1)}</td><td>${fmt(r.ppg)}</td>
+      <td>${r.nm}</td><td class="hm">${r.team}</td><td><span class="pos ${r.pos}">${r.pos}</span></td>
+      <td class="hm">${r.gp}</td><td class="hm">${fmt(r.pts,1)}</td><td>${fmt(r.ppg)}</td>
       <td class="${cls(r.waa)}">${fmt(r.waa,3)}</td><td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}
     </tbody></table>`;
   $$("th").forEach(h=>h.onclick=()=>{const i=+h.dataset.i;
@@ -165,9 +178,9 @@ function renderTeamDetail(){
     .sort((a,b)=>b.war-a.war);
   $("#main").innerHTML=`<span class="back">← all teams</span><div id="teamDetail">
     <h2>${t.team}</h2><div class="mgr">${t.manager} · ${t.wins}-${t.losses}${t.ties?"-"+t.ties:""} · ${fmt(t.fpts,1)} pts</div>
-    <table><thead><tr><th>Player</th><th></th><th>Pos</th><th>GP</th><th>Pts</th><th>PPG</th><th>WAA</th><th>WAR</th></tr></thead>
-    <tbody>${rows.map(r=>`<tr data-p="${r.id}"><td>${r.nm}</td><td></td>
-      <td><span class="pos ${r.pos}">${r.pos}</span></td><td>${r.gp}</td><td>${fmt(r.pts,1)}</td>
+    <table><thead><tr><th>Player</th><th>Pos</th><th class="hm">GP</th><th class="hm">Pts</th><th>PPG</th><th>WAA</th><th>WAR</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr data-p="${r.id}"><td>${r.nm}</td>
+      <td><span class="pos ${r.pos}">${r.pos}</span></td><td class="hm">${r.gp}</td><td class="hm">${fmt(r.pts,1)}</td>
       <td>${fmt(r.ppg)}</td><td class="${cls(r.waa)}">${fmt(r.waa,3)}</td>
       <td class="${cls(r.war)}">${fmt(r.war,3)}</td></tr>`).join("")}</tbody></table></div>`;
   $(".back").onclick=()=>{state.openTeam=null;renderTeams()};
