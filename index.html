@@ -74,11 +74,14 @@
   <span class="chip" data-pos="WR">WR</span>
   <span class="chip" data-pos="TE">TE</span>
   <input type="search" id="search" placeholder="Search player…">
+  <label style="color:var(--dim);font-size:13px;display:flex;align-items:center;gap:6px">min GP
+    <input type="number" id="minGp" value="0" min="0" max="18" style="width:60px;background:var(--card);
+      border:1px solid var(--line);color:var(--txt);padding:6px 8px;border-radius:8px"></label>
 </div>
 <main id="main"><div class="empty">Loading…</div></main>
 <script>
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-const state={view:"players",season:null,pos:"ALL",q:"",sort:6,dir:-1,
+const state={view:"players",season:null,pos:"ALL",q:"",minGp:0,sort:6,dir:-1,
              meta:null,players:{},summary:[],teams:[],weekly:null,openTeam:null};
 const fmt=(n,d=2)=>n.toFixed(d);
 const cls=n=>n>0.0005?"num good":n<-0.0005?"num bad":"num";
@@ -99,12 +102,17 @@ async function boot(){
   $$("#playerBar .chip").forEach(c=>c.onclick=()=>{ $$("#playerBar .chip").forEach(x=>x.classList.remove("on"));
     c.classList.add("on");state.pos=c.dataset.pos;render()});
   $("#search").oninput=e=>{state.q=e.target.value.toLowerCase();render()};
+  $("#minGp").oninput=e=>{state.minGp=Math.max(0,+e.target.value||0);render()};
   await loadSeason();
 }
 async function loadSeason(){
   state.weekly=null;
   [state.summary,state.teams]=await Promise.all([
     j(`data/${state.season}/summary.json`), j(`data/${state.season}/teams.json`)]);
+  // default min-GP = 45% of the most games anyone has played this season
+  const maxGp=state.summary.reduce((m,r)=>Math.max(m,r[2]),0);
+  state.minGp=Math.round(maxGp*0.45);
+  $("#minGp").value=state.minGp;
   render();
 }
 function pInfo(pid){return state.players[pid]||["#"+pid,"?",""]}
@@ -122,8 +130,10 @@ function renderPlayers(){
   const owners=ownerOf();
   let rows=state.summary.map(r=>{const[i,pos,gp,pts,ppg,waa,war]=r;const[nm]=pInfo(i);
     return{id:i,nm,pos,team:owners[i]||"—",gp,pts,ppg,waa,war}});
+  if(state.minGp)rows=rows.filter(r=>r.gp>=state.minGp);
   if(state.pos!=="ALL")rows=rows.filter(r=>r.pos===state.pos);
   if(state.q)rows=rows.filter(r=>r.nm.toLowerCase().includes(state.q));
+  if(!rows.length){$("#main").innerHTML='<div class="empty">No players match — try lowering the min-GP filter (early in a season, few players have '+state.minGp+'+ games).</div>';return}
   const cols=["Player","Roster","Pos","GP","Pts","PPG","WAA","WAR"];
   const hm=[false,true,false,true,true,false,false,false];
   const keys=["nm","team","pos","gp","pts","ppg","waa","war"];
