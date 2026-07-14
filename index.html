@@ -194,7 +194,7 @@ function renderPlayers(){
   if(state.pos!=="ALL")rows=rows.filter(r=>r.pos===state.pos);
   if(state.q)rows=rows.filter(r=>r.nm.toLowerCase().includes(state.q));
   if(!rows.length){$("#main").innerHTML='<div class="empty">No players match — try lowering the min-GP filter (early in a season, few players have '+state.minGp+'+ games).</div>';return}
-  const cols=["Player","Roster","Pos","GP","Pts","PPG","σ","WAA","WAA/G","WAR","WAR/G"];
+  const cols=["Player","Roster","Pos","GP","Pts","PPG","<span style=\"text-transform:none\">σ</span>","WAA","WAA/G","WAR","WAR/G"];
   const hm=[false,true,false,true,true,false,false,false,true,false,true];
   const keys=["nm","team","pos","gp","pts","ppg","sdv","waa","waaG","war","warG"];
   const k=keys[state.sortCol??9]??"war";
