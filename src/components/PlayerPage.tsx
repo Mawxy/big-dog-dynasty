@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Absences, Meta, Ownership, PlayersMin, SummaryRow, Team, Weekly, WeeklyRow } from "../lib/types";
+import type { Absences, Meta, Ownership, PlayersMin, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
@@ -19,6 +19,7 @@ interface Props { pid: string; players: PlayersMin; meta: Meta; back: () => void
 export default function PlayerPage({ pid, players, meta, back }: Props) {
   const [blocks, setBlocks] = useState<SeasonBlock[] | null>(null);
   const [own, setOwn] = useState<Ownership>({});
+  const [vals, setVals] = useState<Values | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -32,6 +33,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         Promise.all(seasons.map(s => j<Absences>(`data/${s}/absence.json`).catch(() => ({} as Absences)))),
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
+      j<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
       if (!live) return;
       const bl = seasons.map((s, i): SeasonBlock => {
         const t = teams[i].find(x => x.players.includes(pid));
@@ -72,6 +74,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
             {" · career WAR "}<span className={clsOf(war)}>{fmt(war, 3)}</span></>}
         </div>
       </div>
+      <MarketValue vals={vals} pid={pid} />
       <div className="wkflex" style={{ marginBottom: 24 }}>
         <div>
           <table style={{ width: "auto" }}>
@@ -166,5 +169,25 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         })}
       </div>
     </>
+  );
+}
+
+function MarketValue({ vals, pid }: { vals: Values | null; pid: string }) {
+  const v = vals?.players[pid];
+  if (!v || (!v.ktc && !v.fc)) return null;
+  const num = (n: number) => n.toLocaleString("en-US");
+  return (
+    <div style={{ color: "var(--dim)", fontSize: 13, margin: "-6px 0 16px" }}>
+      Market value:
+      {v.ktc != null && <> <b style={{ color: "var(--txt)" }}>KeepTradeCut {num(v.ktc)}</b></>}
+      {v.ktc != null && v.fc != null && " · "}
+      {v.fc != null && <>
+        <b style={{ color: "var(--txt)" }}>FantasyCalc {num(v.fc)}</b>
+        {v.fcRank != null && <> (#{v.fcRank} overall{v.fcTrend != null && v.fcTrend !== 0 && <>
+          , <span className={v.fcTrend > 0 ? "num good" : "num bad"}>
+            {v.fcTrend > 0 ? "▲" : "▼"}{num(Math.abs(v.fcTrend))}</span> 30-day</>})</>}
+      </>}
+      {vals?.fetched && <span> — as of {vals.fetched}</span>}
+    </div>
   );
 }

@@ -21,6 +21,8 @@ jobs:
         run: python scripts/sleeper_war.py --data sleeper_data
       - name: Build site JSON
         run: python scripts/build_site_data.py --data sleeper_data --out data
+      - name: Fetch market values (FantasyCalc + KeepTradeCut)
+        run: python scripts/fetch_values.py --players sleeper_data/players.json --out data/values.json
       - name: Commit updated data
         run: |
           git config user.name "big-dog-bot"
