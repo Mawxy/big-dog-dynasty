@@ -64,10 +64,12 @@ function Shell() {
             {v[0].toUpperCase() + v.slice(1)}
           </button>
         ))}
-        <select style={{ marginLeft: "auto" }} value={curSeasonSeg} onChange={e => nav(`/${curView}/${e.target.value}`)}>
-          {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
-          <option value="all">All-time</option>
-        </select>
+        {parts[1] !== "player" && (
+          <select style={{ marginLeft: "auto" }} value={curSeasonSeg} onChange={e => nav(`/${curView}/${e.target.value}`)}>
+            {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
+            <option value="all">All-time</option>
+          </select>
+        )}
       </nav>
       <main>
         <Routes>

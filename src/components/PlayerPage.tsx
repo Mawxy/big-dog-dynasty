@@ -5,6 +5,8 @@ import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import PosBadge from "./PosBadge";
 import BoxPlot from "./BoxPlot";
+import VBoxPlot from "./VBoxPlot";
+import WarTrend from "./WarTrend";
 import OwnershipHistory from "./OwnershipHistory";
 
 interface SeasonBlock {
@@ -56,6 +58,10 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   const waa = blocks.reduce((s, b) => s + (b.sum?.[5] || 0), 0);
   const war = blocks.reduce((s, b) => s + (b.sum?.[6] || 0), 0);
   const owner = blocks.find(b => b.team)?.team;
+  const vDomain: [number, number] = allPts.length
+    ? [Math.min(0, ...allPts), Math.max(...allPts)] : [0, 1];
+  const trend = blocks.slice().reverse().filter(b => b.sum)
+    .map(b => ({ season: b.season, WAR: b.sum![6], WAA: b.sum![5] }));
 
   return (
     <>
@@ -99,6 +105,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
           <OwnershipHistory events={own[pid] || []} />
         </div>
       </div>
+      <WarTrend data={trend} />
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "8px 0 12px" }}>
         <h3 style={{ margin: 0 }}>Season detail</h3>
         <span className="tlink" style={{ fontSize: 12 }} onClick={() => setCollapsed(new Set())}>expand all</span>
@@ -126,7 +133,8 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
                 {b.weeks.length} games · {fmt(mean(wpts), 1)} ppg · σ {fmt(sd(wpts), 1)}
                 {b.sum && <> · WAR <span className={clsOf(b.sum[6])}>{fmt(b.sum[6], 3)}</span></>}
               </div>
-              {!closed && <div className="wkwrap">
+              {!closed && <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
+                <div className="wkwrap">
                 <table className="wktbl">
                   <thead><tr><th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
                   <tbody>
@@ -154,6 +162,8 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
                       })}
                   </tbody>
                 </table>
+                </div>
+                <VBoxPlot values={wpts} domain={vDomain} />
               </div>}
             </div>
           );
