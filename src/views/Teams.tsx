@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import type { Matchups, MatchEntry, PlayersMin, SeasonData, Team, Weekly } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo, weekIndex } from "../lib/league";
 import PosBadge from "../components/PosBadge";
-import PlayerPanel from "../components/PlayerPanel";
+import { OpenPlayerContext, PlayerLink } from "../components/PlayerLink";
 
 type WkIdx = Record<string, Record<number, [number, number]>>;
 interface Row {
@@ -95,7 +95,7 @@ export default function Teams({ data, season, players }: Props) {
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
   if (detailRid !== null) {
     const t = data.teams.find(x => x.roster_id === detailRid)!;
-    return <TeamDetail t={t} data={data} season={season} players={players} back={() => setDetailRid(null)} />;
+    return <TeamDetail t={t} data={data} players={players} back={() => setDetailRid(null)} />;
   }
   const ps = mw.playoff_start || 15;
   const clickCol = (i: number) => {
@@ -169,7 +169,7 @@ function TeamPanel({ r, ps, wkIdx, teams, players, bySum }: {
   const ranked = t.players.map(p => sumById.get(p)).filter((x): x is NonNullable<typeof x> => !!x)
     .sort((a, b) => b[6] - a[6]);
   const five = (a: typeof ranked) => a.map((s, i) => (
-    <div key={i}>{pInfo(players, s[0])[0]} <PosBadge pos={s[1]} /> <span className={clsOf(s[6])}>{fmt(s[6], 3)}</span></div>
+    <div key={i}><PlayerLink pid={s[0]} name={pInfo(players, s[0])[0]} /> <PosBadge pos={s[1]} /> <span className={clsOf(s[6])}>{fmt(s[6], 3)}</span></div>
   ));
   return (
     <>
@@ -217,10 +217,10 @@ function TeamPanel({ r, ps, wkIdx, teams, players, bySum }: {
   );
 }
 
-function TeamDetail({ t, data, season, players, back }: {
-  t: Team; data: SeasonData; season: string; players: PlayersMin; back: () => void;
+function TeamDetail({ t, data, players, back }: {
+  t: Team; data: SeasonData; players: PlayersMin; back: () => void;
 }) {
-  const [openPid, setOpenPid] = useState<string | null>(null);
+  const openPlayer = useContext(OpenPlayerContext);
   const sumById = new Map(data.summary.map(s => [s[0], s]));
   const rows = t.players.map(p => {
     const s = sumById.get(p);
@@ -237,11 +237,7 @@ function TeamDetail({ t, data, season, players, back }: {
         <table>
           <thead><tr><th>Player</th><th>Pos</th><th className="hm">GP</th><th className="hm">Pts</th><th>PPG</th><th>WAA</th><th>WAR</th></tr></thead>
           <tbody>
-            {rows.map(r => (
-              <PlayerLine key={r.id} r={r} open={openPid === r.id}
-                onClick={() => setOpenPid(openPid === r.id ? null : r.id)}
-                panel={<PlayerPanel pid={r.id} season={season} teams={data.teams} players={players} />} />
-            ))}
+            {rows.map(r => <PlayerLine key={r.id} r={r} onClick={() => openPlayer(r.id)} />)}
           </tbody>
         </table>
       </div>
@@ -249,9 +245,9 @@ function TeamDetail({ t, data, season, players, back }: {
   );
 }
 
-function PlayerLine({ r, open, onClick, panel }: {
+function PlayerLine({ r, onClick }: {
   r: { id: string; nm: string; pos: string; tag: string; gp: number; pts: number; ppg: number; waa: number; war: number };
-  open: boolean; onClick: () => void; panel: React.ReactNode;
+  onClick: () => void;
 }) {
   return (
     <>
@@ -264,7 +260,6 @@ function PlayerLine({ r, open, onClick, panel }: {
         <td className={clsOf(r.waa)}>{fmt(r.waa, 3)}</td>
         <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
       </tr>
-      {open && <tr className="wkbox"><td colSpan={7}>{panel}</td></tr>}
     </>
   );
 }

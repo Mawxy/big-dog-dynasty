@@ -6,6 +6,8 @@ import Players from "./views/Players";
 import Teams from "./views/Teams";
 import WeeklyView from "./views/Weekly";
 import Methodology from "./components/Methodology";
+import PlayerPage from "./components/PlayerPage";
+import { OpenPlayerContext } from "./components/PlayerLink";
 
 type View = "players" | "teams" | "weekly";
 
@@ -14,6 +16,7 @@ export default function App() {
   const [players, setPlayers] = useState<PlayersMin>({});
   const [season, setSeason] = useState("");
   const [view, setView] = useState<View>("players");
+  const [openPlayer, setOpenPlayer] = useState<string | null>(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
@@ -39,24 +42,30 @@ export default function App() {
       </header>
       <nav>
         {(["players", "teams", "weekly"] as View[]).map(v => (
-          <button key={v} className={view === v ? "on" : ""} onClick={() => setView(v)}>
+          <button key={v} className={view === v ? "on" : ""} onClick={() => { setView(v); setOpenPlayer(null); }}>
             {v[0].toUpperCase() + v.slice(1)}
           </button>
         ))}
-        <select style={{ marginLeft: "auto" }} value={season} onChange={e => setSeason(e.target.value)}>
+        <select style={{ marginLeft: "auto" }} value={season} onChange={e => { setSeason(e.target.value); setOpenPlayer(null); }}>
           {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
           <option value="ALL">All-time</option>
         </select>
       </nav>
       <main>
-        {!data ? <div className="empty">Loading…</div> : (
-          view === "players"
-            ? <Players data={data} season={season} seasons={meta.seasons} players={players}
-                defaultMinGp={Math.round(data.summary.reduce((m, r) => Math.max(m, r[2]), 0) * 0.45)} />
-            : view === "teams"
-              ? <Teams data={data} season={season} players={players} />
-              : <WeeklyView data={data} season={season} players={players} />
-        )}
+        <OpenPlayerContext.Provider value={pid => setOpenPlayer(pid)}>
+          {/* keep the view mounted (hidden) so its state survives visiting a player page */}
+          <div style={{ display: openPlayer ? "none" : undefined }}>
+            {!data ? <div className="empty">Loading…</div> : (
+              view === "players"
+                ? <Players data={data} players={players}
+                    defaultMinGp={Math.round(data.summary.reduce((m, r) => Math.max(m, r[2]), 0) * 0.45)} />
+                : view === "teams"
+                  ? <Teams data={data} season={season} players={players} />
+                  : <WeeklyView data={data} season={season} players={players} />
+            )}
+          </div>
+          {openPlayer && <PlayerPage pid={openPlayer} players={players} meta={meta} back={() => setOpenPlayer(null)} />}
+        </OpenPlayerContext.Provider>
       </main>
       <Methodology />
     </>

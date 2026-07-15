@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useContext, useEffect, useMemo, useState } from "react";
 import type { Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo, ownerOf, weekIndex } from "../lib/league";
 import PosBadge from "../components/PosBadge";
+import { OpenPlayerContext, PlayerLink } from "../components/PlayerLink";
 
 interface Entry { pid: string; pts: number; waa: number; war: number; pos: string }
 
@@ -49,7 +50,7 @@ export default function Weekly({ data, season, players }: Props) {
   }
 
   const line = (e: Entry) => (
-    <>{pInfo(players, e.pid)[0]} <PosBadge pos={e.pos} /> <span style={{ color: "var(--dim)" }}>{fmt(e.pts, 1)} pts</span></>
+    <><PlayerLink pid={e.pid} name={pInfo(players, e.pid)[0]} /> <PosBadge pos={e.pos} /> <span style={{ color: "var(--dim)" }}>{fmt(e.pts, 1)} pts</span></>
   );
   return (
     <>
@@ -97,7 +98,7 @@ function WeekRow({ w, open, arr, players, onToggle, onOpen, cells }: {
       <div style={{ minWidth: 200 }} key={pos}>
         <PosBadge pos={pos} />
         {top.map((e, i) => (
-          <div key={e.pid}>{i + 1}. {pInfo(players, e.pid)[0]}{" "}
+          <div key={e.pid}>{i + 1}. <PlayerLink pid={e.pid} name={pInfo(players, e.pid)[0]} />{" "}
             <span style={{ color: "var(--dim)" }}>{fmt(e.pts, 1)}</span>{" "}
             <span className={clsOf(e.war)}>{fmt(e.war, 3)}</span></div>
         ))}
@@ -149,6 +150,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
     for (const p of e[4]) { const v = wkIdx[p]?.[wk]; if (v) w += v[1]; }
     return w;
   };
+  const openPlayer = useContext(OpenPlayerContext);
   const owners = ownerOf(data.teams);
   const performers = Object.entries(weekly).flatMap(([pid, rows]) => {
     const w = rows.find(x => x[0] === wk);
@@ -189,7 +191,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
           </tr></thead>
           <tbody>
             {performers.slice(0, 50).map(e => (
-              <tr key={e.pid} style={{ cursor: "default" }}>
+              <tr key={e.pid} onClick={() => openPlayer(e.pid)}>
                 <td style={{ textAlign: "left" }}>{pInfo(players, e.pid)[0]}</td>
                 <td className="hm roster" style={{ textAlign: "left" }}>{owners[e.pid] || "—"}</td>
                 <td><PosBadge pos={e.pos} /></td>
