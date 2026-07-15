@@ -19,8 +19,10 @@ export default function SeasonBoxes({ rows, height = 230 }: { rows: Row[]; heigh
   }, []);
   const usable = rows.filter(r => r.values.length >= 4);
   if (!usable.length) return null;
+  // fixed 0-70 axis so every player's chart is directly comparable;
+  // extends only if a value actually falls outside it (negative games, 70+ blowups)
   const all = usable.flatMap(r => r.values);
-  const lo = Math.min(0, ...all), hi = Math.max(...all);
+  const lo = Math.min(0, ...all), hi = Math.max(70, ...all);
   const L = 52, R = W - 14;
   const T = 8, axisH = 24, H = height;
   const rowH = (H - T - axisH) / usable.length;

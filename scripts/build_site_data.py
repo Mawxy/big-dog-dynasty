@@ -28,6 +28,7 @@ def main():
 
     players = load(root / "players.json")
     used_ids, seasons, league_name = set(), [], "League"
+    latest_with_data = None
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
 
     for sdir in sorted((d for d in root.iterdir() if d.is_dir() and (d / "league.json").exists())):
@@ -152,6 +153,8 @@ def main():
             v = [w[1] for w in weekly.get(row[0], [])]
             row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)
         (sout / "summary.json").write_text(json.dumps(summary))
+        if summary:
+            latest_with_data = season
 
         # --- ownership history: drafts + transactions ---
         tname = {t["roster_id"]: t["team"] for t in teams}
@@ -220,7 +223,7 @@ def main():
         {pid: [[sn, wk, txt] for _, sn, wk, txt in sorted(evts)]
          for pid, evts in own.items()}))
     (out / "meta.json").write_text(json.dumps({
-        "league": league_name, "seasons": seasons,
+        "league": league_name, "seasons": seasons, "latest": latest_with_data,
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
     }))
     print(f"site data written to {out}/ for seasons: {', '.join(seasons)}")

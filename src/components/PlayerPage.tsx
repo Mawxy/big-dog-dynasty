@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Absences, Meta, Ownership, PlayersMin, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
-import { j } from "../lib/data";
+import { j, jDaily } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import PosBadge from "./PosBadge";
@@ -34,7 +34,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         Promise.all(seasons.map(s => j<Absences>(`data/${s}/absence.json`).catch(() => ({} as Absences)))),
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
-      j<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
+      jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
       if (!live) return;
       const bl = seasons.map((s, i): SeasonBlock => {
         const t = teams[i].find(x => x.players.includes(pid));
