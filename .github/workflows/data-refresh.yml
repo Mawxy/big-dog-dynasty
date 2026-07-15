@@ -1,0 +1,38 @@
+name: Weekly data refresh
+on:
+  schedule:
+    - cron: "0 6 * * 3"   # Wednesdays 06:00 UTC = 1:00 AM EST (2:00 AM EDT)
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Pull league history from Sleeper
+        run: python scripts/sleeper_pull.py 1312221243742621696 --players --out sleeper_data
+      - name: Compute WAA/WAR
+        run: python scripts/sleeper_war.py --data sleeper_data
+      - name: Build site JSON
+        run: python scripts/build_site_data.py --data sleeper_data --out data
+      - name: Commit updated data
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          git diff --cached --quiet || git commit -m "Weekly data update $(date -u +%F)"
+          git push
+  deploy:
+    # a bot commit doesn't fire the push trigger, so call the deploy workflow explicitly
+    needs: refresh
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
