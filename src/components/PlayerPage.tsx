@@ -7,12 +7,13 @@ import PosBadge from "./PosBadge";
 import BoxPlot from "./BoxPlot";
 import OwnershipHistory from "./OwnershipHistory";
 
-interface SeasonBlock { season: string; team: string | null; sum: SummaryRow | null; weeks: WeeklyRow[] }
+interface SeasonBlock { season: string; team: string | null; manager: string | null; sum: SummaryRow | null; weeks: WeeklyRow[] }
 interface Props { pid: string; players: PlayersMin; meta: Meta; back: () => void }
 
 export default function PlayerPage({ pid, players, meta, back }: Props) {
   const [blocks, setBlocks] = useState<SeasonBlock[] | null>(null);
   const [own, setOwn] = useState<Ownership>({});
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     let live = true;
@@ -25,12 +26,14 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
       if (!live) return;
-      const bl = seasons.map((s, i): SeasonBlock => ({
-        season: s,
-        team: teams[i].find(t => t.players.includes(pid))?.team ?? null,
-        sum: sums[i].find(r => r[0] === pid) ?? null,
-        weeks: (weeks[i][pid] || []).slice().sort((a, b) => a[0] - b[0]),
-      })).filter(b => b.sum || b.weeks.length || b.team);
+      const bl = seasons.map((s, i): SeasonBlock => {
+        const t = teams[i].find(x => x.players.includes(pid));
+        return {
+          season: s, team: t?.team ?? null, manager: t?.manager ?? null,
+          sum: sums[i].find(r => r[0] === pid) ?? null,
+          weeks: (weeks[i][pid] || []).slice().sort((a, b) => a[0] - b[0]),
+        };
+      }).filter(b => b.sum || b.weeks.length || b.team);
       setBlocks(bl.reverse());   // newest season first
       setOwn(ownership);
     })();
@@ -70,7 +73,9 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
               {blocks.map(b => (
                 <tr key={b.season} style={{ cursor: "default" }}>
                   <td>{b.season}</td>
-                  <td style={{ textAlign: "left" }}>{b.team || "—"}</td>
+                  <td style={{ textAlign: "left", maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis" }} title={b.team ? `${b.team} (${b.manager})` : ""}>
+                    {b.team || "—"}{b.manager && <span style={{ color: "var(--dim)" }}> · {b.manager}</span>}
+                  </td>
                   <td>{b.sum?.[2] ?? 0}</td>
                   <td>{fmt(b.sum?.[3] ?? 0, 1)}</td>
                   <td>{fmt(b.sum?.[4] ?? 0)}</td>
@@ -87,18 +92,34 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
           <OwnershipHistory events={own[pid] || []} />
         </div>
       </div>
-      <h3 style={{ margin: "8px 0 12px" }}>Season detail</h3>
-      <div className="wkflex" style={{ gap: 40 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "8px 0 12px" }}>
+        <h3 style={{ margin: 0 }}>Season detail</h3>
+        <span className="tlink" style={{ fontSize: 12 }} onClick={() => setCollapsed(new Set())}>expand all</span>
+        <span className="tlink" style={{ fontSize: 12 }}
+          onClick={() => setCollapsed(new Set(blocks.map(b => b.season)))}>collapse all</span>
+      </div>
+      <div className="seasongrid">
         {blocks.filter(b => b.weeks.length).map(b => {
           const wpts = b.weeks.map(w => w[1]);
+          const closed = collapsed.has(b.season);
+          const toggle = () => setCollapsed(prev => {
+            const next = new Set(prev);
+            next.has(b.season) ? next.delete(b.season) : next.add(b.season);
+            return next;
+          });
           return (
-            <div key={b.season} style={{ minWidth: 320 }}>
-              <div className="wkhead">
-                <b>{b.season}</b>{b.team && <> · <span className="own">{b.team}</span></>}
-                {" · "}{b.weeks.length} games, {fmt(mean(wpts), 1)} ppg, σ {fmt(sd(wpts), 1)}
-                {b.sum && <>, WAR <span className={clsOf(b.sum[6])}>{fmt(b.sum[6], 3)}</span></>}
+            <div key={b.season} className="scard">
+              <div className="shead" onClick={toggle}>
+                <span className="chev">{closed ? "▶" : "▼"}</span>
+                <b>{b.season}</b>
+                <span className="tname" title={b.team ?? ""}>{b.team || "unrostered"}</span>
+                {b.manager && <span style={{ color: "var(--dim)", fontSize: 12.5, flexShrink: 0 }}>({b.manager})</span>}
               </div>
-              <div className="wkwrap">
+              <div className="ssub">
+                {b.weeks.length} games · {fmt(mean(wpts), 1)} ppg · σ {fmt(sd(wpts), 1)}
+                {b.sum && <> · WAR <span className={clsOf(b.sum[6])}>{fmt(b.sum[6], 3)}</span></>}
+              </div>
+              {!closed && <div className="wkwrap">
                 <table className="wktbl">
                   <thead><tr><th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
                   <tbody>
@@ -113,7 +134,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
                     ))}
                   </tbody>
                 </table>
-              </div>
+              </div>}
             </div>
           );
         })}
