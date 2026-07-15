@@ -1,9 +1,11 @@
-import { createContext, useContext } from "react";
+import { useNavigate } from "react-router-dom";
 
-/** Set by App: navigates to a player's dedicated page. */
-export const OpenPlayerContext = createContext<(pid: string) => void>(() => {});
-
+/** Player name that navigates to the player's dedicated page. */
 export function PlayerLink({ pid, name }: { pid: string; name: string }) {
-  const open = useContext(OpenPlayerContext);
-  return <span className="tlink" onClick={e => { e.stopPropagation(); open(pid); }}>{name}</span>;
+  const nav = useNavigate();
+  return (
+    <span className="tlink" onClick={e => { e.stopPropagation(); nav(`/player/${pid}`); }}>
+      {name}
+    </span>
+  );
 }

@@ -16,3 +16,6 @@ export function weekIndex(weekly: Weekly): Record<string, Record<number, [number
     for (const w of rows) (idx[pid] ??= {})[w[0]] = [w[4], w[5]];
   return idx;
 }
+
+/** season -> URL segment ("ALL" -> "all") */
+export const seasonSeg = (s: string) => s === "ALL" ? "all" : s;

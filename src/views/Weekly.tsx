@@ -1,20 +1,22 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
-import { pInfo, ownerOf, weekIndex } from "../lib/league";
+import { pInfo, ownerOf, weekIndex, seasonSeg } from "../lib/league";
 import PosBadge from "../components/PosBadge";
-import { OpenPlayerContext, PlayerLink } from "../components/PlayerLink";
+import { PlayerLink } from "../components/PlayerLink";
+import PlayerPanel from "../components/PlayerPanel";
 
 interface Entry { pid: string; pts: number; waa: number; war: number; pos: string }
 
-interface Props { data: SeasonData; season: string; players: PlayersMin }
+interface Props { data: SeasonData; season: string; players: PlayersMin; week: number | null }
 
-export default function Weekly({ data, season, players }: Props) {
+export default function Weekly({ data, season, players, week }: Props) {
   const [weekly, setWeekly] = useState<WeeklyT | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
-  const [openWeek, setOpenWeek] = useState<number | null>(null);
   const [expWeek, setExpWeek] = useState<number | null>(null);
+  const nav = useNavigate();
 
   useEffect(() => {
     if (season === "ALL") return;
@@ -45,8 +47,8 @@ export default function Weekly({ data, season, players }: Props) {
   if (!weekly || !mw) return <div className="empty">Loading weekly data…</div>;
   const wks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
   if (!wks.length) return <div className="empty">No scored weeks yet for this season.</div>;
-  if (openWeek !== null) {
-    return <WeekDetail wk={openWeek} season={season} data={data} weekly={weekly} mw={mw} players={players} back={() => setOpenWeek(null)} />;
+  if (week !== null) {
+    return <WeekDetail wk={week} season={season} data={data} weekly={weekly} mw={mw} players={players} back={() => nav(`/weekly/${seasonSeg(season)}`)} />;
   }
 
   const line = (e: Entry) => (
@@ -68,7 +70,7 @@ export default function Weekly({ data, season, players }: Props) {
             return (
               <WeekRow key={w} w={w} open={expWeek === w} arr={a} players={players}
                 onToggle={() => setExpWeek(expWeek === w ? null : w)}
-                onOpen={() => setOpenWeek(w)}
+                onOpen={() => nav(`/weekly/${seasonSeg(season)}/${w}`)}
                 cells={
                   <>
                     <td style={{ textAlign: "left" }}>{line(topWar)}</td>
@@ -150,7 +152,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
     for (const p of e[4]) { const v = wkIdx[p]?.[wk]; if (v) w += v[1]; }
     return w;
   };
-  const openPlayer = useContext(OpenPlayerContext);
+  const [openPid, setOpenPid] = useState<string | null>(null);
   const owners = ownerOf(data.teams);
   const performers = Object.entries(weekly).flatMap(([pid, rows]) => {
     const w = rows.find(x => x[0] === wk);
@@ -191,20 +193,35 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
           </tr></thead>
           <tbody>
             {performers.slice(0, 50).map(e => (
-              <tr key={e.pid} onClick={() => openPlayer(e.pid)}>
-                <td style={{ textAlign: "left" }}>{pInfo(players, e.pid)[0]}</td>
-                <td className="hm roster" style={{ textAlign: "left" }}>{owners[e.pid] || "—"}</td>
-                <td><PosBadge pos={e.pos} /></td>
-                <td>{fmt(e.pts, 1)}</td>
-                <td className={`hm ${clsOf(e.paa)}`}>{sgn(e.paa, 1)}</td>
-                <td className={`hm ${clsOf(e.par)}`}>{sgn(e.par, 1)}</td>
-                <td className={clsOf(e.waa)}>{fmt(e.waa, 3)}</td>
-                <td className={clsOf(e.war)}>{fmt(e.war, 3)}</td>
-              </tr>
+              <PerfRow key={e.pid} e={e} owner={owners[e.pid]} open={openPid === e.pid}
+                onToggle={() => setOpenPid(openPid === e.pid ? null : e.pid)}
+                panel={<PlayerPanel pid={e.pid} season={season} teams={data.teams} players={players} />}
+                name={pInfo(players, e.pid)[0]} />
             ))}
           </tbody>
         </table>
       </div>
+    </>
+  );
+}
+
+function PerfRow({ e, owner, name, open, onToggle, panel }: {
+  e: { pid: string; pts: number; paa: number; par: number; waa: number; war: number; pos: string };
+  owner: string | undefined; name: string; open: boolean; onToggle: () => void; panel: React.ReactNode;
+}) {
+  return (
+    <>
+      <tr onClick={onToggle}>
+        <td style={{ textAlign: "left" }}><PlayerLink pid={e.pid} name={name} /></td>
+        <td className="hm roster" style={{ textAlign: "left" }}>{owner || "—"}</td>
+        <td><PosBadge pos={e.pos} /></td>
+        <td>{fmt(e.pts, 1)}</td>
+        <td className={`hm ${clsOf(e.paa)}`}>{sgn(e.paa, 1)}</td>
+        <td className={`hm ${clsOf(e.par)}`}>{sgn(e.par, 1)}</td>
+        <td className={clsOf(e.waa)}>{fmt(e.waa, 3)}</td>
+        <td className={clsOf(e.war)}>{fmt(e.war, 3)}</td>
+      </tr>
+      {open && <tr className="wkbox"><td colSpan={8}>{panel}</td></tr>}
     </>
   );
 }
