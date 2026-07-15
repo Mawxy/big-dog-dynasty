@@ -20,6 +20,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   const [blocks, setBlocks] = useState<SeasonBlock[] | null>(null);
   const [own, setOwn] = useState<Ownership>({});
   const [vals, setVals] = useState<Values | null>(null);
+  const [warRank, setWarRank] = useState<{ season: string; rank: number } | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -45,6 +46,17 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         };
       }).filter(b => b.sum || b.weeks.length || b.team);
       setBlocks(bl.reverse());   // newest season first
+      // WAR positional rank from the most recent season with data
+      let wr: { season: string; rank: number } | null = null;
+      for (let i = seasons.length - 1; i >= 0; i--) {
+        const r = sums[i].find(x => x[0] === pid);
+        if (r) {
+          const rank = 1 + sums[i].filter(x => x[1] === r[1] && x[6] > r[6]).length;
+          wr = { season: seasons[i], rank };
+          break;
+        }
+      }
+      setWarRank(wr);
       setOwn(ownership);
     })();
     return () => { live = false; };
@@ -66,7 +78,13 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
     <>
       <span className="back" onClick={back}>← back</span>
       <div id="teamDetail">
-        <h2>{nm} <PosBadge pos={pos} />{nfl && <span style={{ color: "var(--dim)", fontSize: 14 }}> {nfl}</span>}</h2>
+        <h2>{nm}{" "}
+          <span className={`pos ${pos}`}
+            title={warRank ? `${pos}${warRank.rank} by WAR at his position, ${warRank.season} season` : pos}>
+            {pos}{warRank?.rank ?? ""}
+          </span>
+          {warRank && <span style={{ color: "var(--dim)", fontSize: 12 }}> by {warRank.season} WAR</span>}
+          {nfl && <span style={{ color: "var(--dim)", fontSize: 14 }}> {nfl}</span>}</h2>
         <div className="mgr">
           {owner ? <>owned by <span className="own">{owner}</span></> : "free agent"}
           {gp > 0 && <> · {gp} games · {fmt(pts / gp, 1)} ppg · σ {fmt(sd(allPts), 1)}
@@ -178,34 +196,54 @@ function MarketValue({ vals, pid, pos }: { vals: Values | null; pid: string; pos
   const v = vals?.players[pid];
   if (!v || (!v.ktc && !v.fc)) return null;
   const num = (n: number) => n.toLocaleString("en-US");
-  const trendSpans = (trends?: Record<string, number>) =>
-    trends && [7, 14, 30].map(d => {
-      const t = trends[String(d)];
-      if (t == null) return null;
-      return (
-        <span key={d}>
-          {" · "}<span style={{ color: "var(--dim)" }}>{d}d </span>
-          {t === 0
-            ? <span style={{ color: "var(--dim)" }}>—</span>
-            : <span className={t > 0 ? "num good" : "num bad"}>{t > 0 ? "▲" : "▼"}{num(Math.abs(t))}</span>}
-        </span>
-      );
-    });
-  const line = (label: string, val?: number, ovr?: number, posRank?: number,
-    trends?: Record<string, number>) =>
-    val == null ? null : (
-      <div key={label}>
-        <span style={{ display: "inline-block", width: 108, color: "var(--dim)" }}>{label}</span>
-        <b style={{ color: "var(--txt)" }}>{num(val)}</b>
-        {ovr != null && <span style={{ color: "var(--dim)" }}> · OVR {ovr}</span>}
-        {posRank != null && <span style={{ color: "var(--dim)" }}> · {pos}{posRank}</span>}
-        {trendSpans(trends)}
-      </div>
+  const closestPick = (list?: [string, number][], val?: number) => {
+    if (!list?.length || val == null) return null;
+    let best = list[0];
+    for (const pk of list)
+      if (Math.abs(pk[1] - val) < Math.abs(best[1] - val)) best = pk;
+    return best;
+  };
+  const dim = { color: "var(--dim)" } as const;
+  const row = (label: string, val?: number, pickList?: [string, number][],
+    ovr?: number, posRank?: number, trends?: Record<string, number>) => {
+    if (val == null) return null;
+    const pk = closestPick(pickList, val);
+    return (
+      <>
+        <div style={dim}>{label}</div>
+        <div><b style={{ color: "var(--txt)" }}>{num(val)}</b></div>
+        <div style={{ ...dim, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+          title={pk ? `closest pick: ${pk[0]} is worth ${num(pk[1])} — player is ${val === pk[1] ? "even with it" : `${num(Math.abs(val - pk[1]))} ${val > pk[1] ? "above" : "below"}`}` : ""}>
+          {pk ? <>≈ {pk[0]} <span style={{ opacity: .8 }}>({num(pk[1])})</span></> : "N/A"}
+        </div>
+        <div style={dim}>{ovr != null ? `OVR ${ovr}` : "N/A"}</div>
+        <div style={dim}>{posRank != null ? `${pos}${posRank}` : "N/A"}</div>
+        {[7, 14, 30].map(d => {
+          const t = trends?.[String(d)];
+          return (
+            <div key={d}>
+              <span style={dim}>{d}d </span>
+              {t == null
+                ? <span style={dim}>N/A</span>
+                : t === 0
+                  ? <span style={dim}>0</span>
+                  : <span className={t > 0 ? "num good" : "num bad"}>{t > 0 ? "▲" : "▼"}{num(Math.abs(t))}</span>}
+            </div>
+          );
+        })}
+      </>
     );
+  };
   return (
-    <div style={{ fontSize: 13, margin: "-6px 0 16px", lineHeight: 1.8 }}>
-      {line("KeepTradeCut", v.ktc, v.ktcRank, v.ktcPosRank, v.ktcT)}
-      {line("FantasyCalc", v.fc, v.fcRank, v.fcPosRank, v.fcT)}
+    <div className="wkwrap" style={{ margin: "-6px 0 16px" }}>
+      <div style={{
+        display: "grid", fontSize: 13, lineHeight: 1.9, columnGap: 14,
+        gridTemplateColumns: "100px 58px minmax(150px,195px) 66px 52px 82px 82px 86px",
+        width: "fit-content",
+      }}>
+        {row("KeepTradeCut", v.ktc, vals?.picks?.ktc, v.ktcRank, v.ktcPosRank, v.ktcT)}
+        {row("FantasyCalc", v.fc, vals?.picks?.fc, v.fcRank, v.fcPosRank, v.fcT)}
+      </div>
       {vals?.fetched && <div style={{ color: "var(--dim)", fontSize: 11.5 }}>market values as of {vals.fetched}</div>}
     </div>
   );

@@ -38,11 +38,16 @@ def norm(name):
             break
     return n
 
-def fetch_fantasycalc(out):
+PICK_RE = re.compile(r"^20\d\d\b")
+
+def fetch_fantasycalc(out, picks):
     for row in json.loads(get(FC_URL)):
         p = row.get("player") or {}
         sid = p.get("sleeperId")
         if not sid:
+            name = p.get("name") or ""
+            if PICK_RE.match(name) and row.get("value"):
+                picks.setdefault("fc", []).append([name, row["value"]])
             continue
         e = out.setdefault(str(sid), {})
         e["fc"] = row.get("value")
@@ -71,7 +76,7 @@ def name_index(players):
             idx[key] = (pid, pref)
     return idx
 
-def fetch_ktc(out, players):
+def fetch_ktc(out, picks, players):
     idx = name_index(players)
     html = get(KTC_URL)
     m = re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S)
@@ -80,9 +85,12 @@ def fetch_ktc(out, players):
     rows = []
     for row in json.loads(m.group(1)):
         pos = row.get("position")
-        if pos not in CORE:
-            continue
         sf = row.get("superflexValues") or {}
+        if pos not in CORE:
+            name = row.get("playerName") or ""
+            if PICK_RE.match(name) and sf.get("value"):
+                picks.setdefault("ktc", []).append([name, sf["value"]])
+            continue
         if sf.get("value"):
             rows.append((row, pos, sf))
     # fallback ranks derived from values, in case KTC's rank fields move/rename
@@ -117,15 +125,17 @@ def main():
     args = ap.parse_args()
     players = json.loads(Path(args.players).read_text(encoding="utf-8"))
     out_path = Path(args.out)
-    prev = {}
+    prev, prev_picks = {}, {}
     if out_path.exists():
         try:
-            prev = json.loads(out_path.read_text(encoding="utf-8")).get("players", {})
+            prev_all = json.loads(out_path.read_text(encoding="utf-8"))
+            prev = prev_all.get("players", {})
+            prev_picks = prev_all.get("picks", {})
         except Exception:
             pass
-    vals, ok = {}, []
-    for name, fn in (("FantasyCalc", lambda: fetch_fantasycalc(vals)),
-                     ("KeepTradeCut", lambda: fetch_ktc(vals, players))):
+    vals, picks, ok = {}, {}, []
+    for name, fn in (("FantasyCalc", lambda: fetch_fantasycalc(vals, picks)),
+                     ("KeepTradeCut", lambda: fetch_ktc(vals, picks, players))):
         try:
             fn()
             ok.append(name)
@@ -139,6 +149,10 @@ def main():
         cur = vals.setdefault(pid, {})
         for k, v in old.items():
             cur.setdefault(k, v)
+    for src, old in prev_picks.items():
+        picks.setdefault(src, old)
+    for src in picks:
+        picks[src].sort(key=lambda x: -x[1])
     import time
     from datetime import date, timedelta
     # aligned 7-day trends for BOTH sources, derived from our own daily
@@ -182,7 +196,7 @@ def main():
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "fetched": time.strftime("%Y-%m-%d", time.gmtime()),
-        "sources": ok, "players": vals}))
+        "sources": ok, "picks": picks, "players": vals}))
     print(f"wrote {out_path} ({len(vals)} players; fresh: {', '.join(ok)})")
 
 if __name__ == "__main__":
