@@ -1,51 +1,38 @@
 # Big Dog Dynasty — WAR Board
 
-A self-updating website for the league: player WAR/WAA tables, team pages, and
-weekly drill-downs, computed from the league's exact Sleeper scoring and lineup
-rules. Data refreshes automatically every **Wednesday at 1:00 AM Eastern** via
-GitHub Actions — no server, no maintenance.
+A self-updating website for the league: player WAR/WAA tables, team pages,
+weekly breakdowns, and all-time career stats, computed from the league's exact
+Sleeper scoring and lineup rules. Data refreshes automatically every
+**Wednesday at 1:00 AM Eastern** via GitHub Actions.
 
-## One-time setup (about 5 minutes)
+## Architecture
 
-1. **Create the repo.** On GitHub click *New repository*, name it anything
-   (e.g. `big-dog-dynasty`), set it to **Public** (required for free GitHub
-   Pages), and create it.
+- **Data pipeline (Python, `scripts/`)** — unchanged from v1:
+  `sleeper_pull.py` dumps the full league history from the Sleeper API,
+  `sleeper_war.py` computes weekly WAA/WAR per player,
+  `build_site_data.py` packs everything into compact JSON under `data/`.
+- **Front end (Vite + React + TypeScript, `src/`)** — reads only `data/*.json`,
+  never calls Sleeper. Built by GitHub Actions; you never need Node locally.
+- **One workflow (`.github/workflows/update.yml`)** does everything:
+  - Wednesdays 1 AM ET (and manual runs): refresh data → commit → build → deploy
+  - Any push to `main`: build → deploy (no data refresh)
 
-2. **Upload these files.** Either push this folder with git, or on the repo
-   page use *Add file → Upload files* and drag everything in (`index.html`,
-   `README.md`, `.gitignore`, the `scripts` folder, and the `.github` folder —
-   make sure the `.github/workflows/update.yml` path survives the upload).
+## One-time setup change for v2
 
-3. **Allow the workflow to commit.** Repo *Settings → Actions → General →
-   Workflow permissions* → select **Read and write permissions** → Save.
+Pages must deploy from the workflow now, not the branch:
+**Settings → Pages → Source: “GitHub Actions”.**
 
-4. **Run the first update.** *Actions* tab → *Weekly WAR update* → *Run
-   workflow*. Takes a few minutes (it pulls all seasons and the player
-   database). When it finishes, a `data/` folder appears in the repo.
+## Local development (optional)
 
-5. **Turn on the website.** *Settings → Pages* → Source: *Deploy from a
-   branch* → Branch: `main`, folder `/ (root)` → Save. After a minute the site
-   is live at `https://<your-username>.github.io/<repo-name>/`.
-
-Share that URL with the league. Every Wednesday at 1 AM ET the numbers refresh
-themselves (you can also rerun manually from the Actions tab anytime).
-
-## What's in here
-
-| File | Purpose |
-| --- | --- |
-| `scripts/sleeper_pull.py` | Dumps the full league history (all seasons, matchups, drafts) from the Sleeper API to JSON |
-| `scripts/sleeper_war.py` | Computes weekly WAA/WAR per player from the dump |
-| `scripts/build_site_data.py` | Packs results into the compact JSON the site reads |
-| `.github/workflows/update.yml` | The Wednesday 1 AM ET schedule (`0 6 * * 3` UTC) |
-| `index.html` | The entire website — reads only `data/*.json`, never calls Sleeper |
-| `data/` | Generated league data (created by the workflow) |
+```
+npm install
+npm run dev        # dev server with hot reload (copy data/ into the served root or symlink it)
+npm run typecheck  # TypeScript check
+npm run build      # production build into dist/
+```
 
 ## Notes
 
-- The cron is `0 6 * * 3` = 06:00 UTC Wednesday = 1:00 AM EST (2:00 AM during
-  daylight saving). Edit `update.yml` to change it.
-- The league ID lives in `update.yml` — change it there if the league chain
-  ever gets a new ID.
-- Methodology for WAR/WAA is documented on the site's *Methodology* tab and in
-  the `sleeper_war.py` docstring.
+- Cron `0 6 * * 3` = 06:00 UTC Wednesday = 1:00 AM EST (2:00 AM EDT).
+- The league ID lives in `update.yml`.
+- WAR/WAA methodology is documented on the site footer and in `scripts/sleeper_war.py`.
