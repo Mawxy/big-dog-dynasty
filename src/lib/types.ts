@@ -38,5 +38,8 @@ export type Absences = Record<string, Record<string, string>>;
 export interface Values {
   fetched: string;
   sources: string[];
-  players: Record<string, { ktc?: number; fc?: number; fcRank?: number; fcTrend?: number }>;
+  players: Record<string, {
+    ktc?: number; ktcRank?: number; ktcPosRank?: number; ktcT?: Record<string, number>;
+    fc?: number; fcRank?: number; fcPosRank?: number; fcT?: Record<string, number>;
+  }>;
 }

@@ -47,7 +47,9 @@ def fetch_fantasycalc(out):
         e = out.setdefault(str(sid), {})
         e["fc"] = row.get("value")
         e["fcRank"] = row.get("overallRank")
-        e["fcTrend"] = row.get("trend30Day")
+        e["fcPosRank"] = row.get("positionRank")
+        if row.get("trend30Day") is not None:
+            e["fcT"] = {"30": row["trend30Day"]}
 
 def name_index(players):
     """name+pos -> sleeper id. Accepts players_min.json ([name,pos,team] lists)
@@ -75,18 +77,37 @@ def fetch_ktc(out, players):
     m = re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S)
     if not m:
         raise RuntimeError("playersArray not found — KTC page layout changed")
-    matched = 0
+    rows = []
     for row in json.loads(m.group(1)):
         pos = row.get("position")
         if pos not in CORE:
             continue
-        val = (row.get("superflexValues") or {}).get("value")
-        if not val:
-            continue
+        sf = row.get("superflexValues") or {}
+        if sf.get("value"):
+            rows.append((row, pos, sf))
+    # fallback ranks derived from values, in case KTC's rank fields move/rename
+    ordered = sorted(rows, key=lambda r: -r[2]["value"])
+    ovr, posrk, posctr = {}, {}, {}
+    for i, r in enumerate(ordered):
+        ovr[id(r[0])] = i + 1
+        posctr[r[1]] = posctr.get(r[1], 0) + 1
+        posrk[id(r[0])] = posctr[r[1]]
+    matched = 0
+    for row, pos, sf in rows:
         hit = idx.get((norm(row.get("playerName", "")), pos))
-        if hit:
-            out.setdefault(hit[0], {})["ktc"] = val
-            matched += 1
+        if not hit:
+            continue
+        e = out.setdefault(hit[0], {})
+        e["ktc"] = sf["value"]
+        e["ktcRank"] = sf.get("rank") or ovr[id(row)]
+        e["ktcPosRank"] = sf.get("positionalRank") or posrk[id(row)]
+        for key, days in (("overall7DayTrend", 7), ("sevenDayTrend", 7),
+                          ("overallTrend", 7), ("overall30DayTrend", 30)):
+            t = sf.get(key)
+            if t is not None:
+                e["ktcT"] = {str(days): int(t)}
+                break
+        matched += 1
     print(f"KTC matched {matched} players")
 
 def main():
@@ -119,6 +140,45 @@ def main():
         for k, v in old.items():
             cur.setdefault(k, v)
     import time
+    from datetime import date, timedelta
+    # aligned 7-day trends for BOTH sources, derived from our own daily
+    # snapshots (FantasyCalc has no native 7-day; KTC's field spelling can
+    # drift). Native trends (KTC 7-day, FC 30-day) remain as labeled
+    # fallbacks until a week of history exists.
+    hist_path = out_path.parent / "values_history.json"
+    hist = {}
+    if hist_path.exists():
+        try:
+            hist = json.loads(hist_path.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    today = date.today().isoformat()
+    cutoffs = {d: (date.today() - timedelta(days=d)).isoformat() for d in (7, 14, 30)}
+    for pid, e in vals.items():
+        if e.get("ktc") is None and e.get("fc") is None:
+            continue
+        h = hist.setdefault(pid, [])
+        entry = [today, e.get("ktc"), e.get("fc")]
+        if h and h[-1][0] == today:
+            h[-1] = entry
+        else:
+            h.append(entry)
+        del h[:-45]                          # keep ~45 most recent days
+        for name, idx in (("ktc", 1), ("fc", 2)):
+            cur = e.get(name)
+            if cur is None:
+                continue
+            trends = e.get(name + "T") or {}
+            for d, cutoff in cutoffs.items():
+                base = None
+                for row in h:                # most recent snapshot >= d days old
+                    if row[0] <= cutoff and len(row) > idx and row[idx] is not None:
+                        base = row[idx]
+                if base is not None:
+                    trends[str(d)] = cur - base
+            if trends:
+                e[name + "T"] = trends
+    hist_path.write_text(json.dumps(hist))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "fetched": time.strftime("%Y-%m-%d", time.gmtime()),
