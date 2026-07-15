@@ -1,9 +1,11 @@
-import { useContext, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { PlayersMin, SeasonData } from "../lib/types";
 import { fmt, clsOf } from "../lib/stats";
 import { pInfo, ownerOf } from "../lib/league";
 import PosBadge from "../components/PosBadge";
-import { OpenPlayerContext } from "../components/PlayerLink";
+import { PlayerLink } from "../components/PlayerLink";
+import PlayerPanel from "../components/PlayerPanel";
+import AllTimePanel from "../components/AllTimePanel";
 
 interface Row {
   id: string; nm: string; pos: string; team: string;
@@ -25,15 +27,15 @@ const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean }[] = [
   { label: "WAR/G", key: "warG", hm: true },
 ];
 
-interface Props { data: SeasonData; players: PlayersMin; defaultMinGp: number }
+interface Props { data: SeasonData; season: string; seasons: string[]; players: PlayersMin; defaultMinGp: number }
 
-export default function Players({ data, players, defaultMinGp }: Props) {
+export default function Players({ data, season, seasons, players, defaultMinGp }: Props) {
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
   const [minGp, setMinGp] = useState<number | null>(null);
   const [sortCol, setSortCol] = useState(9);
   const [dir, setDir] = useState(-1);
-  const openPlayer = useContext(OpenPlayerContext);
+  const [openPid, setOpenPid] = useState<string | null>(null);
   const gpFloor = minGp ?? defaultMinGp;
 
   const rows = useMemo(() => {
@@ -88,7 +90,13 @@ export default function Players({ data, players, defaultMinGp }: Props) {
               ))}</tr>
             </thead>
             <tbody>
-              {rows.map(r => <PlayerRow key={r.id} r={r} onClick={() => openPlayer(r.id)} />)}
+              {rows.map(r => (
+                <PlayerRow key={r.id} r={r} open={openPid === r.id}
+                  onToggle={() => setOpenPid(openPid === r.id ? null : r.id)}
+                  panel={season === "ALL"
+                    ? <AllTimePanel pid={r.id} data={data} seasons={seasons} teams={data.teams} players={players} />
+                    : <PlayerPanel pid={r.id} season={season} teams={data.teams} players={players} />} />
+              ))}
             </tbody>
           </table>
         )}
@@ -96,11 +104,11 @@ export default function Players({ data, players, defaultMinGp }: Props) {
   );
 }
 
-function PlayerRow({ r, onClick }: { r: Row; onClick: () => void }) {
+function PlayerRow({ r, open, onToggle, panel }: { r: Row; open: boolean; onToggle: () => void; panel: React.ReactNode }) {
   return (
     <>
-      <tr onClick={onClick}>
-        <td>{r.nm}</td>
+      <tr onClick={onToggle}>
+        <td><PlayerLink pid={r.id} name={r.nm} /></td>
         <td className="hm roster" title={r.team}>{r.team}</td>
         <td><PosBadge pos={r.pos} /></td>
         <td className="hm">{r.gp}</td>
@@ -112,6 +120,7 @@ function PlayerRow({ r, onClick }: { r: Row; onClick: () => void }) {
         <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
         <td className={`hm ${clsOf(r.warG)}`}>{fmt(r.warG, 3)}</td>
       </tr>
+      {open && <tr className="wkbox"><td colSpan={COLS.length}>{panel}</td></tr>}
     </>
   );
 }

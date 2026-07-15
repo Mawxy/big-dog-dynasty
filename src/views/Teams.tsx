@@ -1,10 +1,12 @@
-import { useContext, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import type { Matchups, MatchEntry, PlayersMin, SeasonData, Team, Weekly } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
-import { pInfo, weekIndex } from "../lib/league";
+import { pInfo, weekIndex, seasonSeg } from "../lib/league";
 import PosBadge from "../components/PosBadge";
-import { OpenPlayerContext, PlayerLink } from "../components/PlayerLink";
+import { PlayerLink } from "../components/PlayerLink";
+import PlayerPanel from "../components/PlayerPanel";
 
 type WkIdx = Record<string, Record<number, [number, number]>>;
 interface Row {
@@ -25,15 +27,15 @@ const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: numb
   { label: "WAR", key: "war", w: 92 },
 ];
 
-interface Props { data: SeasonData; season: string; players: PlayersMin }
+interface Props { data: SeasonData; season: string; players: PlayersMin; detailRid: number | null }
 
-export default function Teams({ data, season, players }: Props) {
+export default function Teams({ data, season, players, detailRid }: Props) {
   const [weekly, setWeekly] = useState<Weekly | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
   const [sortCol, setSortCol] = useState(0);
   const [dir, setDir] = useState(1);
   const [openRid, setOpenRid] = useState<number | null>(null);
-  const [detailRid, setDetailRid] = useState<number | null>(null);
+  const nav = useNavigate();
 
   useEffect(() => {
     if (season === "ALL") return;
@@ -94,8 +96,9 @@ export default function Teams({ data, season, players }: Props) {
   if (season === "ALL") return <div className="empty">Teams are a per-season view — pick a year from the dropdown.</div>;
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
   if (detailRid !== null) {
-    const t = data.teams.find(x => x.roster_id === detailRid)!;
-    return <TeamDetail t={t} data={data} players={players} back={() => setDetailRid(null)} />;
+    const t = data.teams.find(x => x.roster_id === detailRid);
+    if (!t) return <div className="empty">Team not found.</div>;
+    return <TeamDetail t={t} data={data} season={season} players={players} back={() => nav(`/teams/${seasonSeg(season)}`)} />;
   }
   const ps = mw.playoff_start || 15;
   const clickCol = (i: number) => {
@@ -119,7 +122,7 @@ export default function Teams({ data, season, players }: Props) {
             <TeamRow key={r.rid} r={r} open={openRid === r.rid} ps={ps} wkIdx={wkIdx}
               teams={data.teams} players={players} bySum={data.summary}
               onToggle={() => setOpenRid(openRid === r.rid ? null : r.rid)}
-              onOpenDetail={() => setDetailRid(r.rid)} />
+              onOpenDetail={() => nav(`/teams/${seasonSeg(season)}/${r.rid}`)} />
           ))}
         </tbody>
       </table>
@@ -217,10 +220,10 @@ function TeamPanel({ r, ps, wkIdx, teams, players, bySum }: {
   );
 }
 
-function TeamDetail({ t, data, players, back }: {
-  t: Team; data: SeasonData; players: PlayersMin; back: () => void;
+function TeamDetail({ t, data, season, players, back }: {
+  t: Team; data: SeasonData; season: string; players: PlayersMin; back: () => void;
 }) {
-  const openPlayer = useContext(OpenPlayerContext);
+  const [openPid, setOpenPid] = useState<string | null>(null);
   const sumById = new Map(data.summary.map(s => [s[0], s]));
   const rows = t.players.map(p => {
     const s = sumById.get(p);
@@ -237,7 +240,11 @@ function TeamDetail({ t, data, players, back }: {
         <table>
           <thead><tr><th>Player</th><th>Pos</th><th className="hm">GP</th><th className="hm">Pts</th><th>PPG</th><th>WAA</th><th>WAR</th></tr></thead>
           <tbody>
-            {rows.map(r => <PlayerLine key={r.id} r={r} onClick={() => openPlayer(r.id)} />)}
+            {rows.map(r => (
+              <PlayerLine key={r.id} r={r} open={openPid === r.id}
+                onToggle={() => setOpenPid(openPid === r.id ? null : r.id)}
+                panel={<PlayerPanel pid={r.id} season={season} teams={data.teams} players={players} />} />
+            ))}
           </tbody>
         </table>
       </div>
@@ -245,14 +252,14 @@ function TeamDetail({ t, data, players, back }: {
   );
 }
 
-function PlayerLine({ r, onClick }: {
+function PlayerLine({ r, open, onToggle, panel }: {
   r: { id: string; nm: string; pos: string; tag: string; gp: number; pts: number; ppg: number; waa: number; war: number };
-  onClick: () => void;
+  open: boolean; onToggle: () => void; panel: React.ReactNode;
 }) {
   return (
     <>
-      <tr onClick={onClick}>
-        <td>{r.nm}{r.tag && <span className="tag" style={r.tag === "START" ? { color: "var(--acc)", borderColor: "var(--acc)" } : {}}> {r.tag}</span>}</td>
+      <tr onClick={onToggle}>
+        <td><PlayerLink pid={r.id} name={r.nm} />{r.tag && <span className="tag" style={r.tag === "START" ? { color: "var(--acc)", borderColor: "var(--acc)" } : {}}> {r.tag}</span>}</td>
         <td><PosBadge pos={r.pos} /></td>
         <td className="hm">{r.gp}</td>
         <td className="hm">{fmt(r.pts, 1)}</td>
@@ -260,6 +267,7 @@ function PlayerLine({ r, onClick }: {
         <td className={clsOf(r.waa)}>{fmt(r.waa, 3)}</td>
         <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
       </tr>
+      {open && <tr className="wkbox"><td colSpan={7}>{panel}</td></tr>}
     </>
   );
 }

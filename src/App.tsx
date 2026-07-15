@@ -1,39 +1,57 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Meta, PlayersMin, SeasonData, SummaryRow, Team, Weekly } from "./lib/types";
+import { useEffect, useState } from "react";
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import type { Meta, PlayersMin } from "./lib/types";
 import { j, setVersion } from "./lib/data";
-import { sd } from "./lib/stats";
+import { LeagueContext, useLeague } from "./lib/context";
+import { useSeasonData } from "./lib/useSeasonData";
+import { seasonSeg } from "./lib/league";
 import Players from "./views/Players";
 import Teams from "./views/Teams";
 import WeeklyView from "./views/Weekly";
-import Methodology from "./components/Methodology";
 import PlayerPage from "./components/PlayerPage";
-import { OpenPlayerContext } from "./components/PlayerLink";
+import Methodology from "./components/Methodology";
 
-type View = "players" | "teams" | "weekly";
+const VIEWS = ["players", "teams", "weekly"] as const;
+
+/** URL segment -> internal season id, with fallback to the latest season */
+function seasonOf(seg: string | undefined, meta: Meta): string {
+  if (seg?.toLowerCase() === "all") return "ALL";
+  if (seg && meta.seasons.includes(seg)) return seg;
+  return meta.seasons[meta.seasons.length - 1];
+}
 
 export default function App() {
   const [meta, setMeta] = useState<Meta | null>(null);
-  const [players, setPlayers] = useState<PlayersMin>({});
-  const [season, setSeason] = useState("");
-  const [view, setView] = useState<View>("players");
-  const [openPlayer, setOpenPlayer] = useState<string | null>(null);
+  const [players, setPlayers] = useState<PlayersMin | null>(null);
   const [err, setErr] = useState("");
-
   useEffect(() => {
     (async () => {
       const m = await j<Meta>("data/meta.json");
       setVersion(m.updated);
       setPlayers(await j<PlayersMin>("data/players_min.json"));
       setMeta(m);
-      setSeason(m.seasons[m.seasons.length - 1]);
     })().catch(e => setErr(String(e)));
   }, []);
-
-  const data = useSeasonData(season, meta);
-
   if (err) return <div className="empty">Failed to load data: {err}</div>;
-  if (!meta || !season) return <div className="empty">Loading…</div>;
+  if (!meta || !players) return <div className="empty">Loading…</div>;
+  return (
+    <LeagueContext.Provider value={{ meta, players }}>
+      <HashRouter>
+        <Shell />
+      </HashRouter>
+    </LeagueContext.Provider>
+  );
+}
 
+function Shell() {
+  const { meta } = useLeague();
+  const nav = useNavigate();
+  const loc = useLocation();
+  const latest = meta.seasons[meta.seasons.length - 1];
+  const parts = loc.pathname.split("/");
+  const onView = (VIEWS as readonly string[]).includes(parts[1]);
+  const curView = onView ? parts[1] : "players";
+  const curSeasonSeg = onView && parts[2] ? parts[2] : seasonSeg(latest);
   return (
     <>
       <header>
@@ -41,73 +59,62 @@ export default function App() {
         <div id="updated">updated {meta.updated}</div>
       </header>
       <nav>
-        {(["players", "teams", "weekly"] as View[]).map(v => (
-          <button key={v} className={view === v ? "on" : ""} onClick={() => { setView(v); setOpenPlayer(null); }}>
+        {VIEWS.map(v => (
+          <button key={v} className={parts[1] === v ? "on" : ""} onClick={() => nav(`/${v}/${curSeasonSeg}`)}>
             {v[0].toUpperCase() + v.slice(1)}
           </button>
         ))}
-        <select style={{ marginLeft: "auto" }} value={season} onChange={e => { setSeason(e.target.value); setOpenPlayer(null); }}>
+        <select style={{ marginLeft: "auto" }} value={curSeasonSeg} onChange={e => nav(`/${curView}/${e.target.value}`)}>
           {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
-          <option value="ALL">All-time</option>
+          <option value="all">All-time</option>
         </select>
       </nav>
       <main>
-        <OpenPlayerContext.Provider value={pid => setOpenPlayer(pid)}>
-          {/* keep the view mounted (hidden) so its state survives visiting a player page */}
-          <div style={{ display: openPlayer ? "none" : undefined }}>
-            {!data ? <div className="empty">Loading…</div> : (
-              view === "players"
-                ? <Players data={data} players={players}
-                    defaultMinGp={Math.round(data.summary.reduce((m, r) => Math.max(m, r[2]), 0) * 0.45)} />
-                : view === "teams"
-                  ? <Teams data={data} season={season} players={players} />
-                  : <WeeklyView data={data} season={season} players={players} />
-            )}
-          </div>
-          {openPlayer && <PlayerPage pid={openPlayer} players={players} meta={meta} back={() => setOpenPlayer(null)} />}
-        </OpenPlayerContext.Provider>
+        <Routes>
+          <Route path="/players/:season" element={<PlayersRoute />} />
+          <Route path="/teams/:season" element={<TeamsRoute />} />
+          <Route path="/teams/:season/:rid" element={<TeamsRoute />} />
+          <Route path="/weekly/:season" element={<WeeklyRoute />} />
+          <Route path="/weekly/:season/:wk" element={<WeeklyRoute />} />
+          <Route path="/player/:pid" element={<PlayerRoute />} />
+          <Route path="*" element={<Navigate to={`/players/${seasonSeg(latest)}`} replace />} />
+        </Routes>
       </main>
       <Methodology />
     </>
   );
 }
 
-function useSeasonData(season: string, meta: Meta | null): SeasonData | null {
-  const [d, setD] = useState<SeasonData | null>(null);
-  useEffect(() => {
-    if (!meta || !season) return;
-    let live = true;
-    setD(null);
-    (async () => {
-      if (season === "ALL") {
-        const seasons = meta.seasons;
-        const sums = await Promise.all(seasons.map(s => j<SummaryRow[]>(`data/${s}/summary.json`).catch(() => [] as SummaryRow[])));
-        const weeks = await Promise.all(seasons.map(s => j<Weekly>(`data/${s}/weekly.json`).catch(() => ({} as Weekly))));
-        const allData: NonNullable<SeasonData["allData"]> = {};
-        seasons.forEach((s, i) => { allData[s] = { summary: sums[i], weekly: weeks[i] }; });
-        const agg: Record<string, { pos: string; gp: number; pts: number; waa: number; war: number; wpts: number[] }> = {};
-        seasons.forEach((_s, i) => {
-          for (const r of sums[i]) {
-            const a = agg[r[0]] ??= { pos: r[1], gp: 0, pts: 0, waa: 0, war: 0, wpts: [] };
-            a.gp += r[2]; a.pts += r[3]; a.waa += r[5]; a.war += r[6]; a.pos = r[1];
-            for (const w of weeks[i][r[0]] || []) a.wpts.push(w[1]);
-          }
-        });
-        const summary: SummaryRow[] = Object.entries(agg).map(([pid, a]) => [
-          pid, a.pos, a.gp, +a.pts.toFixed(1), +(a.pts / a.gp).toFixed(2),
-          +a.waa.toFixed(3), +a.war.toFixed(3), +sd(a.wpts).toFixed(2),
-        ]);
-        const teams = await j<Team[]>(`data/${seasons[seasons.length - 1]}/teams.json`);
-        if (live) setD({ summary, teams, allData });
-      } else {
-        const [summary, teams] = await Promise.all([
-          j<SummaryRow[]>(`data/${season}/summary.json`),
-          j<Team[]>(`data/${season}/teams.json`),
-        ]);
-        if (live) setD({ summary, teams, allData: null });
-      }
-    })().catch(() => { if (live) setD({ summary: [], teams: [], allData: null }); });
-    return () => { live = false; };
-  }, [season, meta]);
-  return d;
+function PlayersRoute() {
+  const { meta, players } = useLeague();
+  const season = seasonOf(useParams().season, meta);
+  const data = useSeasonData(season);
+  if (!data) return <div className="empty">Loading…</div>;
+  return <Players data={data} season={season} seasons={meta.seasons} players={players}
+    defaultMinGp={Math.round(data.summary.reduce((m, r) => Math.max(m, r[2]), 0) * 0.45)} />;
+}
+
+function TeamsRoute() {
+  const { meta, players } = useLeague();
+  const p = useParams();
+  const season = seasonOf(p.season, meta);
+  const data = useSeasonData(season);
+  if (!data) return <div className="empty">Loading…</div>;
+  return <Teams data={data} season={season} players={players} detailRid={p.rid ? +p.rid : null} />;
+}
+
+function WeeklyRoute() {
+  const { meta, players } = useLeague();
+  const p = useParams();
+  const season = seasonOf(p.season, meta);
+  const data = useSeasonData(season);
+  if (!data) return <div className="empty">Loading…</div>;
+  return <WeeklyView data={data} season={season} players={players} week={p.wk ? +p.wk : null} />;
+}
+
+function PlayerRoute() {
+  const { meta, players } = useLeague();
+  const pid = useParams().pid!;
+  const nav = useNavigate();
+  return <PlayerPage pid={pid} players={players} meta={meta} back={() => nav(-1)} />;
 }
