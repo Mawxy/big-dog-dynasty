@@ -108,6 +108,46 @@ def main():
         (sout / "matchups.json").write_text(json.dumps(
             {"playoff_start": league.get("settings", {}).get("playoff_week_start", 15),
              "teams": mws}))
+
+        # --- absences: label each missing regular-season week BYE / DNP / NR ---
+        ps_wk = league.get("settings", {}).get("playoff_week_start", 15)
+        played_maps = {}
+        pdir = sdir / "played"
+        if pdir.exists():
+            for pf in sorted(pdir.glob("week_*.json")):
+                wk = int(pf.stem.split("_")[1])
+                if wk >= ps_wk:
+                    continue
+                pm = load(pf)
+                # old dumps stored a bare list (no teams); tolerate both shapes
+                played_maps[wk] = pm if isinstance(pm, dict) else {x: "" for x in (pm or [])}
+        absence = {}
+        if played_maps:
+            all_teams = {t for m in played_maps.values() for t in m.values() if t}
+            byes = {wk: all_teams - {t for t in m.values() if t} for wk, m in played_maps.items()}
+            wks_sorted = sorted(played_maps)
+            for pid, wrows in weekly.items():
+                have = {r[0] for r in wrows}
+                ab = {}
+                for w in wks_sorted:
+                    if w in have:
+                        continue
+                    if pid in played_maps[w]:
+                        ab[w] = "NR"        # played in the NFL, wasn't on a league roster
+                        continue
+                    team = None             # infer his team from the nearest played week
+                    for dist in range(1, 20):
+                        for cand in (w - dist, w + dist):
+                            t = played_maps.get(cand, {}).get(pid)
+                            if t:
+                                team = t
+                                break
+                        if team:
+                            break
+                    ab[w] = "BYE" if team and team in byes.get(w, set()) else "DNP"
+                if ab:
+                    absence[pid] = ab
+        (sout / "absence.json").write_text(json.dumps(absence))
         for row in summary:                      # append point st-dev per player
             v = [w[1] for w in weekly.get(row[0], [])]
             row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)

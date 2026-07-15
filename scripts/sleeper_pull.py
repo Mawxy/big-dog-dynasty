@@ -107,12 +107,14 @@ def fetch_played(season, week):
     url = (f"https://api.sleeper.app/stats/nfl/{season}/{week}"
            f"?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE")
     rows = get(url) or []
-    played = []
+    played = {}   # player_id -> NFL team that week (lets us tell BYE from DNP)
     for row in rows:
         st = row.get("stats") or {}
         if st.get("gp") or st.get("off_snp") or st.get("def_snp") or st.get("st_snp"):
-            played.append(row.get("player_id"))
-    return sorted(p for p in played if p)
+            pid = row.get("player_id")
+            if pid:
+                played[pid] = row.get("team") or ""
+    return played
 
 def main():
     ap = argparse.ArgumentParser(description="Dump a Sleeper league's full history to JSON.")
