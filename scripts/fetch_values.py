@@ -44,10 +44,14 @@ def fetch_fantasycalc(out, picks):
     for row in json.loads(get(FC_URL)):
         p = row.get("player") or {}
         sid = p.get("sleeperId")
-        if not sid:
-            name = p.get("name") or ""
-            if PICK_RE.match(name) and row.get("value"):
+        name = p.get("name") or ""
+        # FC picks carry a synthetic sleeperId like "FP_2026_1", so detect
+        # picks by position/name BEFORE treating rows as players
+        if p.get("position") == "PICK" or PICK_RE.match(name) or str(sid or "").startswith("FP_"):
+            if row.get("value"):
                 picks.setdefault("fc", []).append([name, row["value"]])
+            continue
+        if not sid:
             continue
         e = out.setdefault(str(sid), {})
         e["fc"] = row.get("value")
@@ -144,6 +148,10 @@ def main():
     if not vals:
         print("No sources succeeded — keeping previous values.json")
         return
+    # scrub synthetic pick ids that earlier runs stored as players
+    for d in (vals, prev):
+        for k in [k for k in d if str(k).startswith("FP_")]:
+            del d[k]
     # carry forward the other source's numbers if one failed this week
     for pid, old in prev.items():
         cur = vals.setdefault(pid, {})
