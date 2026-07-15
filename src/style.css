@@ -60,3 +60,11 @@ td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
   th,td{padding:7px 8px;font-size:13px}
   .hm{display:none}
 }
+
+.seasongrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;align-items:start}
+.scard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
+.shead{cursor:pointer;user-select:none;display:flex;gap:8px;align-items:baseline;min-width:0}
+.shead .tname{color:var(--acc);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex-shrink:1}
+.shead .chev{color:var(--dim);font-size:11px;flex-shrink:0}
+.ssub{color:var(--dim);font-size:12.5px;margin:2px 0 6px 19px}
+@media (max-width:640px){.seasongrid{grid-template-columns:1fr}}
