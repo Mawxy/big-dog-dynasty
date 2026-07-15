@@ -2,7 +2,7 @@
  *  [player_id, pos, gp, pts, ppg, WAA, WAR, sigma?] */
 export type SummaryRow = [string, string, number, number, number, number, number, number?];
 
-export interface Meta { league: string; seasons: string[]; updated: string }
+export interface Meta { league: string; seasons: string[]; updated: string; latest?: string }
 
 /** player_id -> [name, position, NFL team] */
 export type PlayersMin = Record<string, [string, string, string]>;

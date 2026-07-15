@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
+import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 import type { Meta, PlayersMin } from "./lib/types";
 import { j, setVersion } from "./lib/data";
 import { LeagueContext, useLeague } from "./lib/context";
@@ -13,11 +13,17 @@ import Methodology from "./components/Methodology";
 
 const VIEWS = ["players", "teams", "weekly"] as const;
 
-/** URL segment -> internal season id, with fallback to the latest season */
+/** newest season that actually has WAR data (falls back to newest listed) */
+function defaultSeason(meta: Meta): string {
+  if (meta.latest && meta.seasons.includes(meta.latest)) return meta.latest;
+  return meta.seasons[meta.seasons.length - 1];
+}
+
+/** URL segment -> internal season id, with fallback to the default season */
 function seasonOf(seg: string | undefined, meta: Meta): string {
   if (seg?.toLowerCase() === "all") return "ALL";
   if (seg && meta.seasons.includes(seg)) return seg;
-  return meta.seasons[meta.seasons.length - 1];
+  return defaultSeason(meta);
 }
 
 export default function App() {
@@ -47,7 +53,12 @@ function Shell() {
   const { meta } = useLeague();
   const nav = useNavigate();
   const loc = useLocation();
-  const latest = meta.seasons[meta.seasons.length - 1];
+  const navType = useNavigationType();
+  // new page -> start at the top; browser back/forward keeps its own scroll
+  useEffect(() => {
+    if (navType === "PUSH") window.scrollTo(0, 0);
+  }, [loc.pathname, navType]);
+  const latest = defaultSeason(meta);
   const parts = loc.pathname.split("/");
   const onView = (VIEWS as readonly string[]).includes(parts[1]);
   const curView = onView ? parts[1] : "players";
