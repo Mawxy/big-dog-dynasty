@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Meta, Ownership, PlayersMin, SummaryRow, Team, Weekly, WeeklyRow } from "../lib/types";
+import type { Absences, Meta, Ownership, PlayersMin, SummaryRow, Team, Weekly, WeeklyRow } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
@@ -7,7 +7,12 @@ import PosBadge from "./PosBadge";
 import BoxPlot from "./BoxPlot";
 import OwnershipHistory from "./OwnershipHistory";
 
-interface SeasonBlock { season: string; team: string | null; manager: string | null; sum: SummaryRow | null; weeks: WeeklyRow[] }
+interface SeasonBlock {
+  season: string; team: string | null; manager: string | null;
+  sum: SummaryRow | null; weeks: WeeklyRow[];
+  abs: Record<string, string>;
+}
+const ABS_LABEL: Record<string, string> = { BYE: "Bye", DNP: "DNP", NR: "Not rostered" };
 interface Props { pid: string; players: PlayersMin; meta: Meta; back: () => void }
 
 export default function PlayerPage({ pid, players, meta, back }: Props) {
@@ -19,10 +24,11 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
     let live = true;
     (async () => {
       const seasons = meta.seasons;
-      const [sums, weeks, teams, ownership] = await Promise.all([
+      const [sums, weeks, teams, absences, ownership] = await Promise.all([
         Promise.all(seasons.map(s => j<SummaryRow[]>(`data/${s}/summary.json`).catch(() => [] as SummaryRow[]))),
         Promise.all(seasons.map(s => j<Weekly>(`data/${s}/weekly.json`).catch(() => ({} as Weekly)))),
         Promise.all(seasons.map(s => j<Team[]>(`data/${s}/teams.json`).catch(() => [] as Team[]))),
+        Promise.all(seasons.map(s => j<Absences>(`data/${s}/absence.json`).catch(() => ({} as Absences)))),
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
       if (!live) return;
@@ -32,6 +38,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
           season: s, team: t?.team ?? null, manager: t?.manager ?? null,
           sum: sums[i].find(r => r[0] === pid) ?? null,
           weeks: (weeks[i][pid] || []).slice().sort((a, b) => a[0] - b[0]),
+          abs: absences[i][pid] || {},
         };
       }).filter(b => b.sum || b.weeks.length || b.team);
       setBlocks(bl.reverse());   // newest season first
@@ -123,15 +130,28 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
                 <table className="wktbl">
                   <thead><tr><th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
                   <tbody>
-                    {b.weeks.map(w => (
-                      <tr key={w[0]}>
-                        <td>W{w[0]}</td><td><b>{fmt(w[1], 1)}</b></td>
-                        <td className={clsOf(w[2])}>{sgn(w[2], 1)}</td>
-                        <td className={clsOf(w[3])}>{sgn(w[3], 1)}</td>
-                        <td className={clsOf(w[4])}>{sgn(w[4])}</td>
-                        <td className={clsOf(w[5])}>{sgn(w[5])}</td>
-                      </tr>
-                    ))}
+                    {[...new Set([...b.weeks.map(w => w[0]), ...Object.keys(b.abs).map(Number)])]
+                      .sort((x, y) => x - y)
+                      .map(wk => {
+                        const w = b.weeks.find(r => r[0] === wk);
+                        if (!w) return (
+                          <tr key={wk}>
+                            <td>W{wk}</td>
+                            <td colSpan={5} style={{ color: "var(--dim)", fontStyle: "italic", textAlign: "left" }}>
+                              {ABS_LABEL[b.abs[wk]] ?? b.abs[wk]}
+                            </td>
+                          </tr>
+                        );
+                        return (
+                          <tr key={wk}>
+                            <td>W{w[0]}</td><td><b>{fmt(w[1], 1)}</b></td>
+                            <td className={clsOf(w[2])}>{sgn(w[2], 1)}</td>
+                            <td className={clsOf(w[3])}>{sgn(w[3], 1)}</td>
+                            <td className={clsOf(w[4])}>{sgn(w[4])}</td>
+                            <td className={clsOf(w[5])}>{sgn(w[5])}</td>
+                          </tr>
+                        );
+                      })}
                   </tbody>
                 </table>
               </div>}

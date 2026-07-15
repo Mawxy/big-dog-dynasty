@@ -31,3 +31,6 @@ export interface SeasonData {
   /** present only in All-time mode: per-season raw data */
   allData: Record<string, { summary: SummaryRow[]; weekly: Weekly }> | null;
 }
+
+/** player_id -> { week -> "BYE" | "DNP" | "NR" } for missing regular-season weeks */
+export type Absences = Record<string, Record<string, string>>;
