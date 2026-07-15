@@ -74,7 +74,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
             {" · career WAR "}<span className={clsOf(war)}>{fmt(war, 3)}</span></>}
         </div>
       </div>
-      <MarketValue vals={vals} pid={pid} />
+      <MarketValue vals={vals} pid={pid} pos={pos} />
       <div className="wkflex" style={{ marginBottom: 24 }}>
         <div>
           <table style={{ width: "auto" }}>
@@ -104,9 +104,11 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
           <OwnershipHistory events={own[pid] || []} />
         </div>
       </div>
-      <div className="wkflex" style={{ gap: 40, marginBottom: 10 }}>
-        <div style={{ flex: 1, minWidth: 380 }}><WarTrend data={trend} /></div>
-        <SeasonBoxes rows={blocks.map(b => ({ season: b.season, values: b.weeks.map(w => w[1]) }))} />
+      <div className="wkflex" style={{ gap: 40, marginBottom: 22 }}>
+        <div style={{ flex: "1 1 420px", minWidth: 340, maxWidth: 720 }}><WarTrend data={trend} /></div>
+        <div style={{ flex: "1 1 420px", minWidth: 340, maxWidth: 720 }}>
+          <SeasonBoxes rows={blocks.map(b => ({ season: b.season, values: b.weeks.map(w => w[1]) }))} />
+        </div>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "8px 0 12px" }}>
         <h3 style={{ margin: 0 }}>Season detail</h3>
@@ -172,22 +174,39 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   );
 }
 
-function MarketValue({ vals, pid }: { vals: Values | null; pid: string }) {
+function MarketValue({ vals, pid, pos }: { vals: Values | null; pid: string; pos: string }) {
   const v = vals?.players[pid];
   if (!v || (!v.ktc && !v.fc)) return null;
   const num = (n: number) => n.toLocaleString("en-US");
+  const trendSpans = (trends?: Record<string, number>) =>
+    trends && [7, 14, 30].map(d => {
+      const t = trends[String(d)];
+      if (t == null) return null;
+      return (
+        <span key={d}>
+          {" · "}<span style={{ color: "var(--dim)" }}>{d}d </span>
+          {t === 0
+            ? <span style={{ color: "var(--dim)" }}>—</span>
+            : <span className={t > 0 ? "num good" : "num bad"}>{t > 0 ? "▲" : "▼"}{num(Math.abs(t))}</span>}
+        </span>
+      );
+    });
+  const line = (label: string, val?: number, ovr?: number, posRank?: number,
+    trends?: Record<string, number>) =>
+    val == null ? null : (
+      <div key={label}>
+        <span style={{ display: "inline-block", width: 108, color: "var(--dim)" }}>{label}</span>
+        <b style={{ color: "var(--txt)" }}>{num(val)}</b>
+        {ovr != null && <span style={{ color: "var(--dim)" }}> · OVR {ovr}</span>}
+        {posRank != null && <span style={{ color: "var(--dim)" }}> · {pos}{posRank}</span>}
+        {trendSpans(trends)}
+      </div>
+    );
   return (
-    <div style={{ color: "var(--dim)", fontSize: 13, margin: "-6px 0 16px" }}>
-      Market value:
-      {v.ktc != null && <> <b style={{ color: "var(--txt)" }}>KeepTradeCut {num(v.ktc)}</b></>}
-      {v.ktc != null && v.fc != null && " · "}
-      {v.fc != null && <>
-        <b style={{ color: "var(--txt)" }}>FantasyCalc {num(v.fc)}</b>
-        {v.fcRank != null && <> (#{v.fcRank} overall{v.fcTrend != null && v.fcTrend !== 0 && <>
-          , <span className={v.fcTrend > 0 ? "num good" : "num bad"}>
-            {v.fcTrend > 0 ? "▲" : "▼"}{num(Math.abs(v.fcTrend))}</span> 30-day</>})</>}
-      </>}
-      {vals?.fetched && <span> — as of {vals.fetched}</span>}
+    <div style={{ fontSize: 13, margin: "-6px 0 16px", lineHeight: 1.8 }}>
+      {line("KeepTradeCut", v.ktc, v.ktcRank, v.ktcPosRank, v.ktcT)}
+      {line("FantasyCalc", v.fc, v.fcRank, v.fcPosRank, v.fcT)}
+      {vals?.fetched && <div style={{ color: "var(--dim)", fontSize: 11.5 }}>market values as of {vals.fetched}</div>}
     </div>
   );
 }

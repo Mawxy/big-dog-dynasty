@@ -1,16 +1,29 @@
+import { useEffect, useRef, useState } from "react";
 import { quart } from "../lib/stats";
 
 interface Row { season: string; values: number[] }
 
-/** Grouped horizontal box plots — one row per season, one shared, labeled axis. */
-export default function SeasonBoxes({ rows }: { rows: Row[] }) {
+/** Grouped horizontal box plots — one row per season, one shared, labeled axis.
+ *  Fixed height, width tracks the parent container (so it can size-match
+ *  sibling charts). */
+export default function SeasonBoxes({ rows, height = 230 }: { rows: Row[]; height?: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [W, setW] = useState(540);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setW(Math.max(320, el.clientWidth)));
+    ro.observe(el);
+    setW(Math.max(320, el.clientWidth));
+    return () => ro.disconnect();
+  }, []);
   const usable = rows.filter(r => r.values.length >= 4);
   if (!usable.length) return null;
   const all = usable.flatMap(r => r.values);
   const lo = Math.min(0, ...all), hi = Math.max(...all);
-  const L = 52, R = 528, W = 540;
-  const rowH = 34, T = 8, axisH = 24;
-  const H = T + usable.length * rowH + axisH;
+  const L = 52, R = W - 14;
+  const T = 8, axisH = 24, H = height;
+  const rowH = (H - T - axisH) / usable.length;
   const x = (t: number) => L + (t - lo) / ((hi - lo) || 1) * (R - L);
   const span = (hi - lo) || 1;
   const step = span <= 30 ? 5 : span <= 60 ? 10 : 20;
@@ -18,11 +31,11 @@ export default function SeasonBoxes({ rows }: { rows: Row[] }) {
   for (let t = Math.ceil(lo / step) * step; t <= hi + 0.001; t += step) ticks.push(t);
   const c = "#8b96a5", grid = "#242c38";
   return (
-    <div>
+    <div ref={ref}>
       <div style={{ color: "var(--txt)", fontSize: 13, marginBottom: 4 }}>
         <b>Weekly points by season</b>
       </div>
-      <svg width={W} height={H} style={{ maxWidth: "100%" }}>
+      <svg width={W} height={H}>
         {ticks.map(t => (
           <g key={t}>
             <line x1={x(t)} x2={x(t)} y1={T} y2={H - axisH + 4} stroke={grid} />

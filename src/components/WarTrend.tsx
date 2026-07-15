@@ -5,10 +5,10 @@ import {
 export default function WarTrend({ data }: { data: { season: string; WAR: number; WAA: number }[] }) {
   if (data.length < 2) return null;
   return (
-    <div style={{ maxWidth: 720, margin: "0 0 26px" }}>
+    <div>
       <div style={{ color: "var(--txt)", fontSize: 13, marginBottom: 4 }}><b>WAR by season</b>
         <span style={{ color: "var(--dim)", fontWeight: 400 }}> — solid WAR · dashed WAA</span></div>
-      <ResponsiveContainer width="100%" height={220}>
+      <ResponsiveContainer width="100%" height={230}>
         <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: -14 }}>
           <CartesianGrid stroke="#242c38" strokeDasharray="3 3" />
           <XAxis dataKey="season" stroke="#8b96a5" fontSize={12} tickLine={false} />
