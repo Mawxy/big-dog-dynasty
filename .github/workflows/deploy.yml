@@ -1,0 +1,36 @@
+name: Build & deploy site
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  workflow_call:      # lets the data-refresh workflow trigger a deploy when it commits new data
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true   # rapid pushes: newest build wins, stale ones cancel
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Pick up any data commit that just landed
+        run: git pull --ff-only
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - run: npm run build
+      - name: Bundle league data into the site
+        run: cp -r data dist/data
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
