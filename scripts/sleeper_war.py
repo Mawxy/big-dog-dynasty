@@ -141,14 +141,24 @@ def run_season(season_dir: Path, players, args):
         wk = int(wf.stem.split("_")[1])
         if wk >= playoff_start and not args.include_playoffs:
             continue
+        # who actually played (from Sleeper's stats feed, saved by sleeper_pull).
+        # With it, a true 0.00-point game counts (and accrues negative value)
+        # while byes/inactives are excluded. Without it (older dumps), fall
+        # back to treating 0.00 as did-not-play.
+        pfile = season_dir / "played" / f"week_{wk:02d}.json"
+        played = set(load_json(pfile)) if pfile.exists() else None
         points, positions = {}, {}
         for team in load_json(wf):
             for pid, pts in (team.get("players_points") or {}).items():
                 pos = player_pos(players, pid)
-                # pts of 0.00 means bye/injured/DNP on Sleeper — those weeks
-                # don't count as games played and accrue no PAA/PAR.
-                if pos and pts:
-                    points[pid], positions[pid] = pts, pos
+                if not pos or pts is None:
+                    continue
+                if played is not None:
+                    if pid not in played:
+                        continue
+                elif not pts:
+                    continue
+                points[pid], positions[pid] = pts, pos
         if not points:
             continue
         startable, avg, repl = build_week(points, positions, slots)

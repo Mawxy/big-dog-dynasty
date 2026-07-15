@@ -26,7 +26,7 @@ RETRIES = 3
 
 def get(path):
     """GET a Sleeper endpoint, return parsed JSON (None on 404/null)."""
-    url = BASE + path
+    url = path if path.startswith("http") else BASE + path
     for attempt in range(RETRIES):
         try:
             time.sleep(DELAY)
@@ -84,13 +84,35 @@ def dump_league(league_id: str, root: Path):
     last_week = league.get("settings", {}).get("last_scored_leg") or 18
     for wk in range(1, last_week + 1):
         m = get(f"/league/{league_id}/matchups/{wk}")
-        if m and any(t.get("points") for t in m):
+        week_scored = bool(m and any(t.get("points") for t in m))
+        if week_scored:
             save(m, d / "matchups" / f"week_{wk:02d}.json")
         t = get(f"/league/{league_id}/transactions/{wk}")
         if t:
             save(t, d / "transactions" / f"week_{wk:02d}.json")
+        if week_scored:
+            played = fetch_played(season, wk)
+            if played:
+                save(played, d / "played" / f"week_{wk:02d}.json")
 
     return league.get("previous_league_id")
+
+
+def fetch_played(season, week):
+    """Player IDs (QB/RB/WR/TE) who actually PLAYED that week, per Sleeper's
+    stats feed. Distinguishes a real 0.00-point game from a bye/inactive week
+    (Sleeper's own game log shows those as '-'). A player counts as having
+    played if they logged a game (gp) or any snaps — 'gms_active' alone means
+    dressed but never took the field, so it does NOT count."""
+    url = (f"https://api.sleeper.app/stats/nfl/{season}/{week}"
+           f"?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE")
+    rows = get(url) or []
+    played = []
+    for row in rows:
+        st = row.get("stats") or {}
+        if st.get("gp") or st.get("off_snp") or st.get("def_snp") or st.get("st_snp"):
+            played.append(row.get("player_id"))
+    return sorted(p for p in played if p)
 
 def main():
     ap = argparse.ArgumentParser(description="Dump a Sleeper league's full history to JSON.")

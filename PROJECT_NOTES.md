@@ -55,7 +55,11 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    Max explicitly wants big games in low-scoring weeks to earn more).
 4. Weekly shifts summed over **regular season only** (playoffs excluded;
    `--include-playoffs` flag exists).
-5. **0.00-point weeks = DNP** (bye/injury): no game played, no PAA/PAR accrued.
+5. **Played = has a real stat line** (gp or snaps in Sleeper's weekly stats
+   feed, saved as `<season>/played/week_NN.json` by sleeper_pull). A true
+   0.00-point game counts as played and accrues negative value; byes and
+   inactives are excluded. `gms_active` alone (dressed, never played) does
+   NOT count. Falls back to "0.00 = DNP" if played files are absent.
 6. Team WAA/WAR (Teams page) = sum over each week's **actual starters**, not
    season totals of the current roster. Lineup WAA runs negative for most
    teams (measured vs the optimal pool) — that's expected, compare relatively.
@@ -81,11 +85,11 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
 
 ## Known bugs / caveats (tracked, not yet fixed)
 
-1. **0.00 vs DNP conflation**: Sleeper `players_points` can't distinguish
-   played-and-scored-0.00 from bye/inactive. Fix path: pull the undocumented
-   weekly stats endpoint (`api.sleeper.app/v1/stats/nfl/regular/<yr>/<wk>`),
-   use "has stat line" as the played signal; also enables a "started a ghost"
-   flag for lineup blunders. ~18 extra calls/season in sleeper_pull.py.
+1. ~~0.00 vs DNP conflation~~ **FIXED**: sleeper_pull now saves per-week
+   played sets from `api.sleeper.app/stats/nfl/<yr>/<wk>?season_type=regular&
+   position[]=QB...` (played = gp>0 or any snaps; NOT gms_active alone), and
+   sleeper_war uses them. "Started a ghost" flag is now buildable from
+   starters minus played-set.
 2. All-time "Roster" column attributes players to their **current** owner only.
 3. Sleeper rate limit: stay under ~1000 calls/min; the 5MB `players/nfl` map
    at most once per day (why data refresh is weekly and deploy is separate).
