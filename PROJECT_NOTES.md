@@ -81,7 +81,16 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
 - **Weekly**: per week biggest WAR + lowest WAR among *started* players; row
   dropdown = top 5 per position; week number → week page (all matchups with
   winners + lineup WAR, top-50 performers).
-- Methodology lives in a collapsed footer.
+- Methodology lives in a collapsed footer, with KTC/FantasyCalc attribution.
+- **Market values** (player pages only, not leaderboards): daily
+  `values-refresh.yml` workflow (no Sleeper calls) pulls FantasyCalc API +
+  KeepTradeCut page scrape into `data/values.json` + `values_history.json`.
+  Grid shows per source: value, ≈ closest draft pick, OVR, pos rank, and
+  7/14/30-day deltas (computed from our own daily snapshots for aligned
+  windows; native trends as fallback; N/A until history accrues).
+  DECISION: deltas are raw VALUE only — Max explicitly does not want rank
+  deltas ("less meaningful"). Position badge on player pages shows WAR rank
+  from the most recent season with data (auto-rolls to 2026).
 
 ## Known bugs / caveats (tracked, not yet fixed)
 
