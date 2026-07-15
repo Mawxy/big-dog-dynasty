@@ -1,11 +1,10 @@
 import { useEffect, useState } from "react";
-import type { Absences, Meta, Ownership, PlayersMin, SummaryRow, Team, Weekly, WeeklyRow } from "../lib/types";
+import type { Absences, Meta, Ownership, PlayersMin, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import PosBadge from "./PosBadge";
-import BoxPlot from "./BoxPlot";
-import VBoxPlot from "./VBoxPlot";
+import SeasonBoxes from "./SeasonBoxes";
 import WarTrend from "./WarTrend";
 import OwnershipHistory from "./OwnershipHistory";
 
@@ -20,6 +19,7 @@ interface Props { pid: string; players: PlayersMin; meta: Meta; back: () => void
 export default function PlayerPage({ pid, players, meta, back }: Props) {
   const [blocks, setBlocks] = useState<SeasonBlock[] | null>(null);
   const [own, setOwn] = useState<Ownership>({});
+  const [vals, setVals] = useState<Values | null>(null);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -33,6 +33,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         Promise.all(seasons.map(s => j<Absences>(`data/${s}/absence.json`).catch(() => ({} as Absences)))),
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
+      j<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
       if (!live) return;
       const bl = seasons.map((s, i): SeasonBlock => {
         const t = teams[i].find(x => x.players.includes(pid));
@@ -58,8 +59,6 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   const waa = blocks.reduce((s, b) => s + (b.sum?.[5] || 0), 0);
   const war = blocks.reduce((s, b) => s + (b.sum?.[6] || 0), 0);
   const owner = blocks.find(b => b.team)?.team;
-  const vDomain: [number, number] = allPts.length
-    ? [Math.min(0, ...allPts), Math.max(...allPts)] : [0, 1];
   const trend = blocks.slice().reverse().filter(b => b.sum)
     .map(b => ({ season: b.season, WAR: b.sum![6], WAA: b.sum![5] }));
 
@@ -75,6 +74,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
             {" · career WAR "}<span className={clsOf(war)}>{fmt(war, 3)}</span></>}
         </div>
       </div>
+      <MarketValue vals={vals} pid={pid} />
       <div className="wkflex" style={{ marginBottom: 24 }}>
         <div>
           <table style={{ width: "auto" }}>
@@ -101,11 +101,13 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
           </table>
         </div>
         <div className="wkright">
-          <BoxPlot values={allPts} label="Weekly points spread (career)" />
           <OwnershipHistory events={own[pid] || []} />
         </div>
       </div>
-      <WarTrend data={trend} />
+      <div className="wkflex" style={{ gap: 40, marginBottom: 10 }}>
+        <div style={{ flex: 1, minWidth: 380 }}><WarTrend data={trend} /></div>
+        <SeasonBoxes rows={blocks.map(b => ({ season: b.season, values: b.weeks.map(w => w[1]) }))} />
+      </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "8px 0 12px" }}>
         <h3 style={{ margin: 0 }}>Season detail</h3>
         <span className="tlink" style={{ fontSize: 12 }} onClick={() => setCollapsed(new Set())}>expand all</span>
@@ -133,8 +135,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
                 {b.weeks.length} games · {fmt(mean(wpts), 1)} ppg · σ {fmt(sd(wpts), 1)}
                 {b.sum && <> · WAR <span className={clsOf(b.sum[6])}>{fmt(b.sum[6], 3)}</span></>}
               </div>
-              {!closed && <div style={{ display: "flex", gap: 12, alignItems: "flex-start", flexWrap: "wrap" }}>
-                <div className="wkwrap">
+              {!closed && <div className="wkwrap">
                 <table className="wktbl">
                   <thead><tr><th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
                   <tbody>
@@ -162,13 +163,31 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
                       })}
                   </tbody>
                 </table>
-                </div>
-                <VBoxPlot values={wpts} domain={vDomain} />
               </div>}
             </div>
           );
         })}
       </div>
     </>
+  );
+}
+
+function MarketValue({ vals, pid }: { vals: Values | null; pid: string }) {
+  const v = vals?.players[pid];
+  if (!v || (!v.ktc && !v.fc)) return null;
+  const num = (n: number) => n.toLocaleString("en-US");
+  return (
+    <div style={{ color: "var(--dim)", fontSize: 13, margin: "-6px 0 16px" }}>
+      Market value:
+      {v.ktc != null && <> <b style={{ color: "var(--txt)" }}>KeepTradeCut {num(v.ktc)}</b></>}
+      {v.ktc != null && v.fc != null && " · "}
+      {v.fc != null && <>
+        <b style={{ color: "var(--txt)" }}>FantasyCalc {num(v.fc)}</b>
+        {v.fcRank != null && <> (#{v.fcRank} overall{v.fcTrend != null && v.fcTrend !== 0 && <>
+          , <span className={v.fcTrend > 0 ? "num good" : "num bad"}>
+            {v.fcTrend > 0 ? "▲" : "▼"}{num(Math.abs(v.fcTrend))}</span> 30-day</>})</>}
+      </>}
+      {vals?.fetched && <span> — as of {vals.fetched}</span>}
+    </div>
   );
 }

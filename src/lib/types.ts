@@ -34,3 +34,9 @@ export interface SeasonData {
 
 /** player_id -> { week -> "BYE" | "DNP" | "NR" } for missing regular-season weeks */
 export type Absences = Record<string, Record<string, string>>;
+
+export interface Values {
+  fetched: string;
+  sources: string[];
+  players: Record<string, { ktc?: number; fc?: number; fcRank?: number; fcTrend?: number }>;
+}

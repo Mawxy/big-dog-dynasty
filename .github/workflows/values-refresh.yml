@@ -1,0 +1,33 @@
+name: Market values refresh
+on:
+  schedule:
+    - cron: "0 11 * * *"   # daily 11:00 UTC = 6/7 AM ET; touches NO Sleeper endpoints
+  workflow_dispatch:
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+jobs:
+  values:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Fetch market values (FantasyCalc + KeepTradeCut)
+        run: python scripts/fetch_values.py --players data/players_min.json --out data/values.json
+      - name: Commit updated values
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/values.json
+          git diff --cached --quiet || git commit -m "Market values $(date -u +%F)"
+          git push
+  deploy:
+    needs: values
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

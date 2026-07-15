@@ -27,6 +27,11 @@ export default function Methodology() {
             half the startable pool lands there by definition. In a 14-week season, +2 WAR is a superstar season.</p>
         </div>
       </details>
+      <div style={{ fontSize: 12, marginTop: 14 }}>
+        Player market values courtesy of{" "}
+        <a href="https://keeptradecut.com/dynasty-rankings" style={{ color: "var(--acc)" }}>KeepTradeCut</a> and{" "}
+        <a href="https://fantasycalc.com/dynasty-rankings" style={{ color: "var(--acc)" }}>FantasyCalc</a>.
+      </div>
     </footer>
   );
 }
