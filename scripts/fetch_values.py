@@ -11,8 +11,11 @@ Sources:
 Each source fails independently and gracefully: on error the previous
 values.json (if any) is preserved rather than overwritten with less data.
 
+Runs standalone — needs NO Sleeper API access. Name matching uses the
+committed data/players_min.json (full sleeper_data/players.json also works).
+
 Usage:
-  python scripts/fetch_values.py --players sleeper_data/players.json --out data/values.json
+  python scripts/fetch_values.py --players data/players_min.json --out data/values.json
 """
 import argparse, json, re, urllib.request
 from pathlib import Path
@@ -46,18 +49,28 @@ def fetch_fantasycalc(out):
         e["fcRank"] = row.get("overallRank")
         e["fcTrend"] = row.get("trend30Day")
 
-def fetch_ktc(out, players):
-    # name+pos -> sleeper id (prefer better search_rank on collisions)
+def name_index(players):
+    """name+pos -> sleeper id. Accepts players_min.json ([name,pos,team] lists)
+    or the full sleeper players.json (dicts). Collisions prefer active/ranked."""
     idx = {}
     for pid, pl in players.items():
-        pos = pl.get("position")
+        if isinstance(pl, list):
+            name, pos = pl[0], pl[1]
+            pref = 0 if (len(pl) > 2 and pl[2]) else 1
+        else:
+            pos = pl.get("position")
+            name = f"{pl.get('first_name', '')} {pl.get('last_name', '')}"
+            pref = pl.get("search_rank") or 10 ** 9
         if pos not in CORE:
             continue
-        key = (norm(f"{pl.get('first_name','')} {pl.get('last_name','')}"), pos)
+        key = (norm(name), pos)
         cur = idx.get(key)
-        rank = pl.get("search_rank") or 10 ** 9
-        if cur is None or rank < cur[1]:
-            idx[key] = (pid, rank)
+        if cur is None or pref < cur[1]:
+            idx[key] = (pid, pref)
+    return idx
+
+def fetch_ktc(out, players):
+    idx = name_index(players)
     html = get(KTC_URL)
     m = re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S)
     if not m:
@@ -78,7 +91,7 @@ def fetch_ktc(out, players):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--players", default="sleeper_data/players.json")
+    ap.add_argument("--players", default="data/players_min.json")
     ap.add_argument("--out", default="data/values.json")
     args = ap.parse_args()
     players = json.loads(Path(args.players).read_text(encoding="utf-8"))
