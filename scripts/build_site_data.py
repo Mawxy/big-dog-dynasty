@@ -29,6 +29,7 @@ def main():
     players = load(root / "players.json")
     used_ids, seasons, league_name = set(), [], "League"
     latest_with_data = None
+    pts_min, pts_max = 0.0, 0.0   # league-wide extremes of any single weekly score
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
 
     for sdir in sorted((d for d in root.iterdir() if d.is_dir() and (d / "league.json").exists())):
@@ -80,6 +81,10 @@ def main():
                          float(row["pts_above_avg"]), float(row["pts_above_repl"]),
                          float(row["WAA_week"]), float(row["WAR_week"])])
         (sout / "weekly.json").write_text(json.dumps(weekly))
+        for rows_w in weekly.values():
+            for w in rows_w:
+                if w[1] < pts_min: pts_min = w[1]
+                if w[1] > pts_max: pts_max = w[1]
 
         # --- weekly matchups: points, opponent, starters per team ---
         mws = {}
@@ -224,6 +229,7 @@ def main():
          for pid, evts in own.items()}))
     (out / "meta.json").write_text(json.dumps({
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
+        "ptsRange": [round(pts_min, 1), round(pts_max, 1)],
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
     }))
     print(f"site data written to {out}/ for seasons: {', '.join(seasons)}")
