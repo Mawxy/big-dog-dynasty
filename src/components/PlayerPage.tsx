@@ -125,7 +125,8 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
       <div className="wkflex" style={{ gap: 40, marginBottom: 22 }}>
         <div style={{ flex: "1 1 420px", minWidth: 340, maxWidth: 720 }}><WarTrend data={trend} /></div>
         <div style={{ flex: "1 1 420px", minWidth: 340, maxWidth: 720 }}>
-          <SeasonBoxes rows={blocks.map(b => ({ season: b.season, values: b.weeks.map(w => w[1]) }))} />
+          <SeasonBoxes domain={meta.ptsRange}
+          rows={blocks.map(b => ({ season: b.season, values: b.weeks.map(w => w[1]) }))} />
         </div>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "8px 0 12px" }}>

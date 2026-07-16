@@ -6,7 +6,9 @@ interface Row { season: string; values: number[] }
 /** Grouped horizontal box plots — one row per season, one shared, labeled axis.
  *  Fixed height, width tracks the parent container (so it can size-match
  *  sibling charts). */
-export default function SeasonBoxes({ rows, height = 230 }: { rows: Row[]; height?: number }) {
+export default function SeasonBoxes({ rows, domain, height = 230 }: {
+  rows: Row[]; domain?: [number, number]; height?: number;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [W, setW] = useState(540);
   useEffect(() => {
@@ -19,10 +21,12 @@ export default function SeasonBoxes({ rows, height = 230 }: { rows: Row[]; heigh
   }, []);
   const usable = rows.filter(r => r.values.length >= 4);
   if (!usable.length) return null;
-  // fixed 0-70 axis so every player's chart is directly comparable;
-  // extends only if a value actually falls outside it (negative games, 70+ blowups)
+  // shared axis from the league's all-time single-week min/max, so every
+  // player's chart is directly comparable AND the scale adapts to any league's
+  // scoring. Extends if this player's own data somehow falls outside it.
   const all = usable.flatMap(r => r.values);
-  const lo = Math.min(0, ...all), hi = Math.max(70, ...all);
+  const lo = Math.min(domain?.[0] ?? 0, 0, ...all);
+  const hi = Math.max(domain?.[1] ?? 65, ...all);
   const L = 52, R = W - 14;
   const T = 8, axisH = 24, H = height;
   const rowH = (H - T - axisH) / usable.length;
@@ -59,6 +63,10 @@ export default function SeasonBoxes({ rows, height = 230 }: { rows: Row[]; heigh
               <rect x={x(q1)} y={cy - h / 2} width={Math.max(1, x(q3) - x(q1))} height={h}
                 fill="#1e6fd933" stroke="#1e6fd9" />
               <line x1={x(md)} x2={x(md)} y1={cy - h / 2} y2={cy + h / 2} stroke="var(--acc)" strokeWidth={2} />
+              <text x={x(md)} y={cy - h / 2 - 3} fontSize="8.5" fill="var(--acc)"
+                textAnchor="middle" fontWeight={700}>{md.toFixed(1)}</text>
+              <text x={x(mn)} y={cy + h / 2 + 9} fontSize="8" fill={c} textAnchor="middle">{mn.toFixed(1)}</text>
+              <text x={x(mx)} y={cy + h / 2 + 9} fontSize="8" fill={c} textAnchor="middle">{mx.toFixed(1)}</text>
             </g>
           );
         })}
