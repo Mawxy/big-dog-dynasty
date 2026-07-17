@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import type { PickBucket, PickValues } from "../lib/types";
 import { jDaily } from "../lib/data";
 import { fmt, quart, sd } from "../lib/stats";
@@ -76,6 +76,16 @@ function Section({ title, children, defaultOpen = true }:
 
 function ValueTable({ rows, years, firstCol }:
   { rows: PickBucket[]; years: number[]; firstCol: string }) {
+  const [closed, setClosed] = useState<Set<string>>(new Set());
+  const toggle = (rd: string) => setClosed(prev => {
+    const next = new Set(prev);
+    if (next.has(rd)) next.delete(rd); else next.add(rd);
+    return next;
+  });
+  const roundOf = (b: PickBucket) => b.bucket[0];
+  const rounds = [...new Set(rows.map(roundOf))];
+  const hasSlots = rows[0]?.slots !== undefined;
+  const nCols = 1 + (hasSlots ? 1 : 0) + years.length + 3;
   const tot3 = (b: PickBucket): number | undefined => {
     const vals = [1, 2, 3].map(y => b.raw[String(y)]);
     return vals.every(v => v !== undefined)
@@ -86,38 +96,46 @@ function ValueTable({ rows, years, firstCol }:
       <thead>
         <tr>
           <th>{firstCol}</th>
-          {rows[0]?.slots !== undefined && <th>Slots</th>}
-          <th className="hm">σ</th>
+          {hasSlots && <th>Slots</th>}
           {years.map(y => <th key={y}>Yr {y}</th>)}
-          <th>3-yr</th><th>Hit %</th>
+          <th className="hm" style={{ textTransform: "none" }}>σ</th>
+          <th>3-Yr Total</th><th>Hit %</th>
         </tr>
       </thead>
       <tbody>
-        {rows.map(b => {
-          const t = tot3(b);
-          const newRound = b.bucket.includes(".")
-            ? b.bucket.endsWith(".01") && b.bucket !== "1.01"
-            : b.bucket.endsWith("E") && b.bucket !== "1E";
-          return (
-            <tr key={b.bucket} className={newRound ? "rdstart" : ""}>
-              <td>{b.label ?? b.bucket}</td>
-              {b.slots !== undefined && <td style={{ color: "var(--dim)" }}>{b.slots}</td>}
-              <td className="num hm">{b.dist3.length >= 2 ? fmt(sd(b.dist3), 2) : "–"}</td>
-              {years.map(y => {
-                const v = b.raw[String(y)];
-                return v === undefined
-                  ? <td key={y} className="num">–</td>
-                  : <td key={y} className={numCls(v)}>{fmt(v, 2)}</td>;
-              })}
-              {t === undefined
-                ? <td className="num">–</td>
-                : <td className={numCls(t)}><b>{fmt(t, 2)}</b></td>}
-              <td className="num">
-                {b.hit_rate === null ? "–" : `${Math.round(b.hit_rate * 100)}%`}
+        {rounds.map(rd => (
+          <Fragment key={rd}>
+            <tr onClick={() => toggle(rd)}
+              style={{ cursor: "pointer", userSelect: "none" }}>
+              <td colSpan={nCols}
+                style={{ background: "#11151c", color: "var(--dim)", fontWeight: 600, fontSize: 12.5 }}>
+                {closed.has(rd) ? "► " : "▼ "}Round {rd}
               </td>
             </tr>
-          );
-        })}
+            {!closed.has(rd) && rows.filter(b => roundOf(b) === rd).map(b => {
+              const t = tot3(b);
+              return (
+                <tr key={b.bucket}>
+                  <td>{b.label ?? b.bucket}</td>
+                  {b.slots !== undefined && <td style={{ color: "var(--dim)" }}>{b.slots}</td>}
+                  {years.map(y => {
+                    const v = b.raw[String(y)];
+                    return v === undefined
+                      ? <td key={y} className="num">–</td>
+                      : <td key={y} className={numCls(v)}>{fmt(v, 2)}</td>;
+                  })}
+                  <td className="num hm">{b.dist3.length >= 2 ? fmt(sd(b.dist3), 2) : "–"}</td>
+                  {t === undefined
+                    ? <td className="num">–</td>
+                    : <td className={numCls(t)}><b>{fmt(t, 2)}</b></td>}
+                  <td className="num">
+                    {b.hit_rate === null ? "–" : `${Math.round(b.hit_rate * 100)}%`}
+                  </td>
+                </tr>
+              );
+            })}
+          </Fragment>
+        ))}
       </tbody>
     </table>
   );
