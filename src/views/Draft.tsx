@@ -86,19 +86,17 @@ function ValueTable({ rows, years, firstCol }:
   const toggleRow = (bk: string) => setOpen(prev => (prev === bk ? null : bk));
   const roundOf = (b: PickBucket) => b.bucket[0];
   const rounds = [...new Set(rows.map(roundOf))];
-  const hasSlots = rows[0]?.slots !== undefined;
-  const nCols = 1 + (hasSlots ? 1 : 0) + years.length + 3;
+  const nCols = 1 + years.length + 3;
   const tot3 = (b: PickBucket): number | undefined => {
     const vals = [1, 2, 3].map(y => b.raw[String(y)]);
     return vals.every(v => v !== undefined)
       ? vals.reduce((a, v) => a + (v as number), 0) : undefined;
   };
   return (
-    <table className={"pvtbl" + (hasSlots ? " pvtbl-s" : "")}>
+    <table className="pvtbl">
       <thead>
         <tr>
           <th>{firstCol}</th>
-          {hasSlots && <th className="hm">Slots</th>}
           {years.map(y => <th key={y}>Yr {y}</th>)}
           <th className="hm" style={{ textTransform: "none", fontSize: 15 }}>σ</th>
           <th>Total</th><th>Hit %</th>
@@ -123,8 +121,6 @@ function ValueTable({ rows, years, firstCol }:
                     className={isOpen ? "sorted" : undefined}
                     style={{ cursor: "pointer" }}>
                     <td>{b.label ?? b.bucket}</td>
-                    {b.slots !== undefined &&
-                      <td className="hm" style={{ color: "var(--dim)" }}>{b.slots}</td>}
                     {years.map(y => {
                       const v = b.raw[String(y)];
                       return v === undefined

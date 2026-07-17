@@ -1,50 +1,60 @@
 #!/usr/bin/env python3
 """
-aging_curves.py — fit per-position aging curves on historical WAR
-(nfl_history/*.csv from war-history.yml) for the valuation model.
+aging_curves.py — fit the WAR projection model on historical data
+(nfl_history/*.csv). Redesigned 2026-07-17 with Max after walking the data.
 
-Model (settled 2026-07-17 with Max):
-  next_WAR = a + b * current_WAR, fit per (position, age group) over all
-  transitions with current_WAR >= 0 (assets only; negative-WAR players are
-  not assets). Players absent the following season count as next_WAR = 0 —
-  exit risk is priced in, not dropped (survivorship guard).
+Everything is per-13-game rate (a "full healthy season" is 13 games in this
+league — 14 weeks minus a bye). Working in rate separates talent from
+availability: a hurt star (few games, low cumulative WAR) keeps his high rate.
 
-  Scenario bands: p20 / p80 of the residual (next - fit) per group give the
-  "worst case" / "best case" offsets around the expectation. The bands are
-  wide (~+-0.5 WAR) because year-over-year fantasy outcomes are wide — loose
-  expectations are intentional.
+Three fitted pieces, all emitted to <data>/aging_curves.json:
 
-Age groups (breakpoints located empirically, 2012-2025 transitions):
-  QB: one group — flat aging in superflex; a 34yo QB1 ~ a 26yo QB1.
-  RB: <=23 / 24-26 / 27+ — hard cliff at 27-28.
-  WR: <=24 / 25-28 / 29+ — gentle decline from 29.
-  TE: <=25 / 26+ — small sample, two groups only.
+1. curves[pos][age-bucket]:  next_rate = a + b * LEVEL
+     LEVEL = recency- and games-weighted per-13 rate over the last 3 seasons
+     (weights 0.5/0.3/0.2 x games). Fit ONLY on transitions where the player
+     actually played the next season (gp >= MIN_GP), so the curve is pure
+     talent aging; falling out of the league is handled by (3). Age buckets
+     capture progression (young hold, old decline). p20/p80 = residual bands.
 
-Findings baked into the shape (see chat 2026-07-17): elite seasons regress
-in ratio terms (peak-outlier reversion) but stay far above starters in
-absolute terms — the linear-in-current-WAR form captures both. Elite RBs
-retain only ~53% of value year-over-year even before the age cliff.
+2. capital_priors[pos][tier]:  expected early-career rate by draft slot
+     Mean per-13 rate of a position's players in their first two seasons,
+     split by coarse draft tier. The data only supports COARSE tiers — picks
+     1-16 are flat (top-5 == top-10), and within round 2 there's no gradient
+     (early R2 == late R2) — so tiers are 1-16 / 17-64 / 65+ / UDFA, and the
+     effect is strong for RB, medium for QB, weak for WR. Used in projection
+     as a prior for thin resumes (shrinkage), fading as real seasons accrue.
 
-Age = age on Sep 1 of the season year, from players_meta.csv birth dates.
+3. availability[pos][age-bucket]:  expected games / 13 next season
+     Mean of next-season games/13 (0 if absent) — bakes in injury AND exit
+     risk. Lets projection report both an "if healthy" rate and an expected
+     (rate x availability) number. RBs and older players sit lower.
+
+Age = age on Sep 1 of the "from" season (players_meta.csv birth dates).
 
 Usage:  python scripts/aging_curves.py [--data nfl_history] [--start 2012]
-Output: <data>/aging_curves.json  + a diagnostics table on stdout.
+Output: <data>/aging_curves.json  + diagnostics on stdout.
 """
-import argparse, csv, datetime, json, statistics
+import argparse, csv, datetime, json, math, statistics
+from collections import defaultdict
 from pathlib import Path
 
-AGE_GROUPS = {          # pos -> list of (label, min_age, max_age)
-    "QB": [("all", 0, 99)],
+AGE_GROUPS = {
+    "QB": [("le24", 0, 24), ("25_29", 25, 29), ("30_33", 30, 33), ("ge34", 34, 99)],
     "RB": [("le23", 0, 23), ("24_26", 24, 26), ("ge27", 27, 99)],
     "WR": [("le24", 0, 24), ("25_28", 25, 28), ("ge29", 29, 99)],
     "TE": [("le25", 0, 25), ("ge26", 26, 99)],
 }
-MIN_CUR_WAR = 0.0       # transitions below this are not assets; excluded
+UDFA_PICK = 260         # treat undrafted as just past the last pick for the ln-pick prior
+RECENCY = [0.5, 0.3, 0.2]
+FULL_GP = 13            # a full healthy season
+MIN_GP = 4             # a season needs this many games for its rate to count
+MIN_N = 20             # minimum sample to fit a cell
+AVAIL_MIN_LEVEL = 0.5  # availability is measured over contributor-level seasons only
+                       # (the pool-wide mean is dragged down by scrubs who vanish)
 
 
-def age_on_sep1(birth_date, season):
-    return season - birth_date.year - (
-        1 if (birth_date.month, birth_date.day) > (9, 1) else 0)
+def age_on_sep1(birth, season):
+    return season - birth.year - (1 if (birth.month, birth.day) > (9, 1) else 0)
 
 
 def quantile(v, p):
@@ -54,82 +64,148 @@ def quantile(v, p):
     return v[lo] + (v[lo + 1] - v[lo]) * (i - lo) if lo + 1 < len(v) else v[lo]
 
 
-def load_transitions(data, start, end):
+def load(data, start, end):
     meta = {}
     for r in csv.DictReader(open(data / "players_meta.csv", encoding="utf-8")):
-        if r["birth_date"]:
-            meta[r["gsis_id"]] = datetime.date.fromisoformat(r["birth_date"])
-    war = {}
+        meta[r["gsis_id"]] = {
+            "birth": datetime.date.fromisoformat(r["birth_date"]) if r["birth_date"] else None,
+            "draft_season": int(r["draft_season"]) if r["draft_season"] else None,
+            "pick": int(r["draft_pick"]) if r["draft_pick"] else 999,
+        }
+    war, gp, pos, pts = {}, {}, {}, {}
     for yr in range(start, end + 1):
         f = data / f"waa_war_{yr}.csv"
         if not f.exists():
             continue
         for r in csv.DictReader(open(f, encoding="utf-8")):
-            war[(yr, r["player_id"])] = (float(r["WAR"]), r["pos"])
-    trans = []
-    for (yr, pid), (w, pos) in war.items():
-        if yr == end or pid not in meta or w < MIN_CUR_WAR:
+            k = (yr, r["player_id"])
+            war[k] = float(r["WAR"]); gp[k] = int(r["gp"]); pos[k] = r["pos"]
+            pts[k] = float(r["pts"])
+    return meta, war, gp, pos, pts
+
+
+def rate(war, gp, yr, pid):
+    g = gp.get((yr, pid), 0)
+    return war[(yr, pid)] / g * FULL_GP if g >= MIN_GP else None
+
+
+def level(war, gp, yr, pid):
+    num = den = 0.0
+    for k, rw in enumerate(RECENCY):
+        rt = rate(war, gp, yr - k, pid)
+        if rt is None:
             continue
-        nxt = war.get((yr + 1, pid))
-        trans.append((pos, age_on_sep1(meta[pid], yr), w,
-                      nxt[0] if nxt else 0.0, nxt is None))
-    return trans
+        w = rw * min(gp.get((yr - k, pid), 0), FULL_GP)
+        num += w * rt; den += w
+    return num / den if den else None
 
 
-def fit_group(rows):
-    """OLS next = a + b*cur, plus residual p20/p80 and exit rate."""
-    xs = [r[2] for r in rows]
-    ys = [r[3] for r in rows]
+def fit_curve(rows):
+    xs = [r[0] for r in rows]; ys = [r[1] for r in rows]
     mx, my = statistics.mean(xs), statistics.mean(ys)
     sxx = sum((x - mx) ** 2 for x in xs)
     b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 0.0
     a = my - b * mx
     resid = [y - (a + b * x) for x, y in zip(xs, ys)]
-    return {
-        "n": len(rows),
-        "a": round(a, 4), "b": round(b, 4),
-        "p20": round(quantile(resid, 0.2), 4),
-        "p80": round(quantile(resid, 0.8), 4),
-        "exit_rate": round(sum(1 for r in rows if r[4]) / len(rows), 4),
-    }
+    return {"n": len(rows), "a": round(a, 4), "b": round(b, 4),
+            "p20": round(quantile(resid, 0.2), 4), "p80": round(quantile(resid, 0.8), 4)}
 
 
 def main():
-    ap = argparse.ArgumentParser(description="fit aging curves on historical WAR")
+    ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="nfl_history")
     ap.add_argument("--start", type=int, default=2012)
     ap.add_argument("--end", type=int, default=2025)
     args = ap.parse_args()
     data = Path(args.data)
+    meta, war, gp, pos, pts = load(data, args.start, args.end)
 
-    trans = load_transitions(data, args.start, args.end)
+    # gather transitions: (pos, age, exp, tier, level, next_rate_or_None, next_gp)
+    trans = []
+    for (yr, pid), w in war.items():
+        if yr == args.end:
+            continue
+        m = meta.get(pid)
+        if not m or m["birth"] is None:
+            continue
+        lvl = level(war, gp, yr, pid)
+        if lvl is None:
+            continue
+        age = age_on_sep1(m["birth"], yr)
+        exp = (yr - m["draft_season"] + 1) if m["draft_season"] else None
+        nrt = rate(war, gp, yr + 1, pid)                 # None if absent/too few games
+        ngp = gp.get((yr + 1, pid), 0)
+        trans.append((pos[(yr, pid)], age, exp, m["pick"], lvl, nrt, ngp))
+
     out = {"meta": {
-        "fitted": datetime.date.today().isoformat(),
-        "seasons": f"{args.start}-{args.end}",
-        "model": "next_WAR = a + b*cur_WAR; scenarios = fit + p20/p80 residual",
-        "min_cur_war": MIN_CUR_WAR,
-        "transitions": len(trans),
-    }, "curves": {}}
+        "fitted": datetime.date.today().isoformat(), "seasons": f"{args.start}-{args.end}",
+        "full_gp": FULL_GP, "min_gp": MIN_GP, "recency_weights": RECENCY,
+        "udfa_pick": UDFA_PICK,
+        "model": "per-13 rate; next_rate=a+b*LEVEL conditional on playing; "
+                 "capital prior = a+b*ln(pick) per position; availability separate",
+    }, "curves": {}, "availability": {}, "capital_priors": {}, "pts_to_war": {}}
 
-    print(f"transitions (cur WAR >= {MIN_CUR_WAR}): {len(trans)}")
-    print(f"{'pos':4s} {'group':6s} {'ages':7s} {'n':>4s} {'a':>7s} {'b':>6s} "
-          f"{'p20':>6s} {'p80':>6s} {'exit%':>6s}   E[next] @ cur=0.5 / 1.5")
-    for pos, groups in AGE_GROUPS.items():
-        out["curves"][pos] = []
+    # 1 + 3: curves (conditional on playing) and availability, per pos x age
+    print(f"transitions: {len(trans)}")
+    print(f"{'pos':4s} {'grp':6s} {'n':>4s} {'a':>7s} {'b':>6s} {'avail':>5s}   E@0.5/1.5")
+    for p, groups in AGE_GROUPS.items():
+        out["curves"][p] = []; out["availability"][p] = []
         for label, lo, hi in groups:
-            rows = [t for t in trans if t[0] == pos and lo <= t[1] <= hi]
-            if len(rows) < 20:
-                print(f"{pos:4s} {label:6s}  SKIPPED (n={len(rows)})")
+            cell = [t for t in trans if t[0] == p and lo <= t[1] <= hi]
+            played = [(t[4], t[5]) for t in cell if t[5] is not None]
+            if len(played) >= MIN_N:
+                g = fit_curve(played); g.update({"group": label, "min_age": lo, "max_age": hi})
+                out["curves"][p].append(g)
+            else:
+                g = None
+            acell = [t for t in cell if t[4] >= AVAIL_MIN_LEVEL]
+            src = acell if acell else cell
+            avail = statistics.mean(min(t[6], FULL_GP) / FULL_GP for t in src) if src else 1.0
+            out["availability"][p].append(
+                {"group": label, "min_age": lo, "max_age": hi,
+                 "avail": round(avail, 3), "n": len(acell)})
+            if g:
+                print(f"{p:4s} {label:6s} {g['n']:>4d} {g['a']:>7.3f} {g['b']:>6.3f} "
+                      f"{avail:>5.2f}   {g['a']+g['b']*0.5:.2f}/{g['a']+g['b']*1.5:.2f}")
+
+    # 2: capital prior — smooth per-position fit, rate ~ a + b*ln(pick),
+    #    on early-career seasons (exp<=2). Continuous in pick (no buckets),
+    #    position-specific slope (WR weak, RB/QB steep).
+    print("\ncapital prior: rate ~ a + b*ln(pick), early-career (exp<=2):")
+    for p in AGE_GROUPS:
+        cp = [(math.log(t[3] if t[3] < 999 else UDFA_PICK), t[4])
+              for t in trans if t[0] == p and t[2] is not None and t[2] <= 2]
+        if len(cp) >= 15:
+            xs = [x for x, _ in cp]; ys = [y for _, y in cp]
+            mx, my = statistics.mean(xs), statistics.mean(ys)
+            sxx = sum((x - mx) ** 2 for x in xs)
+            b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 0.0
+            a = my - b * mx
+            out["capital_priors"][p] = {"a": round(a, 4), "b": round(b, 4), "n": len(cp)}
+            print(f"  {p}: a={a:.3f} b={b:.3f} n={len(cp)}  ->  "
+                  f"pick3={a+b*math.log(3):.2f} pick20={a+b*math.log(20):.2f} "
+                  f"pick60={a+b*math.log(60):.2f} pick150={a+b*math.log(150):.2f}")
+        else:
+            out["capital_priors"][p] = {"a": 0.0, "b": 0.0, "n": len(cp)}
+
+    # points -> WAR bridge (per-13), to convert external projections to WAR
+    print("\npoints->WAR bridge (per-13): rate ~ a + b*pts13")
+    for p in AGE_GROUPS:
+        pairs = []
+        for (yr, pid), w in war.items():
+            if pos[(yr, pid)] != p or gp[(yr, pid)] < MIN_GP:
                 continue
-            g = fit_group(rows)
-            g.update({"group": label, "min_age": lo, "max_age": hi})
-            out["curves"][pos].append(g)
-            e05 = g["a"] + g["b"] * 0.5
-            e15 = g["a"] + g["b"] * 1.5
-            print(f"{pos:4s} {label:6s} {lo:>2d}-{hi:<3d} {g['n']:>4d} "
-                  f"{g['a']:>7.3f} {g['b']:>6.3f} {g['p20']:>6.2f} "
-                  f"{g['p80']:>6.2f} {g['exit_rate']:>6.1%}   "
-                  f"{e05:.2f} / {e15:.2f}")
+            g = gp[(yr, pid)]
+            pairs.append((pts[(yr, pid)] / g * FULL_GP, w / g * FULL_GP))
+        if len(pairs) >= MIN_N:
+            xs = [x for x, _ in pairs]; ys = [y for _, y in pairs]
+            mx, my = statistics.mean(xs), statistics.mean(ys)
+            sxx = sum((x - mx) ** 2 for x in xs)
+            b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 0.0
+            a = my - b * mx
+            out["pts_to_war"][p] = {"a": round(a, 4), "b": round(b, 6), "n": len(pairs)}
+            print(f"  {p}: a={a:.3f} b={b:.5f} n={len(pairs)}  ->  "
+                  f"WAR@100pts={a+b*100:.2f} @200={a+b*200:.2f} @300={a+b*300:.2f}")
 
     dest = data / "aging_curves.json"
     dest.write_text(json.dumps(out, indent=1), encoding="utf-8")

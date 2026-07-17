@@ -21,6 +21,11 @@ jobs:
         run: python scripts/sleeper_war.py --data sleeper_data
       - name: Build site JSON
         run: python scripts/build_site_data.py --data sleeper_data --out data
+      - name: Fetch Sleeper projections (composite input)
+        run: python scripts/fetch_projections.py
+        continue-on-error: true
+      - name: Recompute WAR projections
+        run: python scripts/project_war.py
       - name: Commit updated data
         run: |
           git config user.name "big-dog-bot"
@@ -29,7 +34,6 @@ jobs:
           git diff --cached --quiet || git commit -m "Weekly data update $(date -u +%F)"
           git push
   deploy:
-    # a bot commit doesn't fire the push trigger, so call the deploy workflow explicitly
     needs: refresh
     uses: ./.github/workflows/deploy.yml
     permissions:
