@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { PickBucket, PickValues } from "../lib/types";
 import { jDaily } from "../lib/data";
 import { fmt, quart, sd } from "../lib/stats";
@@ -82,6 +82,8 @@ function ValueTable({ rows, years, firstCol }:
     if (next.has(rd)) next.delete(rd); else next.add(rd);
     return next;
   });
+  const [open, setOpen] = useState<string | null>(null);
+  const toggleRow = (bk: string) => setOpen(prev => (prev === bk ? null : bk));
   const roundOf = (b: PickBucket) => b.bucket[0];
   const rounds = [...new Set(rows.map(roundOf))];
   const hasSlots = rows[0]?.slots !== undefined;
@@ -114,25 +116,37 @@ function ValueTable({ rows, years, firstCol }:
             </tr>
             {!closed.has(rd) && rows.filter(b => roundOf(b) === rd).map(b => {
               const t = tot3(b);
+              const isOpen = open === b.bucket;
               return (
-                <tr key={b.bucket}>
-                  <td>{b.label ?? b.bucket}</td>
-                  {b.slots !== undefined &&
-                    <td className="hm" style={{ color: "var(--dim)" }}>{b.slots}</td>}
-                  {years.map(y => {
-                    const v = b.raw[String(y)];
-                    return v === undefined
-                      ? <td key={y} className="num">–</td>
-                      : <td key={y} className={numCls(v)}>{fmt(v, 2)}</td>;
-                  })}
-                  <td className="num hm">{b.dist3.length >= 2 ? fmt(sd(b.dist3), 2) : "–"}</td>
-                  {t === undefined
-                    ? <td className="num">–</td>
-                    : <td className={numCls(t)}><b>{fmt(t, 2)}</b></td>}
-                  <td className="num">
-                    {b.hit_rate === null ? "–" : `${Math.round(b.hit_rate * 100)}%`}
-                  </td>
-                </tr>
+                <Fragment key={b.bucket}>
+                  <tr onClick={() => toggleRow(b.bucket)}
+                    className={isOpen ? "sorted" : undefined}
+                    style={{ cursor: "pointer" }}>
+                    <td>{b.label ?? b.bucket}</td>
+                    {b.slots !== undefined &&
+                      <td className="hm" style={{ color: "var(--dim)" }}>{b.slots}</td>}
+                    {years.map(y => {
+                      const v = b.raw[String(y)];
+                      return v === undefined
+                        ? <td key={y} className="num">–</td>
+                        : <td key={y} className={numCls(v)}>{fmt(v, 2)}</td>;
+                    })}
+                    <td className="num hm">{b.dist3.length >= 2 ? fmt(sd(b.dist3), 2) : "–"}</td>
+                    {t === undefined
+                      ? <td className="num">–</td>
+                      : <td className={numCls(t)}><b>{fmt(t, 2)}</b></td>}
+                    <td className="num">
+                      {b.hit_rate === null ? "–" : `${Math.round(b.hit_rate * 100)}%`}
+                    </td>
+                  </tr>
+                  {isOpen && (
+                    <tr className="wkbox">
+                      <td colSpan={nCols} style={{ padding: "14px 16px" }}>
+                        <PickDetail b={b} years={years} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </Fragment>
@@ -220,5 +234,141 @@ function PickBoxes({ buckets }: { buckets: PickBucket[] }) {
         })}
       </svg>
     </div>
+  );
+}
+
+const MIN_BOX = 4;
+
+/** Expanded row panel: per-year box plots + overall box, next to a
+ *  median/IQR/range trajectory over years since draft. */
+function PickDetail({ b, years }: { b: PickBucket; years: number[] }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(680);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => setW(el.clientWidth);
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  const label = b.label ?? b.bucket;
+  const yearRows = years
+    .filter(k => (b.dist[String(k)] ?? []).length >= MIN_BOX)
+    .map(k => ({ label: `Yr ${k}`, data: b.dist[String(k)] }));
+  const hasOverall = b.dist3.length >= MIN_BOX;
+  if (!yearRows.length && !hasOverall)
+    return <div style={{ color: "var(--dim)", fontSize: 13 }}>
+      Not enough matured picks yet for {label}.
+    </div>;
+  const stacked = w < 620;
+  const colW = stacked ? w : Math.floor((w - 20) / 2);
+  const h4: CSSProperties = { margin: "0 0 6px", fontSize: 12.5, color: "var(--dim)", fontWeight: 600 };
+  return (
+    <div ref={wrapRef} style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+      <div style={{ width: colW, minWidth: 0 }}>
+        <h4 style={h4}>WAR distribution by year (single season)</h4>
+        {yearRows.length
+          ? <BoxChart rows={yearRows} width={colW} />
+          : <div style={{ color: "var(--dim)", fontSize: 12 }}>too few picks per year</div>}
+        {hasOverall && <>
+          <h4 style={{ ...h4, margin: "12px 0 6px" }}>Overall — 3-year WAR total</h4>
+          <BoxChart rows={[{ label: "3-yr", data: b.dist3 }]} width={colW} />
+        </>}
+      </div>
+      <div style={{ width: colW, minWidth: 0 }}>
+        <h4 style={h4}>WAR by year — median (gold), IQR & range (dotted)</h4>
+        <TrajChart b={b} years={years} width={colW} />
+        <div style={{ color: "var(--dim)", fontSize: 11, marginTop: 5 }}>
+          n by year: {years.map(k => `Yr ${k}: ${(b.dist[String(k)] ?? []).length}`).join("  ·  ")}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Horizontal box-and-whisker rows on one shared WAR axis. */
+function BoxChart({ rows, width }: { rows: { label: string; data: number[] }[]; width: number }) {
+  const all = rows.flatMap(r => r.data);
+  if (!all.length) return null;
+  let lo = Math.min(...all), hi = Math.max(...all);
+  if (hi - lo < 0.5) { lo -= 0.25; hi += 0.25; }
+  const LBL = 40, L = LBL + 10, R = width - 14, ROW = 36, TOP = 14;
+  const H = TOP + rows.length * ROW + 20;
+  const x = (t: number) => L + (t - lo) / ((hi - lo) || 1) * (R - L);
+  const c = "#8b96a5";
+  const ticks: number[] = [];
+  for (let t = Math.ceil(lo); t <= Math.floor(hi); t++) ticks.push(t);
+  return (
+    <svg width={width} height={H} style={{ display: "block", background: "var(--card)", borderRadius: 8 }}>
+      {ticks.map(t => (
+        <g key={t}>
+          <line x1={x(t)} x2={x(t)} y1={TOP - 6} y2={H - 16} stroke="var(--line)" strokeDasharray="3 4" />
+          <text x={x(t)} y={H - 4} fontSize="10" fill={c} textAnchor="middle">{t}</text>
+        </g>
+      ))}
+      {rows.map((r, i) => {
+        const v = r.data;
+        const q1 = quart(v, .25), md = quart(v, .5), q3 = quart(v, .75);
+        const mn = v[0], mx = v[v.length - 1];
+        const y = TOP + i * ROW + 6, h = 16, cy = y + h / 2;
+        return (
+          <g key={r.label}>
+            <text x={LBL} y={cy + 4} fontSize="11" fill="var(--txt)" textAnchor="end">{r.label}</text>
+            <line x1={x(mn)} x2={x(q1)} y1={cy} y2={cy} stroke={c} />
+            <line x1={x(q3)} x2={x(mx)} y1={cy} y2={cy} stroke={c} />
+            <line x1={x(mn)} x2={x(mn)} y1={y + 3} y2={y + h - 3} stroke={c} />
+            <line x1={x(mx)} x2={x(mx)} y1={y + 3} y2={y + h - 3} stroke={c} />
+            <rect x={x(q1)} y={y} width={Math.max(1, x(q3) - x(q1))} height={h}
+              fill="#1e6fd933" stroke="#1e6fd9" />
+            <line x1={x(md)} x2={x(md)} y1={y - 3} y2={y + h + 3} stroke="var(--acc)" strokeWidth={2} />
+            <text x={x(md)} y={y - 5} fontSize="9.5" fill="var(--acc)" textAnchor="middle">{fmt(md, 1)}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+/** Median line + dotted IQR/range across years since draft. */
+function TrajChart({ b, years, width }: { b: PickBucket; years: number[]; width: number }) {
+  const yrs = years.filter(k => (b.dist[String(k)] ?? []).length >= MIN_BOX);
+  if (!yrs.length) return <div style={{ color: "var(--dim)", fontSize: 12 }}>too few picks per year</div>;
+  const stat = (k: number) => {
+    const v = b.dist[String(k)];
+    return { mn: v[0], q1: quart(v, .25), md: quart(v, .5), q3: quart(v, .75), mx: v[v.length - 1] };
+  };
+  const S = yrs.map(stat);
+  let lo = Math.min(...S.map(s => s.mn)), hi = Math.max(...S.map(s => s.mx));
+  if (hi - lo < 0.5) { lo -= 0.25; hi += 0.25; }
+  const L = 30, R = width - 12, TOP = 12, BOT = 22, H = 190;
+  const px = (i: number) => yrs.length === 1 ? (L + R) / 2 : L + i / (yrs.length - 1) * (R - L);
+  const py = (t: number) => TOP + (hi - t) / ((hi - lo) || 1) * (H - TOP - BOT);
+  const poly = (get: (s: typeof S[number]) => number) => S.map((s, i) => `${px(i)},${py(get(s))}`).join(" ");
+  const band = [...S.map((s, i) => `${px(i)},${py(s.q3)}`),
+    ...S.map((s, i) => `${px(i)},${py(s.q1)}`).reverse()].join(" ");
+  const c = "#8b96a5", blue = "#1e6fd9";
+  const ticks: number[] = [];
+  for (let t = Math.ceil(lo); t <= Math.floor(hi); t++) ticks.push(t);
+  return (
+    <svg width={width} height={H} style={{ display: "block", background: "var(--card)", borderRadius: 8 }}>
+      {ticks.map(t => (
+        <g key={t}>
+          <line x1={L} x2={R} y1={py(t)} y2={py(t)} stroke="var(--line)" strokeDasharray="3 4" />
+          <text x={L - 4} y={py(t) + 3} fontSize="9" fill={c} textAnchor="end">{t}</text>
+        </g>
+      ))}
+      {yrs.length > 1 && <polygon points={band} fill="#1e6fd91f" stroke="none" />}
+      <polyline points={poly(s => s.mx)} fill="none" stroke={c} strokeWidth={1} strokeDasharray="2 3" />
+      <polyline points={poly(s => s.q3)} fill="none" stroke={blue} strokeWidth={1} strokeDasharray="4 3" />
+      <polyline points={poly(s => s.q1)} fill="none" stroke={blue} strokeWidth={1} strokeDasharray="4 3" />
+      <polyline points={poly(s => s.mn)} fill="none" stroke={c} strokeWidth={1} strokeDasharray="2 3" />
+      <polyline points={poly(s => s.md)} fill="none" stroke="var(--acc)" strokeWidth={2} />
+      {S.map((s, i) => <circle key={i} cx={px(i)} cy={py(s.md)} r={3} fill="var(--acc)" />)}
+      {yrs.map((k, i) => (
+        <text key={k} x={px(i)} y={H - 6} fontSize="10" fill={c} textAnchor="middle">Yr {k}</text>
+      ))}
+    </svg>
   );
 }

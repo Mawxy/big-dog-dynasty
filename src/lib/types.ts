@@ -63,6 +63,8 @@ export interface PickBucket {
   hit_n: number;
   /** sorted raw 3-yr WAR totals of matured picks (box-plot sample) */
   dist3: number[];
+  /** year-since-draft -> sorted per-season WAR samples (box-plot / trajectory) */
+  dist: Record<string, number[]>;
 }
 export interface PickValues {
   meta: {

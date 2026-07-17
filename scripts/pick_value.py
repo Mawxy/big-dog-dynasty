@@ -139,6 +139,8 @@ def summarize(order, cells, hits, years, labels=None):
             'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
             'hit_n': len(h),
             'dist3': sorted(round(x, 2) for x in h),
+            'dist': {k: sorted(round(x, 2) for x in cells[b][k])
+                     for k in years if cells[b][k]},
         }
         if labels:
             row['label'] = labels[0](b)
