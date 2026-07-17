@@ -52,6 +52,10 @@ export interface Values {
 /** data/pick_values.json — Bridge A: rookie pick -> realized WAR streams */
 export interface PickBucket {
   bucket: string;
+  /** dynasty-standard tier name, band rows only (e.g. "Early 2nd") */
+  label?: string;
+  /** overall-slot range, band rows only (e.g. "2.01–2.04") */
+  slots?: string;
   /** year-since-draft -> sample size (JSON int keys arrive as strings) */
   n: Record<string, number>;
   raw: Record<string, number>;
@@ -68,5 +72,8 @@ export interface PickValues {
     min_classes_per_year: number; hit_threshold_war: number;
     picks_used: number; vets_excluded: number; unmatched: number; source: string;
   };
-  buckets: PickBucket[];
+  /** every slot individually: 1.01 … 4.12 */
+  picks: PickBucket[];
+  /** Early/Mid/Late tiers per round (larger samples; box plots use these) */
+  bands: PickBucket[];
 }

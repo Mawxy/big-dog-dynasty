@@ -9,12 +9,12 @@ Inputs (all committed):
   data/<season>/summary.json      REAL Big Dog league WAR (takes precedence,
                                   2022+; rows [pid,pos,gp,pts,ppg,waa,war,...])
 
-Output: data/pick_values.json (read by the site's Draft page).
+Output: data/pick_values.json (read by the site's Draft page):
+  picks: every slot 1.01-4.12 individually
+  bands: dynasty-standard tiers — Early/Mid/Late Nth (picks 1-4 / 5-8 / 9-12
+         within each round) — larger samples, used for the box plots.
 
 Method (settled with Max 2026-07-17):
-  * Buckets: round 1 by individual pick (1.01-1.12); rounds 2-4 in
-    early/mid/late thirds (E=picks 1-4, M=5-8, L=9-12 within round).
-    Round 5 excluded (one league, tiny n).
   * Outcome per pick-year: player's season WAR in years-since-draft 1..K.
     Real Big Dog WAR by sleeper_id when available, else calibrated
     historical WAR by gsis id, else 0.0 (busted/out of league = real zero).
@@ -23,13 +23,13 @@ Method (settled with Max 2026-07-17):
   * "floor" stream clamps each season at 0 — a pick is an option; busts
     ride the bench, they don't torch your lineup. Valuation uses floor.
   * "smooth" = floor run through a pool-adjacent-violators pass so value
-    never increases down the draft board (kills n~17 jitter like 1.07<1.09).
+    never increases down the board (kills small-n jitter).
   * Dynamic maturity: year-since-draft column K is published once
     >= MIN_CLASSES draft classes have completed that season. Year 4 unlocks
-    automatically after the 2026 season, year 5 after 2027 — no code change,
-    just rerun.
+    automatically after the 2026 season — just rerun, no code change.
   * hit%% = share of picks (classes with 3 finished seasons) whose 3-year
-    raw WAR total >= 1.0.
+    raw WAR total >= 1.0.  dist3 = those raw totals, for box plots.
+  * Round 5 excluded (one league, tiny n).
 
 Matching: name+pos+draft-class against players_meta, nickname fixups,
 manual overrides below. Unmatched names are printed — extend MANUAL/ZEROES
@@ -45,6 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 FIRST_CLASS = 2020
 MIN_CLASSES = 4          # classes needed before a year column is published
 MAX_YEARS = 6
+MAX_PICK = 48            # rounds 1-4
 HIT_WAR = 1.0            # 3-yr raw total that counts as a "hit"
 
 NICK = {'cam': 'cameron', 'tank': 'nathaniel', 'joe': 'joseph', 'trevor': 'william',
@@ -55,24 +56,37 @@ ZEROES = {'Brennan Eagles', 'Pooka Williams', 'Riley Ferguson', 'Tamorrion Terry
 NO_GSIS = {'Travis Hunter'}                   # nflverse pos CB -> absent from
                                               # history; real league WAR only
 
+ROUND_NAME = {1: '1st', 2: '2nd', 3: '3rd', 4: '4th'}
+TIER_NAME = {'E': 'Early', 'M': 'Mid', 'L': 'Late'}
+
 
 def norm(s):
     s = s.lower().replace('.', '').replace("'", '').replace('-', ' ')
     return re.sub(r'\s+(jr|sr|ii|iii|iv|v)$', '', s.strip())
 
 
-def bucket(pick):
-    if pick > 48:
-        return None
-    if pick <= 12:
-        return f"1.{pick:02d}"
-    rd = (pick - 1) // 12 + 1
-    within = (pick - 1) % 12 + 1
+def pick_key(p):
+    rd, within = (p - 1) // 12 + 1, (p - 1) % 12 + 1
+    return f"{rd}.{within:02d}"
+
+
+def band_key(p):
+    rd, within = (p - 1) // 12 + 1, (p - 1) % 12 + 1
     return f"{rd}{'E' if within <= 4 else 'M' if within <= 8 else 'L'}"
 
 
-BUCKET_ORDER = [f"1.{p:02d}" for p in range(1, 13)] + \
-               [f"{r}{t}" for r in (2, 3, 4) for t in ('E', 'M', 'L')]
+PICK_ORDER = [pick_key(p) for p in range(1, MAX_PICK + 1)]
+BAND_ORDER = [f"{r}{t}" for r in (1, 2, 3, 4) for t in ('E', 'M', 'L')]
+
+
+def band_label(b):
+    return f"{TIER_NAME[b[1]]} {ROUND_NAME[int(b[0])]}"
+
+
+def band_slots(b):
+    rd = int(b[0])
+    lo = {'E': 1, 'M': 5, 'L': 9}[b[1]]
+    return f"{rd}.{lo:02d}–{rd}.{lo + 3:02d}"
 
 
 def load_sources(last_season):
@@ -114,6 +128,48 @@ def match_gsis(name, pos, season, meta):
     return None
 
 
+def summarize(order, cells, hits, years, labels=None):
+    """Aggregate sample lists into the JSON bucket rows + a floor matrix."""
+    rows, floor_by_year = [], {k: [] for k in years}
+    for b in order:
+        raw = {k: round(statistics.mean(cells[b][k]), 3)
+               for k in years if cells[b][k]}
+        flr = {k: round(statistics.mean([max(0.0, v) for v in cells[b][k]]), 3)
+               for k in years if cells[b][k]}
+        h = hits.get(b, [])
+        row = {
+            'bucket': b,
+            'n': {k: len(cells[b][k]) for k in years},
+            'raw': raw, 'floor': flr,
+            'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
+            'hit_n': len(h),
+            'dist3': sorted(round(x, 2) for x in h),
+        }
+        if labels:
+            row['label'] = labels[0](b)
+            row['slots'] = labels[1](b)
+        rows.append(row)
+        for k in years:
+            floor_by_year[k].append(flr.get(k))
+    # pool-adjacent-violators: value never increases down the board
+    for k in years:
+        vals = floor_by_year[k]
+        idx = [i for i, v in enumerate(vals) if v is not None]
+        merged = []
+        for i in idx:
+            merged.append([vals[i], 1])
+            while len(merged) > 1 and merged[-2][0] < merged[-1][0]:
+                b2, b1 = merged.pop(), merged.pop()
+                merged.append([(b1[0] * b1[1] + b2[0] * b2[1]) / (b1[1] + b2[1]),
+                               b1[1] + b2[1]])
+        flat = []
+        for val, w in merged:
+            flat += [val] * w
+        for pos_i, i in enumerate(idx):
+            rows[i].setdefault('smooth', {})[k] = round(flat[pos_i], 3)
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description="rookie pick -> WAR stream (Bridge A)")
     ap.add_argument('--last-season', type=int, default=2025,
@@ -134,11 +190,8 @@ def main():
     picks, unmatched, vets = [], [], 0
     for r in csv.DictReader(open(ROOT / 'nfl_history' / 'rookie_drafts.csv',
                                  encoding='utf-8')):
-        season = int(r['season'])
-        if season > last:
-            continue
-        b = bucket(int(r['pick_no']))
-        if not b:
+        season, pick = int(r['season']), int(r['pick_no'])
+        if season > last or pick > MAX_PICK:
             continue
         if r['name'] in MANUAL:
             gsis = MANUAL[r['name']]
@@ -155,26 +208,30 @@ def main():
                 vets += 1
                 continue
             gsis = m[1]
-        picks.append((season, b, r['sleeper_id'], gsis))
+        picks.append((season, pick, r['sleeper_id'], gsis))
 
     years = [k for k in range(1, MAX_YEARS + 1)
              if sum(1 for c in range(FIRST_CLASS, last + 1)
                     if c + k - 1 <= last) >= MIN_CLASSES]
 
-    cells = {b: {k: [] for k in years} for b in BUCKET_ORDER}
-    hits = defaultdict(list)
-    for season, b, sid, gsis in picks:
+    pcells = {b: {k: [] for k in years} for b in PICK_ORDER}
+    bcells = {b: {k: [] for k in years} for b in BAND_ORDER}
+    phits, bhits = defaultdict(list), defaultdict(list)
+    for season, pick, sid, gsis in picks:
+        pk, bk = pick_key(pick), band_key(pick)
         for k in years:
             yr = season + k - 1
             if yr > last:
                 continue
             v = war_of(sid, gsis, yr)
             if v is not None:
-                cells[b][k].append(v)
+                pcells[pk][k].append(v)
+                bcells[bk][k].append(v)
         if season + 2 <= last:                      # 3 finished seasons
             tot = [war_of(sid, gsis, season + i) for i in range(3)]
             if all(t is not None for t in tot):
-                hits[b].append(sum(tot))
+                phits[pk].append(sum(tot))
+                bhits[bk].append(sum(tot))
 
     out = {'meta': {
         'generated_for_season': last,
@@ -185,44 +242,11 @@ def main():
         'picks_used': len(picks), 'vets_excluded': vets,
         'unmatched': len(unmatched),
         'source': 'real Big Dog WAR where available, calibrated NFL history otherwise',
-    }, 'buckets': []}
-
-    floor_by_year = {k: [] for k in years}          # for the monotone pass
-    for b in BUCKET_ORDER:
-        raw = {k: round(statistics.mean(cells[b][k]), 3)
-               for k in years if cells[b][k]}
-        flr = {k: round(statistics.mean([max(0.0, v) for v in cells[b][k]]), 3)
-               for k in years if cells[b][k]}
-        h = hits.get(b, [])
-        out['buckets'].append({
-            'bucket': b,
-            'n': {k: len(cells[b][k]) for k in years},
-            'raw': raw, 'floor': flr,
-            'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
-            'hit_n': len(h),
-            # sorted raw 3-yr totals (matured picks) for box plots
-            'dist3': sorted(round(x, 2) for x in h),
-        })
-        for k in years:
-            floor_by_year[k].append(flr.get(k))
-
-    # pool-adjacent-violators: value never increases down the board
-    for k in years:
-        vals = floor_by_year[k]
-        idx = [i for i, v in enumerate(vals) if v is not None]
-        seq = [[vals[i], 1] for i in idx]            # [value, weight] blocks
-        merged = []
-        for blk in seq:
-            merged.append(blk)
-            while len(merged) > 1 and merged[-2][0] < merged[-1][0]:
-                b2, b1 = merged.pop(), merged.pop()
-                merged.append([(b1[0] * b1[1] + b2[0] * b2[1]) / (b1[1] + b2[1]),
-                               b1[1] + b2[1]])
-        flat = []
-        for val, w in merged:
-            flat += [val] * w
-        for pos_i, i in enumerate(idx):
-            out['buckets'][i].setdefault('smooth', {})[k] = round(flat[pos_i], 3)
+    },
+        'picks': summarize(PICK_ORDER, pcells, phits, years),
+        'bands': summarize(BAND_ORDER, bcells, bhits, years,
+                           labels=(band_label, band_slots)),
+    }
 
     dest = ROOT / 'data' / 'pick_values.json'
     dest.write_text(json.dumps(out, indent=1), encoding='utf-8')
@@ -231,16 +255,16 @@ def main():
     for u in unmatched:
         print('  UNMATCHED', u)
     print(f"years published: {years}")
-    hdr = " ".join(f"y{k}flr y{k}sm" for k in years)
-    print(f"{'bucket':7s} {'n':>3s} | {hdr} | hit%")
-    for bkt in out['buckets']:
-        n = bkt['n'][years[0]]
-        cols = " ".join(f"{bkt['floor'].get(k, float('nan')):5.2f} "
-                        f"{bkt.get('smooth', {}).get(k, float('nan')):5.2f}"
-                        for k in years)
-        hit = f"{bkt['hit_rate']:.0%}" if bkt['hit_rate'] is not None else '-'
-        print(f"{bkt['bucket']:7s} {n:>3d} | {cols} | {hit}")
-    print(f"wrote {dest}")
+    for name, rows in (('PICKS', out['picks']), ('BANDS', out['bands'])):
+        print(f"\n{name}")
+        for row in rows:
+            n = row['n'][years[0]]
+            cols = " ".join(f"{row['floor'].get(k, float('nan')):5.2f}"
+                            for k in years)
+            hit = f"{row['hit_rate']:.0%}" if row['hit_rate'] is not None else '-'
+            lbl = row.get('label', row['bucket'])
+            print(f"  {lbl:10s} {n:>3d} | {cols} | {hit}")
+    print(f"\nwrote {dest}")
 
 
 if __name__ == '__main__':
