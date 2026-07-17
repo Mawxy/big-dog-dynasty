@@ -77,3 +77,20 @@ export interface PickValues {
   /** Early/Mid/Late tiers per round (larger samples; box plots use these) */
   bands: PickBucket[];
 }
+
+/** data/projections.json — 3-year forward WAR per rostered player */
+export interface Projection {
+  pid: string; name: string; pos: string; team: string;
+  age: number; pick: number; exp: number | null;
+  war25: number; level: number;
+  proj: number[]; expected: number[]; composite: number[];
+  proj_ext: number | null; low: number[]; high: number[];
+  total: number; total_exp: number; total_comp: number;
+}
+export interface ProjectionsFile {
+  meta: { seed_season: number; roster_season: number; horizon: number;
+    years: number[]; players: number; model: string; generated: string };
+  players: Projection[];
+}
+export interface SleeperProj { pos: string; pts13: number; ppg: number; raw_pts: number; }
+export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }

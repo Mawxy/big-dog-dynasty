@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import type { Absences, Meta, Ownership, PlayersMin, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
+import type { Absences, Meta, Ownership, PlayersMin, Projection as ProjRec, ProjectionsFile, SleeperProj, SleeperProjFile, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
 import { j, jDaily } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import PosBadge from "./PosBadge";
 import SeasonBoxes from "./SeasonBoxes";
 import WarTrend from "./WarTrend";
+import Projection from "./Projection";
 import OwnershipHistory from "./OwnershipHistory";
 
 interface SeasonBlock {
@@ -21,6 +22,9 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   const [own, setOwn] = useState<Ownership>({});
   const [vals, setVals] = useState<Values | null>(null);
   const [warRank, setWarRank] = useState<{ season: string; rank: number } | null>(null);
+  const [proj, setProj] = useState<ProjRec | null>(null);
+  const [sproj, setSproj] = useState<SleeperProj | null>(null);
+  const [projYears, setProjYears] = useState<number[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -35,6 +39,14 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
       jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
+      j<ProjectionsFile>("data/projections.json").then(pf => {
+        if (!live) return;
+        setProj(pf.players.find(r => r.pid === pid) ?? null);
+        setProjYears(pf.meta.years);
+      }).catch(() => {});
+      j<SleeperProjFile>("data/proj_sleeper.json").then(sf => {
+        if (live) setSproj(sf.players[pid] ?? null);
+      }).catch(() => {});
       if (!live) return;
       const bl = seasons.map((s, i): SeasonBlock => {
         const t = teams[i].find(x => x.players.includes(pid));
@@ -129,6 +141,12 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
           rows={blocks.map(b => ({ season: b.season, values: b.weeks.map(w => w[1]) }))} />
         </div>
       </div>
+      {proj && projYears.length > 0 && (
+        <div style={{ marginBottom: 24, maxWidth: 620 }}>
+          <Projection p={proj} sleeper={sproj} years={projYears}
+            trend={trend.map(t => ({ season: t.season, WAR: t.WAR }))} />
+        </div>
+      )}
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "8px 0 12px" }}>
         <h3 style={{ margin: 0 }}>Season detail</h3>
         <span className="tlink" style={{ fontSize: 12 }} onClick={() => setCollapsed(new Set())}>expand all</span>
