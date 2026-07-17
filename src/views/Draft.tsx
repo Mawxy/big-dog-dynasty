@@ -92,7 +92,7 @@ function ValueTable({ rows, years, firstCol }:
       ? vals.reduce((a, v) => a + (v as number), 0) : undefined;
   };
   return (
-    <table>
+    <table className="pvtbl">
       <thead>
         <tr>
           <th>{firstCol}</th>
