@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { PickBucket, PickValues } from "../lib/types";
 import { jDaily } from "../lib/data";
-import { fmt, quart } from "../lib/stats";
+import { fmt, quart, sd } from "../lib/stats";
 
 const numCls = (v: number) => (v > 0.0005 ? "num good" : v < -0.0005 ? "num bad" : "num");
 
@@ -87,24 +87,20 @@ function ValueTable({ rows, years, firstCol }:
   const roundOf = (b: PickBucket) => b.bucket[0];
   const rounds = [...new Set(rows.map(roundOf))];
   const hasSlots = rows[0]?.slots !== undefined;
-  const nCols = 1 + (hasSlots ? 1 : 0) + years.length + 2;
+  const nCols = 1 + (hasSlots ? 1 : 0) + years.length + 3;
   const tot3 = (b: PickBucket): number | undefined => {
     const vals = [1, 2, 3].map(y => b.raw[String(y)]);
     return vals.every(v => v !== undefined)
       ? vals.reduce((a, v) => a + (v as number), 0) : undefined;
   };
-  const wUnits = [1.3, ...(hasSlots ? [1.2] : []), ...years.map(() => 1.1), 1.3, 1.1];
-  const wSum = wUnits.reduce((a, b) => a + b, 0);
   return (
     <table className={"pvtbl" + (hasSlots ? " pvtbl-s" : "")}>
-      <colgroup>
-        {wUnits.map((u, i) => <col key={i} style={{ width: `${(u / wSum * 100).toFixed(2)}%` }} />)}
-      </colgroup>
       <thead>
         <tr>
           <th>{firstCol}</th>
           {hasSlots && <th className="hm">Slots</th>}
           {years.map(y => <th key={y}>Yr {y}</th>)}
+          <th className="hm" style={{ textTransform: "none", fontSize: 15 }}>σ</th>
           <th>Total</th><th>Hit %</th>
         </tr>
       </thead>
@@ -135,6 +131,7 @@ function ValueTable({ rows, years, firstCol }:
                         ? <td key={y} className="num">–</td>
                         : <td key={y} className={numCls(v)}>{fmt(v, 2)}</td>;
                     })}
+                    <td className="num hm">{b.dist3.length >= 2 ? fmt(sd(b.dist3), 2) : "–"}</td>
                     {t === undefined
                       ? <td className="num">–</td>
                       : <td className={numCls(t)}><b>{fmt(t, 2)}</b></td>}
