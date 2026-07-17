@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useRef, useState, type ReactNode } from "react";
 import type { PickBucket, PickValues } from "../lib/types";
 import { jDaily } from "../lib/data";
 import { fmt, quart, sd } from "../lib/stats";
@@ -96,7 +96,7 @@ function ValueTable({ rows, years, firstCol }:
       <thead>
         <tr>
           <th>{firstCol}</th>
-          {hasSlots && <th>Slots</th>}
+          {hasSlots && <th className="hm">Slots</th>}
           {years.map(y => <th key={y}>Yr {y}</th>)}
           <th className="hm" style={{ textTransform: "none" }}>σ</th>
           <th>3-Yr Total</th><th>Hit %</th>
@@ -117,7 +117,8 @@ function ValueTable({ rows, years, firstCol }:
               return (
                 <tr key={b.bucket}>
                   <td>{b.label ?? b.bucket}</td>
-                  {b.slots !== undefined && <td style={{ color: "var(--dim)" }}>{b.slots}</td>}
+                  {b.slots !== undefined &&
+                    <td className="hm" style={{ color: "var(--dim)" }}>{b.slots}</td>}
                   {years.map(y => {
                     const v = b.raw[String(y)];
                     return v === undefined
@@ -141,20 +142,34 @@ function ValueTable({ rows, years, firstCol }:
   );
 }
 
-/** tiers as horizontal box-and-whisker rows on one shared WAR axis */
+/** tiers as horizontal box-and-whisker rows on one shared WAR axis.
+ *  Renders at container width; drops secondary labels when narrow (mobile). */
 function PickBoxes({ buckets }: { buckets: PickBucket[] }) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(960);
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const update = () => setW(Math.max(320, Math.min(960, el.clientWidth)));
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const rows = buckets.filter(b => b.dist3 && b.dist3.length >= 4);
   if (!rows.length) return <div className="empty">Not enough matured picks yet.</div>;
+  const compact = w < 620;
   const all = rows.flatMap(b => b.dist3);
   const lo = Math.min(...all), hi = Math.max(...all);
-  const LBL = 84, L = LBL + 36, W = 960, R = W - 88, ROW = 48, TOP = 30;
+  const LBL = compact ? 60 : 84, L = LBL + (compact ? 10 : 36),
+    W = w, R = W - (compact ? 14 : 88), ROW = compact ? 38 : 48, TOP = compact ? 24 : 30;
   const H = TOP + rows.length * ROW + 28;
   const x = (t: number) => L + (t - lo) / ((hi - lo) || 1) * (R - L);
   const ticks: number[] = [];
   for (let t = Math.ceil(lo); t <= Math.floor(hi); t++) ticks.push(t);
   const c = "#8b96a5";
   return (
-    <div className="wkwrap">
+    <div ref={wrapRef}>
       <svg width={W} height={H} style={{ display: "block", background: "var(--card)", borderRadius: 10 }}>
         {ticks.map(t => (
           <g key={t}>
@@ -167,10 +182,11 @@ function PickBoxes({ buckets }: { buckets: PickBucket[] }) {
           const v = b.dist3;
           const q1 = quart(v, .25), md = quart(v, .5), q3 = quart(v, .75);
           const mn = v[0], mx = v[v.length - 1];
-          const y = TOP + i * ROW, h = 18, cy = y + h / 2;
+          const y = TOP + i * ROW, h = compact ? 16 : 18, cy = y + h / 2;
           return (
             <g key={b.bucket}>
-              <text x={LBL} y={cy + 4} fontSize="12.5" fill="var(--txt)" textAnchor="end">
+              <text x={LBL} y={cy + 4} fontSize={compact ? "10.5" : "12.5"}
+                fill="var(--txt)" textAnchor="end">
                 {b.label ?? b.bucket}
               </text>
               <line x1={x(mn)} x2={x(q1)} y1={cy} y2={cy} stroke={c} />
@@ -184,19 +200,21 @@ function PickBoxes({ buckets }: { buckets: PickBucket[] }) {
               <text x={x(md)} y={y - 5} fontSize="10.5" fill="var(--acc)" textAnchor="middle">
                 {fmt(md, 1)}
               </text>
-              <text x={x(mn) - 5} y={cy + 4} fontSize="9.5" fill={c} textAnchor="end">
-                {fmt(mn, 1)}
-              </text>
-              <text x={x(mx) + 5} y={cy + 4} fontSize="9.5" fill={c} textAnchor="start">
-                {fmt(mx, 1)}
-              </text>
-              <text x={x(q1)} y={y + h + 12} fontSize="9.5" fill={c} textAnchor="middle">
-                {fmt(q1, 1)}
-              </text>
-              <text x={x(q3)} y={y + h + 12} fontSize="9.5" fill={c} textAnchor="middle">
-                {fmt(q3, 1)}
-              </text>
-              <text x={R + 34} y={cy + 4} fontSize="10.5" fill={c}>n={v.length}</text>
+              {!compact && <>
+                <text x={x(mn) - 5} y={cy + 4} fontSize="9.5" fill={c} textAnchor="end">
+                  {fmt(mn, 1)}
+                </text>
+                <text x={x(mx) + 5} y={cy + 4} fontSize="9.5" fill={c} textAnchor="start">
+                  {fmt(mx, 1)}
+                </text>
+                <text x={x(q1)} y={y + h + 12} fontSize="9.5" fill={c} textAnchor="middle">
+                  {fmt(q1, 1)}
+                </text>
+                <text x={x(q3)} y={y + h + 12} fontSize="9.5" fill={c} textAnchor="middle">
+                  {fmt(q3, 1)}
+                </text>
+                <text x={R + 34} y={cy + 4} fontSize="10.5" fill={c}>n={v.length}</text>
+              </>}
             </g>
           );
         })}
