@@ -35,17 +35,28 @@ export default function SeasonBoxes({ rows, domain, height = 230 }: {
   const step = span <= 30 ? 5 : span <= 60 ? 10 : 20;
   const ticks: number[] = [];
   for (let t = Math.ceil(lo / step) * step; t <= hi + 0.001; t += step) ticks.push(t);
-  const c = "#8b96a5", grid = "#242c38";
+  // the domain bounds (league all-time single-week min/max) get explicit,
+  // labeled boundary lines so the edges of the plot are always legible;
+  // drop any step tick whose label would crowd a boundary label.
+  const shown = ticks.filter(t => Math.abs(x(t) - x(lo)) > 18 && Math.abs(x(t) - x(hi)) > 18);
+  const fmt = (t: number) => Math.abs(t - Math.round(t)) < 0.05 ? String(Math.round(t)) : t.toFixed(1);
+  const c = "#8b96a5", grid = "#242c38", bound = "#4a5568", boundTxt = "#aab6c5";
   return (
     <div ref={ref}>
       <div style={{ color: "var(--txt)", fontSize: 13, marginBottom: 4 }}>
         <b>Weekly points by season</b>
       </div>
       <svg width={W} height={H}>
-        {ticks.map(t => (
+        {shown.map(t => (
           <g key={t}>
             <line x1={x(t)} x2={x(t)} y1={T} y2={H - axisH + 4} stroke={grid} />
             <text x={x(t)} y={H - 6} fontSize="9.5" fill={c} textAnchor="middle">{t}</text>
+          </g>
+        ))}
+        {[lo, hi].map(t => (
+          <g key={`bound-${t}`}>
+            <line x1={x(t)} x2={x(t)} y1={T} y2={H - axisH + 4} stroke={bound} strokeDasharray="3 3" />
+            <text x={x(t)} y={H - 6} fontSize="9.5" fill={boundTxt} textAnchor="middle" fontWeight={700}>{fmt(t)}</text>
           </g>
         ))}
         {usable.map((r, i) => {

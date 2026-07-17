@@ -98,19 +98,47 @@ def dump_league(league_id: str, root: Path):
     return league.get("previous_league_id")
 
 
+# Offensive box-score keys that prove a player took part in the offense even
+# if snap counts are missing (e.g. Chism 2025 wk18: a catch with off_snp 0).
+_OFF_STATS = ("pass_att", "pass_yd", "pass_cmp", "rush_att", "rush_yd",
+              "rec", "rec_tgt", "rec_yd", "fum", "pass_sack")
+
+def row_played(row):
+    """Played test per the settled 2026-07-17 rule (position-dependent):
+
+    QB       — offensive participation only: off_snp > 0 or a real offensive
+               stat line. A dressed backup with zero snaps (Malik Willis 2025
+               wk1) is DNP: QB is the one position with a clear every-snap
+               starter, so merely dressing carries no signal.
+    RB/WR/TE — dressed = played: any record beyond the bare 'gms_active'
+               placeholder (gp / own snaps / tm_*_snp) counts, and a dressed
+               0.00 accrues negative value — rotation positions have no
+               guaranteed snap-taker.
+
+    Never trust 'gms_active' alone: Sleeper emits it even for IR, NFI and
+    practice-squad players (their records are gms_active + pos_rank 999 and
+    nothing else). tm_*_snp presence is the dressed/not-dressed discriminator;
+    scratches, byes and Sleeper's game-log '-' have no record at all."""
+    st = row.get("stats") or {}
+    pl = row.get("player") or {}
+    pos = pl.get("position") or (pl.get("fantasy_positions") or [None])[0]
+    if pos == "QB":
+        return bool(st.get("off_snp") or any(st.get(k) for k in _OFF_STATS))
+    # RB/WR/TE (and unknown-position fallback): dressed = played
+    return bool(st.get("gp") or st.get("off_snp") or st.get("def_snp")
+                or st.get("st_snp") or st.get("tm_off_snp")
+                or st.get("tm_def_snp") or st.get("tm_st_snp"))
+
 def fetch_played(season, week):
-    """Player IDs (QB/RB/WR/TE) who actually PLAYED that week, per Sleeper's
-    stats feed. Distinguishes a real 0.00-point game from a bye/inactive week
-    (Sleeper's own game log shows those as '-'). A player counts as having
-    played if they logged a game (gp) or any snaps — 'gms_active' alone means
-    dressed but never took the field, so it does NOT count."""
+    """Player IDs (QB/RB/WR/TE) who count as PLAYED that week, per Sleeper's
+    stats feed and the position-dependent rule in row_played(). Distinguishes
+    a real 0.00-point game from a bye/inactive week."""
     url = (f"https://api.sleeper.app/stats/nfl/{season}/{week}"
            f"?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE")
     rows = get(url) or []
     played = {}   # player_id -> NFL team that week (lets us tell BYE from DNP)
     for row in rows:
-        st = row.get("stats") or {}
-        if st.get("gp") or st.get("off_snp") or st.get("def_snp") or st.get("st_snp"):
+        if row_played(row):
             pid = row.get("player_id")
             if pid:
                 played[pid] = row.get("team") or ""

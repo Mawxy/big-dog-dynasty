@@ -1,0 +1,41 @@
+name: WAR history (nflverse)
+# One-off / occasional: rebuild historical WAR (2014+) from nflverse data,
+# shaped to the league's exact scoring, pool and played rules, computed by the
+# unchanged sleeper_war.py engine. Commits CSVs to nfl_history/.
+on:
+  workflow_dispatch:
+    inputs:
+      start:
+        description: "First season"
+        default: "2014"
+      end:
+        description: "Last season"
+        default: "2025"
+permissions:
+  contents: write
+jobs:
+  history:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install nflreadpy
+        run: pip install nflreadpy
+      - name: Shape nflverse data to league form
+        run: python scripts/nfl_history.py --start "${{ github.event.inputs.start }}" --end "${{ github.event.inputs.end }}" --out nfl_history_data
+      - name: Compute WAA/WAR (unchanged engine)
+        run: python scripts/sleeper_war.py --data nfl_history_data --top 10
+      - name: Collect outputs
+        run: |
+          mkdir -p nfl_history
+          cp nfl_history_data/analysis/*.csv nfl_history/
+          cp nfl_history_data/players_meta.csv nfl_history/
+      - name: Commit history CSVs
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add nfl_history
+          git diff --cached --quiet || git commit -m "WAR history rebuild (${{ github.event.inputs.start }}-${{ github.event.inputs.end }})"
+          git push

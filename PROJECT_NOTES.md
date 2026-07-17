@@ -22,16 +22,23 @@ Sleeper API ──> scripts/sleeper_pull.py ──> sleeper_data/   (raw dump, g
                 scripts/build_site_data.py ──> data/        (compact JSON, committed)
                                                  │
 src/ (Vite + React 18 + TypeScript) ────────────┴──> GitHub Pages
+
+nflverse ──> scripts/nfl_history.py ──> nfl_history_data/  (gitignored)
+             └─ same sleeper_war.py engine ──> nfl_history/*.csv (committed)
 ```
 
 - **Front end** reads only `data/*.json` — never calls Sleeper. React Router
   (HashRouter) URLs: `#/players/:season`, `#/teams/:season[/:rid]`,
   `#/weekly/:season[/:wk]`, `#/player/:pid`; season segment `all` = All-time.
-- **Two GitHub Actions workflows:**
+- **GitHub Actions workflows:**
   - `deploy.yml` — build & deploy on every push to `main` (also manual /
     `workflow_call`). No Sleeper calls; safe to run constantly.
   - `data-refresh.yml` — Wednesdays 06:00 UTC (1 AM ET) + manual: pulls Sleeper,
     recomputes WAR, commits `data/`, then calls deploy.
+  - `values-refresh.yml` — daily: FantasyCalc + KTC market values, no Sleeper.
+  - `war-history.yml` — manual: nflverse → league-shaped WAR for 2014+ via
+    `scripts/nfl_history.py` + unchanged engine; commits `nfl_history/*.csv`
+    (analysis CSVs + players_meta.csv with birth dates and draft slots).
 - Pages source is **GitHub Actions** (not branch). `npm ci && npm run build`,
   then `data/` is copied into `dist/`.
 - UI conventions: dark theme, pos badge colors (QB purple #9333ea, RB green,
@@ -55,16 +62,63 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    Max explicitly wants big games in low-scoring weeks to earn more).
 4. Weekly shifts summed over **regular season only** (playoffs excluded;
    `--include-playoffs` flag exists).
-5. **Played = has a real stat line** (gp or snaps in Sleeper's weekly stats
-   feed, saved as `<season>/played/week_NN.json` by sleeper_pull). A true
-   0.00-point game counts as played and accrues negative value; byes and
-   inactives are excluded. `gms_active` alone (dressed, never played) does
-   NOT count. Falls back to "0.00 = DNP" if played files are absent.
+5. **Played rule (SETTLED 2026-07-17, position-dependent — Max's ruling)**:
+   - **QB**: offensive participation only — `off_snp > 0` OR a real offensive
+     stat line. A dressed backup QB with zero snaps is **DNP** (Malik Willis
+     2025 wk1, Bagent's 2024 backup weeks). Rationale: QB is the one position
+     with a clear starter who takes every snap, so merely dressing carries no
+     start-worthiness signal.
+   - **RB / WR / TE**: **dressed = played**. Any record beyond the bare
+     `gms_active` placeholder (i.e., `gp`, `off_snp`, `st_snp`, or `tm_*_snp`
+     present) counts as played; a dressed zero-point game accrues negative
+     value. Rationale: these positions rotate — a dressed player who gave you
+     nothing is a real 0.00, not an absence.
+   - Byes, game-day inactives, and IR/NFI/practice-squad (bare `gms_active`
+     records) are excluded (DNP) for all positions.
+   - Saved as `<season>/played/week_NN.json` by sleeper_pull; sleeper_war
+     falls back to "0.00 = DNP" if played files are absent.
+   - IMPLEMENTED in `sleeper_pull.row_played()` and mirrored in
+     `nfl_history.row_played_hist()` (2026-07-17; commit + data-refresh rerun
+     may still be pending — check git log).
+   - History: an earlier all-positions "startability" rule (dressed = played
+     for everyone) and an all-positions "participation" rule (off_snp only for
+     everyone) were both considered and rejected in favor of this split.
 6. Team WAA/WAR (Teams page) = sum over each week's **actual starters**, not
    season totals of the current roster. Lineup WAA runs negative for most
    teams (measured vs the optimal pool) — that's expected, compare relatively.
 7. Reference points: ~2 WAR in a 14-week season is a superstar (CMC 2025 ≈ 2);
    a 12-2 team's lineup WAA can be slightly negative — verified correct.
+
+### Sleeper stats-feed signatures (probed 2026-07-17, verified on 2024 + 2025 data)
+
+Per-week record shapes in `api.sleeper.app/stats/nfl/<yr>/<wk>?season_type=
+regular&position[]=...` (and the per-player `stats/nfl/player/<id>` endpoint):
+
+- **Played**: `gp`/`off_snp` + real stats. Either key can appear WITHOUT the
+  other (a TE had `off_snp:4`, no `gp`; Chism 2025 wk18 had a catch with
+  `off_snp:0`) — so test snaps OR stat line, never one alone.
+- **Dressed, zero offensive snaps**: `gms_active:1` + `tm_off_snp/tm_def_snp/
+  tm_st_snp`, no `gp`/`off_snp`, pos_rank 999. Under rule #5: DNP for QB,
+  played 0.00 for RB/WR/TE.
+- **IR / NFI / practice squad**: bare `gms_active:1` + pos_rank 999, no
+  `tm_*_snp`. So `gms_active` fires even for IR and practice-squad players
+  (verified: McCaffrey's 2024 IR weeks, Jordan Travis all of 2024) — it is
+  NEVER a played signal. `tm_*_snp` presence is the dressed/not-dressed
+  discriminator.
+- **Game-day inactive / scratch / bye**: no record at all (null). This is the
+  dash in Sleeper's UI (verified: Zach Wilson all 2024, Efton Chism 12542's
+  2025 scratch weeks).
+- Open: 2022-era field conventions not yet spot-checked (all probes were
+  2024/2025, `company: sportradar`).
+
+## WAR valuation model (in progress — see HANDOFF.md for pickup point)
+
+Settled shape: every asset (player or pick) → expected future WAR stream;
+per-team discount δ ≈ 0.6-0.8 collapses streams to numbers; trade = Σ streams
+in vs out. Pick slots priced via two bridges — A: empirical realized-WAR vs
+draft slot; B: market-implied (KTC/FantasyCalc value→WAR) — blended by sample
+confidence + pick maturity. Player streams need per-position aging curves fit
+on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
 
 ## Site features (all shipped)
 
@@ -82,6 +136,8 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
   dropdown = top 5 per position; week number → week page (all matchups with
   winners + lineup WAR, top-50 performers).
 - Methodology lives in a collapsed footer, with KTC/FantasyCalc attribution.
+- Season box plots share one axis from `meta.ptsRange` with dashed, labeled
+  boundary lines at the domain min/max (2026-07-17).
 - **Market values** (player pages only, not leaderboards): daily
   `values-refresh.yml` workflow (no Sleeper calls) pulls FantasyCalc API +
   KeepTradeCut page scrape into `data/values.json` + `values_history.json`.
@@ -94,22 +150,20 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
 
 ## Known bugs / caveats (tracked, not yet fixed)
 
-1. ~~0.00 vs DNP conflation~~ **FIXED**: sleeper_pull now saves per-week
-   played sets from `api.sleeper.app/stats/nfl/<yr>/<wk>?season_type=regular&
-   position[]=QB...` (played = gp>0 or any snaps; NOT gms_active alone), and
-   sleeper_war uses them. "Started a ghost" flag is now buildable from
-   starters minus played-set.
+1. ~~0.00 vs DNP conflation~~ **FIXED**, including the 2026-07-17
+   position-split refinement (see methodology #5). Played maps regenerate on
+   the next data-refresh run after the split is pushed.
 2. All-time "Roster" column attributes players to their **current** owner only.
 3. Sleeper rate limit: stay under ~1000 calls/min; the 5MB `players/nfl` map
    at most once per day (why data refresh is weekly and deploy is separate).
 
 ## Roadmap (Max's stated priorities)
 
-1. **Interactive charts** — recharts is already in package.json, unused.
-   Ideas: weekly WAR lines per player, team score distributions, WAR over time.
-2. **Value analysis** — TBD with Max.
-3. **Trade analyzer** — traded picks + ownership + WAR data already collected.
-4. Fix known bug #1 above at some point.
+1. **WAR valuation model / value analysis** — aging curves → pick-value
+   bridges → trade analyzer (see section above + HANDOFF.md).
+2. **Trade analyzer** — traded picks + ownership + WAR data already collected.
+3. More interactive charts as ideas arise (recharts in the bundle).
+4. Minor: all-time Roster column (bug #2).
 
 ## Working conventions (from Max)
 
@@ -121,8 +175,11 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
   really changed).
 - Local repo folder is the connected workspace; edit files there directly,
   then give Max the git commands.
-- Dev loop: edit in sandbox, `npx tsc --noEmit`, `npm run build`, then sync
-  `src/` to the repo folder.
+- Dev loop: edit → `npx tsc --noEmit` → `npm run build` (Vite build does NOT
+  typecheck — always run tsc manually).
+- Prefer running Cowork sessions ON Max's computer (direct folder + network
+  access); cloud sessions can't write `.github/workflows/` or reach
+  api.sleeper.app / nflverse downloads directly.
 
 ## Related tooling (outside the repo)
 
@@ -130,3 +187,6 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
 - `sleeper_pull.py` / `sleeper_war.py` also work standalone on any machine:
   `python sleeper_pull.py <league_id> --players --out <dir>` then
   `python sleeper_war.py --data <dir>`.
+- Historical WAR standalone: `pip install nflreadpy`, then
+  `python scripts/nfl_history.py --start 2014 --end 2025` and
+  `python scripts/sleeper_war.py --data nfl_history_data`.
