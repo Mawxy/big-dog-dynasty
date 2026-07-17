@@ -83,6 +83,8 @@ export interface Projection {
   pid: string; name: string; pos: string; team: string;
   age: number; pick: number; exp: number | null;
   war25: number; level: number;
+  /** full-career WAR by season [season, war] (real league + NFL history) */
+  career: [number, number][];
   proj: number[]; expected: number[]; composite: number[];
   proj_ext: number | null; low: number[]; high: number[];
   total: number; total_exp: number; total_comp: number;

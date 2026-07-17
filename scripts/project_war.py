@@ -25,6 +25,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 RECENCY = [0.5, 0.3, 0.2]
+BLEND_W = [0.8, 0.5, 0.2]            # composite: projected weight by year (math = 1 - this)
 FULL_GP = 13
 MIN_GP = 4
 def prior_weight(exp, level):
@@ -62,7 +63,8 @@ def build_meta_index():
             n,
             datetime.date.fromisoformat(r['birth_date']) if r['birth_date'] else None,
             int(r['draft_season']) if r['draft_season'] else None,
-            int(r['draft_pick']) if r['draft_pick'] else 999))
+            int(r['draft_pick']) if r['draft_pick'] else 999,
+            r['gsis_id']))
     return idx
 
 
@@ -144,6 +146,23 @@ def main():
     sfile = ROOT / 'data' / 'proj_sleeper.json'
     sproj = json.load(open(sfile, encoding='utf-8'))['players'] if sfile.exists() else {}
     idx = build_meta_index()
+
+    # full-career WAR: real Big Dog WAR for league years, league-shaped NFL
+    # history for earlier ones (for the projection chart's actual line)
+    realwar = defaultdict(dict)
+    for yr in seasons:
+        if yr > seed:
+            continue
+        f = ROOT / 'data' / f'{yr}' / 'summary.json'
+        if f.exists():
+            for row in json.load(open(f, encoding='utf-8')):
+                realwar[row[0]][yr] = float(row[6])
+    histwar = defaultdict(dict)
+    for yr in range(2012, seed + 1):
+        f = ROOT / 'nfl_history' / f'waa_war_{yr}.csv'
+        if f.exists():
+            for r in csv.DictReader(open(f, encoding='utf-8')):
+                histwar[r['player_id']][yr] = float(r['WAR'])
     proj_years = [seed + 1 + k for k in range(H)]
 
     def avail_for(pos, age):
@@ -158,7 +177,7 @@ def main():
             continue
         nm = names.get(pid, [pid, pos, ''])[0]
         m = match_meta(nm, pos, idx)
-        birth, draft_season, pick = (m if m else (None, None, 999))
+        birth, draft_season, pick, gsis = (m if m else (None, None, 999, None))
         if birth is None:
             base_age, asrc = DEFAULT_AGE.get(pos, 26), 'default'; age_def += 1
         else:
@@ -185,22 +204,30 @@ def main():
             low.append(round(max(r + g['p20'], 0.0), 3))
             high.append(round(r + g['p80'], 3))
             rates[fy] = r; gps[fy] = FULL_GP
-        # composite: yr1 = half math + half external (Sleeper) projection;
-        # yrs 2-3 = pure math (if-healthy). Falls back to pure math if no projection.
+        # composite: blend the math path with a "projected path" (Sleeper's
+        # year-1 number aged forward along the math's decay shape), weighting
+        # the projection heavily near-term and handing off to the math:
+        # yr1 80/20, yr2 50/50, yr3 20/80.  Falls back to pure math if no projection.
         sp = sproj.get(pid)
         if sp is not None and pos in ptw:
             proj_ext = round(ptw[pos]['a'] + ptw[pos]['b'] * sp['pts13'], 3)
-            comp = [round(0.5 * proj[0] + 0.5 * proj_ext, 3), proj[1], proj[2]]
+            comp = []
+            for i in range(len(proj)):
+                w = BLEND_W[i] if i < len(BLEND_W) else 0.0
+                shape = proj[i] / proj[0] if proj[0] > 0.05 else 1.0   # decay of the math path
+                comp.append(round(w * (proj_ext * shape) + (1 - w) * proj[i], 3))
         else:
             proj_ext = None
             comp = list(proj)
         L0, _ = wlevel(rate_s[pid], gp_s[pid], seed)
         exp0 = (seed - draft_season + 1) if draft_season else None
         pw0 = prior_weight(exp0, L0 if L0 is not None else 0.0)
+        rw = realwar.get(pid, {}); hw = histwar.get(gsis, {}) if gsis else {}
+        career = [[y, round(rw.get(y, hw.get(y, 0.0)), 3)] for y in sorted(set(rw) | set(hw))]
         rows.append({
             'pid': pid, 'name': nm, 'pos': pos, 'team': owner[pid],
             'age': base_age, 'age_src': asrc, 'pick': pick, 'exp': exp0,
-            'war25': round(war_s[pid].get(seed, 0.0), 3),
+            'war25': round(war_s[pid].get(seed, 0.0), 3), 'career': career,
             'level': round((1 - pw0) * (L0 if L0 is not None else prior) + pw0 * prior, 3),
             'proj': proj, 'expected': expv, 'composite': comp, 'proj_ext': proj_ext,
             'low': low, 'high': high,

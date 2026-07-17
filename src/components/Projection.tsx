@@ -18,16 +18,19 @@ export default function Projection({ p, trend, sleeper, years }: {
   sleeper?: SleeperProj | null;
   years: number[];
 }) {
-  const lastActual = trend.length ? trend[trend.length - 1].WAR : p.war25;
+  const hist = p.career && p.career.length
+    ? p.career.map(([s, w]) => ({ season: String(s), WAR: w }))
+    : trend;
+  const lastActual = hist.length ? hist[hist.length - 1].WAR : p.war25;
   const data: Record<string, unknown>[] = [
-    ...trend.map(t => ({ season: t.season, actual: t.WAR })),
+    ...hist.map(t => ({ season: t.season, actual: t.WAR })),
     ...years.map((y, i) => ({
       season: String(y),
       natural: p.proj[i], blended: p.composite[i], smoothed: p.expected[i],
     })),
   ];
-  if (trend.length) {   // bridge every forward line to the last real season
-    Object.assign(data[trend.length - 1],
+  if (hist.length) {   // bridge every forward line to the last real season
+    Object.assign(data[hist.length - 1],
       { natural: lastActual, blended: lastActual, smoothed: lastActual });
   }
   const draft = p.pick < 999 ? `R${Math.ceil(p.pick / 32)} #${p.pick}` : "UDFA";
