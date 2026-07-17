@@ -4,3 +4,4 @@ node_modules/
 dist/
 nfl_history_data/
 HANDOFF.md
+vite.config.*.timestamp-*.mjs
