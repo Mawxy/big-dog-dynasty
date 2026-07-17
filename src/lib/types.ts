@@ -59,8 +59,6 @@ export interface PickBucket {
   /** year-since-draft -> sample size (JSON int keys arrive as strings) */
   n: Record<string, number>;
   raw: Record<string, number>;
-  floor: Record<string, number>;
-  smooth?: Record<string, number>;
   hit_rate: number | null;
   hit_n: number;
   /** sorted raw 3-yr WAR totals of matured picks (box-plot sample) */

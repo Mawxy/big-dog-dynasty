@@ -20,10 +20,8 @@ Method (settled with Max 2026-07-17):
     historical WAR by gsis id, else 0.0 (busted/out of league = real zero).
     Player-seasons with no source at all (e.g. Travis Hunter pre-league,
     nflverse position filter) are skipped, not zeroed.
-  * "floor" stream clamps each season at 0 — a pick is an option; busts
-    ride the bench, they don't torch your lineup. Valuation uses floor.
-  * "smooth" = floor run through a pool-adjacent-violators pass so value
-    never increases down the board (kills small-n jitter).
+  * Raw values only (Max's call 2026-07-17): each season counts at its
+    actual WAR, negatives included — no flooring, no smoothing.
   * Dynamic maturity: year-since-draft column K is published once
     >= MIN_CLASSES draft classes have completed that season. Year 4 unlocks
     automatically after the 2026 season — just rerun, no code change.
@@ -129,18 +127,15 @@ def match_gsis(name, pos, season, meta):
 
 
 def summarize(order, cells, hits, years, labels=None):
-    """Aggregate sample lists into the JSON bucket rows + a floor matrix."""
-    rows, floor_by_year = [], {k: [] for k in years}
+    """Aggregate sample lists into the JSON bucket rows (raw means only)."""
+    rows = []
     for b in order:
-        raw = {k: round(statistics.mean(cells[b][k]), 3)
-               for k in years if cells[b][k]}
-        flr = {k: round(statistics.mean([max(0.0, v) for v in cells[b][k]]), 3)
-               for k in years if cells[b][k]}
         h = hits.get(b, [])
         row = {
             'bucket': b,
             'n': {k: len(cells[b][k]) for k in years},
-            'raw': raw, 'floor': flr,
+            'raw': {k: round(statistics.mean(cells[b][k]), 3)
+                    for k in years if cells[b][k]},
             'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
             'hit_n': len(h),
             'dist3': sorted(round(x, 2) for x in h),
@@ -149,24 +144,6 @@ def summarize(order, cells, hits, years, labels=None):
             row['label'] = labels[0](b)
             row['slots'] = labels[1](b)
         rows.append(row)
-        for k in years:
-            floor_by_year[k].append(flr.get(k))
-    # pool-adjacent-violators: value never increases down the board
-    for k in years:
-        vals = floor_by_year[k]
-        idx = [i for i, v in enumerate(vals) if v is not None]
-        merged = []
-        for i in idx:
-            merged.append([vals[i], 1])
-            while len(merged) > 1 and merged[-2][0] < merged[-1][0]:
-                b2, b1 = merged.pop(), merged.pop()
-                merged.append([(b1[0] * b1[1] + b2[0] * b2[1]) / (b1[1] + b2[1]),
-                               b1[1] + b2[1]])
-        flat = []
-        for val, w in merged:
-            flat += [val] * w
-        for pos_i, i in enumerate(idx):
-            rows[i].setdefault('smooth', {})[k] = round(flat[pos_i], 3)
     return rows
 
 
@@ -259,7 +236,7 @@ def main():
         print(f"\n{name}")
         for row in rows:
             n = row['n'][years[0]]
-            cols = " ".join(f"{row['floor'].get(k, float('nan')):5.2f}"
+            cols = " ".join(f"{row['raw'].get(k, float('nan')):5.2f}"
                             for k in years)
             hit = f"{row['hit_rate']:.0%}" if row['hit_rate'] is not None else '-'
             lbl = row.get('label', row['bucket'])
