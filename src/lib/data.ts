@@ -1,8 +1,12 @@
-const cache = new Map<string, Promise<unknown>>();
-let ver = "";
-export function setVersion(v: string) { ver = v; }
+declare const __BUILD_ID__: string;
 
-/** fetch JSON once per path per page load (cache-busted by data version) */
+const cache = new Map<string, Promise<unknown>>();
+// Cache-bust key: the build id changes on every deploy (guarantees a refetch
+// when new data ships), combined with the data version when it's known.
+let ver = __BUILD_ID__;
+export function setVersion(v: string) { ver = `${__BUILD_ID__}.${v}`; }
+
+/** fetch JSON once per path per page load (cache-busted by build + data version) */
 export function j<T>(path: string): Promise<T> {
   if (!cache.has(path)) {
     const sep = path.includes("?") ? "&" : "?";
