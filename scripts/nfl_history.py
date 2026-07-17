@@ -19,9 +19,18 @@ league's exact shape on raw NFL data:
     + 12 FLEX weekly, greedy by points — reuses sleeper_war.build_week);
   * 12 synthetic team scores per week for the sigma step: the 108 startable
     slots are dealt into 12 legal lineups (slot-wise, seeded shuffle, so runs
-    are reproducible). This approximates a league where talent is spread
-    randomly; sigma won't match the real league's exactly — accepted, since
-    we extract curve SHAPE, not absolute WAR.
+    are reproducible), then the 12 scores are rescaled around their weekly
+    mean so their sample stdev hits CV_TARGET * mean. The raw slot-wise deal
+    makes 12 near-equal rosters whose scores cluster far tighter than a real
+    league's (measured 2026-07-17: historical WAR ran 1.4-1.55x the real
+    league's for identical player-seasons), so sigma is calibrated to the
+    real league instead: CV (sigma/mean of the 12 weekly team scores) was
+    0.195/0.217/0.208/0.242 over 2022-2025 (sample stdev, weeks 1-14),
+    pooled mean 0.216, uncorrelated with weekly scoring level (R^2 = 0.02).
+    One constant across all eras keeps seasons comparable. Player points are
+    untouched — only team `points` (the engine's sigma input) is rescaled,
+    so team points no longer equal the sum of players_points (true in the
+    real league too, where `points` covers starters only).
 
 Weeks 1-14 only (the league's regular season), season_type REG.
 
@@ -38,7 +47,7 @@ Requires: pip install nflreadpy   (Python port of nflreadr; no R needed)
 Run on GitHub Actions (war-history.yml) — nflverse downloads are blocked in
 some sandboxes.
 """
-import argparse, csv, json, random, sys
+import argparse, csv, json, random, statistics, sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -62,6 +71,8 @@ ROSTER_POSITIONS = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLE
 CORE = {"QB", "RB", "WR", "TE"}
 N_TEAMS = 12
 LAST_WEEK = 14          # league regular season = weeks 1-14 (playoffs wk 15+)
+CV_TARGET = 0.216       # weekly sigma/mean of team scores; pooled real-league
+                        # 2022-2025 (sample stdev, n=12) — see module docstring
 
 
 def g(row, *names, default=0.0):
@@ -149,10 +160,23 @@ def assign_slots(points, positions, slots):
     return groups, rest
 
 
+def calibrate_scores(scores, cv=CV_TARGET):
+    """Rescale the 12 team scores around their mean so their sample stdev
+    equals cv * mean (the real league's measured spread). Preserves the mean
+    and each team's relative position; only the spread changes."""
+    m = statistics.mean(scores)
+    s = statistics.stdev(scores)
+    if s <= 0 or m <= 0:
+        return scores
+    f = (cv * m) / s
+    return [round(m + (x - m) * f, 2) for x in scores]
+
+
 def synth_teams(points, positions, slots, seed):
     """Deal the startable slots into 12 legal lineups (seeded, reproducible)
     and spread the rest of the player universe across teams. Team 'points'
-    drive the engine's weekly sigma; players_points carry the full pool so
+    drive the engine's weekly sigma and are calibrated to the real league's
+    spread (calibrate_scores); players_points carry the full pool so
     replacement baselines see every played player."""
     groups, rest = assign_slots(points, positions, slots)
     rng = random.Random(seed)
@@ -162,11 +186,13 @@ def synth_teams(points, positions, slots, seed):
         rng.shuffle(pids)
         for i, pid in enumerate(pids):
             team_players[i % N_TEAMS].append(pid)
+    raw = [sum(points[p] for p in pids) for pids in team_players]
+    cal = calibrate_scores(raw)
     teams = []
     for i, pids in enumerate(team_players):
         teams.append({
             "roster_id": i + 1,
-            "points": round(sum(points[p] for p in pids), 2),
+            "points": cal[i],
             "players_points": {p: points[p] for p in pids},
         })
     for j, pid in enumerate(rest):   # non-startable universe, round-robin

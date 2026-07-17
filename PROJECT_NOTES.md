@@ -39,6 +39,10 @@ nflverse ──> scripts/nfl_history.py ──> nfl_history_data/  (gitignored)
   - `war-history.yml` — manual: nflverse → league-shaped WAR for 2014+ via
     `scripts/nfl_history.py` + unchanged engine; commits `nfl_history/*.csv`
     (analysis CSVs + players_meta.csv with birth dates and draft slots).
+    Synthetic team scores are σ-calibrated to the real league (CV_TARGET =
+    0.216 = pooled 2022-25 weekly σ/mean of team scores, sample stdev; the
+    raw slot-wise deal ran WAR ~1.4-1.55× hot vs real league player-seasons,
+    measured 2026-07-17).
 - Pages source is **GitHub Actions** (not branch). `npm ci && npm run build`,
   then `data/` is copied into `dist/`.
 - UI conventions: dark theme, pos badge colors (QB purple #9333ea, RB green,
