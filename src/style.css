@@ -20,9 +20,9 @@ th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
 th{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;user-select:none}
 th.sorted{color:var(--acc)}
 thead th{position:sticky;top:0;background:var(--card);z-index:1}
-.pvtbl{width:auto}
-.pvtbl th,.pvtbl td{padding:8px 22px}
+.pvtbl{width:100%;max-width:680px;table-layout:fixed}
 .pvtbl th:first-child,.pvtbl td:first-child{padding-left:12px}
+.pvtbl td.detail{padding:14px 16px;white-space:normal}
 tbody tr:hover{background:#1c2330;cursor:pointer}
 .pos{font-size:11px;padding:1px 7px;border-radius:5px;font-weight:700;color:#fff}
 .QB{background:#9333ea}.RB{background:#1f7a4d}.WR{background:#1e6fd9}.TE{background:#c2571c}

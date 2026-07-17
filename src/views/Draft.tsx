@@ -141,7 +141,7 @@ function ValueTable({ rows, years, firstCol }:
                   </tr>
                   {isOpen && (
                     <tr className="wkbox">
-                      <td colSpan={nCols} style={{ padding: "14px 16px" }}>
+                      <td colSpan={nCols} className="detail">
                         <PickDetail b={b} years={years} />
                       </td>
                     </tr>
