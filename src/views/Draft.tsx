@@ -94,7 +94,7 @@ function ValueTable({ rows, years, firstCol }:
       ? vals.reduce((a, v) => a + (v as number), 0) : undefined;
   };
   return (
-    <table className="pvtbl">
+    <table className={"pvtbl" + (hasSlots ? " pvtbl-s" : "")}>
       <thead>
         <tr>
           <th>{firstCol}</th>
