@@ -20,17 +20,21 @@ league's exact shape on raw NFL data:
   * 12 synthetic team scores per week for the sigma step: the 108 startable
     slots are dealt into 12 legal lineups (slot-wise, seeded shuffle, so runs
     are reproducible), then the 12 scores are rescaled around their weekly
-    mean so their sample stdev hits CV_TARGET * mean. The raw slot-wise deal
-    makes 12 near-equal rosters whose scores cluster far tighter than a real
-    league's (measured 2026-07-17: historical WAR ran 1.4-1.55x the real
-    league's for identical player-seasons), so sigma is calibrated to the
-    real league instead: CV (sigma/mean of the 12 weekly team scores) was
-    0.195/0.217/0.208/0.242 over 2022-2025 (sample stdev, weeks 1-14),
-    pooled mean 0.216, uncorrelated with weekly scoring level (R^2 = 0.02).
-    One constant across all eras keeps seasons comparable. Player points are
-    untouched — only team `points` (the engine's sigma input) is rescaled,
-    so team points no longer equal the sum of players_points (true in the
-    real league too, where `points` covers starters only).
+    mean so their sample stdev hits SIGMA_COEF * mean. The raw slot-wise
+    deal makes 12 near-equal rosters whose scores cluster far tighter than a
+    real league's (measured 2026-07-17: historical WAR ran 1.4-1.55x the
+    real league's for identical player-seasons), so sigma is calibrated to
+    the real league: SIGMA_COEF fitted so matched player-season WAR ratios
+    (league/hist, 2022-2025) center on 1.0 per season. Notes from the fit:
+    real CV (sigma/mean of the 12 weekly team scores) was 0.195/0.217/
+    0.208/0.242 over 2022-2025 (sample stdev, weeks 1-14, pooled 0.216),
+    uncorrelated with weekly scoring level (R^2 = 0.02); real team means run
+    ~0.79 of the optimal-pool synthetic mean; residual season ratios
+    (~0.90-1.10) reflect the league's own CV drift — accepted, one constant
+    across all eras keeps seasons comparable. Player points are untouched —
+    only team `points` (the engine's sigma input) is rescaled, so team
+    points no longer equal the sum of players_points (true in the real
+    league too, where `points` covers starters only).
 
 Weeks 1-14 only (the league's regular season), season_type REG.
 
@@ -71,8 +75,14 @@ ROSTER_POSITIONS = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLE
 CORE = {"QB", "RB", "WR", "TE"}
 N_TEAMS = 12
 LAST_WEEK = 14          # league regular season = weeks 1-14 (playoffs wk 15+)
-CV_TARGET = 0.216       # weekly sigma/mean of team scores; pooled real-league
-                        # 2022-2025 (sample stdev, n=12) — see module docstring
+SIGMA_COEF = 0.160      # weekly sigma = SIGMA_COEF * mean synthetic team score.
+                        # Fitted (2026-07-17) so matched player-season WAR
+                        # ratios (league/hist, 2022-2025) center on 1.0.
+                        # Decomposition: real-league CV of team scores = 0.216
+                        # (pooled sample stdev / mean, weeks 1-14) x real teams
+                        # scoring ~0.79 of the optimal-pool synthetic mean,
+                        # plus Phi-nonlinearity + pool-composition residuals —
+                        # the fit bundles all three. See module docstring.
 
 
 def g(row, *names, default=0.0):
@@ -160,10 +170,11 @@ def assign_slots(points, positions, slots):
     return groups, rest
 
 
-def calibrate_scores(scores, cv=CV_TARGET):
+def calibrate_scores(scores, cv=SIGMA_COEF):
     """Rescale the 12 team scores around their mean so their sample stdev
-    equals cv * mean (the real league's measured spread). Preserves the mean
-    and each team's relative position; only the spread changes."""
+    equals cv * mean (calibrated to the real league — see SIGMA_COEF).
+    Preserves the mean and each team's relative position; only the spread
+    changes."""
     m = statistics.mean(scores)
     s = statistics.stdev(scores)
     if s <= 0 or m <= 0:
