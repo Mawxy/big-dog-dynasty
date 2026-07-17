@@ -68,3 +68,6 @@ td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .shead .chev{color:var(--dim);font-size:11px;flex-shrink:0}
 .ssub{color:var(--dim);font-size:12.5px;margin:2px 0 6px 19px}
 @media (max-width:640px){.seasongrid{grid-template-columns:1fr}}
+
+/* Draft page: heavier rule where a new round's tiers begin */
+.rdstart td{border-top:2px solid var(--line)}

@@ -48,3 +48,25 @@ export interface Values {
     fc?: number; fcRank?: number; fcPosRank?: number; fcT?: Record<string, number>;
   }>;
 }
+
+/** data/pick_values.json — Bridge A: rookie pick -> realized WAR streams */
+export interface PickBucket {
+  bucket: string;
+  /** year-since-draft -> sample size (JSON int keys arrive as strings) */
+  n: Record<string, number>;
+  raw: Record<string, number>;
+  floor: Record<string, number>;
+  smooth?: Record<string, number>;
+  hit_rate: number | null;
+  hit_n: number;
+  /** sorted raw 3-yr WAR totals of matured picks (box-plot sample) */
+  dist3: number[];
+}
+export interface PickValues {
+  meta: {
+    generated_for_season: number; classes: string; years_published: number[];
+    min_classes_per_year: number; hit_threshold_war: number;
+    picks_used: number; vets_excluded: number; unmatched: number; source: string;
+  };
+  buckets: PickBucket[];
+}

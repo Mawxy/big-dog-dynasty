@@ -8,10 +8,11 @@ import { seasonSeg } from "./lib/league";
 import Players from "./views/Players";
 import Teams from "./views/Teams";
 import WeeklyView from "./views/Weekly";
+import Draft from "./views/Draft";
 import PlayerPage from "./components/PlayerPage";
 import Methodology from "./components/Methodology";
 
-const VIEWS = ["players", "teams", "weekly"] as const;
+const VIEWS = ["players", "teams", "weekly", "draft"] as const;
 
 /** newest season that actually has WAR data (falls back to newest listed) */
 function defaultSeason(meta: Meta): string {
@@ -71,11 +72,12 @@ function Shell() {
       </header>
       <nav>
         {VIEWS.map(v => (
-          <button key={v} className={parts[1] === v ? "on" : ""} onClick={() => nav(`/${v}/${curSeasonSeg}`)}>
+          <button key={v} className={parts[1] === v ? "on" : ""}
+            onClick={() => nav(v === "draft" ? "/draft" : `/${v}/${curSeasonSeg}`)}>
             {v[0].toUpperCase() + v.slice(1)}
           </button>
         ))}
-        {parts[1] !== "player" && (
+        {parts[1] !== "player" && parts[1] !== "draft" && (
           <select style={{ marginLeft: "auto" }} value={curSeasonSeg} onChange={e => nav(`/${curView}/${e.target.value}`)}>
             {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
             <option value="all">All-time</option>
@@ -89,6 +91,7 @@ function Shell() {
           <Route path="/teams/:season/:rid" element={<TeamsRoute />} />
           <Route path="/weekly/:season" element={<WeeklyRoute />} />
           <Route path="/weekly/:season/:wk" element={<WeeklyRoute />} />
+          <Route path="/draft" element={<Draft />} />
           <Route path="/player/:pid" element={<PlayerRoute />} />
           <Route path="*" element={<Navigate to={`/players/${seasonSeg(latest)}`} replace />} />
         </Routes>
