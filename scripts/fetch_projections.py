@@ -31,8 +31,9 @@ LEAGUE_ID = "1312221243742621696"          # Big Dog Dynasty
 V1 = "https://api.sleeper.app/v1"
 PROJ_HOST = "https://api.sleeper.app"       # projections live off /v1
 POSITIONS = ["QB", "RB", "WR", "TE"]
-LEAGUE_GAMES = 13                           # 14-week fantasy season minus a bye
-SLEEPER_GAMES_DEFAULT = 17                  # full NFL season (fallback if gp absent)
+LEAGUE_GAMES = 13                           # our fantasy season: 14 weeks minus a bye
+NFL_SEASON_GAMES = 17                       # a full NFL season is 17 GAMES (Sleeper's
+                                            # gp=18 is weeks incl. the bye = a zero week)
 
 
 def get(url, tries=4):
@@ -95,10 +96,11 @@ def main():
             if not pid or not stats:
                 continue
             pts = score_line(stats, scoring, pos)
-            gp = stats.get("gp") or SLEEPER_GAMES_DEFAULT
-            pts13 = pts / gp * LEAGUE_GAMES if gp else pts
+            # Sleeper totals are a full 17-game season; scale to our 13-game slate.
+            pts13 = pts / NFL_SEASON_GAMES * LEAGUE_GAMES
             out[pid] = {"pos": pos, "pts13": round(pts13, 2),
-                        "proj_gp": round(float(gp), 1), "raw_pts": round(pts, 1)}
+                        "ppg": round(pts / NFL_SEASON_GAMES, 2),
+                        "raw_pts": round(pts, 1)}
         print(f"  {pos}: {sum(1 for v in out.values() if v['pos'] == pos)} players")
         time.sleep(0.3)
 
