@@ -24,7 +24,7 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-RECENCY = [0.5, 0.3, 0.2]
+RECENCY = [0.5, 0.4, 0.1]            # recency weights (rate over volume; not games-weighted)
 BLEND_W = [0.8, 0.5, 0.2]            # composite: projected weight by year (math = 1 - this)
 FULL_GP = 13
 MIN_GP = 4
@@ -95,13 +95,14 @@ def tier_of(pick, tiers):
 
 
 def wlevel(rates, gps, upto):
-    """recency/games weighted per-13 rate over upto, upto-1, upto-2."""
+    """recency-weighted per-13 rate over upto, upto-1, upto-2, softened by
+    sqrt(games): short seasons count less than full ones, but rate dominates."""
     num = den = 0.0
     for k, rw in enumerate(RECENCY):
         rt = rates.get(upto - k)
         if rt is None:
             continue
-        w = rw * min(gps.get(upto - k, 0), FULL_GP)
+        w = rw * min(gps.get(upto - k, 0), FULL_GP) ** 0.5
         num += w * rt; den += w
     return (num / den, den) if den else (None, 0.0)
 

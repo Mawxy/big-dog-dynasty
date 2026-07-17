@@ -45,7 +45,7 @@ AGE_GROUPS = {
     "TE": [("le25", 0, 25), ("ge26", 26, 99)],
 }
 UDFA_PICK = 260         # treat undrafted as just past the last pick for the ln-pick prior
-RECENCY = [0.5, 0.3, 0.2]
+RECENCY = [0.5, 0.4, 0.1]   # recency weights for seasons t, t-1, t-2 (rate over volume)
 FULL_GP = 13            # a full healthy season
 MIN_GP = 4             # a season needs this many games for its rate to count
 MIN_N = 20             # minimum sample to fit a cell
@@ -90,12 +90,15 @@ def rate(war, gp, yr, pid):
 
 
 def level(war, gp, yr, pid):
+    # recency-weighted per-13 rate, softened by sqrt(games): a short season
+    # counts less than a full one, but far less than games-proportional — so
+    # rate dominates while a 4-game sample still doesn't carry a full season.
     num = den = 0.0
     for k, rw in enumerate(RECENCY):
         rt = rate(war, gp, yr - k, pid)
         if rt is None:
             continue
-        w = rw * min(gp.get((yr - k, pid), 0), FULL_GP)
+        w = rw * min(gp.get((yr - k, pid), 0), FULL_GP) ** 0.5
         num += w * rt; den += w
     return num / den if den else None
 
