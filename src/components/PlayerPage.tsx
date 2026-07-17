@@ -135,18 +135,17 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         </div>
       </div>
       <div className="wkflex" style={{ gap: 40, marginBottom: 22 }}>
-        <div style={{ flex: "1 1 420px", minWidth: 340, maxWidth: 720 }}><WarTrend data={trend} /></div>
+        <div style={{ flex: "1 1 460px", minWidth: 340, maxWidth: 760 }}>
+          {proj && projYears.length
+            ? <Projection p={proj} sleeper={sproj} years={projYears}
+                trend={trend.map(t => ({ season: t.season, WAR: t.WAR }))} />
+            : <WarTrend data={trend} />}
+        </div>
         <div style={{ flex: "1 1 420px", minWidth: 340, maxWidth: 720 }}>
           <SeasonBoxes domain={meta.ptsRange}
           rows={blocks.map(b => ({ season: b.season, values: b.weeks.map(w => w[1]) }))} />
         </div>
       </div>
-      {proj && projYears.length > 0 && (
-        <div style={{ marginBottom: 24, maxWidth: 620 }}>
-          <Projection p={proj} sleeper={sproj} years={projYears}
-            trend={trend.map(t => ({ season: t.season, WAR: t.WAR }))} />
-        </div>
-      )}
       <div style={{ display: "flex", alignItems: "baseline", gap: 14, margin: "8px 0 12px" }}>
         <h3 style={{ margin: 0 }}>Season detail</h3>
         <span className="tlink" style={{ fontSize: 12 }} onClick={() => setCollapsed(new Set())}>expand all</span>
