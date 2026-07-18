@@ -9,10 +9,13 @@ import Players from "./views/Players";
 import Teams from "./views/Teams";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
+import Trades from "./views/Trades";
 import PlayerPage from "./components/PlayerPage";
 import Methodology from "./components/Methodology";
 
-const VIEWS = ["players", "teams", "weekly", "draft"] as const;
+const VIEWS = ["players", "teams", "weekly", "draft", "trades"] as const;
+/** views that aren't scoped to a season (no season picker, plain route) */
+const GLOBAL_VIEWS = ["draft", "trades"];
 
 /** newest season that actually has WAR data (falls back to newest listed) */
 function defaultSeason(meta: Meta): string {
@@ -73,11 +76,11 @@ function Shell() {
       <nav>
         {VIEWS.map(v => (
           <button key={v} className={parts[1] === v ? "on" : ""}
-            onClick={() => nav(v === "draft" ? "/draft" : `/${v}/${curSeasonSeg}`)}>
+            onClick={() => nav(GLOBAL_VIEWS.includes(v) ? `/${v}` : `/${v}/${curSeasonSeg}`)}>
             {v[0].toUpperCase() + v.slice(1)}
           </button>
         ))}
-        {parts[1] !== "player" && parts[1] !== "draft" && (
+        {parts[1] !== "player" && !GLOBAL_VIEWS.includes(parts[1]) && (
           <select style={{ marginLeft: "auto" }} value={curSeasonSeg} onChange={e => nav(`/${curView}/${e.target.value}`)}>
             {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
             <option value="all">All-time</option>
@@ -92,6 +95,7 @@ function Shell() {
           <Route path="/weekly/:season" element={<WeeklyRoute />} />
           <Route path="/weekly/:season/:wk" element={<WeeklyRoute />} />
           <Route path="/draft" element={<Draft />} />
+          <Route path="/trades" element={<Trades />} />
           <Route path="/player/:pid" element={<PlayerRoute />} />
           <Route path="*" element={<Navigate to={`/players/${seasonSeg(latest)}`} replace />} />
         </Routes>

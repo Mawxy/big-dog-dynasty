@@ -21,6 +21,10 @@ jobs:
         run: python scripts/sleeper_war.py --data sleeper_data
       - name: Build site JSON
         run: python scripts/build_site_data.py --data sleeper_data --out data
+      - name: Draft results per franchise (needs data/pick_values.json)
+        run: python scripts/draft_analysis.py
+      - name: Trade tracker
+        run: python scripts/trade_analysis.py
       - name: Fetch Sleeper projections (composite input)
         run: python scripts/fetch_projections.py
         continue-on-error: true

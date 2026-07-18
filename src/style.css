@@ -38,6 +38,20 @@ tr.wkbox:hover{background:transparent}
 .ownwk{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:4px;
        padding:0 6px;font-size:11px;color:var(--dim);margin-right:7px;white-space:nowrap}
 .ownsides{margin:4px 0 0 12px;padding-left:9px;border-left:2px solid var(--line)}
+/* trade tracker */
+.trade{background:var(--card);border:1px solid var(--line);border-radius:10px;
+       padding:12px 14px;margin-bottom:10px;cursor:pointer}
+.trade:hover{border-color:var(--dim)}
+.tradehead{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.tradesides{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.tradeside{background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.tradeside.win{border-color:var(--acc)}
+.tradeteam{font-size:13px;color:var(--txt);font-weight:600}
+.tradewar{font-size:19px;font-weight:700;margin:2px 0}
+.tradeassets{font-size:12px;color:var(--dim);line-height:1.5}
+.tradeside table{background:transparent;border-radius:0}
+.tradeside th,.tradeside td{border:0;padding:2px 0;font-size:12.5px;white-space:normal}
+.tradeside tr:hover td{background:transparent}
 .wkhead{color:var(--txt);font-size:13px;margin:2px 0 6px}
 .wkhead .own{color:var(--acc)}
 .wkwrap{overflow-x:auto}

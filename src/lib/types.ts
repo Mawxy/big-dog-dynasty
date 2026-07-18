@@ -115,6 +115,18 @@ export interface FranchiseTx {
 export interface Franchise { seasons: FranchiseSeason[]; tx: FranchiseTx[]; }
 export type Franchises = Record<string, Franchise>;
 
+/** data/trades.json — every trade, with each side's return scored in WAR */
+export interface TradeAsset {
+  kind: "player" | "pick" | "faab";
+  /** null for FAAB or an unused pick; picks carry the drafted player's id */
+  pid: string | null;
+  /** "Josh Allen" | "2024 1st → Marvin Harrison" | "$15 FAAB" */
+  label: string;
+  war: number;
+}
+export interface TradeSide { rid: number; team: string; got: TradeAsset[]; war: number; }
+export interface Trade { season: string; week: number; ts: number; sides: TradeSide[]; }
+
 /** data/drafts.json — per roster_id draft picks with hit/miss vs slot expectation */
 export interface DraftAlt { pid: string; name: string; pick_no: number; war: number; }
 export interface DraftPick {
