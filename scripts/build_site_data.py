@@ -253,11 +253,15 @@ def main():
         standing = sorted(teams, key=lambda t: (-t["wins"], -t["fpts"]))
         seed = {t["roster_id"]: i + 1 for i, t in enumerate(standing)}
         finish = {}                                  # roster_id -> final placement
-        for bf in ("winners_bracket.json", "losers_bracket.json"):
-            for m in (load(sdir / bf) or []):
-                if m.get("p") and m.get("w") and m.get("l"):
-                    finish[m["w"]] = m["p"]
-                    finish[m["l"]] = m["p"] + 1
+        wb = load(sdir / "winners_bracket.json") or []
+        lb = load(sdir / "losers_bracket.json") or []
+        n_playoff = len({r for m in wb for r in (m.get("t1"), m.get("t2")) if r})
+        for m in wb:                                 # winners bracket: places 1..N
+            if m.get("p") and m.get("w") and m.get("l"):
+                finish[m["w"]] = m["p"]; finish[m["l"]] = m["p"] + 1
+        for m in lb:                                 # losers bracket: places N+1..2N
+            if m.get("p") and m.get("w") and m.get("l"):
+                finish[m["w"]] = n_playoff + m["p"]; finish[m["l"]] = n_playoff + m["p"] + 1
         for t in teams:
             rid = t["roster_id"]
             g = t["wins"] + t["losses"] + t["ties"]

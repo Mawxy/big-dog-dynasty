@@ -98,3 +98,17 @@ export interface ProjectionsFile {
 }
 export interface SleeperProj { pos: string; pts13: number; ppg: number; raw_pts: number; }
 export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }
+
+/** data/franchises.json — per roster_id (stable franchise) history + transactions */
+export interface FranchiseSeason {
+  season: string; name: string; manager: string;
+  wins: number; losses: number; ties: number;
+  fpts: number; ppg: number; war: number;
+  seed: number | null; finish: number | null;
+}
+export interface FranchiseTx {
+  season: string; week: number; ts: number; type: string;
+  with?: string[]; got?: string[]; gave?: string[]; adds?: string[]; drops?: string[];
+}
+export interface Franchise { seasons: FranchiseSeason[]; tx: FranchiseTx[]; }
+export type Franchises = Record<string, Franchise>;
