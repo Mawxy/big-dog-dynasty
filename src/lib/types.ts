@@ -105,6 +105,8 @@ export interface FranchiseSeason {
   wins: number; losses: number; ties: number;
   fpts: number; ppg: number; war: number;
   seed: number | null; finish: number | null;
+  top?: { pid: string; war: number } | null;                 // best WAR contributor
+  low?: { pid: string; war: number; starts: number } | null; // weakest regular starter (>6 starts)
 }
 export interface FranchiseTx {
   season: string; week: number; ts: number; type: string;

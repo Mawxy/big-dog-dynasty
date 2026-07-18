@@ -241,15 +241,26 @@ def main():
         for pid, rows_w in weekly.items():
             for w in rows_w:
                 war_idx[(pid, w[0])] = w[5]          # WAR_week
-        team_war = {}
+        team_war, team_top, team_low = {}, {}, {}
         for rid_str, ents in mws.items():
             tw = 0.0
+            pstats = {}                              # pid -> [WAR while starting, starts]
             for e in ents:
                 if e[0] >= ps_wk:                    # regular season only
                     continue
                 for p in e[4]:                       # starters
-                    tw += war_idx.get((p, e[0]), 0.0)
-            team_war[int(rid_str)] = round(tw, 3)
+                    w = war_idx.get((p, e[0]), 0.0)
+                    tw += w
+                    s = pstats.setdefault(p, [0.0, 0]); s[0] += w; s[1] += 1
+            rid = int(rid_str)
+            team_war[rid] = round(tw, 3)
+            if pstats:
+                tp = max(pstats.items(), key=lambda kv: kv[1][0])
+                team_top[rid] = {"pid": tp[0], "war": round(tp[1][0], 2)}
+                regs = [kv for kv in pstats.items() if kv[1][1] > 6]   # >6 starts = a starter
+                if regs:
+                    lo = min(regs, key=lambda kv: kv[1][0])
+                    team_low[rid] = {"pid": lo[0], "war": round(lo[1][0], 2), "starts": lo[1][1]}
         standing = sorted(teams, key=lambda t: (-t["wins"], -t["fpts"]))
         seed = {t["roster_id"]: i + 1 for i, t in enumerate(standing)}
         finish = {}                                  # roster_id -> final placement
@@ -271,6 +282,7 @@ def main():
                 "fpts": t["fpts"], "ppg": round(t["fpts"] / g, 1) if g else 0,
                 "war": team_war.get(rid, 0.0), "seed": seed.get(rid),
                 "finish": finish.get(rid),
+                "top": team_top.get(rid), "low": team_low.get(rid),
             })
         seasons.append(season)
 

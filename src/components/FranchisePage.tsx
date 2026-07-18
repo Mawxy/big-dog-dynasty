@@ -19,6 +19,7 @@ export default function FranchisePage({ rid, players, back }:
   { rid: number; players: PlayersMin; back: () => void }) {
   const [fr, setFr] = useState<Franchise | null | undefined>(undefined);
   const [txFilter, setTxFilter] = useState("all");
+  const [txSeason, setTxSeason] = useState("all");
   const [rosterSeason, setRosterSeason] = useState<string | null>(null);
   const [roster, setRoster] = useState<{ team: Team; sum: Map<string, SummaryRow> } | null>(null);
 
@@ -53,11 +54,13 @@ export default function FranchisePage({ rid, players, back }:
   const seasons = fr.seasons;
   const latest = seasons[seasons.length - 1];
   const former = [...new Set(seasons.map(s => s.name))].filter(n => n !== latest.name);
+  const txSeasons = [...new Set(fr.tx.map(t => t.season))].sort().reverse();
   const txs = fr.tx.slice().sort((a, b) => b.ts - a.ts).filter(t =>
-    txFilter === "all" ? true
-      : txFilter === "trade" ? t.type === "trade"
-        : txFilter === "add" ? !!t.adds?.length
-          : !!t.drops?.length);
+    (txSeason === "all" || t.season === txSeason) && (
+      txFilter === "all" ? true
+        : txFilter === "trade" ? t.type === "trade"
+          : txFilter === "add" ? !!t.adds?.length
+            : !!t.drops?.length));
 
   return (
     <>
@@ -74,6 +77,8 @@ export default function FranchisePage({ rid, players, back }:
           <thead><tr>
             <th>Season</th><th style={{ textAlign: "left" }}>Team</th><th>Record</th>
             <th>Seed</th><th>Finish</th><th>PPG</th><th>WAR</th>
+            <th style={{ textAlign: "left" }}>Top WAR</th>
+            <th style={{ textAlign: "left" }}>Low starter</th>
           </tr></thead>
           <tbody>
             {seasons.slice().reverse().map(s => (
@@ -86,6 +91,12 @@ export default function FranchisePage({ rid, players, back }:
                 <td>{finishLabel(s.finish)}</td>
                 <td>{fmt(s.ppg, 1)}</td>
                 <td className={clsOf(s.war)}>{fmt(s.war, 2)}</td>
+                <td style={{ textAlign: "left" }}>{s.top
+                  ? <><PlayerLink pid={s.top.pid} name={pInfo(players, s.top.pid)[0]} />{" "}
+                    <span className={clsOf(s.top.war)}>{fmt(s.top.war, 2)}</span></> : "—"}</td>
+                <td style={{ textAlign: "left" }}>{s.low
+                  ? <><PlayerLink pid={s.low.pid} name={pInfo(players, s.low.pid)[0]} />{" "}
+                    <span className={clsOf(s.low.war)}>{fmt(s.low.war, 2)}</span></> : "—"}</td>
               </tr>
             ))}
           </tbody>
@@ -97,6 +108,13 @@ export default function FranchisePage({ rid, players, back }:
             {TXF.map(([k, l]) => (
               <span key={k} className={`chip ${txFilter === k ? "on" : ""}`}
                 style={{ fontSize: 12, padding: "2px 10px" }} onClick={() => setTxFilter(k)}>{l}</span>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {["all", ...txSeasons].map(s => (
+              <span key={s} className={`chip ${txSeason === s ? "on" : ""}`}
+                style={{ fontSize: 12, padding: "2px 10px" }} onClick={() => setTxSeason(s)}>
+                {s === "all" ? "All yrs" : s}</span>
             ))}
           </div>
         </div>
