@@ -33,6 +33,9 @@ def main():
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
     # (season, roster_id) whose Sleeper owner had no team/display name that year
     name_override = {("2023", 9): "PicklesPapa"}
+    franchises = {}   # roster_id -> {seasons:[...], tx:[...]} (franchise = stable roster_id)
+    def fr(rid):
+        return franchises.setdefault(rid, {"seasons": [], "tx": []})
 
     for sdir in sorted((d for d in root.iterdir() if d.is_dir() and (d / "league.json").exists())):
         league = load(sdir / "league.json")
@@ -203,6 +206,23 @@ def main():
                         got.setdefault(wb.get("receiver"), []).append(f"${wb.get('amount')} FAAB")
                     trade_note = "; ".join(
                         f"{tname.get(rid, '?')} get {', '.join(a)}" for rid, a in got.items())
+                # franchise transaction log (one entry per roster involved)
+                if typ == "trade":
+                    for rid_g, assets in got.items():
+                        others = [o for o in got if o != rid_g]
+                        fr(rid_g)["tx"].append({
+                            "season": season, "week": wk, "ts": ts, "type": "trade",
+                            "with": [tname.get(o, "?") for o in others],
+                            "got": assets, "gave": [a for o in others for a in got[o]]})
+                else:
+                    per = {}
+                    for pid, rid in adds.items():
+                        per.setdefault(rid, {"adds": [], "drops": []})["adds"].append(pname(pid))
+                    for pid, rid in drops.items():
+                        if pid not in adds:
+                            per.setdefault(rid, {"adds": [], "drops": []})["drops"].append(pname(pid))
+                    for rid, ad in per.items():
+                        fr(rid)["tx"].append({"season": season, "week": wk, "ts": ts, "type": typ, **ad})
                 for pid, rid in adds.items():
                     team = tname.get(rid, "?")
                     txt = {"trade": f"traded to {team}" + (f" — {trade_note}" if trade_note else ""),
@@ -216,6 +236,38 @@ def main():
                     team = tname.get(rid, "?")
                     own.setdefault(pid, []).append(((season, 1, ts), season, wk, f"dropped by {team}"))
                     used_ids.add(pid)
+        # --- franchise year-by-year: record, team WAR, seed, playoff finish ---
+        war_idx = {}
+        for pid, rows_w in weekly.items():
+            for w in rows_w:
+                war_idx[(pid, w[0])] = w[5]          # WAR_week
+        team_war = {}
+        for rid_str, ents in mws.items():
+            tw = 0.0
+            for e in ents:
+                if e[0] >= ps_wk:                    # regular season only
+                    continue
+                for p in e[4]:                       # starters
+                    tw += war_idx.get((p, e[0]), 0.0)
+            team_war[int(rid_str)] = round(tw, 3)
+        standing = sorted(teams, key=lambda t: (-t["wins"], -t["fpts"]))
+        seed = {t["roster_id"]: i + 1 for i, t in enumerate(standing)}
+        finish = {}                                  # roster_id -> final placement
+        for bf in ("winners_bracket.json", "losers_bracket.json"):
+            for m in (load(sdir / bf) or []):
+                if m.get("p") and m.get("w") and m.get("l"):
+                    finish[m["w"]] = m["p"]
+                    finish[m["l"]] = m["p"] + 1
+        for t in teams:
+            rid = t["roster_id"]
+            g = t["wins"] + t["losses"] + t["ties"]
+            fr(rid)["seasons"].append({
+                "season": season, "name": t["team"], "manager": t["manager"],
+                "wins": t["wins"], "losses": t["losses"], "ties": t["ties"],
+                "fpts": t["fpts"], "ppg": round(t["fpts"] / g, 1) if g else 0,
+                "war": team_war.get(rid, 0.0), "seed": seed.get(rid),
+                "finish": finish.get(rid),
+            })
         seasons.append(season)
 
     pmin = {}
@@ -230,6 +282,7 @@ def main():
     (out / "ownership.json").write_text(json.dumps(
         {pid: [[sn, wk, txt] for _, sn, wk, txt in sorted(evts)]
          for pid, evts in own.items()}))
+    (out / "franchises.json").write_text(json.dumps(franchises))
     (out / "meta.json").write_text(json.dumps({
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
         "ptsRange": [round(pts_min, 1), round(pts_max, 1)],
