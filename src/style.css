@@ -23,7 +23,7 @@ thead th{position:sticky;top:0;background:var(--card);z-index:1}
 .pvtbl td.detail{padding:14px 16px;white-space:normal}
 .pvtbl th:nth-child(2),.pvtbl td:nth-child(2){text-align:right}
 tbody tr:hover{background:#1c2330;cursor:pointer}
-.pos{font-size:11px;padding:1px 7px;border-radius:5px;font-weight:700;color:#fff}
+.pos{display:inline-block;min-width:40px;text-align:center;box-sizing:border-box;font-size:11px;padding:1px 4px;border-radius:5px;font-weight:700;color:#fff}
 .QB{background:#9333ea}.RB{background:#1f7a4d}.WR{background:#1e6fd9}.TE{background:#c2571c}
 .num.good{color:var(--good)} .num.bad{color:var(--bad)}
 #teamDetail h2{margin:18px 0 4px} #teamDetail .mgr{color:var(--dim);margin-bottom:12px}
