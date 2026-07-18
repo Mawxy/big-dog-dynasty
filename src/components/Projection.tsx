@@ -1,69 +1,80 @@
+import { useState } from "react";
 import {
-  CartesianGrid, Legend, Line, LineChart, ReferenceLine,
+  Area, CartesianGrid, ComposedChart, Line, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import type { Projection as Proj, SleeperProj } from "../lib/types";
 import { fmt } from "../lib/stats";
 
-const GOLD = "#f0a01e";     // natural (if-healthy) + actual
-const GREEN = "#3fb26f";    // blended (composite)
-const BLUE = "#5b8fd6";     // smoothed (injury-adjusted)
+const GOLD = "#f0a01e";
 
-/** Career WAR flowing into the 3-year projection, three scenario lines:
- *  Natural (if-healthy), Blended (half math / half Sleeper), Smoothed
- *  (injury-adjusted). Solid past, dashed forward, bridged at the last season. */
+const TABS = [
+  { label: "Natural", line: "proj", lo: "nat_low", hi: "nat_high",
+    color: "#f0a01e", desc: "if healthy — full 13-game season" },
+  { label: "Composite", line: "composite", lo: "comp_low", hi: "comp_high",
+    color: "#3fb26f", desc: "blended with Sleeper's year-1 projection" },
+  { label: "Adjusted", line: "expected", lo: "adj_low", hi: "adj_high",
+    color: "#5b8fd6", desc: "× availability — accounts for injury" },
+] as const;
+
+/** Career WAR into the 3-year projection. Tabs switch between the three streams;
+ *  each shows its line (dashed) with its p20/p80 band shaded. */
 export default function Projection({ p, trend, sleeper, years }: {
   p: Proj;
   trend: { season: string; WAR: number }[];
   sleeper?: SleeperProj | null;
   years: number[];
 }) {
+  const [tab, setTab] = useState(0);
+  const t = TABS[tab];
+  const line = p[t.line], lo = p[t.lo], hi = p[t.hi];
+
   const hist = p.career && p.career.length
     ? p.career.map(([s, w]) => ({ season: String(s), WAR: w }))
     : trend;
-  const lastActual = hist.length ? hist[hist.length - 1].WAR : p.war25;
+  const lastActual = hist.length ? hist[hist.length - 1].WAR : 0;
   const data: Record<string, unknown>[] = [
-    ...hist.map(t => ({ season: t.season, actual: t.WAR })),
-    ...years.map((y, i) => ({
-      season: String(y),
-      natural: p.proj[i], blended: p.composite[i], smoothed: p.expected[i],
-    })),
+    ...hist.map(h => ({ season: h.season, actual: h.WAR })),
+    ...years.map((y, i) => ({ season: String(y), proj: line[i], band: [lo[i], hi[i]] as [number, number] })),
   ];
-  if (hist.length) {   // bridge every forward line to the last real season
-    Object.assign(data[hist.length - 1],
-      { natural: lastActual, blended: lastActual, smoothed: lastActual });
-  }
+  if (hist.length) data[hist.length - 1].proj = lastActual;   // bridge
+
   const draft = p.pick < 999 ? `R${Math.ceil(p.pick / 32)} #${p.pick}` : "UDFA";
 
   return (
     <div>
-      <div style={{ color: "var(--txt)", fontSize: 13, marginBottom: 4 }}>
-        <b>3-year WAR projection</b>
-        <span style={{ color: "var(--dim)", fontWeight: 400 }}> — solid = actual, dashed = projected</span>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
+        <b style={{ fontSize: 13, color: "var(--txt)" }}>3-year projection</b>
+        <div style={{ display: "flex", gap: 6 }}>
+          {TABS.map((tb, i) => (
+            <span key={tb.label} className={i === tab ? "chip on" : "chip"}
+              style={{ fontSize: 12, padding: "2px 10px" }} onClick={() => setTab(i)}>
+              {tb.label}
+            </span>
+          ))}
+        </div>
       </div>
       <ResponsiveContainer width="100%" height={240}>
-        <LineChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: -14 }}>
+        <ComposedChart data={data} margin={{ top: 8, right: 16, bottom: 0, left: -14 }}>
           <CartesianGrid stroke="#242c38" strokeDasharray="3 3" />
           <XAxis dataKey="season" stroke="#8b96a5" fontSize={12} tickLine={false} />
           <YAxis stroke="#8b96a5" fontSize={12} tickLine={false} width={54} />
           <Tooltip
             contentStyle={{ background: "#161b23", border: "1px solid #242c38", borderRadius: 8, fontSize: 12.5 }}
             labelStyle={{ color: "#e6ebf2" }} itemStyle={{ padding: 0 }}
-            formatter={(v: number) => v.toFixed(2)} />
-          <Legend wrapperStyle={{ fontSize: 12 }} iconType="plainline" />
+            formatter={(v: number | number[], name: string) =>
+              [Array.isArray(v) ? `${v[0].toFixed(2)} – ${v[1].toFixed(2)}` : (v as number).toFixed(2),
+              name === "band" ? "p20–p80" : name === "proj" ? t.label : "actual"]} />
           <ReferenceLine y={0} stroke="#8b96a5" />
-          <Line dataKey="actual" name="Actual" legendType="none" stroke={GOLD} strokeWidth={2.5}
-            connectNulls dot={{ r: 3, fill: GOLD, strokeWidth: 0 }} />
-          <Line dataKey="natural" name="Natural" stroke={GOLD} strokeWidth={2} strokeDasharray="5 4"
-            connectNulls dot={{ r: 3, fill: GOLD, strokeWidth: 0 }} />
-          <Line dataKey="blended" name="Blended" stroke={GREEN} strokeWidth={2} strokeDasharray="5 4"
-            connectNulls dot={{ r: 3, fill: GREEN, strokeWidth: 0 }} />
-          <Line dataKey="smoothed" name="Adjusted" stroke={BLUE} strokeWidth={2} strokeDasharray="5 4"
-            connectNulls dot={{ r: 3, fill: BLUE, strokeWidth: 0 }} />
-        </LineChart>
+          <Area dataKey="band" stroke="none" fill={t.color} fillOpacity={0.13} />
+          <Line dataKey="actual" stroke={GOLD} strokeWidth={2.5} connectNulls
+            dot={{ r: 3, fill: GOLD, strokeWidth: 0 }} />
+          <Line dataKey="proj" stroke={t.color} strokeWidth={2} strokeDasharray="5 4" connectNulls
+            dot={{ r: 3, fill: t.color, strokeWidth: 0 }} />
+        </ComposedChart>
       </ResponsiveContainer>
       <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
-        level {fmt(p.level, 2)} · drafted {draft} · age {p.age}
+        <b style={{ color: t.color }}>{t.label}</b> — {t.desc} · level {fmt(p.level, 2)} · drafted {draft} · age {p.age}
         {sleeper && p.proj_ext != null &&
           <> · Sleeper {years[0]}: {fmt(sleeper.ppg, 1)} ppg → {fmt(p.proj_ext, 2)} WAR</>}
       </div>

@@ -85,8 +85,10 @@ export interface Projection {
   war25: number; level: number;
   /** full-career WAR by season [season, war] (real league + NFL history) */
   career: [number, number][];
-  proj: number[]; expected: number[]; composite: number[];
-  proj_ext: number | null; low: number[]; high: number[];
+  proj: number[]; nat_low: number[]; nat_high: number[];      // Natural (if-healthy)
+  composite: number[]; comp_low: number[]; comp_high: number[];
+  expected: number[]; adj_low: number[]; adj_high: number[];  // Adjusted (injury)
+  proj_ext: number | null;
   total: number; total_exp: number; total_comp: number;
 }
 export interface ProjectionsFile {

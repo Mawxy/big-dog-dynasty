@@ -26,6 +26,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 RECENCY = [0.5, 0.4, 0.1]            # recency weights (rate over volume; not games-weighted)
 BLEND_W = [0.8, 0.5, 0.2]            # composite: projected weight by year (math = 1 - this)
+ELITE_WAR = 1.2                      # a season at/above this counts toward durability
+DUR_STEP = 0.15                     # durability pull per elite season beyond 3
+DUR_MAX = 0.30                      # cap: proven perennials (4+ elite yrs, ~84% retention
+                                    # vs ~74%) regress less; pulls projection toward level
+DECAY_DAMP = 0.6                    # anti-compounding: fraction pulled back toward the
+                                    # anchor level when rolling a projection forward, so a
+                                    # player regresses ONCE then ages gently (matches the
+                                    # gradual ~62% QB / ~52% 3-yr retention, not ~47%)
 FULL_GP = 13
 MIN_GP = 4
 def prior_weight(exp, level):
@@ -187,8 +195,16 @@ def main():
         pick_eff = pick if pick < 999 else UDFA_PICK
         prior = cf['a'] + cf['b'] * math.log(pick_eff)
 
+        rw = realwar.get(pid, {}); hw = histwar.get(gsis, {}) if gsis else {}
+        career = [[y, round(rw.get(y, hw.get(y, 0.0)), 3)] for y in sorted(set(rw) | set(hw))]
+        elite = sum(1 for _, w in career if w >= ELITE_WAR)
+        dur = min(DUR_MAX, max(0.0, (elite - 3) * DUR_STEP))
+
         rates = dict(rate_s[pid]); gps = dict(gp_s[pid])
-        proj, expv, low, high = [], [], [], []
+        proj, expv = [], []
+        nat_lo, nat_hi, adj_lo, adj_hi = [], [], [], []
+        p20s, p80s = [], []
+        anchor = None
         for fy in proj_years:
             frm = fy - 1
             L_real, _ = wlevel(rates, gps, frm)
@@ -196,15 +212,24 @@ def main():
                 L_real = prior
             pw = prior_weight((frm - draft_season + 1) if draft_season else None, L_real)
             L = (1 - pw) * L_real + pw * prior
+            if anchor is None:
+                anchor = L                    # true-talent anchor (year-1 level)
             age = base_age + (frm - seed)
             g = group_for(curves[pos], age)
             r = g['a'] + g['b'] * L
+            r = (1 - dur) * r + dur * L      # durability: proven perennials regress less
             av = avail_for(pos, age)
-            proj.append(round(r, 3))
-            expv.append(round(r * av, 3))
-            low.append(round(max(r + g['p20'], 0.0), 3))
-            high.append(round(r + g['p80'], 3))
-            rates[fy] = r; gps[fy] = FULL_GP
+            e = r * av
+            proj.append(round(r, 3)); expv.append(round(e, 3))
+            nat_lo.append(round(max(r + g['p20'], 0.0), 3))
+            nat_hi.append(round(r + g['p80'], 3))
+            adj_lo.append(round(max((r + g['p20']) * av, 0.0), 3))
+            adj_hi.append(round((r + g['p80']) * av, 3))
+            p20s.append(g['p20']); p80s.append(g['p80'])
+            # roll forward WITHOUT re-regressing: feed a value dampened toward the
+            # anchor so the level holds and aging (not compounding) drives the decline
+            rates[fy] = r + DECAY_DAMP * (anchor - r)
+            gps[fy] = FULL_GP
         # composite: blend the math path with a "projected path" (Sleeper's
         # year-1 number aged forward along the math's decay shape), weighting
         # the projection heavily near-term and handing off to the math:
@@ -220,18 +245,20 @@ def main():
         else:
             proj_ext = None
             comp = list(proj)
+        comp_lo = [round(max(comp[i] + p20s[i], 0.0), 3) for i in range(len(comp))]
+        comp_hi = [round(comp[i] + p80s[i], 3) for i in range(len(comp))]
         L0, _ = wlevel(rate_s[pid], gp_s[pid], seed)
         exp0 = (seed - draft_season + 1) if draft_season else None
         pw0 = prior_weight(exp0, L0 if L0 is not None else 0.0)
-        rw = realwar.get(pid, {}); hw = histwar.get(gsis, {}) if gsis else {}
-        career = [[y, round(rw.get(y, hw.get(y, 0.0)), 3)] for y in sorted(set(rw) | set(hw))]
         rows.append({
             'pid': pid, 'name': nm, 'pos': pos, 'team': owner[pid],
             'age': base_age, 'age_src': asrc, 'pick': pick, 'exp': exp0,
-            'war25': round(war_s[pid].get(seed, 0.0), 3), 'career': career,
+            'elite': elite, 'war25': round(war_s[pid].get(seed, 0.0), 3), 'career': career,
             'level': round((1 - pw0) * (L0 if L0 is not None else prior) + pw0 * prior, 3),
-            'proj': proj, 'expected': expv, 'composite': comp, 'proj_ext': proj_ext,
-            'low': low, 'high': high,
+            'proj': proj, 'nat_low': nat_lo, 'nat_high': nat_hi,
+            'expected': expv, 'adj_low': adj_lo, 'adj_high': adj_hi,
+            'composite': comp, 'comp_low': comp_lo, 'comp_high': comp_hi,
+            'proj_ext': proj_ext,
             'total': round(sum(proj), 3), 'total_exp': round(sum(expv), 3),
             'total_comp': round(sum(comp), 3),
         })
