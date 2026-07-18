@@ -171,6 +171,13 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
 2. **Trade analyzer** — traded picks + ownership + WAR data already collected.
 3. More interactive charts as ideas arise (recharts in the bundle).
 4. Minor: all-time Roster column (bug #2).
+5. **Team pages — franchise lineage.** A franchise is keyed by `roster_id`
+   (stable across seasons), and its name/owner can change year to year. Team
+   pages should aggregate by `roster_id` and show the full name history as one
+   continuous team. Known lineage: roster 9 = PicklesPapa (2022-23, note 2023
+   was a Sleeper name gap patched via name_override in build_site_data) →
+   Dchaillier10 / "Captain Jah'Merica" (2024-26) — same team, maintain the
+   lineage.
 
 ## Working conventions (from Max)
 

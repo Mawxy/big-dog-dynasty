@@ -31,6 +31,8 @@ def main():
     latest_with_data = None
     pts_min, pts_max = 0.0, 0.0   # league-wide extremes of any single weekly score
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
+    # (season, roster_id) whose Sleeper owner had no team/display name that year
+    name_override = {("2023", 9): "PicklesPapa"}
 
     for sdir in sorted((d for d in root.iterdir() if d.is_dir() and (d / "league.json").exists())):
         league = load(sdir / "league.json")
@@ -51,8 +53,9 @@ def main():
             used_ids.update(plist)
             teams.append({
                 "roster_id": r["roster_id"],
-                "team": meta.get("team_name") or u.get("display_name") or f"Team {r['roster_id']}",
-                "manager": u.get("display_name", "?"),
+                "team": name_override.get((season, r["roster_id"])) or meta.get("team_name")
+                        or u.get("display_name") or f"Team {r['roster_id']}",
+                "manager": name_override.get((season, r["roster_id"]), u.get("display_name", "?")),
                 "wins": st.get("wins", 0), "losses": st.get("losses", 0), "ties": st.get("ties", 0),
                 "fpts": round(st.get("fpts", 0) + st.get("fpts_decimal", 0) / 100, 1),
                 "players": plist,
