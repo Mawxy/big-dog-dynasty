@@ -42,8 +42,6 @@ export default function Projection({ p, trend, sleeper, years }: {
     data[hist.length - 1].band = [lastActual, lastActual];       // fan band out from the anchor
   }
 
-  const draft = p.pick < 999 ? `R${Math.ceil(p.pick / 32)} #${p.pick}` : "UDFA";
-
   return (
     <div>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 6, flexWrap: "wrap" }}>
@@ -77,7 +75,7 @@ export default function Projection({ p, trend, sleeper, years }: {
         </ComposedChart>
       </ResponsiveContainer>
       <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 4, lineHeight: 1.6 }}>
-        <b style={{ color: t.color }}>{t.label}</b> — {t.desc} · level {fmt(p.level, 2)} · drafted {draft} · age {p.age}
+        <b style={{ color: t.color }}>{t.label}</b> — {t.desc} · level {fmt(p.level, 2)} · age {p.age}
         {sleeper && p.proj_ext != null &&
           <> · Sleeper {years[0]}: {fmt(sleeper.ppg, 1)} ppg → {fmt(p.proj_ext, 2)} WAR</>}
       </div>
