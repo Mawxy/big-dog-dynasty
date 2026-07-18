@@ -1,7 +1,7 @@
 import { useEffect, useState, type CSSProperties } from "react";
-import type { Franchise, Franchises, PlayersMin, SummaryRow, Team } from "../lib/types";
+import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, SummaryRow, Team } from "../lib/types";
 import { j } from "../lib/data";
-import { fmt, clsOf } from "../lib/stats";
+import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
@@ -22,6 +22,8 @@ export default function FranchisePage({ rid, players, back }:
   const [fr, setFr] = useState<Franchise | null | undefined>(undefined);
   const [txFilter, setTxFilter] = useState("all");
   const [txSeason, setTxSeason] = useState("all");
+  const [picks, setPicks] = useState<DraftPick[]>([]);
+  const [showStartup, setShowStartup] = useState(false);
   const [rosterSeason, setRosterSeason] = useState<string | null>(null);
   const [roster, setRoster] = useState<{ team: Team; sum: Map<string, SummaryRow> } | null>(null);
 
@@ -33,6 +35,7 @@ export default function FranchisePage({ rid, players, back }:
       setFr(rec);
       if (rec?.seasons.length) setRosterSeason(rec.seasons[rec.seasons.length - 1].season);
     }).catch(() => { if (live) setFr(null); });
+    j<Drafts>("data/drafts.json").then(d => { if (live) setPicks(d[String(rid)] || []); }).catch(() => {});
     return () => { live = false; };
   }, [rid]);
 
@@ -103,6 +106,50 @@ export default function FranchisePage({ rid, players, back }:
             ))}
           </tbody>
         </table>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "22px 0 10px", flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>Draft picks</h3>
+          <label style={lblStyle}>
+            <input type="checkbox" checked={showStartup} onChange={e => setShowStartup(e.target.checked)} />
+            include startup draft
+          </label>
+          <span style={{ color: "var(--dim)", fontSize: 12 }}>
+            vs = actual minus expected WAR for that slot, over the same seasons
+          </span>
+        </div>
+        {(() => {
+          const rows = picks.filter(p => showStartup || p.kind === "rookie");
+          if (!rows.length) return <div style={{ color: "var(--dim)" }}>no picks</div>;
+          return (
+            <table style={{ width: "auto" }}>
+              <thead><tr>
+                <th>Season</th><th>Pick</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th>
+                <th>WAR</th><th>On roster</th><th>Expected</th><th>vs</th>
+                <th style={{ textAlign: "left" }}>Better available</th>
+              </tr></thead>
+              <tbody>
+                {rows.map(p => (
+                  <tr key={`${p.season}-${p.pick_no}`} style={{ cursor: "default" }}>
+                    <td>{p.season}</td>
+                    <td>{p.slot}</td>
+                    <td style={{ textAlign: "left" }}><PlayerLink pid={p.pid} name={p.name} /></td>
+                    <td><PosBadge pos={p.pos} /></td>
+                    <td className={clsOf(p.war)}>{fmt(p.war, 2)}</td>
+                    <td className={clsOf(p.war_roster)}>{fmt(p.war_roster, 2)}</td>
+                    <td style={{ color: "var(--dim)" }}>{p.expected == null ? "—" : fmt(p.expected, 2)}</td>
+                    <td className={p.diff == null ? "" : clsOf(p.diff)}>
+                      {p.diff == null ? "—" : sgn(p.diff, 2)}</td>
+                    <td style={{ textAlign: "left", color: "var(--dim)" }}
+                      title={p.alts.map(a => `${a.name} (pick ${a.pick_no}) ${a.war.toFixed(2)}`).join(" · ")}>
+                      {p.alts.length === 0 ? "—"
+                        : p.alts.slice(0, 2).map(a => `${a.name} ${a.war.toFixed(2)}`).join(", ")}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          );
+        })()}
 
         <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "22px 0 10px", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Transactions</h3>

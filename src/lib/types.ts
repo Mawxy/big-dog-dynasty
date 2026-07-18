@@ -114,3 +114,14 @@ export interface FranchiseTx {
 }
 export interface Franchise { seasons: FranchiseSeason[]; tx: FranchiseTx[]; }
 export type Franchises = Record<string, Franchise>;
+
+/** data/drafts.json — per roster_id draft picks with hit/miss vs slot expectation */
+export interface DraftAlt { pid: string; name: string; pick_no: number; war: number; }
+export interface DraftPick {
+  season: string; kind: string; round: number; pick_no: number; slot: string;
+  pid: string; name: string; pos: string;
+  war: number; war_roster: number;
+  expected: number | null; years: number; diff: number | null;
+  alts: DraftAlt[];
+}
+export type Drafts = Record<string, DraftPick[]>;
