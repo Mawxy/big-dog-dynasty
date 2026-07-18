@@ -26,6 +26,12 @@ ROOT = Path(__file__).resolve().parent.parent
 DATA, RAW = ROOT / "data", ROOT / "sleeper_data"
 ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
 
+# (season, roster_id) -> draft slot, for seats Sleeper can't tell us about.
+# 2023 roster 9 has owner_id = null (the seat was vacant that year, later taken
+# over as PicklesPapa), so it never appears in draft_order. Slot 4 is confirmed:
+# roster 9 made 1.04 (Gibbs) and 4.04 (Bennett) itself.
+SLOT_FIX = {(2023, 9): 4}
+
 
 def load(p):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
@@ -79,10 +85,16 @@ def main():
         d = drafts[0]
         own = {r.get("owner_id"): r["roster_id"] for r in rosters}
         m = {own[u]: slot for u, slot in (d.get("draft_order") or {}).items() if u in own}
+        for (fs, frid), slot in SLOT_FIX.items():           # known vacant seats
+            if fs == s:
+                m[frid] = slot
         missing_r = [r["roster_id"] for r in rosters if r["roster_id"] not in m]
         missing_s = [x for x in range(1, len(rosters) + 1) if x not in m.values()]
         if len(missing_r) == 1 and len(missing_s) == 1:      # infer the odd one out
             m[missing_r[0]] = missing_s[0]
+        elif missing_r:
+            print(f"  ! {s}: no draft slot for roster(s) {missing_r} "
+                  f"(free slots {missing_s}) — add to SLOT_FIX")
         slot_of[s] = m
         for p in (load(RAW / str(s) / f"draft_{d['draft_id']}_picks.json") or []):
             sel_at[(s, p["round"], p.get("draft_slot"))] = p
@@ -118,9 +130,10 @@ def main():
                         w = war_for(rid, sel["player_id"], ps, 0)
                         side(rid)["got"].append({"kind": "pick", "pid": str(sel["player_id"]),
                                                  "label": f"{label} → {nm}", "war": w})
-                    else:
+                    else:   # not drafted yet (future pick) or the slot went unused
+                        tail = " (not yet drafted)" if ps > max(seasons) else " (unused)"
                         side(rid)["got"].append({"kind": "pick", "pid": None,
-                                                 "label": label + " (unused)", "war": 0.0})
+                                                 "label": label + tail, "war": 0.0})
                 for wb in (tx.get("waiver_budget") or []):
                     side(wb.get("receiver"))["got"].append(
                         {"kind": "faab", "pid": None, "label": f"${wb.get('amount')} FAAB", "war": 0.0})
