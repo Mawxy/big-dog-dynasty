@@ -37,7 +37,10 @@ export default function Projection({ p, trend, sleeper, years }: {
     ...hist.map(h => ({ season: h.season, actual: h.WAR })),
     ...years.map((y, i) => ({ season: String(y), proj: line[i], band: [lo[i], hi[i]] as [number, number] })),
   ];
-  if (hist.length) data[hist.length - 1].proj = lastActual;   // bridge
+  if (hist.length) {
+    data[hist.length - 1].proj = lastActual;                     // bridge the line
+    data[hist.length - 1].band = [lastActual, lastActual];       // fan band out from the anchor
+  }
 
   const draft = p.pick < 999 ? `R${Math.ceil(p.pick / 32)} #${p.pick}` : "UDFA";
 
@@ -66,10 +69,10 @@ export default function Projection({ p, trend, sleeper, years }: {
               [Array.isArray(v) ? `${v[0].toFixed(2)} – ${v[1].toFixed(2)}` : (v as number).toFixed(2),
               name === "band" ? "p20–p80" : name === "proj" ? t.label : "actual"]} />
           <ReferenceLine y={0} stroke="#8b96a5" />
-          <Area dataKey="band" stroke="none" fill={t.color} fillOpacity={0.13} />
-          <Line dataKey="actual" stroke={GOLD} strokeWidth={2.5} connectNulls
+          <Area type="monotone" dataKey="band" stroke="none" fill={t.color} fillOpacity={0.13} />
+          <Line type="linear" dataKey="actual" stroke={GOLD} strokeWidth={2.5} connectNulls
             dot={{ r: 3, fill: GOLD, strokeWidth: 0 }} />
-          <Line dataKey="proj" stroke={t.color} strokeWidth={2} strokeDasharray="5 4" connectNulls
+          <Line type="linear" dataKey="proj" stroke={t.color} strokeWidth={2} strokeDasharray="5 4" connectNulls
             dot={{ r: 3, fill: t.color, strokeWidth: 0 }} />
         </ComposedChart>
       </ResponsiveContainer>
