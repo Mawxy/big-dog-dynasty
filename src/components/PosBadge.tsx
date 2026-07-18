@@ -1,3 +1,3 @@
-export default function PosBadge({ pos }: { pos: string }) {
-  return <span className={`pos ${pos}`}>{pos}</span>;
+export default function PosBadge({ pos, rank }: { pos: string; rank?: number }) {
+  return <span className={`pos ${pos}`}>{pos}{rank ?? ""}</span>;
 }

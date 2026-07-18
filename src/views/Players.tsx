@@ -10,7 +10,7 @@ import AllTimePanel from "../components/AllTimePanel";
 interface Row {
   id: string; nm: string; pos: string; team: string;
   gp: number; pts: number; ppg: number; sdv: number;
-  waa: number; war: number; waaG: number; warG: number;
+  waa: number; war: number; waaG: number; warG: number; posRank: number;
 }
 type Key = keyof Row;
 const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean }[] = [
@@ -45,8 +45,15 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
       return {
         id, nm: pInfo(players, id)[0], pos: p, team: owners[id] || "—",
         gp, pts, ppg, sdv: sdv || 0, waa, war,
-        waaG: gp ? waa / gp : 0, warG: gp ? war / gp : 0,
+        waaG: gp ? waa / gp : 0, warG: gp ? war / gp : 0, posRank: 0,
       };
+    });
+    // positional rank by WAR over all players at each position (pre-filter)
+    const byPos: Record<string, Row[]> = {};
+    rs.forEach(r => (byPos[r.pos] ??= []).push(r));
+    Object.values(byPos).forEach(list => {
+      list.sort((a, b) => b.war - a.war);
+      list.forEach((r, i) => { r.posRank = i + 1; });
     });
     if (gpFloor) rs = rs.filter(r => r.gp >= gpFloor);
     if (pos !== "ALL") rs = rs.filter(r => r.pos === pos);
@@ -91,7 +98,7 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
             </thead>
             <tbody>
               {rows.map(r => (
-                <PlayerRow key={r.id} r={r} open={openPid === r.id}
+                <PlayerRow key={r.id} r={r} open={openPid === r.id} showRank={season !== "ALL"}
                   onToggle={() => setOpenPid(openPid === r.id ? null : r.id)}
                   panel={season === "ALL"
                     ? <AllTimePanel pid={r.id} data={data} seasons={seasons} teams={data.teams} players={players} />
@@ -104,13 +111,13 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
   );
 }
 
-function PlayerRow({ r, open, onToggle, panel }: { r: Row; open: boolean; onToggle: () => void; panel: React.ReactNode }) {
+function PlayerRow({ r, open, onToggle, panel, showRank }: { r: Row; open: boolean; onToggle: () => void; panel: React.ReactNode; showRank: boolean }) {
   return (
     <>
       <tr onClick={onToggle}>
         <td><PlayerLink pid={r.id} name={r.nm} /></td>
         <td className="hm roster" title={r.team}>{r.team}</td>
-        <td><PosBadge pos={r.pos} /></td>
+        <td><PosBadge pos={r.pos} rank={showRank ? r.posRank : undefined} /></td>
         <td className="hm">{r.gp}</td>
         <td className="hm">{fmt(r.pts, 1)}</td>
         <td>{fmt(r.ppg)}</td>
