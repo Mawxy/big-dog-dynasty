@@ -13,18 +13,18 @@ interface Row {
   waa: number; war: number; waaG: number; warG: number; posRank: number;
 }
 type Key = keyof Row;
-const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean }[] = [
-  { label: "Player", key: "nm" },
-  { label: "Roster", key: "team", hm: true },
-  { label: "Pos", key: "pos" },
-  { label: "GP", key: "gp", hm: true },
-  { label: "Pts", key: "pts", hm: true },
-  { label: "PPG", key: "ppg" },
-  { label: "σ", key: "sdv", noUpper: true },
-  { label: "WAA", key: "waa" },
-  { label: "WAA/G", key: "waaG", hm: true },
-  { label: "WAR", key: "war" },
-  { label: "WAR/G", key: "warG", hm: true },
+const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w: string }[] = [
+  { label: "Player", key: "nm", w: "20%" },
+  { label: "Roster", key: "team", hm: true, w: "14%" },
+  { label: "Pos", key: "pos", w: "7%" },
+  { label: "GP", key: "gp", hm: true, w: "6%" },
+  { label: "Pts", key: "pts", hm: true, w: "8%" },
+  { label: "PPG", key: "ppg", w: "7%" },
+  { label: "σ", key: "sdv", noUpper: true, w: "7%" },
+  { label: "WAA", key: "waa", w: "8%" },
+  { label: "WAA/G", key: "waaG", hm: true, w: "8%" },
+  { label: "WAR", key: "war", w: "8%" },
+  { label: "WAR/G", key: "warG", hm: true, w: "8%" },
 ];
 
 interface Props { data: SeasonData; season: string; seasons: string[]; players: PlayersMin; defaultMinGp: number }
@@ -87,7 +87,10 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
       {rows.length === 0
         ? <div className="empty">No players match — try lowering the min-GP filter.</div>
         : (
-          <table>
+          <table className="lb">
+            <colgroup>
+              {COLS.map(c => <col key={c.label} className={c.hm ? "hm" : undefined} style={{ width: c.w }} />)}
+            </colgroup>
             <thead>
               <tr>{COLS.map((c, i) => (
                 <th key={c.label} className={`${c.hm ? "hm " : ""}${sortCol === i ? "sorted" : ""}`} onClick={() => clickCol(i)}>
