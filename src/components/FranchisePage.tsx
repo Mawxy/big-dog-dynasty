@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import type { Franchise, Franchises, PlayersMin, SummaryRow, Team } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, clsOf } from "../lib/stats";
@@ -14,6 +14,8 @@ const finishLabel = (f: number | null) =>
   f == null ? "—" : f === 1 ? "🏆 Champion" : f === 2 ? "Runner-up" : ord(f);
 
 const TXF: [string, string][] = [["all", "All"], ["trade", "Trades"], ["add", "Adds"], ["drop", "Drops"]];
+const selStyle: CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", color: "var(--txt)", padding: "4px 8px", borderRadius: 8, fontSize: 13 };
+const lblStyle: CSSProperties = { color: "var(--dim)", fontSize: 13, display: "flex", alignItems: "center", gap: 6 };
 
 export default function FranchisePage({ rid, players, back }:
   { rid: number; players: PlayersMin; back: () => void }) {
@@ -102,21 +104,20 @@ export default function FranchisePage({ rid, players, back }:
           </tbody>
         </table>
 
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "22px 0 8px", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "22px 0 10px", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Transactions</h3>
-          <div style={{ display: "flex", gap: 6 }}>
-            {TXF.map(([k, l]) => (
-              <span key={k} className={`chip ${txFilter === k ? "on" : ""}`}
-                style={{ fontSize: 12, padding: "2px 10px" }} onClick={() => setTxFilter(k)}>{l}</span>
-            ))}
-          </div>
-          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-            {["all", ...txSeasons].map(s => (
-              <span key={s} className={`chip ${txSeason === s ? "on" : ""}`}
-                style={{ fontSize: 12, padding: "2px 10px" }} onClick={() => setTxSeason(s)}>
-                {s === "all" ? "All yrs" : s}</span>
-            ))}
-          </div>
+          <label style={lblStyle}>Type
+            <select value={txFilter} onChange={e => setTxFilter(e.target.value)} style={selStyle}>
+              {TXF.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
+            </select>
+          </label>
+          <label style={lblStyle}>Year
+            <select value={txSeason} onChange={e => setTxSeason(e.target.value)} style={selStyle}>
+              <option value="all">All</option>
+              {txSeasons.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <span style={{ color: "var(--dim)", fontSize: 12 }}>{txs.length} shown</span>
         </div>
         <div style={{ maxWidth: 720 }}>
           {txs.length === 0 ? <div style={{ color: "var(--dim)" }}>none</div> : txs.map((t, i) => (
@@ -136,8 +137,7 @@ export default function FranchisePage({ rid, players, back }:
 
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "22px 0 8px" }}>
           <h3 style={{ margin: 0 }}>Roster</h3>
-          <select value={rosterSeason ?? ""} onChange={e => setRosterSeason(e.target.value)}
-            style={{ background: "var(--card)", border: "1px solid var(--line)", color: "var(--txt)", padding: "4px 8px", borderRadius: 8 }}>
+          <select value={rosterSeason ?? ""} onChange={e => setRosterSeason(e.target.value)} style={selStyle}>
             {seasons.slice().reverse().map(s => <option key={s.season} value={s.season}>{s.season}</option>)}
           </select>
         </div>
