@@ -142,8 +142,13 @@ export interface DraftAlt { pid: string; name: string; pick_no: number; war: num
 export interface DraftPick {
   season: string; kind: string; round: number; pick_no: number; slot: string;
   pid: string; name: string; pos: string;
-  war: number; war_roster: number;
+  war: number; war_roster: number | null;
   expected: number | null; years: number; diff: number | null;
   alts: DraftAlt[];
+  /** Originally owned by this franchise but traded away before the draft.
+   *  Informational only: never scored, never in season subtotals. */
+  traded: boolean;
+  /** roster_id of the franchise that actually made the selection. */
+  drafted_by?: number;
 }
 export type Drafts = Record<string, DraftPick[]>;

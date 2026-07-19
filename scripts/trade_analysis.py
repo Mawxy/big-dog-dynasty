@@ -22,15 +22,14 @@ Usage: python scripts/trade_analysis.py
 import json
 from pathlib import Path
 
+from draft_slots import SLOT_FIX, build_slot_maps  # noqa: F401  (SLOT_FIX re-exported)
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA, RAW = ROOT / "data", ROOT / "sleeper_data"
 ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
 
-# (season, roster_id) -> draft slot, for seats Sleeper can't tell us about.
-# 2023 roster 9 has owner_id = null (the seat was vacant that year, later taken
-# over as PicklesPapa), so it never appears in draft_order. Slot 4 is confirmed:
-# roster 9 made 1.04 (Gibbs) and 4.04 (Bennett) itself.
-SLOT_FIX = {(2023, 9): 4}
+# SLOT_FIX and the roster -> draft-slot resolution now live in draft_slots.py,
+# shared with draft_analysis.py.
 
 
 def load(p):
@@ -75,29 +74,9 @@ def main():
                 tot += v
         return round(tot, 3)
 
-    # draft slot ownership + the selection made at each (round, slot)
-    slot_of, sel_at = {}, {}
-    for s in seasons:
-        drafts = load(RAW / str(s) / "drafts.json") or []
-        rosters = load(RAW / str(s) / "rosters.json") or []
-        if not drafts:
-            continue
-        d = drafts[0]
-        own = {r.get("owner_id"): r["roster_id"] for r in rosters}
-        m = {own[u]: slot for u, slot in (d.get("draft_order") or {}).items() if u in own}
-        for (fs, frid), slot in SLOT_FIX.items():           # known vacant seats
-            if fs == s:
-                m[frid] = slot
-        missing_r = [r["roster_id"] for r in rosters if r["roster_id"] not in m]
-        missing_s = [x for x in range(1, len(rosters) + 1) if x not in m.values()]
-        if len(missing_r) == 1 and len(missing_s) == 1:      # infer the odd one out
-            m[missing_r[0]] = missing_s[0]
-        elif missing_r:
-            print(f"  ! {s}: no draft slot for roster(s) {missing_r} "
-                  f"(free slots {missing_s}) — add to SLOT_FIX")
-        slot_of[s] = m
-        for p in (load(RAW / str(s) / f"draft_{d['draft_id']}_picks.json") or []):
-            sel_at[(s, p["round"], p.get("draft_slot"))] = p
+    # draft slot ownership + the selection made at each (round, slot).
+    # Shared with draft_analysis.py — see scripts/draft_slots.py.
+    slot_of, sel_at = build_slot_maps(seasons, RAW, load=load)
 
     trades = []
     for s in seasons:

@@ -23,11 +23,13 @@ Usage: python scripts/draft_analysis.py
 import json
 from pathlib import Path
 
+from draft_slots import build_slot_maps
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 RAW = ROOT / "sleeper_data"
 TOP_ALTS = 3          # how many "could have had" names to keep
-EXP_YEARS = 3         # pick_values publishes expected WAR for years 1..3
+EXP_YEARS_FALLBACK = 3   # only used if pick_values.json omits years_published
 
 
 def load(p):
@@ -49,8 +51,18 @@ def main():
                      for t in (load(DATA / str(s) / "teams.json") or [])}
 
     # expected WAR by slot, e.g. "1.05" -> {"1": .., "2": .., "3": ..}
-    pv = {b["bucket"]: b.get("raw", {})
-          for b in (load(DATA / "pick_values.json") or {}).get("picks", [])}
+    pvj = load(DATA / "pick_values.json") or {}
+    pv = {b["bucket"]: b.get("raw", {}) for b in pvj.get("picks", [])}
+    # How deep the comparison can go is whatever Bridge A actually publishes.
+    # pick_value.py unlocks a year once every slot has enough observations, so
+    # this widens on its own — a pick with 4 finished seasons starts being
+    # measured over 4 the moment year 4 is published, with no change here.
+    published = (pvj.get("meta") or {}).get("years_published") or []
+    exp_years = max(published) if published else EXP_YEARS_FALLBACK
+
+    # roster -> draft slot, and what was selected at each (round, slot);
+    # lets us list picks a franchise originally owned but traded away.
+    slot_of, sel_at = build_slot_maps(seasons, RAW, load=load)
 
     out = {}
     for s in seasons:
@@ -62,7 +74,7 @@ def main():
         if not picks:
             continue
         elapsed = [y for y in seasons if s <= y <= latest]      # seasons since drafted
-        n_exp = min(len(elapsed), EXP_YEARS)
+        n_exp = min(len(elapsed), exp_years)
 
         def career(pid):
             return round(sum(war.get(pid, {}).get(y, 0.0) for y in elapsed), 3)
@@ -103,7 +115,37 @@ def main():
                 "expected": expected, "years": n_exp,
                 "diff": round(actual_win - expected, 3) if expected is not None else None,
                 "alts": alts[:TOP_ALTS],
+                "traded": False,
             })
+
+        # Picks this franchise originally owned but dealt away. Listed for
+        # awareness only — informational, never scored: no expected, no diff,
+        # no roster WAR, and the site leaves them out of season subtotals.
+        if kind == "rookie":
+            made = {(p["round"], p.get("draft_slot")) for p in board}
+            rounds = sorted({p["round"] for p in board})
+            for rid, my_slot in (slot_of.get(s) or {}).items():
+                for rnd in rounds:
+                    if (rnd, my_slot) not in made:
+                        continue
+                    sel = sel_at.get((s, rnd, my_slot))
+                    if not sel or sel.get("roster_id") == rid:
+                        continue                      # kept it, already listed
+                    pid = sel.get("player_id")
+                    if not pid:
+                        continue
+                    md = sel.get("metadata") or {}
+                    out.setdefault(str(rid), []).append({
+                        "season": str(s), "kind": kind, "round": rnd,
+                        "pick_no": sel["pick_no"], "slot": f"{rnd}.{my_slot:02d}",
+                        "pid": pid,
+                        "name": f"{md.get('first_name','')} {md.get('last_name','')}".strip(),
+                        "pos": md.get("position") or "?",
+                        "war": career(pid), "war_roster": None,
+                        "expected": None, "years": n_exp, "diff": None,
+                        "alts": [],
+                        "traded": True, "drafted_by": sel.get("roster_id"),
+                    })
 
     for rid in out:                                  # newest draft first
         out[rid].sort(key=lambda r: (r["season"], r["pick_no"]), reverse=True)

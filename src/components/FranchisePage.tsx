@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties } from "react";
+import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, SummaryRow, Team } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
@@ -23,7 +23,9 @@ export default function FranchisePage({ rid, players, back }:
   const [txFilter, setTxFilter] = useState("all");
   const [txSeason, setTxSeason] = useState("all");
   const [picks, setPicks] = useState<DraftPick[]>([]);
-  const [showStartup, setShowStartup] = useState(false);
+  // Every rookie-draft year the league has held, so a franchise that traded
+  // away a whole class still shows that year rather than skipping it.
+  const [draftSeasons, setDraftSeasons] = useState<string[]>([]);
   const [rosterSeason, setRosterSeason] = useState<string | null>(null);
   const [roster, setRoster] = useState<{ team: Team; sum: Map<string, SummaryRow> } | null>(null);
 
@@ -35,7 +37,14 @@ export default function FranchisePage({ rid, players, back }:
       setFr(rec);
       if (rec?.seasons.length) setRosterSeason(rec.seasons[rec.seasons.length - 1].season);
     }).catch(() => { if (live) setFr(null); });
-    j<Drafts>("data/drafts.json").then(d => { if (live) setPicks(d[String(rid)] || []); }).catch(() => {});
+    j<Drafts>("data/drafts.json").then(d => {
+      if (!live) return;
+      setPicks(d[String(rid)] || []);
+      const all = new Set<string>();
+      for (const list of Object.values(d))
+        for (const p of list) if (p.kind === "rookie") all.add(p.season);
+      setDraftSeasons([...all].sort((a, b) => b.localeCompare(a)));
+    }).catch(() => {});
     return () => { live = false; };
   }, [rid]);
 
@@ -109,43 +118,98 @@ export default function FranchisePage({ rid, players, back }:
 
         <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "22px 0 10px", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Draft picks</h3>
-          <label style={lblStyle}>
-            <input type="checkbox" checked={showStartup} onChange={e => setShowStartup(e.target.checked)} />
-            include startup draft
-          </label>
           <span style={{ color: "var(--dim)", fontSize: 12 }}>
             vs = actual minus expected WAR for that slot, over the same seasons
           </span>
         </div>
         {(() => {
-          const rows = picks.filter(p => showStartup || p.kind === "rookie");
-          if (!rows.length) return <div style={{ color: "var(--dim)" }}>no picks</div>;
+          // Rookie drafts only — the startup draft prices veterans, not slots,
+          // so it isn't comparable to the Bridge A expectations shown here.
+          const rookie = picks.filter(p => p.kind === "rookie");
+
+          // Group by season, rounds 1 -> 4 within each.
+          const bySeason = new Map<string, DraftPick[]>();
+          for (const p of rookie) {
+            const arr = bySeason.get(p.season);
+            if (arr) arr.push(p); else bySeason.set(p.season, [p]);
+          }
+          for (const arr of bySeason.values()) arr.sort((a, b) => a.pick_no - b.pick_no);
+
+          // Every league draft year, newest first — including years this
+          // franchise made no picks at all (traded the whole class away).
+          const seasons = draftSeasons.length ? draftSeasons
+            : [...bySeason.keys()].sort((a, b) => b.localeCompare(a));
+          if (!seasons.length) return <div style={{ color: "var(--dim)" }}>no picks</div>;
+
+          // Traded-away picks are informational only — never in the subtotal.
+          const total = (arr: DraftPick[], k: "war" | "war_roster") =>
+            arr.reduce((s, p) => s + (p.traded ? 0 : p[k] ?? 0), 0);
+          const kept = (arr: DraftPick[]) => arr.filter(p => !p.traded).length;
+
           return (
             <table style={{ width: "auto" }}>
               <thead><tr>
-                <th>Season</th><th>Pick</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th>
+                <th>Pick</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th>
                 <th>WAR</th><th>On roster</th><th>Expected</th><th>vs</th>
                 <th style={{ textAlign: "left" }}>Better available</th>
               </tr></thead>
               <tbody>
-                {rows.map(p => (
-                  <tr key={`${p.season}-${p.pick_no}`} style={{ cursor: "default" }}>
-                    <td>{p.season}</td>
-                    <td>{p.slot}</td>
-                    <td style={{ textAlign: "left" }}><PlayerLink pid={p.pid} name={p.name} /></td>
-                    <td><PosBadge pos={p.pos} /></td>
-                    <td className={clsOf(p.war)}>{fmt(p.war, 2)}</td>
-                    <td className={clsOf(p.war_roster)}>{fmt(p.war_roster, 2)}</td>
-                    <td style={{ color: "var(--dim)" }}>{p.expected == null ? "—" : fmt(p.expected, 2)}</td>
-                    <td className={p.diff == null ? "" : clsOf(p.diff)}>
-                      {p.diff == null ? "—" : sgn(p.diff, 2)}</td>
-                    <td style={{ textAlign: "left", color: "var(--dim)" }}
-                      title={p.alts.map(a => `${a.name} (pick ${a.pick_no}) ${a.war.toFixed(2)}`).join(" · ")}>
-                      {p.alts.length === 0 ? "—"
-                        : p.alts.slice(0, 2).map(a => `${a.name} ${a.war.toFixed(2)}`).join(", ")}
-                    </td>
-                  </tr>
-                ))}
+                {seasons.map(season => {
+                  const rows = bySeason.get(season) ?? [];
+                  return (
+                    <Fragment key={season}>
+                      <tr style={{ cursor: "default" }}>
+                        <td colSpan={3} style={{ textAlign: "left", fontWeight: 600,
+                          paddingTop: 14, borderBottom: "1px solid var(--line)" }}>
+                          {season} rookie draft
+                          <span style={{ color: "var(--dim)", fontWeight: 400, marginLeft: 8 }}>
+                            {kept(rows)} pick{kept(rows) === 1 ? "" : "s"}
+                            {rows.length - kept(rows) > 0 &&
+                              ` · ${rows.length - kept(rows)} traded away`}
+                          </span>
+                        </td>
+                        <td className={clsOf(total(rows, "war"))}
+                          style={{ paddingTop: 14, borderBottom: "1px solid var(--line)" }}>
+                          {fmt(total(rows, "war"), 2)}</td>
+                        <td className={clsOf(total(rows, "war_roster"))}
+                          style={{ paddingTop: 14, borderBottom: "1px solid var(--line)" }}>
+                          {fmt(total(rows, "war_roster"), 2)}</td>
+                        <td colSpan={3} style={{ paddingTop: 14, borderBottom: "1px solid var(--line)" }} />
+                      </tr>
+                      {rows.length === 0 && (
+                        <tr style={{ cursor: "default" }}>
+                          <td colSpan={8} style={{ textAlign: "left", color: "var(--dim)" }}>
+                            no picks — traded away
+                          </td>
+                        </tr>
+                      )}
+                      {rows.map(p => (
+                        <tr key={`${p.season}-${p.pick_no}-${p.traded ? "t" : "m"}`}
+                          style={{ cursor: "default", opacity: p.traded ? 0.55 : 1 }}>
+                          <td>{p.slot}</td>
+                          <td style={{ textAlign: "left" }}>
+                            <PlayerLink pid={p.pid} name={p.name} />
+                            {p.traded && <span style={{ color: "var(--dim)", marginLeft: 6 }}>(traded)</span>}
+                          </td>
+                          <td><PosBadge pos={p.pos} /></td>
+                          <td className={p.traded ? "" : clsOf(p.war)}
+                            style={p.traded ? { color: "var(--dim)" } : undefined}>{fmt(p.war, 2)}</td>
+                          <td className={p.traded ? "" : clsOf(p.war_roster ?? 0)}
+                            style={p.traded ? { color: "var(--dim)" } : undefined}>
+                            {p.traded ? "—" : fmt(p.war_roster ?? 0, 2)}</td>
+                          <td style={{ color: "var(--dim)" }}>{p.expected == null ? "—" : fmt(p.expected, 2)}</td>
+                          <td className={p.diff == null ? "" : clsOf(p.diff)}>
+                            {p.diff == null ? "—" : sgn(p.diff, 2)}</td>
+                          <td style={{ textAlign: "left", color: "var(--dim)" }}
+                            title={p.alts.map(a => `${a.name} (pick ${a.pick_no}) ${a.war.toFixed(2)}`).join(" · ")}>
+                            {p.alts.length === 0 ? "—"
+                              : p.alts.slice(0, 2).map(a => `${a.name} ${a.war.toFixed(2)}`).join(", ")}
+                          </td>
+                        </tr>
+                      ))}
+                    </Fragment>
+                  );
+                })}
               </tbody>
             </table>
           );
