@@ -43,15 +43,17 @@ export default function Draft() {
       </Section>
 
       <p style={{ color: "var(--dim)", fontSize: 13, lineHeight: 1.6, margin: "14px 2px", maxWidth: 780 }}>
-        Average realized WAR by years since draft, from every rookie pick made in four
+        Average realized WAR by years since draft, from every rookie pick made in five
         12-team superflex dynasty leagues ({pv.meta.classes}). Real Big Dog WAR is used
         for seasons we have; earlier/outside seasons use league-calibrated historical WAR.
         Values are raw: each player-season counts at its actual WAR, negatives included.
         σ = standard deviation of 3-year WAR totals across the picks in that row.
         Hit % = share of picks that returned ≥ {pv.meta.hit_threshold_war} total WAR over
-        their first three seasons. Longer horizons appear automatically once
-        {" "}{pv.meta.min_classes_per_year} draft classes have matured that far
-        (year 4 unlocks after the 2026 season).
+        their first three seasons. Longer horizons appear automatically once every slot
+        has enough real observations behind it — at least
+        {" "}{pv.meta.min_obs_by_round["1"]} picks per slot in rounds 1–3 and
+        {" "}{pv.meta.min_obs_by_round["4"]} in round 4 — so adding leagues to the
+        corpus can unlock a year without waiting for another season.
       </p>
     </>
   );

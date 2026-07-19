@@ -40,8 +40,13 @@ from collections import defaultdict
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-FIRST_CLASS = 2020
-MIN_CLASSES = 4          # classes needed before a year column is published
+FIRST_CLASS = 2019
+# A year-since-draft column is published once every slot has enough real
+# observations behind it — NOT after a fixed number of calendar years. Add
+# leagues to the corpus and a year unlocks on the next run.
+# Keyed by round: round 4 carries a lower bar because not every league in the
+# corpus drafts 4 rounds, so those slots have structurally fewer contributors.
+MIN_OBS_BY_ROUND = {1: 10, 2: 10, 3: 10, 4: 7}
 MAX_YEARS = 6
 MAX_PICK = 48            # rounds 1-4
 HIT_WAR = 1.0            # 3-yr raw total that counts as a "hit"
@@ -49,7 +54,13 @@ HIT_WAR = 1.0            # 3-yr raw total that counts as a "hit"
 NICK = {'cam': 'cameron', 'tank': 'nathaniel', 'joe': 'joseph', 'trevor': 'william',
         'matt': 'matthew', 'josh': 'joshua', 'ken': 'kenneth', 'mike': 'michael',
         'gabe': 'gabriel'}
-MANUAL = {'Ray Davis': '00-0039875'}          # nflverse legal name Re'Mahn Davis
+MANUAL = {'Ray Davis': '00-0039875',          # nflverse legal name Re'Mahn Davis
+          'A.J. Brown': '00-0035676',         # nflverse legal name Arthur Brown
+          # Position mismatches: nflverse pos != Sleeper pos, so the
+          # (surname, pos) key misses. Harry failed loudly (unmatched);
+          # Bowden failed silently onto Ellis Bowden, a 1950s player.
+          "N'Keal Harry": '00-0035624',       # nflverse TE, Sleeper WR
+          'Lynn Bowden Jr.': '00-0036364'}    # nflverse WR, Sleeper RB
 ZEROES = {'Brennan Eagles', 'Pooka Williams', 'Riley Ferguson', 'Tamorrion Terry'}
 NO_GSIS = {'Travis Hunter'}                   # nflverse pos CB -> absent from
                                               # history; real league WAR only
@@ -114,6 +125,13 @@ def load_sources(last_season):
 def match_gsis(name, pos, season, meta):
     n = norm(name)
     first, last = n.split()[0], n.split()[-1]
+    # NOTE: do not widen this lookup across positions when the surname+pos key
+    # misses. Tried it — a draft-class filter alone is too weak, and it
+    # silently rematched Carson Strong -> Pierre Strong and Tyrod Taylor ->
+    # Jonathan Taylor. Nor should first names be required to agree: nflverse
+    # stores legal names (CeeDee Lamb is "Cedarian Lamb"), so ~85 correct
+    # matches depend on the len(pool)==1 shortcut below. Position mismatches
+    # go in MANUAL instead.
     cands = meta.get((last, pos), [])
     cls = [c for c in cands if c[2] and int(c[2]) == season]
     pool = cls if cls else cands
@@ -189,16 +207,15 @@ def main():
             gsis = m[1]
         picks.append((season, pick, r['sleeper_id'], gsis))
 
-    years = [k for k in range(1, MAX_YEARS + 1)
-             if sum(1 for c in range(FIRST_CLASS, last + 1)
-                    if c + k - 1 <= last) >= MIN_CLASSES]
+    # Fill every candidate year, then prune below by real observation counts.
+    candidates = list(range(1, MAX_YEARS + 1))
 
-    pcells = {b: {k: [] for k in years} for b in PICK_ORDER}
-    bcells = {b: {k: [] for k in years} for b in BAND_ORDER}
+    pcells = {b: {k: [] for k in candidates} for b in PICK_ORDER}
+    bcells = {b: {k: [] for k in candidates} for b in BAND_ORDER}
     phits, bhits = defaultdict(list), defaultdict(list)
     for season, pick, sid, gsis in picks:
         pk, bk = pick_key(pick), band_key(pick)
-        for k in years:
+        for k in candidates:
             yr = season + k - 1
             if yr > last:
                 continue
@@ -212,11 +229,34 @@ def main():
                 phits[pk].append(sum(tot))
                 bhits[bk].append(sum(tot))
 
+    # Publish year k only if EVERY slot clears its round's bar. The thinnest
+    # slot governs, so a published column is honest everywhere on the board.
+    def slot_n(k):
+        return {b: len(pcells[b][k]) for b in PICK_ORDER}
+
+    years, gate_report = [], []
+    for k in candidates:
+        n = slot_n(k)
+        worst = {rd: min(n[b] for b in PICK_ORDER if int(b[0]) == rd)
+                 for rd in MIN_OBS_BY_ROUND}
+        ok = all(worst[rd] >= MIN_OBS_BY_ROUND[rd] for rd in worst)
+        gate_report.append((k, worst, ok))
+        if ok:
+            years.append(k)
+    # Years must be contiguous from 1: a gap would break the elapsed-window
+    # comparison in draft_analysis.py, which sums years 1..n.
+    years = [k for i, k in enumerate(years) if k == i + 1]
+
+    for b in PICK_ORDER:
+        pcells[b] = {k: pcells[b][k] for k in years}
+    for b in BAND_ORDER:
+        bcells[b] = {k: bcells[b][k] for k in years}
+
     out = {'meta': {
         'generated_for_season': last,
         'classes': f"{FIRST_CLASS}-{last}",
         'years_published': years,
-        'min_classes_per_year': MIN_CLASSES,
+        'min_obs_by_round': MIN_OBS_BY_ROUND,
         'hit_threshold_war': HIT_WAR,
         'picks_used': len(picks), 'vets_excluded': vets,
         'unmatched': len(unmatched),
@@ -233,6 +273,11 @@ def main():
     print(f"picks {len(picks)}  vets excluded {vets}  unmatched {len(unmatched)}")
     for u in unmatched:
         print('  UNMATCHED', u)
+    print("year gate (thinnest slot per round vs bar "
+          f"{MIN_OBS_BY_ROUND}):")
+    for k, worst, ok in gate_report:
+        cells = '  '.join(f"R{rd}={worst[rd]:>3}" for rd in sorted(worst))
+        print(f"  yr{k}: {cells}   {'PUBLISH' if ok else 'hold'}")
     print(f"years published: {years}")
     for name, rows in (('PICKS', out['picks']), ('BANDS', out['bands'])):
         print(f"\n{name}")

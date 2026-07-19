@@ -42,9 +42,27 @@ import argparse, csv, json, math, statistics
 from collections import defaultdict
 from pathlib import Path
 
-FLEX_ELIG = {"RB", "WR", "TE"}
-SF_ELIG = {"QB", "RB", "WR", "TE"}
 CORE = {"QB", "RB", "WR", "TE"}
+
+# Multi-position slots, mapped to the positions they accept. Sleeper uses
+# distinct names per league era: this league family ran WRRB_FLEX in 2018-19
+# and REC_FLEX in 2020 before settling on FLEX + SUPER_FLEX.
+FLEX_SLOTS = {
+    "WRRB_FLEX":  {"RB", "WR"},
+    "REC_FLEX":   {"WR", "TE"},
+    "FLEX":       {"RB", "WR", "TE"},
+    "SUPER_FLEX": {"QB", "RB", "WR", "TE"},
+}
+# Filled most-restrictive-first so a narrow slot is not stranded by a player
+# who also fits a wider one. Ties broken by the order above.
+FLEX_ORDER = sorted(FLEX_SLOTS, key=lambda s: len(FLEX_SLOTS[s]))
+
+# Bench/reserve slots occupy roster_positions but never start anyone.
+NON_STARTING_SLOTS = {"BN", "IR", "TAXI"}
+
+# Back-compat aliases (some callers/tests import these directly).
+FLEX_ELIG = FLEX_SLOTS["FLEX"]
+SF_ELIG = FLEX_SLOTS["SUPER_FLEX"]
 
 def norm_win_shift(points, sigma):
     """Change in single-week win probability from adding `points` to an average team."""
@@ -71,6 +89,16 @@ def slot_counts(league):
     per_team = defaultdict(int)
     for s in league["roster_positions"]:
         per_team[s] += 1
+    unknown = sorted(set(per_team) - CORE - set(FLEX_SLOTS) - NON_STARTING_SLOTS)
+    if unknown:
+        # Silently ignoring a starting slot shrinks the league-wide startable
+        # pool, which lowers replacement level and inflates every WAR in the
+        # season. Fail loudly instead.
+        raise ValueError(
+            f"unrecognized roster slot(s) {unknown} in league "
+            f"{league.get('league_id')} ({league.get('season')}); add them to "
+            f"FLEX_SLOTS or NON_STARTING_SLOTS in sleeper_war.py"
+        )
     n = league["total_rosters"]
     return {s: c * n for s, c in per_team.items()}
 
@@ -88,14 +116,13 @@ def build_week(points, positions, slots):
         else:
             leftovers.append(pid)
     rest = []
-    for pid in leftovers:                         # then FLEX / SUPER_FLEX by points
+    for pid in leftovers:                         # then flex slots by points
         pos = positions[pid]
-        if pos in FLEX_ELIG and open_slots.get("FLEX", 0) > 0:
-            open_slots["FLEX"] -= 1
-            startable.add(pid)
-        elif pos in SF_ELIG and open_slots.get("SUPER_FLEX", 0) > 0:
-            open_slots["SUPER_FLEX"] -= 1
-            startable.add(pid)
+        for slot in FLEX_ORDER:                   # narrowest slot this player fits
+            if pos in FLEX_SLOTS[slot] and open_slots.get(slot, 0) > 0:
+                open_slots[slot] -= 1
+                startable.add(pid)
+                break
         else:
             rest.append(pid)
     avg, repl = {}, {}

@@ -56,7 +56,9 @@ from collections import defaultdict
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sleeper_war import build_week, slot_counts  # reuse the engine's pool logic
+from sleeper_war import (  # reuse the engine's pool logic
+    build_week, slot_counts, FLEX_SLOTS, FLEX_ORDER,
+)
 
 # ---------------------------------------------------------------- scoring ---
 # Frozen from the live league (league_id 1312221243742621696, fetched
@@ -162,12 +164,11 @@ def assign_slots(points, positions, slots):
     rest = []
     for pid in leftovers:
         pos = positions[pid]
-        if pos in {"RB", "WR", "TE"} and open_slots.get("FLEX", 0) > 0:
-            open_slots["FLEX"] -= 1
-            groups["FLEX"].append(pid)
-        elif pos in CORE and open_slots.get("SUPER_FLEX", 0) > 0:
-            open_slots["SUPER_FLEX"] -= 1
-            groups["SUPER_FLEX"].append(pid)
+        for slot in FLEX_ORDER:                   # narrowest slot this player fits
+            if pos in FLEX_SLOTS[slot] and open_slots.get(slot, 0) > 0:
+                open_slots[slot] -= 1
+                groups[slot].append(pid)
+                break
         else:
             rest.append(pid)
     return groups, rest
