@@ -11,8 +11,13 @@ For each rostered player:
   3. Age forward: next_rate = a + b*level_used per position/age bucket, rolling
      the projected rate back into the level each year (so the prior fades as
      projected seasons accrue and the player ages into new buckets).
-  4. Report both "if healthy" (the rate) and "expected" (rate x availability),
-     plus p20/p80 bands.
+  4. Report three streams, plus p20/p80 bands:
+       natural   — the rate, i.e. a full healthy 13-game season
+       composite — natural blended with Sleeper's year-1 projection aged along
+                   the natural path's decay shape (80/20 yr1, 50/50 yr2,
+                   20/80 yr3); falls back to pure natural if no projection
+       expected  — natural x availability, i.e. discounted for injury
+     Composite carries NO injury discount; only `expected` does.
 
 Everything is per-13 (a full healthy season). Inputs are all committed.
 
@@ -268,8 +273,9 @@ def main():
         'generated': datetime.date.today().isoformat(),
         'seed_season': seed, 'roster_season': roster_season,
         'horizon': H, 'years': proj_years, 'players': len(rows),
-        'model': 'per-13 rate + capital-shrinkage + availability; '
-                 'three streams: if-healthy / composite(half injury) / expected(full injury)',
+        'model': 'per-13 rate + capital-shrinkage + availability; three streams: '
+                 'natural(if healthy) / composite(natural blended with Sleeper '
+                 'projection, 80/50/20 by year) / expected(natural x availability)',
     }, 'players': rows}
     (ROOT / 'data' / 'projections.json').write_text(json.dumps(out, indent=1), encoding='utf-8')
 

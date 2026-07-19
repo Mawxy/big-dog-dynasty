@@ -27,9 +27,12 @@ const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: numb
   { label: "WAR", key: "war", w: 92 },
 ];
 
-interface Props { data: SeasonData; season: string; players: PlayersMin; detailRid: number | null }
+interface Props {
+  data: SeasonData; season: string; players: PlayersMin;
+  detailRid: number | null; tab?: string;
+}
 
-export default function Teams({ data, season, players, detailRid }: Props) {
+export default function Teams({ data, season, players, detailRid, tab }: Props) {
   const [weekly, setWeekly] = useState<Weekly | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
   const [sortCol, setSortCol] = useState(0);
@@ -96,7 +99,9 @@ export default function Teams({ data, season, players, detailRid }: Props) {
   if (season === "ALL") return <div className="empty">Teams are a per-season view — pick a year from the dropdown.</div>;
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
   if (detailRid !== null)
-    return <FranchisePage rid={detailRid} players={players} back={() => nav(`/teams/${seasonSeg(season)}`)} />;
+    return <FranchisePage rid={detailRid} players={players} tab={tab}
+      onTab={t => nav(`/teams/${seasonSeg(season)}/${detailRid}/${t}`, { replace: true })}
+      back={() => nav(`/teams/${seasonSeg(season)}`)} />;
   const ps = mw.playoff_start || 15;
   const clickCol = (i: number) => {
     if (sortCol === i) setDir(-dir);

@@ -4,6 +4,11 @@ export type SummaryRow = [string, string, number, number, number, number, number
 
 export interface Meta {
   league: string; seasons: string[]; updated: string; latest?: string;
+  /** starting-lineup shape, e.g. ["QB","RB","RB",...,"FLEX","SUPER_FLEX"].
+   *  Absent in site data built before this field existed. */
+  rosterPositions?: string[];
+  /** taxi-squad size from league settings */
+  taxiSlots?: number;
   /** league-wide all-time [min, max] single-week score — shared box plot scale */
   ptsRange?: [number, number];
 }

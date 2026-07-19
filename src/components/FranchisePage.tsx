@@ -1,10 +1,12 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react";
-import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, SummaryRow, Team } from "../lib/types";
+import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
-import { pInfo } from "../lib/league";
+import { DEFAULT_LINEUP, optimalLineup, pInfo, posRanks } from "../lib/league";
+import { useLeague } from "../lib/context";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
+import TradeCard from "./TradeCard";
 
 function ord(n: number) {
   const s = ["th", "st", "nd", "rd"], v = n % 100;
@@ -13,12 +15,18 @@ function ord(n: number) {
 const finishLabel = (f: number | null) =>
   f == null ? "—" : f === 1 ? "🏆 Champion" : f === 2 ? "Runner-up" : ord(f);
 
-const TXF: [string, string][] = [["all", "All"], ["trade", "Trades"], ["add", "Adds"], ["drop", "Drops"]];
+const TXF: [string, string][] = [["all", "All"], ["add", "Adds"], ["drop", "Drops"]];
 const selStyle: CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", color: "var(--txt)", padding: "4px 8px", borderRadius: 8, fontSize: 13 };
 const lblStyle: CSSProperties = { color: "var(--dim)", fontSize: 13, display: "flex", alignItems: "center", gap: 6 };
 
-export default function FranchisePage({ rid, players, back }:
-  { rid: number; players: PlayersMin; back: () => void }) {
+const TABS = [["overview", "Overview"], ["draft", "Draft"],
+  ["trades", "Trades"], ["waivers", "Waivers"]] as const;
+type TabKey = typeof TABS[number][0];
+
+export default function FranchisePage({ rid, players, tab, onTab, back }:
+  { rid: number; players: PlayersMin; tab?: string; onTab: (t: TabKey) => void; back: () => void }) {
+  const cur: TabKey = (TABS.find(t => t[0] === tab)?.[0]) ?? "overview";
+  const { meta } = useLeague();
   const [fr, setFr] = useState<Franchise | null | undefined>(undefined);
   const [txFilter, setTxFilter] = useState("all");
   const [txSeason, setTxSeason] = useState("all");
@@ -27,8 +35,17 @@ export default function FranchisePage({ rid, players, back }:
   // away a whole class still shows that year rather than skipping it.
   const [draftSeasons, setDraftSeasons] = useState<string[]>([]);
   const [draftSeason, setDraftSeason] = useState("all");
+  const [trades, setTrades] = useState<Trade[] | null>(null);
+  const [openTrade, setOpenTrade] = useState<number | null>(null);
   const [rosterSeason, setRosterSeason] = useState<string | null>(null);
-  const [roster, setRoster] = useState<{ team: Team; sum: Map<string, SummaryRow> } | null>(null);
+  const [roster, setRoster] = useState<
+    { team: Team; sum: Map<string, SummaryRow>; rank: Map<string, number> } | null>(null);
+  // projected WAR — only exists for the projection's roster season (the
+  // upcoming year); historical seasons show what actually happened instead.
+  const [proj, setProj] = useState<{
+    season: string; war: Map<string, number>;
+    ppg: Map<string, number>; pts: Map<string, number>; rank: Map<string, number>;
+  } | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -60,10 +77,49 @@ export default function FranchisePage({ rid, players, back }:
     ]).then(([teams, sum]) => {
       if (!live) return;
       const team = teams.find(t => t.roster_id === rid) || null;
-      setRoster(team ? { team, sum: new Map(sum.map(s => [s[0], s])) } : null);
+      setRoster(team ? {
+        team, sum: new Map(sum.map(s => [s[0], s])),
+        // actual positional finish that season, by total points
+        rank: posRanks(sum, s => s[0], s => s[1], s => s[3]),
+      } : null);
     });
     return () => { live = false; };
   }, [rosterSeason, rid]);
+
+  // this franchise's trades, as scored cards — only when the tab is shown
+  useEffect(() => {
+    if (cur !== "trades" || trades) return;
+    let live = true;
+    j<Trade[]>("data/trades.json")
+      .then(all => { if (live) setTrades(all.filter(t => t.sides.some(s => s.rid === rid))); })
+      .catch(() => { if (live) setTrades([]); });
+    return () => { live = false; };
+  }, [cur, trades, rid]);
+
+  // fetched once, only when Overview is actually shown
+  useEffect(() => {
+    if (cur !== "overview" || proj) return;
+    let live = true;
+    Promise.all([
+      j<ProjectionsFile>("data/projections.json"),
+      j<SleeperProjFile>("data/proj_sleeper.json").catch(() => ({ players: {} } as SleeperProjFile)),
+    ]).then(([p, sp]) => {
+      if (!live) return;
+      const ext = Object.entries(sp.players ?? {});
+      setProj({
+        season: String(p.meta.roster_season),
+        war: new Map(p.players.map(r => [r.pid, r.composite?.[0] ?? 0])),
+        ppg: new Map(ext.map(([pid, v]) => [pid, v.ppg])),
+        pts: new Map(ext.map(([pid, v]) => [pid, v.pts13])),
+        // finish is ranked across every projected NFL player, not just this
+        // roster, so "RB5" means what it does everywhere else
+        rank: posRanks(ext, e => e[0], e => e[1].pos, e => e[1].pts13),
+      });
+    }).catch(() => {
+      if (live) setProj({ season: "", war: new Map(), ppg: new Map(), pts: new Map(), rank: new Map() });
+    });
+    return () => { live = false; };
+  }, [cur, proj]);
 
   if (fr === undefined) return <div className="empty">Loading franchise…</div>;
   if (!fr) return <div className="empty">No franchise history found.</div>;
@@ -72,12 +128,14 @@ export default function FranchisePage({ rid, players, back }:
   const latest = seasons[seasons.length - 1];
   const former = [...new Set(seasons.map(s => s.name))].filter(n => n !== latest.name);
   const txSeasons = [...new Set(fr.tx.map(t => t.season))].sort().reverse();
+  // trades live on their own tab as scored cards, so the waiver list is
+  // strictly adds and drops
   const txs = fr.tx.slice().sort((a, b) => b.ts - a.ts).filter(t =>
-    (txSeason === "all" || t.season === txSeason) && (
+    t.type !== "trade"
+    && (txSeason === "all" || t.season === txSeason) && (
       txFilter === "all" ? true
-        : txFilter === "trade" ? t.type === "trade"
-          : txFilter === "add" ? !!t.adds?.length
-            : !!t.drops?.length));
+        : txFilter === "add" ? !!t.adds?.length
+          : !!t.drops?.length));
 
   return (
     <>
@@ -89,8 +147,33 @@ export default function FranchisePage({ rid, players, back }:
           {former.length > 0 && <span style={{ color: "var(--dim)" }}> · formerly {former.join(", ")}</span>}
         </div>
 
-        <h3 style={{ margin: "16px 0 6px" }}>Year by year</h3>
-        <table style={{ width: "auto" }}>
+        <div className="tabs">
+          {TABS.map(([k, label]) => (
+            <button key={k} className={cur === k ? "on" : ""} onClick={() => onTab(k)}>{label}</button>
+          ))}
+        </div>
+
+        {cur === "overview" && <>
+        <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "18px 0 8px" }}>
+          <h3 style={{ margin: 0 }}>Roster</h3>
+          <select value={rosterSeason ?? ""} onChange={e => setRosterSeason(e.target.value)} style={selStyle}>
+            {seasons.slice().reverse().map(s => <option key={s.season} value={s.season}>{s.season}</option>)}
+          </select>
+          {proj && rosterSeason === proj.season && (
+            <span style={{ color: "var(--dim)", fontSize: 12 }}>
+              projected WAR — composite (model blended with Sleeper), {proj.season}
+            </span>
+          )}
+        </div>
+        {roster ? <RosterTable team={roster.team} sum={roster.sum} players={players}
+            lineup={meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP}
+            proj={proj && rosterSeason === proj.season ? proj.war : null}
+            projPpg={proj?.ppg} projPts={proj?.pts} taxiSlots={meta.taxiSlots ?? 0}
+            rank={proj && rosterSeason === proj.season ? proj.rank : roster.rank} />
+          : <div style={{ color: "var(--dim)" }}>no roster for this season</div>}
+
+        <h3 style={{ margin: "22px 0 6px" }}>Year by year</h3>
+        <table className="wide">
           <thead><tr>
             <th>Season</th><th style={{ textAlign: "left" }}>Team</th><th>Record</th>
             <th>Seed</th><th>Finish</th><th>PPG</th><th>WAR</th>
@@ -118,8 +201,10 @@ export default function FranchisePage({ rid, players, back }:
             ))}
           </tbody>
         </table>
+        </>}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "22px 0 10px", flexWrap: "wrap" }}>
+        {cur === "draft" && <>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "18px 0 10px", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Draft picks</h3>
           <label style={lblStyle}>Year
             <select value={draftSeason} onChange={e => setDraftSeason(e.target.value)} style={selStyle}>
@@ -226,9 +311,36 @@ export default function FranchisePage({ rid, players, back }:
             </table>
           );
         })()}
+        </>}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "22px 0 10px", flexWrap: "wrap" }}>
-          <h3 style={{ margin: 0 }}>Transactions</h3>
+        {cur === "trades" && (() => {
+          const shown = (trades ?? []).filter(t => txSeason === "all" || t.season === txSeason);
+          return <>
+            <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "18px 0 10px", flexWrap: "wrap" }}>
+              <h3 style={{ margin: 0 }}>Trades</h3>
+              <label style={lblStyle}>Year
+                <select value={txSeason} onChange={e => setTxSeason(e.target.value)} style={selStyle}>
+                  <option value="all">All</option>
+                  {txSeasons.map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </label>
+              <span style={{ color: "var(--dim)", fontSize: 12 }}>
+                {shown.length} trades · WAR = what each side's return produced while on their roster,
+                from the trade forward
+              </span>
+            </div>
+            {!trades ? <div style={{ color: "var(--dim)" }}>Loading trades…</div>
+              : !shown.length ? <div style={{ color: "var(--dim)" }}>none</div>
+                : shown.map((t, i) => (
+                  <TradeCard key={`${t.ts}-${i}`} t={t} highlightRid={rid} open={openTrade === i}
+                    onToggle={() => setOpenTrade(openTrade === i ? null : i)} />
+                ))}
+          </>;
+        })()}
+
+        {cur === "waivers" && <>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "18px 0 10px", flexWrap: "wrap" }}>
+          <h3 style={{ margin: 0 }}>Waivers &amp; free agents</h3>
           <label style={lblStyle}>Type
             <select value={txFilter} onChange={e => setTxFilter(e.target.value)} style={selStyle}>
               {TXF.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -246,59 +358,151 @@ export default function FranchisePage({ rid, players, back }:
           {txs.length === 0 ? <div style={{ color: "var(--dim)" }}>none</div> : txs.map((t, i) => (
             <div key={i} className="ownevt">
               <span className="ownwk">{t.season} W{t.week}</span>
-              {t.type === "trade"
-                ? <>traded with <b style={{ color: "var(--txt)" }}>{(t.with || []).join(", ")}</b>
-                  {t.got?.length ? <> — got {t.got.join(", ")}</> : null}
-                  {t.gave?.length ? <>; gave {t.gave.join(", ")}</> : null}</>
-                : <>{t.adds?.length ? <>added {t.adds.join(", ")}</> : null}
-                  {t.adds?.length && t.drops?.length ? "; " : ""}
-                  {t.drops?.length ? <>dropped {t.drops.join(", ")}</> : null}
-                  {t.type === "waiver" && <span style={{ color: "var(--dim)" }}> · waiver</span>}</>}
+              {t.adds?.length ? <>added {t.adds.join(", ")}</> : null}
+              {t.adds?.length && t.drops?.length ? "; " : ""}
+              {t.drops?.length ? <>dropped {t.drops.join(", ")}</> : null}
+              {t.type === "waiver" && <span style={{ color: "var(--dim)" }}> · waiver</span>}
             </div>
           ))}
         </div>
-
-        <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "22px 0 8px" }}>
-          <h3 style={{ margin: 0 }}>Roster</h3>
-          <select value={rosterSeason ?? ""} onChange={e => setRosterSeason(e.target.value)} style={selStyle}>
-            {seasons.slice().reverse().map(s => <option key={s.season} value={s.season}>{s.season}</option>)}
-          </select>
-        </div>
-        {roster ? <RosterTable team={roster.team} sum={roster.sum} players={players} />
-          : <div style={{ color: "var(--dim)" }}>no roster for this season</div>}
+        </>}
       </div>
     </>
   );
 }
 
-function RosterTable({ team, sum, players }: { team: Team; sum: Map<string, SummaryRow>; players: PlayersMin }) {
+/** `proj` non-null => this is the upcoming season: show projected WAR instead
+ *  of the games/points a season that hasn't been played can't have. */
+function RosterTable({ team, sum, players, proj, projPpg, projPts, rank, lineup, taxiSlots }:
+  { team: Team; sum: Map<string, SummaryRow>; players: PlayersMin;
+    proj: Map<string, number> | null; projPpg?: Map<string, number>;
+    projPts?: Map<string, number>; rank: Map<string, number>;
+    lineup: string[]; taxiSlots: number }) {
+  const benchSlots = lineup.filter(s => s === "BN").length;
   const rows = team.players.map(p => {
     const s = sum.get(p);
     const tag = team.taxi.includes(p) ? "TAXI" : team.reserve.includes(p) ? "IR"
       : team.starters.includes(p) ? "START" : "";
     return {
       id: p, nm: pInfo(players, p)[0], pos: pInfo(players, p)[1], tag,
-      gp: s ? s[2] : 0, ppg: s ? s[4] : 0, war: s ? s[6] : 0,
+      gp: s ? s[2] : 0,
+      ppg: proj ? (projPpg?.get(p) ?? 0) : (s ? s[4] : 0),
+      pts: proj ? (projPts?.get(p) ?? 0) : (s ? s[3] : 0),
+      fin: rank.get(p) ?? 0,
+      war: proj ? (proj.get(p) ?? 0) : (s ? s[6] : 0),
     };
   }).sort((a, b) => b.war - a.war);
+
+  // Best lineup by WAR, not the lineup actually fielded. Taxi and IR players
+  // can't start, so they're excluded from the pool and land on the bench.
+  // For the upcoming season, taxi/IR players genuinely can't be started, so
+  // they're out of the pool. For a finished season those flags are just an
+  // end-of-year snapshot — a player on IR in December may have started in
+  // September — so the ideal lineup is simply the best WAR at each slot.
+  const eligible = proj ? rows.filter(r => r.tag !== "TAXI" && r.tag !== "IR") : rows;
+  const { slots, starters: starterIds } = optimalLineup(eligible, lineup);
+  // bench groups by position (lineup order), best first within each
+  const POS_ORDER = ["QB", "RB", "WR", "TE"];
+  const posIdx = (p: string) => { const i = POS_ORDER.indexOf(p); return i < 0 ? POS_ORDER.length : i; };
+  const benched = rows.filter(r => !starterIds.has(r.id))
+    .sort((a, b) => posIdx(a.pos) - posIdx(b.pos) || b.war - a.war);
+  const benchPlayers = benched.filter(r => r.tag !== "TAXI");
+  const taxiPlayers = benched.filter(r => r.tag === "TAXI");
+
+  // Show every slot the league allows, filled or not. Unused bench slots sit
+  // at the end of the bench — i.e. the bottom of the right column, just above
+  // the taxi block — rather than leaving a ragged column.
+  type Entry = { kind: "player"; r: typeof rows[number] } | { kind: "empty" } | { kind: "taxi" };
+  const pad = (n: number): Entry[] => Array.from({ length: Math.max(0, n) }, () => ({ kind: "empty" }));
+  const entries: Entry[] = [
+    ...benchPlayers.map(r => ({ kind: "player", r } as Entry)),
+    ...pad(benchSlots - benchPlayers.length),
+    { kind: "taxi" },
+    ...taxiPlayers.map(r => ({ kind: "player", r } as Entry)),
+    ...pad(taxiSlots - taxiPlayers.length),
+  ];
+  // never end a column on the taxi heading — it'd orphan the label
+  let half = Math.ceil(entries.length / 2);
+  if (entries[half - 1]?.kind === "taxi") half -= 1;
+  const sum_ = (a: typeof rows) => a.reduce((s, r) => s + r.war, 0);
+  const startTotal = slots.reduce((s, x) => s + (x.player?.war ?? 0), 0);
+
+  const head = (label: string, n: number, tot: number | null) => (
+    <div className="rhead">
+      <span>{label}</span>
+      <span style={{ color: "var(--dim)", fontWeight: 400 }}>{n}</span>
+      {tot !== null && <span className={clsOf(tot)} style={{ marginLeft: "auto" }}>{fmt(tot, 3)}</span>}
+    </div>
+  );
+  const cells = (r: typeof rows[number]) => (<>
+    <td className="pcol" style={{ textAlign: "left" }}><PlayerLink pid={r.id} name={r.nm} />
+      {r.tag && r.tag !== "START" && <span className="tag"> {r.tag}</span>}</td>
+    <td><PosBadge pos={r.pos} /></td>
+    <td style={{ color: "var(--dim)" }}>{r.fin ? `${r.pos}${r.fin}` : "—"}</td>
+    {!proj && <td>{r.gp}</td>}
+    <td>{r.ppg ? fmt(r.ppg, 1) : "—"}</td>
+    <td>{r.pts ? fmt(r.pts, 1) : "—"}</td>
+    <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
+  </>);
+  const cols = <thead><tr>
+    <th className="pcol" style={{ textAlign: "left" }}>Player</th><th>Pos</th>
+    <th>{proj ? "Proj fin" : "Finish"}</th>
+    {!proj && <th>GP</th>}
+    <th>{proj ? "Proj PPG" : "PPG"}</th>
+    <th>{proj ? "Proj pts" : "Points"}</th>
+    <th>{proj ? "Proj WAR" : "WAR"}</th>
+  </tr></thead>;
+  const span = proj ? 6 : 7;
+
   return (
-    <table style={{ width: "auto" }}>
-      <thead><tr>
-        <th style={{ textAlign: "left" }}>Player</th><th>Pos</th><th>GP</th><th>PPG</th><th>WAR</th>
-      </tr></thead>
-      <tbody>
-        {rows.map(r => (
-          <tr key={r.id} style={{ cursor: "default" }}>
-            <td style={{ textAlign: "left" }}><PlayerLink pid={r.id} name={r.nm} />
-              {r.tag && <span className="tag"
-                style={r.tag === "START" ? { color: "var(--acc)", borderColor: "var(--acc)" } : {}}> {r.tag}</span>}</td>
-            <td><PosBadge pos={r.pos} /></td>
-            <td>{r.gp}</td>
-            <td>{fmt(r.ppg)}</td>
-            <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="rostergrid">
+      <div className="rcard">
+        {head("Starters", slots.length, startTotal)}
+        <table>
+          {cols}
+          <tbody>
+            {/* Sleeper's lineup order (QB, RB, RB, WR... FLX, SFLX) — the slot
+                each player fills is implied by position and order, so it isn't
+                labelled */}
+            {slots.map((s, i) => (
+              <tr key={`${s.slot}-${i}`} style={{ cursor: "default" }}>
+                {s.player ? cells(s.player) : (
+                  <td colSpan={span} style={{ textAlign: "left", color: "var(--dim)" }}>empty</td>
+                )}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="rcard">
+        {head("Bench", benchPlayers.length, null)}
+        {/* two inner columns so a deep bench doesn't tower over the lineup */}
+        <div className="benchsplit">
+          {[entries.slice(0, half), entries.slice(half)]
+            .filter(part => part.length > 0)
+            .map((part, i) => (
+              <table key={i}>
+                {cols}
+                <tbody>
+                  {part.map((e, idx) => (
+                    e.kind === "taxi" ? (
+                      <tr key={`taxi-${idx}`} className="grouprow" style={{ cursor: "default" }}>
+                        <td colSpan={span} style={{ textAlign: "left" }}>Taxi squad</td>
+                      </tr>
+                    ) : e.kind === "empty" ? (
+                      <tr key={`empty-${i}-${idx}`} style={{ cursor: "default" }}>
+                        <td className="pcol empty" style={{ textAlign: "left" }}>empty</td>
+                        <td colSpan={span - 1} />
+                      </tr>
+                    ) : (
+                      <tr key={e.r.id} style={{ cursor: "default" }}>{cells(e.r)}</tr>
+                    )
+                  ))}
+                </tbody>
+              </table>
+            ))}
+        </div>
+      </div>
+    </div>
   );
 }

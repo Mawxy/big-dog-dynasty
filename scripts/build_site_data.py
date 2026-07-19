@@ -28,6 +28,7 @@ def main():
 
     players = load(root / "players.json")
     used_ids, seasons, league_name = set(), [], "League"
+    roster_positions, taxi_slots = [], 0
     latest_with_data = None
     pts_min, pts_max = 0.0, 0.0   # league-wide extremes of any single weekly score
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
@@ -41,6 +42,10 @@ def main():
         league = load(sdir / "league.json")
         season = league["season"]
         league_name = league.get("name", league_name)
+        # newest season's lineup shape wins — the site uses it to build an
+        # optimal-lineup view (starters vs bench) from roster WAR
+        roster_positions = league.get("roster_positions") or roster_positions
+        taxi_slots = (league.get("settings") or {}).get("taxi_slots", taxi_slots)
         sout = out / season
         sout.mkdir(exist_ok=True)
 
@@ -301,6 +306,7 @@ def main():
     (out / "franchises.json").write_text(json.dumps(franchises))
     (out / "meta.json").write_text(json.dumps({
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
+        "rosterPositions": roster_positions, "taxiSlots": taxi_slots,
         "ptsRange": [round(pts_min, 1), round(pts_max, 1)],
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
     }))
