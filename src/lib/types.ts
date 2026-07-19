@@ -99,6 +99,16 @@ export interface ProjectionsFile {
 export interface SleeperProj { pos: string; pts13: number; ppg: number; raw_pts: number; }
 export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }
 
+/** data/player/<pid>.json — one player's slice of projections.json +
+ *  proj_sleeper.json, written by scripts/shard_players.py so a player page
+ *  fetches ~2 KB instead of the ~600 KB of both full files. A 404 (player has
+ *  no projection) is expected and falls back to the plain WAR trend. */
+export interface PlayerShard {
+  years: number[];
+  proj: Projection | null;
+  sproj: SleeperProj | null;
+}
+
 /** data/franchises.json — per roster_id (stable franchise) history + transactions */
 export interface FranchiseSeason {
   season: string; name: string; manager: string;

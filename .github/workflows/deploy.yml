@@ -26,6 +26,8 @@ jobs:
         with:
           node-version: "20"
       - run: npm ci
+      - name: Typecheck (vite build does NOT typecheck — this is the only gate)
+        run: npm run typecheck
       - run: npm run build
       - name: Bundle league data into the site
         run: cp -r data dist/data

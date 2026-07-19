@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { Absences, Meta, Ownership, PlayersMin, Projection as ProjRec, ProjectionsFile, SleeperProj, SleeperProjFile, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
+import type { Absences, Meta, Ownership, PlayerShard, PlayersMin, Projection as ProjRec, SleeperProj, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
 import { j, jDaily } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
@@ -39,13 +39,13 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
       jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
-      j<ProjectionsFile>("data/projections.json").then(pf => {
+      // one ~2 KB shard instead of all of projections.json + proj_sleeper.json;
+      // a 404 just means no projection, and Projection falls back to WarTrend
+      j<PlayerShard>(`data/player/${pid}.json`).then(sh => {
         if (!live) return;
-        setProj(pf.players.find(r => r.pid === pid) ?? null);
-        setProjYears(pf.meta.years);
-      }).catch(() => {});
-      j<SleeperProjFile>("data/proj_sleeper.json").then(sf => {
-        if (live) setSproj(sf.players[pid] ?? null);
+        setProj(sh.proj);
+        setProjYears(sh.years);
+        setSproj(sh.sproj);
       }).catch(() => {});
       if (!live) return;
       const bl = seasons.map((s, i): SeasonBlock => {

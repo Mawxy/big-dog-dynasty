@@ -6,14 +6,18 @@ const cache = new Map<string, Promise<unknown>>();
 let ver = __BUILD_ID__;
 export function setVersion(v: string) { ver = `${__BUILD_ID__}.${v}`; }
 
-/** fetch JSON once per path per page load (cache-busted by build + data version) */
+/** fetch JSON once per path per page load (cache-busted by build + data version).
+ *  A failed fetch is evicted so the next caller retries rather than inheriting
+ *  the cached rejection for the life of the page. */
 export function j<T>(path: string): Promise<T> {
   if (!cache.has(path)) {
     const sep = path.includes("?") ? "&" : "?";
-    cache.set(path, fetch(`${path}${sep}v=${encodeURIComponent(ver)}`).then(r => {
+    const p = fetch(`${path}${sep}v=${encodeURIComponent(ver)}`).then(r => {
       if (!r.ok) throw new Error(`failed to load ${path}`);
       return r.json();
-    }));
+    });
+    p.catch(() => cache.delete(path));
+    cache.set(path, p);
   }
   return cache.get(path) as Promise<T>;
 }

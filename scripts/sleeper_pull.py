@@ -118,16 +118,26 @@ def row_played(row):
     Never trust 'gms_active' alone: Sleeper emits it even for IR, NFI and
     practice-squad players (their records are gms_active + pos_rank 999 and
     nothing else). tm_*_snp presence is the dressed/not-dressed discriminator;
-    scratches, byes and Sleeper's game-log '-' have no record at all."""
+    scratches, byes and Sleeper's game-log '-' have no record at all.
+
+    Both branches test snaps OR a stat line, never one alone: either key can
+    appear without the other (a TE with off_snp 4 and no gp; Chism 2025 wk18
+    with a catch and off_snp 0). This keeps the test aligned with
+    nfl_history.row_played_hist, which applies the same rule to nflverse
+    inputs. The one asymmetry that remains is unavoidable: nflverse has no
+    team-snap equivalent of tm_*_snp, so a dressed RB/WR/TE with zero snaps in
+    every phase and no stat line is DNP historically but a played 0.00 here.
+    Documented in nfl_history.py's header; the population is negligible."""
     st = row.get("stats") or {}
     pl = row.get("player") or {}
     pos = pl.get("position") or (pl.get("fantasy_positions") or [None])[0]
+    has_stats = any(st.get(k) for k in _OFF_STATS)
     if pos == "QB":
-        return bool(st.get("off_snp") or any(st.get(k) for k in _OFF_STATS))
+        return bool(st.get("off_snp") or has_stats)
     # RB/WR/TE (and unknown-position fallback): dressed = played
     return bool(st.get("gp") or st.get("off_snp") or st.get("def_snp")
                 or st.get("st_snp") or st.get("tm_off_snp")
-                or st.get("tm_def_snp") or st.get("tm_st_snp"))
+                or st.get("tm_def_snp") or st.get("tm_st_snp") or has_stats)
 
 def fetch_played(season, week):
     """Player IDs (QB/RB/WR/TE) who count as PLAYED that week, per Sleeper's

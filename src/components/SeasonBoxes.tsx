@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { quart } from "../lib/stats";
+import { useWidth } from "../lib/useWidth";
+import BoxMarks, { AXIS, boxStats } from "./BoxMarks";
 
 interface Row { season: string; values: number[] }
 
@@ -9,16 +9,7 @@ interface Row { season: string; values: number[] }
 export default function SeasonBoxes({ rows, domain, height = 230 }: {
   rows: Row[]; domain?: [number, number]; height?: number;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [W, setW] = useState(540);
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const ro = new ResizeObserver(() => setW(Math.max(320, el.clientWidth)));
-    ro.observe(el);
-    setW(Math.max(320, el.clientWidth));
-    return () => ro.disconnect();
-  }, []);
+  const [ref, W] = useWidth<HTMLDivElement>(540, 320);
   const usable = rows.filter(r => r.values.length >= 4);
   if (!usable.length) return null;
   // shared axis from the league's all-time single-week min/max, so every
@@ -40,7 +31,7 @@ export default function SeasonBoxes({ rows, domain, height = 230 }: {
   // drop any step tick whose label would crowd a boundary label.
   const shown = ticks.filter(t => Math.abs(x(t) - x(lo)) > 18 && Math.abs(x(t) - x(hi)) > 18);
   const fmt = (t: number) => Math.abs(t - Math.round(t)) < 0.05 ? String(Math.round(t)) : t.toFixed(1);
-  const c = "#8b96a5", grid = "#242c38", bound = "#4a5568", boundTxt = "#aab6c5";
+  const grid = "#242c38", bound = "#4a5568", boundTxt = "#aab6c5";
   return (
     <div ref={ref}>
       <div style={{ color: "var(--txt)", fontSize: 13, marginBottom: 4 }}>
@@ -50,7 +41,7 @@ export default function SeasonBoxes({ rows, domain, height = 230 }: {
         {shown.map(t => (
           <g key={t}>
             <line x1={x(t)} x2={x(t)} y1={T} y2={H - axisH + 4} stroke={grid} />
-            <text x={x(t)} y={H - 6} fontSize="9.5" fill={c} textAnchor="middle">{t}</text>
+            <text x={x(t)} y={H - 6} fontSize="9.5" fill={AXIS} textAnchor="middle">{t}</text>
           </g>
         ))}
         {[lo, hi].map(t => (
@@ -60,24 +51,17 @@ export default function SeasonBoxes({ rows, domain, height = 230 }: {
           </g>
         ))}
         {usable.map((r, i) => {
-          const v = [...r.values].sort((a, b) => a - b);
-          const mn = v[0], q1 = quart(v, .25), md = quart(v, .5), q3 = quart(v, .75), mx = v[v.length - 1];
+          const s = boxStats(r.values);
           const cy = T + i * rowH + rowH / 2, h = 16;
           return (
             <g key={r.season}>
-              <title>{`${r.season} — min ${mn.toFixed(1)} · Q1 ${q1.toFixed(1)} · median ${md.toFixed(1)} · Q3 ${q3.toFixed(1)} · max ${mx.toFixed(1)}`}</title>
+              <title>{`${r.season} — min ${s.mn.toFixed(1)} · Q1 ${s.q1.toFixed(1)} · median ${s.md.toFixed(1)} · Q3 ${s.q3.toFixed(1)} · max ${s.mx.toFixed(1)}`}</title>
               <text x={0} y={cy + 4} fontSize="11.5" fill="#e6ebf2" fontWeight={700}>{r.season}</text>
-              <line x1={x(mn)} x2={x(q1)} y1={cy} y2={cy} stroke={c} />
-              <line x1={x(q3)} x2={x(mx)} y1={cy} y2={cy} stroke={c} />
-              <line x1={x(mn)} x2={x(mn)} y1={cy - 5} y2={cy + 5} stroke={c} />
-              <line x1={x(mx)} x2={x(mx)} y1={cy - 5} y2={cy + 5} stroke={c} />
-              <rect x={x(q1)} y={cy - h / 2} width={Math.max(1, x(q3) - x(q1))} height={h}
-                fill="#1e6fd933" stroke="#1e6fd9" />
-              <line x1={x(md)} x2={x(md)} y1={cy - h / 2} y2={cy + h / 2} stroke="var(--acc)" strokeWidth={2} />
-              <text x={x(md)} y={cy - h / 2 - 3} fontSize="8.5" fill="var(--acc)"
-                textAnchor="middle" fontWeight={700}>{md.toFixed(1)}</text>
-              <text x={x(mn)} y={cy + h / 2 + 9} fontSize="8" fill={c} textAnchor="middle">{mn.toFixed(1)}</text>
-              <text x={x(mx)} y={cy + h / 2 + 9} fontSize="8" fill={c} textAnchor="middle">{mx.toFixed(1)}</text>
+              <BoxMarks s={s} x={x} y={cy - h / 2} h={h} cap={3} />
+              <text x={x(s.md)} y={cy - h / 2 - 3} fontSize="8.5" fill="var(--acc)"
+                textAnchor="middle" fontWeight={700}>{s.md.toFixed(1)}</text>
+              <text x={x(s.mn)} y={cy + h / 2 + 9} fontSize="8" fill={AXIS} textAnchor="middle">{s.mn.toFixed(1)}</text>
+              <text x={x(s.mx)} y={cy + h / 2 + 9} fontSize="8" fill={AXIS} textAnchor="middle">{s.mx.toFixed(1)}</text>
             </g>
           );
         })}

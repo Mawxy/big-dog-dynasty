@@ -1,0 +1,28 @@
+name: Tests
+# Engine invariants (WAA/WAR pool, win-shift, played rule) + front-end types.
+# Fast, no network, no Sleeper calls — safe to run on every push.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: WAR engine invariants
+        run: python -m unittest discover -s tests -v
+  typescript:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+      - name: Typecheck (vite build does NOT typecheck)
+        run: npm run typecheck

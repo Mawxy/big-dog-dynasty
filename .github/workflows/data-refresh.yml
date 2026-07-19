@@ -7,6 +7,12 @@ permissions:
   contents: write
   pages: write
   id-token: write
+# every workflow that commits to main shares this group, so two data jobs can
+# never race each other to push (a manual dispatch during a scheduled run used
+# to fail on a rejected push).
+concurrency:
+  group: data-push
+  cancel-in-progress: false
 jobs:
   refresh:
     runs-on: ubuntu-latest
@@ -15,6 +21,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Engine invariants (fail before touching Sleeper)
+        run: python -m unittest discover -s tests
       - name: Pull league history from Sleeper
         run: python scripts/sleeper_pull.py 1312221243742621696 --players --out sleeper_data
       - name: Compute WAA/WAR
@@ -30,12 +38,15 @@ jobs:
         continue-on-error: true
       - name: Recompute WAR projections
         run: python scripts/project_war.py
+      - name: Shard per-player projections for the site
+        run: python scripts/shard_players.py --out data
       - name: Commit updated data
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data
           git diff --cached --quiet || git commit -m "Weekly data update $(date -u +%F)"
+          git pull --rebase --autostash
           git push
   deploy:
     needs: refresh

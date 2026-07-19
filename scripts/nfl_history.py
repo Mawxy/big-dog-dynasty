@@ -133,8 +133,11 @@ def has_off_stats(row):
 
 
 def row_played_hist(pos, off_snp, def_snp, st_snp, stat_row):
-    """Settled 2026-07-17 played rule on nflverse inputs (mirrors
-    sleeper_pull.row_played)."""
+    """Settled 2026-07-17 played rule on nflverse inputs. Same rule as
+    sleeper_pull.row_played (snaps OR stat line, QB offense-only), with one
+    unavoidable gap: nflverse has no counterpart to Sleeper's tm_*_snp, so a
+    dressed RB/WR/TE with zero snaps in every phase and no stat line reads as
+    DNP here but as a played 0.00 on the league side. See the module header."""
     if pos == "QB":
         return bool(off_snp) or (stat_row is not None and has_off_stats(stat_row))
     return bool(off_snp or def_snp or st_snp) or (

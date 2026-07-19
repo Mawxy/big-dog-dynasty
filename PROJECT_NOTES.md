@@ -20,6 +20,9 @@ Max / Sleeper username `mawxy`, user_id `471740157079318528`). League history:
 Sleeper API ──> scripts/sleeper_pull.py ──> sleeper_data/   (raw dump, gitignored)
                 scripts/sleeper_war.py  ──> analysis CSVs   (WAA/WAR per player/week)
                 scripts/build_site_data.py ──> data/        (compact JSON, committed)
+                scripts/{draft,trade}_analysis.py ──> data/drafts|trades.json
+                scripts/project_war.py ──> data/projections.json
+                scripts/shard_players.py ──> data/player/<pid>.json
                                                  │
 src/ (Vite + React 18 + TypeScript) ────────────┴──> GitHub Pages
 
@@ -30,12 +33,23 @@ nflverse ──> scripts/nfl_history.py ──> nfl_history_data/  (gitignored)
 - **Front end** reads only `data/*.json` — never calls Sleeper. React Router
   (HashRouter) URLs: `#/players/:season`, `#/teams/:season[/:rid]`,
   `#/weekly/:season[/:wk]`, `#/player/:pid`; season segment `all` = All-time.
+- **Front end fetches per-player data as shards.** `data/player/<pid>.json`
+  (written by `shard_players.py`, gated to the ~800 ids in `players_min.json`)
+  carries that player's projection + Sleeper projection, so a player page pulls
+  ~2 KB instead of all of `projections.json` + `proj_sleeper.json` (~600 KB).
+  A 404 means "no projection" and falls back to the plain WAR trend chart.
 - **GitHub Actions workflows:**
+  - `tests.yml` — engine invariants + `tsc --noEmit` on every push and PR.
   - `deploy.yml` — build & deploy on every push to `main` (also manual /
-    `workflow_call`). No Sleeper calls; safe to run constantly.
-  - `data-refresh.yml` — Wednesdays 06:00 UTC (1 AM ET) + manual: pulls Sleeper,
-    recomputes WAR, commits `data/`, then calls deploy.
+    `workflow_call`). Typechecks before building: **Vite does not typecheck**,
+    so this is the only gate. No Sleeper calls; safe to run constantly.
+  - `data-refresh.yml` — Wednesdays 06:00 UTC (1 AM ET) + manual: runs the
+    engine tests, pulls Sleeper, recomputes WAR, shards player data, commits
+    `data/`, then calls deploy.
   - `values-refresh.yml` — daily: FantasyCalc + KTC market values, no Sleeper.
+  - Every workflow that commits shares `concurrency: data-push` and does
+    `git pull --rebase --autostash` before pushing, so a manual dispatch during
+    a scheduled run can't lose a race to a rejected push.
   - `war-history.yml` — manual: nflverse → league-shaped WAR for 2014+ via
     `scripts/nfl_history.py` + unchanged engine; commits `nfl_history/*.csv`
     (analysis CSVs + players_meta.csv with birth dates and draft slots).
@@ -87,6 +101,17 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    - IMPLEMENTED in `sleeper_pull.row_played()` and mirrored in
      `nfl_history.row_played_hist()` (2026-07-17; commit + data-refresh rerun
      may still be pending — check git log).
+   - 2026-07-19: the RB/WR/TE branch of `row_played()` was only testing snaps,
+     never the stat line, so it disagreed with the history pipeline (and with
+     the "snaps OR stat line, never one alone" note below). It now checks
+     `_OFF_STATS` too. This can only ADD played weeks, in the rare case where
+     Sleeper records a stat with no `gp`/snap/`tm_*_snp` field at all — WAR
+     shifts on the next data-refresh should be nil to negligible.
+   - Remaining (unavoidable) asymmetry: nflverse has no counterpart to
+     Sleeper's `tm_*_snp`, so a dressed RB/WR/TE with zero snaps in every phase
+     and no stat line is DNP historically but a played 0.00 in league data.
+     Documented in `nfl_history.py`'s header; population is negligible.
+   - Locked down by `tests/test_war_engine.py::TestPlayedRule`.
    - History: an earlier all-positions "startability" rule (dressed = played
      for everyone) and an all-positions "participation" rule (off_snp only for
      everyone) were both considered and rejected in favor of this split.
@@ -118,8 +143,21 @@ regular&position[]=...` (and the per-player `stats/nfl/player/<id>` endpoint):
 - Open: 2022-era field conventions not yet spot-checked (all probes were
   2024/2025, `company: sportradar`).
 
-## WAR valuation model (in progress — see HANDOFF.md for pickup point)
+## Tests
 
+`python -m unittest discover -s tests -v` — stdlib only, no fixtures, no
+network. Covers the settled methodology, not implementation detail: the 108-slot
+pool shape, dedicated-before-flex ordering, flex-by-points, replacement =
+best-left-out, average = mean-of-startable (so WAA sums to 0 per position),
+weekly-sigma behaviour (a fixed margin is worth more in a low-scoring week), and
+every branch of the played rule. **A failure here is a change in what WAR
+means**, not a broken test — if one fails, decide whether the methodology moved
+on purpose before touching the test.
+
+## WAR valuation model (shipped; see HANDOFF.md for open threads)
+
+Aging curves, pick-value bridges, projections and the trade/draft analyses are
+built and wired into `data-refresh.yml`; the Draft and Trades views render them.
 Settled shape: every asset (player or pick) → expected future WAR stream;
 per-team discount δ ≈ 0.6-0.8 collapses streams to numbers; trade = Σ streams
 in vs out. Pick slots priced via two bridges — A: empirical realized-WAR vs
@@ -142,6 +180,13 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
 - **Weekly**: per week biggest WAR + lowest WAR among *started* players; row
   dropdown = top 5 per position; week number → week page (all matchups with
   winners + lineup WAR, top-50 performers).
+- **Draft** (`#/draft`, not season-scoped): realized WAR by pick slot and by
+  tier, with per-year and 3-year box plots and a median/IQR trajectory chart.
+- **Trades** (`#/trades`, not season-scoped): every trade with each side's
+  return scored in WAR.
+- Hand-rolled SVG charts share `components/BoxMarks.tsx` (five-number summary +
+  box geometry + `AXIS` colour + `intTicks`) and `lib/useWidth.ts`; callers own
+  their own axes and labels. recharts is used only by `Projection`/`WarTrend`.
 - Methodology lives in a collapsed footer, with KTC/FantasyCalc attribution.
 - Season box plots share one axis from `meta.ptsRange` with dashed, labeled
   boundary lines at the domain min/max (2026-07-17).
@@ -189,8 +234,10 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
   really changed).
 - Local repo folder is the connected workspace; edit files there directly,
   then give Max the git commands.
-- Dev loop: edit → `npx tsc --noEmit` → `npm run build` (Vite build does NOT
-  typecheck — always run tsc manually).
+- Dev loop: edit → `npx tsc --noEmit` → `python -m unittest discover -s tests`
+  → `npm run build`. Vite build does NOT typecheck; CI now runs both gates
+  (`tests.yml`, and `deploy.yml` typechecks before building), but run them
+  locally first — a red deploy still means a red site.
 - Prefer running Cowork sessions ON Max's computer (direct folder + network
   access); cloud sessions can't write `.github/workflows/` or reach
   api.sleeper.app / nflverse downloads directly.

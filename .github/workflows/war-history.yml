@@ -13,6 +13,9 @@ on:
         default: "2025"
 permissions:
   contents: write
+concurrency:            # shared with data-refresh / values-refresh — see data-refresh.yml
+  group: data-push
+  cancel-in-progress: false
 jobs:
   history:
     runs-on: ubuntu-latest
@@ -38,4 +41,5 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           git add nfl_history
           git diff --cached --quiet || git commit -m "WAR history rebuild (${{ github.event.inputs.start }}-${{ github.event.inputs.end }})"
+          git pull --rebase --autostash
           git push
