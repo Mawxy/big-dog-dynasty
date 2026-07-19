@@ -26,6 +26,7 @@ export default function FranchisePage({ rid, players, back }:
   // Every rookie-draft year the league has held, so a franchise that traded
   // away a whole class still shows that year rather than skipping it.
   const [draftSeasons, setDraftSeasons] = useState<string[]>([]);
+  const [draftSeason, setDraftSeason] = useState("all");
   const [rosterSeason, setRosterSeason] = useState<string | null>(null);
   const [roster, setRoster] = useState<{ team: Team; sum: Map<string, SummaryRow> } | null>(null);
 
@@ -43,7 +44,9 @@ export default function FranchisePage({ rid, players, back }:
       const all = new Set<string>();
       for (const list of Object.values(d))
         for (const p of list) if (p.kind === "rookie") all.add(p.season);
-      setDraftSeasons([...all].sort((a, b) => b.localeCompare(a)));
+      const yrs = [...all].sort((a, b) => b.localeCompare(a));
+      setDraftSeasons(yrs);
+      if (yrs.length) setDraftSeason(yrs[0]);   // newest draft by default
     }).catch(() => {});
     return () => { live = false; };
   }, [rid]);
@@ -118,6 +121,12 @@ export default function FranchisePage({ rid, players, back }:
 
         <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "22px 0 10px", flexWrap: "wrap" }}>
           <h3 style={{ margin: 0 }}>Draft picks</h3>
+          <label style={lblStyle}>Year
+            <select value={draftSeason} onChange={e => setDraftSeason(e.target.value)} style={selStyle}>
+              {draftSeasons.map(s => <option key={s} value={s}>{s}</option>)}
+              <option value="all">All-time</option>
+            </select>
+          </label>
           <span style={{ color: "var(--dim)", fontSize: 12 }}>
             vs = actual minus expected WAR for that slot, over the same seasons
           </span>
@@ -137,9 +146,12 @@ export default function FranchisePage({ rid, players, back }:
 
           // Every league draft year, newest first — including years this
           // franchise made no picks at all (traded the whole class away).
-          const seasons = draftSeasons.length ? draftSeasons
+          const all = draftSeasons.length ? draftSeasons
             : [...bySeason.keys()].sort((a, b) => b.localeCompare(a));
-          if (!seasons.length) return <div style={{ color: "var(--dim)" }}>no picks</div>;
+          if (!all.length) return <div style={{ color: "var(--dim)" }}>no picks</div>;
+          // One year at a time by default; "All-time" falls back to every year.
+          const seasons = draftSeason === "all" ? all
+            : all.filter(s => s === draftSeason);
 
           // Traded-away picks are informational only — never in the subtotal.
           const total = (arr: DraftPick[], k: "war" | "war_roster") =>
