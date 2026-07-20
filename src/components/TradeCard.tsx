@@ -26,9 +26,9 @@ function Asset({ a }: { a: TradeAsset }) {
         {a.kind === "pick" && tail && <span style={{ color: "var(--dim)" }}>{head} → </span>}
         {a.pid ? <PlayerLink pid={a.pid} name={name} /> : name}
       </td>
-      <td className={clsOf(a.war)} style={{ textAlign: "right" }}>{fmt(a.war, 2)}</td>
-      <td style={{ textAlign: "right", color: "var(--dim)" }}>
-        {a.future ? `+${fmt(a.future, 2)}` : ""}</td>
+      <td className={clsOf(a.war)}>{fmt(a.war, 2)}</td>
+      {/* sgn() so a negative projection reads -0.28, not +-0.28 */}
+      <td style={{ color: "var(--dim)" }}>{a.future ? sgn(a.future, 2) : ""}</td>
     </tr>
   );
 }

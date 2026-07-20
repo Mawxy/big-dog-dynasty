@@ -98,6 +98,8 @@ thead th{position:sticky;top:0;background:var(--card);z-index:1}
 tbody tr:hover{background:#1c2330;cursor:pointer}
 .pos{display:inline-block;min-width:40px;text-align:center;box-sizing:border-box;font-size:11px;padding:1px 4px;border-radius:5px;font-weight:700;color:#fff}
 .QB{background:#9333ea}.RB{background:#1f7a4d}.WR{background:#1e6fd9}.TE{background:#c2571c}
+/* tabular figures so decimal points line up down every numeric column */
+.num{font-variant-numeric:tabular-nums}
 .num.good{color:var(--good)} .num.bad{color:var(--bad)}
 #teamDetail h2{margin:18px 0 4px} #teamDetail .mgr{color:var(--dim);margin-bottom:12px}
 .back{color:var(--acc);cursor:pointer;font-size:14px;display:inline-block;margin:10px 0}
@@ -124,19 +126,28 @@ tr.wkbox:hover{background:transparent}
 .tradesides{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
 /* align-content:start keeps a one-asset side flush with the top of a
    five-asset one instead of floating in the middle of the stretched cell */
+/* fixed number columns — `auto` sized to each card's own content, so figures
+   drifted out of line from card to card and side to side */
 .tradeside{background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;
-  display:grid;grid-template-columns:1fr auto auto;align-items:baseline;align-content:start;
+  display:grid;grid-template-columns:1fr 76px 76px;align-items:baseline;align-content:start;
   column-gap:10px}
 /* team name and WAR share the top line; assets span the full width below */
 .tradeteam{font-size:12.5px;color:var(--txt);font-weight:600;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
-.tradenum{display:flex;align-items:baseline;gap:4px;white-space:nowrap}
-.tradewar{font-size:14px;font-weight:700}
-.tradelbl{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
+.tradenum{display:flex;align-items:baseline;gap:4px;white-space:nowrap;justify-content:flex-end}
+.tradewar{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
+.tradelbl{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;
+  width:26px;flex:0 0 26px}
 .tradeassets{grid-column:1/-1;font-size:11.5px;color:var(--dim);line-height:1.4}
 .tradeside table{grid-column:1/-1}
-.tradeside table{background:transparent;border-radius:0;margin-top:3px}
+.tradeside table{background:transparent;border-radius:0;margin-top:3px;table-layout:fixed}
 .tradeside th,.tradeside td{border:0;padding:1px 0;font-size:12px;white-space:normal}
+/* per-asset figures sit directly under the side's REAL / PROJ columns: the
+   first numeric column carries the 10px grid gap as right padding so both
+   right edges land where the headers above them do */
+.tradeside td:nth-child(2){width:86px;text-align:right;padding-right:10px;
+  font-variant-numeric:tabular-nums}
+.tradeside td:nth-child(3){width:76px;text-align:right;font-variant-numeric:tabular-nums}
 .tradeside tr:hover td{background:transparent}
 .wkhead{color:var(--txt);font-size:13px;margin:2px 0 6px}
 .wkhead .own{color:var(--acc)}
@@ -176,8 +187,9 @@ td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
 
   /* trade sides: team on its own line, the two figures beneath it */
   .tradesides{grid-template-columns:1fr}
-  .tradeside{grid-template-columns:auto auto 1fr;column-gap:12px}
+  .tradeside{grid-template-columns:76px 76px 1fr;column-gap:12px}
   .tradeteam{grid-column:1/-1}
+  .tradenum{justify-content:flex-start}
 }
 
 .seasongrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;align-items:start}
