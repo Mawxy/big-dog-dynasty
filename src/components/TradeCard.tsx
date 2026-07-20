@@ -20,6 +20,8 @@ function Asset({ a }: { a: TradeAsset }) {
         {a.pid ? <PlayerLink pid={a.pid} name={name} /> : name}
       </td>
       <td className={clsOf(a.war)} style={{ textAlign: "right" }}>{fmt(a.war, 2)}</td>
+      <td style={{ textAlign: "right", color: "var(--dim)" }}>
+        {a.future ? `+${fmt(a.future, 2)}` : ""}</td>
     </tr>
   );
 }
@@ -31,8 +33,9 @@ function Asset({ a }: { a: TradeAsset }) {
  */
 export default function TradeCard({ t, open, onToggle, highlightRid }:
   { t: Trade; open: boolean; onToggle: () => void; highlightRid?: number }) {
-  const best = Math.max(...t.sides.map(s => s.war));
-  const spread = best - Math.min(...t.sides.map(s => s.war));
+  const tot = (s: Trade["sides"][number]) => s.total ?? s.war;
+  const best = Math.max(...t.sides.map(tot));
+  const spread = best - Math.min(...t.sides.map(tot));
   // the viewing franchise's side leads
   const sides = highlightRid === undefined ? t.sides
     : [...t.sides].sort((a, b) => Number(b.rid === highlightRid) - Number(a.rid === highlightRid));
@@ -47,9 +50,14 @@ export default function TradeCard({ t, open, onToggle, highlightRid }:
       </div>
       <div className="tradesides">
         {sides.map(s => (
-          <div key={s.rid} className={"tradeside" + (s.war === best && spread > 0.001 ? " win" : "")}>
+          <div key={s.rid} className={"tradeside" + (tot(s) === best && spread > 0.001 ? " win" : "")}>
             <div className="tradeteam">{s.team}</div>
-            <div className={"tradewar " + clsOf(s.war)}>{fmt(s.war, 2)}</div>
+            <div className={"tradewar " + clsOf(tot(s))}>{fmt(tot(s), 2)}</div>
+            {s.future ? (
+              <div className="tradesplit">
+                {fmt(s.war, 2)} realized + {fmt(s.future, 2)} future
+              </div>
+            ) : null}
             {open
               ? <table style={{ width: "100%" }}>
                 <tbody>{s.got.map((a, k) => <Asset key={k} a={a} />)}</tbody>

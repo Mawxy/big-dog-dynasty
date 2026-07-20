@@ -131,6 +131,7 @@ tr.wkbox:hover{background:transparent}
   text-overflow:ellipsis;white-space:nowrap}
 .tradewar{font-size:14px;font-weight:700}
 .tradeassets{grid-column:1/-1;font-size:11.5px;color:var(--dim);line-height:1.4}
+.tradesplit{grid-column:1/-1;font-size:10.5px;color:var(--dim);margin-top:-2px}
 .tradeside table{grid-column:1/-1}
 .tradeside table{background:transparent;border-radius:0;margin-top:3px}
 .tradeside th,.tradeside td{border:0;padding:1px 0;font-size:12px;white-space:normal}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { Trade } from "../lib/types";
+import type { Trade, TradesFile } from "../lib/types";
 import { j } from "../lib/data";
 import TradeCard from "../components/TradeCard";
 
@@ -11,8 +11,13 @@ export default function Trades() {
   const [season, setSeason] = useState("all");
   const [team, setTeam] = useState("all");
   const [open, setOpen] = useState<number | null>(null);
+  const [delta, setDelta] = useState<number | null>(null);
 
-  useEffect(() => { j<Trade[]>("data/trades.json").then(setTrades).catch(() => setTrades([])); }, []);
+  useEffect(() => {
+    j<TradesFile>("data/trades.json")
+      .then(f => { setTrades(f.trades); setDelta(f.meta?.delta ?? null); })
+      .catch(() => setTrades([]));
+  }, []);
 
   const seasons = useMemo(() => [...new Set((trades ?? []).map(t => t.season))].sort().reverse(), [trades]);
   const teams = useMemo(
@@ -41,7 +46,9 @@ export default function Trades() {
           </select>
         </label>
         <span style={{ color: "var(--dim)", fontSize: 12 }}>
-          {rows.length} trades · WAR = what each side's return produced while on their roster, from the trade forward
+          {rows.length} trades · realized = WAR produced while on their roster from the trade
+          forward; future = expected WAR still to come from assets they still hold
+          {delta !== null && `, discounted ${delta}/yr`}
         </span>
       </div>
 

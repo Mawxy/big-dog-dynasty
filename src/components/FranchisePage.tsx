@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react";
-import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade } from "../lib/types";
+import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesFile } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, pInfo, posRanks } from "../lib/league";
@@ -90,8 +90,8 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
   useEffect(() => {
     if (cur !== "trades" || trades) return;
     let live = true;
-    j<Trade[]>("data/trades.json")
-      .then(all => { if (live) setTrades(all.filter(t => t.sides.some(s => s.rid === rid))); })
+    j<TradesFile>("data/trades.json")
+      .then(f => { if (live) setTrades(f.trades.filter(t => t.sides.some(s => s.rid === rid))); })
       .catch(() => { if (live) setTrades([]); });
     return () => { live = false; };
   }, [cur, trades, rid]);

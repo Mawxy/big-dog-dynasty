@@ -19,7 +19,7 @@ Output: data/trades.json — newest first.
 
 Usage: python scripts/trade_analysis.py
 """
-import json
+import argparse, json
 from pathlib import Path
 
 from draft_slots import SLOT_FIX, build_slot_maps  # noqa: F401  (SLOT_FIX re-exported)
@@ -27,6 +27,17 @@ from draft_slots import SLOT_FIX, build_slot_maps  # noqa: F401  (SLOT_FIX re-ex
 ROOT = Path(__file__).resolve().parent.parent
 DATA, RAW = ROOT / "data", ROOT / "sleeper_data"
 ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
+
+# Per-team discount that collapses a multi-year WAR stream to one number.
+# Year 1 counts in full, year 2 at delta, year 3 at delta^2 ... Max's settled
+# range is 0.6-0.8; 0.7 is the midpoint.
+DELTA = 0.7
+
+
+def stream_value(stream, delta, lag=0):
+    """Discounted sum of a WAR stream. `lag` defers the whole stream by N years
+    (a 2028 pick can't produce until 2028)."""
+    return round(sum(v * delta ** (lag + k) for k, v in enumerate(stream)), 3)
 
 # SLOT_FIX and the roster -> draft-slot resolution now live in draft_slots.py,
 # shared with draft_analysis.py.
@@ -37,9 +48,49 @@ def load(p):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--delta", type=float, default=DELTA,
+                    help="per-year discount on unrealized WAR (default %(default)s)")
+    args = ap.parse_args()
+    delta = args.delta
+
     meta = load(DATA / "meta.json")
     seasons = [int(s) for s in meta["seasons"]]
     players = load(RAW / "players.json") or {}
+
+    # ---- mark-to-market inputs -------------------------------------------
+    # Realized WAR alone makes every recent trade look like a 0-0 tie, so each
+    # asset ALSO carries what it's still expected to produce for the team that
+    # holds it: composite projections for players, slot expectations for picks
+    # that haven't been drafted yet.
+    projf = load(DATA / "projections.json") or {}
+    proj_season = int((projf.get("meta") or {}).get("roster_season") or max(seasons))
+    comp = {r["pid"]: (r.get("composite") or []) for r in projf.get("players", [])}
+
+    pv = load(DATA / "pick_values.json") or {}
+    pv_years = sorted(int(y) for y in ((pv.get("meta") or {}).get("years_published") or []))
+    # future picks have no draft slot yet, so a round is worth its slot average
+    round_exp = {}
+    for b in pv.get("picks", []):
+        rnd = int(str(b["bucket"]).split(".")[0])
+        round_exp.setdefault(rnd, []).append([float(b.get("raw", {}).get(str(y), 0.0)) for y in pv_years])
+    round_exp = {r: [sum(c) / len(c) for c in zip(*v)] for r, v in round_exp.items() if v}
+
+    # who holds what right now — unrealized value only counts for the team
+    # that still has the asset, mirroring the one-hop realized rule
+    held = {t["roster_id"]: set(t["players"] or [])
+            for t in (load(DATA / str(proj_season) / "teams.json") or [])}
+
+    def future_player(rid, pid):
+        if not pid or pid not in held.get(rid, ()):
+            return 0.0
+        return stream_value(comp.get(str(pid), []), delta)
+
+    def future_pick(pick_season, rnd):
+        exp = round_exp.get(rnd)
+        if not exp:
+            return 0.0
+        return stream_value(exp, delta, lag=max(0, pick_season - proj_season))
 
     def pname(pid):
         p = players.get(str(pid))
@@ -97,7 +148,8 @@ def main():
                 for pid, rid in (tx.get("adds") or {}).items():
                     w = war_for(rid, pid, s, wk)
                     side(rid)["got"].append({"kind": "player", "pid": str(pid),
-                                             "label": pname(pid), "war": w})
+                                             "label": pname(pid), "war": w,
+                                             "future": future_player(rid, str(pid))})
                 for pk in (tx.get("draft_picks") or []):
                     rid, ps, rnd = pk.get("owner_id"), int(pk.get("season")), pk.get("round")
                     orig = pk.get("roster_id")
@@ -108,24 +160,37 @@ def main():
                         nm = f"{md.get('first_name','')} {md.get('last_name','')}".strip()
                         w = war_for(rid, sel["player_id"], ps, 0)
                         side(rid)["got"].append({"kind": "pick", "pid": str(sel["player_id"]),
-                                                 "label": f"{label} → {nm}", "war": w})
+                                                 "label": f"{label} → {nm}", "war": w,
+                                                 "future": future_player(rid, str(sel["player_id"]))})
                     else:   # not drafted yet (future pick) or the slot went unused
-                        tail = " (not yet drafted)" if ps > max(seasons) else " (unused)"
+                        undrafted = ps > max(seasons)
+                        tail = " (not yet drafted)" if undrafted else " (unused)"
                         side(rid)["got"].append({"kind": "pick", "pid": None,
-                                                 "label": label + tail, "war": 0.0})
+                                                 "label": label + tail, "war": 0.0,
+                                                 "future": future_pick(ps, rnd) if undrafted else 0.0})
                 for wb in (tx.get("waiver_budget") or []):
                     side(wb.get("receiver"))["got"].append(
-                        {"kind": "faab", "pid": None, "label": f"${wb.get('amount')} FAAB", "war": 0.0})
+                        {"kind": "faab", "pid": None, "label": f"${wb.get('amount')} FAAB",
+                         "war": 0.0, "future": 0.0})
 
                 for sd in sides.values():
                     sd["war"] = round(sum(a["war"] for a in sd["got"]), 3)
+                    sd["future"] = round(sum(a["future"] for a in sd["got"]), 3)
+                    sd["total"] = round(sd["war"] + sd["future"], 3)
                 if sides:
                     trades.append({"season": str(s), "week": wk, "ts": ts,
-                                   "sides": sorted(sides.values(), key=lambda x: -x["war"])})
+                                   "sides": sorted(sides.values(), key=lambda x: -x["total"])})
 
     trades.sort(key=lambda t: -t["ts"])
-    (DATA / "trades.json").write_text(json.dumps(trades), encoding="utf-8")
-    print(f"wrote {DATA/'trades.json'} — {len(trades)} trades")
+    (DATA / "trades.json").write_text(json.dumps(
+        {"meta": {"delta": delta, "proj_season": proj_season,
+                  "note": "war = realized while starting for the acquiring team; "
+                          "future = discounted expected WAR still to come for assets "
+                          "that team still holds; total = war + future"},
+         "trades": trades}), encoding="utf-8")
+    zero = sum(1 for t in trades if all(abs(s["total"]) < 1e-9 for s in t["sides"]))
+    print(f"wrote {DATA/'trades.json'} — {len(trades)} trades, delta {delta}, "
+          f"{zero} still scoring 0-0")
 
 
 if __name__ == "__main__":

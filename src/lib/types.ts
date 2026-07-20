@@ -138,9 +138,23 @@ export interface TradeAsset {
   /** "Josh Allen" | "2024 1st → Marvin Harrison" | "$15 FAAB" */
   label: string;
   war: number;
+  /** discounted expected WAR still ahead of this asset (0 once it's gone) */
+  future: number;
 }
-export interface TradeSide { rid: number; team: string; got: TradeAsset[]; war: number; }
+export interface TradeSide {
+  rid: number; team: string; got: TradeAsset[];
+  /** realized WAR while starting for this team */
+  war: number;
+  /** discounted expected WAR still to come, for assets this team still holds */
+  future: number;
+  /** war + future */
+  total: number;
+}
 export interface Trade { season: string; week: number; ts: number; sides: TradeSide[]; }
+export interface TradesFile {
+  meta: { delta: number; proj_season: number; note: string };
+  trades: Trade[];
+}
 
 /** data/drafts.json — per roster_id draft picks with hit/miss vs slot expectation */
 export interface DraftAlt { pid: string; name: string; pick_no: number; war: number; }
