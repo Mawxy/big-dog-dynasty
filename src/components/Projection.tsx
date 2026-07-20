@@ -25,7 +25,8 @@ export default function Projection({ p, trend, sleeper, years }: {
   sleeper?: SleeperProj | null;
   years: number[];
 }) {
-  const [tab, setTab] = useState(0);
+  // default to Composite — the stream the leaderboard and Bridge B verdict use
+  const [tab, setTab] = useState(1);
   const t = TABS[tab];
   const line = p[t.line], lo = p[t.lo], hi = p[t.hi];
 

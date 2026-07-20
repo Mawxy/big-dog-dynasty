@@ -7,6 +7,7 @@ import { useLeague } from "../lib/context";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 import TradeCard, { readTrades } from "./TradeCard";
+import QuickJump from "./QuickJump";
 
 function ord(n: number) {
   const s = ["th", "st", "nd", "rd"], v = n % 100;
@@ -147,7 +148,10 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
 
   return (
     <>
-      <span className="back" onClick={back}>← all teams</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span className="back" onClick={back} style={{ display: "inline-block" }}>← all teams</span>
+        <QuickJump />
+      </div>
       <div id="teamDetail">
         <h2>{latest.name}</h2>
         <div className="mgr">

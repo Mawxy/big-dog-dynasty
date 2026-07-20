@@ -24,7 +24,7 @@ Everything is per-13 (a full healthy season). Inputs are all committed.
 Usage: python scripts/project_war.py [--horizon 3]
 Output: data/projections.json + diagnostics.
 """
-import argparse, csv, datetime, json, math, re
+import argparse, csv, datetime, json, math, re, statistics
 from collections import defaultdict
 from pathlib import Path
 
@@ -238,6 +238,31 @@ def main():
         dur = min(DUR_MAX, max(0.0, (elite - 3) * DUR_STEP))
 
         rates = dict(rate_s[pid]); gps = dict(gp_s[pid])
+
+        # Personal durability (2026-07-20, fitted in aging_curves "durability"):
+        # shift the pos x age availability baseline by the player's own recent
+        # GP history. Feature + slope are per-position (QB best-2-of-3 with a
+        # big slope, RB plain mean with a tiny one — matching how weakly each
+        # position's injury history persists). 3 contributor seasons = full
+        # weight, 2 = half weight (plain mean), fewer = baseline as-is.
+        dcfg = model.get('durability', {}).get(pos)
+        av_delta = 0.0
+        if dcfg:
+            hist = [min(gps[y], FULL_GP) / FULL_GP
+                    for y in (seed - 2, seed - 1, seed) if gps.get(y)]
+            if len(hist) >= 2:
+                fname = dcfg['feature']
+                if len(hist) == 3:
+                    f = (statistics.mean(sorted(hist)[1:]) if fname == 'best2'
+                         else statistics.mean(hist) if fname == 'mean3'
+                         else 0.5 * hist[2] + 0.3 * hist[1] + 0.2 * hist[0])
+                else:
+                    f = statistics.mean(hist)
+                av_delta = dcfg['b'] * (f - dcfg['feat_mean'])
+                if fname == 'recency_sd' and len(hist) == 3:
+                    av_delta += dcfg['b_sd'] * (statistics.pstdev(hist) - dcfg['sd_mean'])
+                av_delta *= 1.0 if len(hist) == 3 else 0.5
+
         proj, expv = [], []
         nat_lo, nat_hi, adj_lo, adj_hi = [], [], [], []
         p20s, p80s = [], []
@@ -255,7 +280,7 @@ def main():
             g = group_for(curves[pos], age)
             r = g['a'] + g['b'] * L
             r = (1 - dur) * r + dur * L      # durability: proven perennials regress less
-            av = avail_for(pos, age)
+            av = min(1.0, max(0.35, avail_for(pos, age) + av_delta))
             e = r * av
             proj.append(round(r, 3)); expv.append(round(e, 3))
             nat_lo.append(round(max(r + g['p20'], 0.0), 3))
@@ -291,6 +316,7 @@ def main():
             'pid': pid, 'name': nm, 'pos': pos, 'team': owner[pid],
             'age': base_age, 'age_src': asrc, 'pick': pick, 'exp': exp0,
             'elite': elite, 'war25': round(war_s[pid].get(seed, 0.0), 3), 'career': career,
+            'availAdj': round(av_delta, 3),
             'level': round((1 - pw0) * (L0 if L0 is not None else prior) + pw0 * prior, 3),
             'proj': proj, 'nat_low': nat_lo, 'nat_high': nat_hi,
             'expected': expv, 'adj_low': adj_lo, 'adj_high': adj_hi,

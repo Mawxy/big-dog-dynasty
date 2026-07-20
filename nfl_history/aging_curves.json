@@ -1,6 +1,6 @@
 {
  "meta": {
-  "fitted": "2026-07-17",
+  "fitted": "2026-07-20",
   "seasons": "2012-2025",
   "full_gp": 13,
   "min_gp": 4,
@@ -278,6 +278,40 @@
    "a": -1.3644,
    "b": 0.010828,
    "n": 1567
+  }
+ },
+ "durability": {
+  "QB": {
+   "feature": "best2",
+   "n": 238,
+   "b": 0.762,
+   "b_sd": 0.0,
+   "feat_mean": 0.9375,
+   "sd_mean": 0.0954
+  },
+  "RB": {
+   "feature": "mean3",
+   "n": 233,
+   "b": 0.0748,
+   "b_sd": 0.0,
+   "feat_mean": 0.8652,
+   "sd_mean": 0.1242
+  },
+  "WR": {
+   "feature": "recency",
+   "n": 449,
+   "b": 0.2034,
+   "b_sd": 0.0,
+   "feat_mean": 0.8964,
+   "sd_mean": 0.0947
+  },
+  "TE": {
+   "feature": "recency_sd",
+   "n": 167,
+   "b": 0.1237,
+   "b_sd": -0.4718,
+   "feat_mean": 0.8814,
+   "sd_mean": 0.0939
   }
  }
 }

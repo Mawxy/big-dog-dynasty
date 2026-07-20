@@ -171,6 +171,54 @@ def main():
                 print(f"{p:4s} {label:6s} {g['n']:>4d} {g['a']:>7.3f} {g['b']:>6.3f} "
                       f"{avail:>5.2f}   {g['a']+g['b']*0.5:.2f}/{g['a']+g['b']*1.5:.2f}")
 
+    # 1b: durability — does a player's OWN recent GP history predict next-season
+    # games beyond the pos x age baseline? Backtested with Max 2026-07-20 on
+    # 2012-2025: QB rho~.43, TE ~.25, WR ~.13, RB ~.07 — real but weak, so the
+    # slope b is FITTED per position (self-shrinking: RB's faint signal earns a
+    # small b, QB's strong one a big b). Feature per position won a backtest
+    # race of mean / median / recency-weighted / best-2-of-3 / sd:
+    #   QB best-2-of-3 (one lost season is noise; the typical season is signal)
+    #   RB plain mean (nothing beats it; past RB injuries barely persist)
+    #   WR recency-weighted | TE recency-weighted + sd as a second term
+    # project_war applies: avail = age_baseline + b*(feature - feat_mean).
+    DUR_FEATURES = {"QB": "best2", "RB": "mean3", "WR": "recency", "TE": "recency_sd"}
+    contrib = {}   # (yr, pid) -> gp/13, contributor-level seasons only (ppg >= 5)
+    for (yr, pid), g in gp.items():
+        if g > 0 and pts[(yr, pid)] / g >= 5:
+            contrib[(yr, pid)] = min(g, FULL_GP) / FULL_GP
+    out["durability"] = {}
+    print("durability (own GP history -> next-season GP, contributor seasons):")
+    for p in AGE_GROUPS:
+        fname = DUR_FEATURES[p]
+        xs, sds, ys = [], [], []
+        for (yr, pid), nxt in contrib.items():
+            if pos.get((yr, pid)) != p:
+                continue
+            h = [contrib.get((yr - k, pid)) for k in (3, 2, 1)]   # oldest -> newest
+            if any(v is None for v in h):
+                continue
+            f = (statistics.mean(sorted(h)[1:]) if fname == "best2"
+                 else statistics.mean(h) if fname == "mean3"
+                 else 0.5 * h[2] + 0.3 * h[1] + 0.2 * h[0])
+            xs.append(f); sds.append(statistics.pstdev(h)); ys.append(nxt)
+        mx, ms, my = statistics.mean(xs), statistics.mean(sds), statistics.mean(ys)
+        sxx = sum((x - mx) ** 2 for x in xs)
+        sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
+        if fname == "recency_sd":
+            sss = sum((s - ms) ** 2 for s in sds)
+            sxs = sum((x - mx) * (s - ms) for x, s in zip(xs, sds))
+            ssy = sum((s - ms) * (y - my) for s, y in zip(sds, ys))
+            det = sxx * sss - sxs * sxs
+            b = (sss * sxy - sxs * ssy) / det if det else 0.0
+            b_sd = (sxx * ssy - sxs * sxy) / det if det else 0.0
+        else:
+            b, b_sd = (sxy / sxx if sxx else 0.0), 0.0
+        out["durability"][p] = {
+            "feature": fname, "n": len(xs), "b": round(b, 4), "b_sd": round(b_sd, 4),
+            "feat_mean": round(mx, 4), "sd_mean": round(ms, 4)}
+        print(f"  {p:3s} {fname:10s} n={len(xs):4d}  b={b:+.3f}  b_sd={b_sd:+.3f}  "
+              f"feat_mean={mx:.3f}  (swing at ±15%: {b * 0.15 * 13:+.1f} games)")
+
     # 2: capital prior — smooth per-position fit, rate ~ a + b*ln(pick),
     #    on early-career seasons (exp<=2). Continuous in pick (no buckets),
     #    position-specific slope (WR weak, RB/QB steep).

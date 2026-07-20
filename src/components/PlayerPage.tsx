@@ -8,6 +8,7 @@ import SeasonBoxes from "./SeasonBoxes";
 import WarTrend from "./WarTrend";
 import Projection from "./Projection";
 import OwnershipHistory from "./OwnershipHistory";
+import QuickJump from "./QuickJump";
 
 interface SeasonBlock {
   season: string; team: string | null; manager: string | null;
@@ -88,7 +89,10 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
 
   return (
     <>
-      <span className="back" onClick={back}>← back</span>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span className="back" onClick={back} style={{ display: "inline-block" }}>← back</span>
+        <QuickJump />
+      </div>
       <div id="teamDetail">
         <h2>{nm}{" "}
           <span className={`pos ${pos}`}
@@ -104,7 +108,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
             {" · career WAR "}<span className={clsOf(war)}>{fmt(war, 3)}</span></>}
         </div>
       </div>
-      <MarketValue vals={vals} pid={pid} pos={pos} />
+      <MarketValue vals={vals} pid={pid} pos={pos} proj={proj} />
       <div className="wkflex" style={{ marginBottom: 24 }}>
         <div>
           <table style={{ width: "auto" }}>
@@ -210,10 +214,38 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   );
 }
 
-function MarketValue({ vals, pid, pos }: { vals: Values | null; pid: string; pos: string }) {
+/** One-line model-vs-market comparison: our projected 3-yr composite WAR
+ *  against the market-implied WAR (mean of available sources). The gap is the
+ *  buy/sell signal — green when the model is higher on the player than the
+ *  market, red when lower, dim when they roughly agree (±0.25 WAR).
+ *  Both numbers are precomputed into values.json by value_bridge.py. */
+function Verdict({ model, ktc, fc }: { model: number | null; ktc: number | null; fc: number | null }) {
+  const imps = [ktc, fc].filter((x): x is number => x != null);
+  if (model == null || !imps.length) return null;
+  const mkt = imps.reduce((a, b) => a + b, 0) / imps.length;
+  const diff = model - mkt;
+  const label = Math.abs(diff) <= 0.25 ? "in line with the market"
+    : diff > 0 ? "model higher than the market" : "model lower than the market";
+  return (
+    <div style={{ fontSize: 12.5, margin: "2px 0 4px", color: "var(--dim)" }}
+      title="model = 3-yr composite projection; market = mean market-implied WAR across sources">
+      model <b style={{ color: "var(--txt)" }}>{sgn(model, 2)}</b> WAR/3yr
+      {" vs market-implied "}<b style={{ color: "var(--txt)" }}>{sgn(mkt, 2)}</b>
+      {" → "}
+      <span className={Math.abs(diff) <= 0.25 ? undefined : clsOf(diff)}>
+        {label} ({sgn(diff, 2)})
+      </span>
+    </div>
+  );
+}
+
+function MarketValue({ vals, pid, pos, proj }: {
+  vals: Values | null; pid: string; pos: string; proj: ProjRec | null;
+}) {
   const v = vals?.players[pid];
   if (!v || (!v.ktc && !v.fc)) return null;
   const num = (n: number) => n.toLocaleString("en-US");
+  const implied = (src: "ktc" | "fc"): number | null => v.impWar?.[src] ?? null;
   const closestPick = (list?: [string, number][], val?: number) => {
     if (!list?.length || val == null) return null;
     let best = list[0];
@@ -223,7 +255,8 @@ function MarketValue({ vals, pid, pos }: { vals: Values | null; pid: string; pos
   };
   const dim = { color: "var(--dim)" } as const;
   const row = (label: string, val?: number, pickList?: [string, number][],
-    ovr?: number, posRank?: number, trends?: Record<string, number>) => {
+    ovr?: number, posRank?: number, trends?: Record<string, number>,
+    imp?: number | null) => {
     if (val == null) return null;
     const pk = closestPick(pickList, val);
     return (
@@ -236,6 +269,11 @@ function MarketValue({ vals, pid, pos }: { vals: Values | null; pid: string; pos
         </div>
         <div style={dim}>{ovr != null ? `OVR ${ovr}` : "N/A"}</div>
         <div style={dim}>{posRank != null ? `${pos}${posRank}` : "N/A"}</div>
+        <div title="market-implied 3-yr WAR: this value run through the league's value→WAR curve (Bridge B)">
+          {imp == null
+            ? <span style={dim}>N/A</span>
+            : <><span style={dim}>≙ </span><span className={clsOf(imp)}>{sgn(imp, 2)}</span><span style={dim}> WAR</span></>}
+        </div>
         {[7, 14, 30].map(d => {
           const t = trends?.[String(d)];
           return (
@@ -256,12 +294,13 @@ function MarketValue({ vals, pid, pos }: { vals: Values | null; pid: string; pos
     <div className="wkwrap" style={{ margin: "-6px 0 16px" }}>
       <div style={{
         display: "grid", fontSize: 13, lineHeight: 1.9, columnGap: 14,
-        gridTemplateColumns: "100px 58px minmax(150px,195px) 66px 52px 82px 82px 86px",
+        gridTemplateColumns: "100px 58px minmax(150px,195px) 66px 52px 94px 82px 82px 86px",
         width: "fit-content",
       }}>
-        {row("KeepTradeCut", v.ktc, vals?.picks?.ktc, v.ktcRank, v.ktcPosRank, v.ktcT)}
-        {row("FantasyCalc", v.fc, vals?.picks?.fc, v.fcRank, v.fcPosRank, v.fcT)}
+        {row("KeepTradeCut", v.ktc, vals?.picks?.ktc, v.ktcRank, v.ktcPosRank, v.ktcT, implied("ktc"))}
+        {row("FantasyCalc", v.fc, vals?.picks?.fc, v.fcRank, v.fcPosRank, v.fcT, implied("fc"))}
       </div>
+      <Verdict model={v.modelWar ?? proj?.total_comp ?? null} ktc={implied("ktc")} fc={implied("fc")} />
       {vals?.fetched && <div style={{ color: "var(--dim)", fontSize: 11.5 }}>market values as of {vals.fetched}</div>}
     </div>
   );

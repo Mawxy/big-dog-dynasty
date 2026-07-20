@@ -20,11 +20,13 @@ jobs:
           python-version: "3.12"
       - name: Fetch market values (FantasyCalc + KeepTradeCut)
         run: python scripts/fetch_values.py --players data/players_min.json --out data/values.json
+      - name: Bridge B (market value -> WAR, needs data/projections.json)
+        run: python scripts/value_bridge.py
       - name: Commit updated values
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/values.json data/values_history.json
+          git add data/values.json data/values_history.json data/value_bridge.json
           git diff --cached --quiet || git commit -m "Market values $(date -u +%F)"
           git pull --rebase --autostash
           git push
