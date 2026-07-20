@@ -179,7 +179,8 @@ def main():
                     sd["total"] = round(sd["war"] + sd["future"], 3)
                 if sides:
                     trades.append({"season": str(s), "week": wk, "ts": ts,
-                                   "sides": sorted(sides.values(), key=lambda x: -x["total"])})
+                                   # realized WAR decides the ordering; projection is informational
+                                   "sides": sorted(sides.values(), key=lambda x: -x["war"])})
 
     trades.sort(key=lambda t: -t["ts"])
     (DATA / "trades.json").write_text(json.dumps(

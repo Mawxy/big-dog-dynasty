@@ -123,15 +123,15 @@ tr.wkbox:hover{background:transparent}
 /* align-content:start keeps a one-asset side flush with the top of a
    five-asset one instead of floating in the middle of the stretched cell */
 .tradeside{background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;
-  display:grid;grid-template-columns:1fr auto;align-items:baseline;align-content:start;
-  column-gap:8px}
-.tradeside.win{border-color:var(--acc)}
+  display:grid;grid-template-columns:1fr auto auto;align-items:baseline;align-content:start;
+  column-gap:10px}
 /* team name and WAR share the top line; assets span the full width below */
 .tradeteam{font-size:12.5px;color:var(--txt);font-weight:600;overflow:hidden;
   text-overflow:ellipsis;white-space:nowrap}
+.tradenum{display:flex;align-items:baseline;gap:4px;white-space:nowrap}
 .tradewar{font-size:14px;font-weight:700}
+.tradelbl{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em}
 .tradeassets{grid-column:1/-1;font-size:11.5px;color:var(--dim);line-height:1.4}
-.tradesplit{grid-column:1/-1;font-size:10.5px;color:var(--dim);margin-top:-2px}
 .tradeside table{grid-column:1/-1}
 .tradeside table{background:transparent;border-radius:0;margin-top:3px}
 .tradeside th,.tradeside td{border:0;padding:1px 0;font-size:12px;white-space:normal}

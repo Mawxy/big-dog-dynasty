@@ -40,9 +40,8 @@ function Asset({ a }: { a: TradeAsset }) {
  */
 export default function TradeCard({ t, open, onToggle, highlightRid }:
   { t: Trade; open: boolean; onToggle: () => void; highlightRid?: number }) {
-  const tot = (s: Trade["sides"][number]) => s.total ?? s.war;
-  const best = Math.max(...t.sides.map(tot));
-  const spread = best - Math.min(...t.sides.map(tot));
+  // the edge is judged on REALIZED WAR only — projection is promise, not return
+  const spread = Math.max(...t.sides.map(s => s.war)) - Math.min(...t.sides.map(s => s.war));
   // the viewing franchise's side leads
   const sides = highlightRid === undefined ? t.sides
     : [...t.sides].sort((a, b) => Number(b.rid === highlightRid) - Number(a.rid === highlightRid));
@@ -57,14 +56,18 @@ export default function TradeCard({ t, open, onToggle, highlightRid }:
       </div>
       <div className="tradesides">
         {sides.map(s => (
-          <div key={s.rid} className={"tradeside" + (tot(s) === best && spread > 0.001 ? " win" : "")}>
+          <div key={s.rid} className="tradeside">
             <div className="tradeteam">{s.team}</div>
-            <div className={"tradewar " + clsOf(tot(s))}>{fmt(tot(s), 2)}</div>
-            {s.future ? (
-              <div className="tradesplit">
-                {fmt(s.war, 2)} realized + {fmt(s.future, 2)} future
-              </div>
-            ) : null}
+            {/* realized and projected stay separate — summing them hides which
+                side actually produced and which is still promise */}
+            <div className="tradenum">
+              <span className={"tradewar " + clsOf(s.war)}>{fmt(s.war, 2)}</span>
+              <span className="tradelbl">real</span>
+            </div>
+            <div className="tradenum">
+              <span className={"tradewar " + clsOf(s.future ?? 0)}>{fmt(s.future ?? 0, 2)}</span>
+              <span className="tradelbl">proj</span>
+            </div>
             {open
               ? <table style={{ width: "100%" }}>
                 <tbody>{s.got.map((a, k) => <Asset key={k} a={a} />)}</tbody>
