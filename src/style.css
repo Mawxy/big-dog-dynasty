@@ -42,8 +42,12 @@ main{flex:1;min-width:0;padding:26px 34px 60px;max-width:1560px;margin:0 auto}
 .rostergrid{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
 /* align-items:start matters — stretched tables pad their rows to fill the
    grid row, so a 12-row half would drift out of step with a 13-row half */
-.benchsplit{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));
+/* a bench half-table costs ~560-650px of fixed 92px columns before the player
+   name gets any room, so only split into two columns when each half can have
+   ~680px — below that the names get crushed to slivers ("J.J. M...") */
+.benchsplit{display:grid;grid-template-columns:repeat(auto-fit,minmax(680px,1fr));
   align-items:start}
+@media (max-width:1400px){.benchsplit{grid-template-columns:1fr}}
 /* the roster cards scroll internally rather than widening the page */
 .rcard{overflow-x:auto}
 .benchsplit table+table{border-left:1px solid var(--line)}
