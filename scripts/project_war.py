@@ -310,6 +310,17 @@ def main():
             age = base_age + (frm - seed)
             g = group_for(curves[pos], age)
             r = g['a'] + g['b'] * L
+            # pedigree hold (fitted in aging_curves): young early-pick
+            # producers deviate from their bucket's pooled regression —
+            # +0.08/yr for the Chase/Jefferson WR archetype, negative for
+            # young workhorse RBs. Applied only while the player still fits
+            # the cohort (ages out of it naturally as the stream advances).
+            ped = model.get('pedigree_hold', {})
+            pm = ped.get('meta', {})
+            pc = ped.get(pos)
+            if pc and age <= pm.get('max_age', 24) and pick <= pm.get('max_pick', 40) \
+                    and L >= pm.get('min_level', 0.8):
+                r += pc['bump']
             r = (1 - dur) * r + dur * L      # durability: proven perennials regress less
             av = min(1.0, max(0.35, avail_for(pos, age) + av_delta))
             e = r * av

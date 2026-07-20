@@ -171,6 +171,35 @@ def main():
                 print(f"{p:4s} {label:6s} {g['n']:>4d} {g['a']:>7.3f} {g['b']:>6.3f} "
                       f"{avail:>5.2f}   {g['a']+g['b']*0.5:.2f}/{g['a']+g['b']*1.5:.2f}")
 
+    # 1c: pedigree hold — the Chase/Jefferson archetype. Young (<=24),
+    # early-pick (<=40), productive (level >= 0.8) players regress differently
+    # than their age bucket's pooled fit (backtested 2026-07-20: young elite
+    # top-40 WRs hold ~flat while the bucket fit shaves them; young top-40 RBs
+    # regress HARDER). Fit the mean residual vs the bucket curve per position;
+    # project_war adds it back for exactly this cohort. Signed — RB's negative
+    # value is information, not a bug.
+    PED_YOUNG, PED_PICK, PED_LEVEL, PED_MIN_N = 24, 40, 0.8, 15
+    out["pedigree_hold"] = {"meta": {"max_age": PED_YOUNG, "max_pick": PED_PICK,
+                                     "min_level": PED_LEVEL}}
+    print("pedigree hold (young early-pick producers vs their bucket fit):")
+    for p in AGE_GROUPS:
+        res = []
+        for (pp, age, exp, pick, lvl, nrt, ngp) in trans:
+            if pp != p or nrt is None:
+                continue
+            if age > PED_YOUNG or pick > PED_PICK or lvl < PED_LEVEL:
+                continue
+            g = next((g for g in out["curves"][p]
+                      if g["min_age"] <= age <= g["max_age"]), None)
+            if g:
+                res.append(nrt - (g["a"] + g["b"] * lvl))
+        if len(res) >= PED_MIN_N:
+            out["pedigree_hold"][p] = {"bump": round(statistics.mean(res), 4),
+                                       "n": len(res)}
+            print(f"  {p:3s} n={len(res):3d}  bump={statistics.mean(res):+.3f}/yr")
+        else:
+            print(f"  {p:3s} n={len(res):3d}  (below min {PED_MIN_N}, not published)")
+
     # 1b: durability — does a player's OWN recent GP history predict next-season
     # games beyond the pos x age baseline? Backtested with Max 2026-07-20 on
     # 2012-2025: QB rho~.43, TE ~.25, WR ~.13, RB ~.07 — real but weak, so the

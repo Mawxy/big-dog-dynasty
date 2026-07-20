@@ -280,6 +280,25 @@
    "n": 1567
   }
  },
+ "pedigree_hold": {
+  "meta": {
+   "max_age": 24,
+   "max_pick": 40,
+   "min_level": 0.8
+  },
+  "QB": {
+   "bump": -0.013,
+   "n": 52
+  },
+  "RB": {
+   "bump": -0.0752,
+   "n": 30
+  },
+  "WR": {
+   "bump": 0.0796,
+   "n": 26
+  }
+ },
  "durability": {
   "QB": {
    "feature": "best2",
