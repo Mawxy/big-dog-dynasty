@@ -3,6 +3,7 @@ import type { BridgeKnots, PicksOwned, PickValues, ProjectionsFile, Team, ValueB
 import { j, jDaily } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { optimalLineup } from "../lib/league";
+import { computePostures, NEUTRAL as NEUTRAL_W, pickLabel, type Posture } from "../lib/tradeModel";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 
@@ -25,7 +26,7 @@ const wAt = (w: number[], n: number) => n < w.length ? w[n] : w[w.length - 1] * 
 const disc = (a: Asset, w: number[]) =>
   a.stream.reduce((acc, v, k) => acc + v * wAt(w, a.lag + k), 0);
 const wsum = (col: Asset[], w: number[]) => col.reduce((a, x) => a + disc(x, w), 0);
-const NEUTRAL: number[] = [1, 0.9, 0.81];   // no team context: pure uncertainty decay
+const NEUTRAL = NEUTRAL_W;   // no team context: pure uncertainty decay
 
 function interp(k: BridgeKnots, x: number): number {
   if (x <= k[0][0]) return k[0][1];
@@ -52,10 +53,7 @@ const selStyle: CSSProperties = { background: "var(--card)", border: "1px solid 
  *  every team spends the same total budget — only the now-vs-later TILT
  *  differs. An aging contender tilts to now even while staying #1; a deep
  *  rebuilder weights year 3 above year 1. */
-interface TeamPosture { rid: number; name: string; s: number[];
-  rankNow: number; status: string; w: number[];
-  /** WAR-weighted average age of the year-1 optimal lineup */
-  age: number | null }
+type TeamPosture = Posture;
 
 export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
   const [proj, setProj] = useState<ProjectionsFile | null>(null);
@@ -80,66 +78,7 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
 
   const postures = useMemo<TeamPosture[]>(() => {
     if (!proj || !teams || !pv) return [];
-    const byPid = new Map(proj.players.map(p => [p.pid, p]));
-    const cur = +proj.meta.roster_season;
-    const lineupWar = (t: Team, yr: number) => {
-      const pool = t.players.map(pid => byPid.get(pid))
-        .filter((p): p is NonNullable<typeof p> => !!p)
-        .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[yr] ?? 0 }));
-      return optimalLineup(pool).slots.reduce((a, s) => a + (s.player?.war ?? 0), 0);
-    };
-    // WAR-weighted average age of the current optimal lineup: the ages that
-    // matter are the ones attached to the WAR you're actually starting
-    const lineupAge = (t: Team) => {
-      const pool = t.players.map(pid => byPid.get(pid))
-        .filter((p): p is NonNullable<typeof p> => !!p)
-        .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0, age: p.age }));
-      const starters = optimalLineup(pool).slots
-        .map(s => s.player).filter((p): p is NonNullable<typeof p> => !!p);
-      const wt = starters.map(p => Math.max(0.1, p.war));
-      const tot = wt.reduce((a, b) => a + b, 0);
-      return tot ? starters.reduce((a, p, i) => a + p.age * wt[i], 0) / tot : null;
-    };
-    // now-ranks first: they set the tier of every team's ORIGINAL pick
-    const base = teams.map(t => ({ t, now: lineupWar(t, 0) }));
-    const n = base.length;
-    const rankNowOf = new Map(base.slice().sort((a, b) => b.now - a.now)
-      .map((r, i) => [r.t.roster_id, i + 1]));
-    const tierOf = (orig: number) => {
-      const rk = rankNowOf.get(orig) ?? 6;
-      return rk >= 9 ? "Early" : rk >= 5 ? "Mid" : "Late";
-    };
-    const bandRaw = (label: string) => pv.bands.find(b => b.label === label)?.raw ?? {};
-    // strength in team-year y (1..3) = aged lineup + owned picks' production
-    // that has landed by then (a 2027 1st starts producing in team-year 2)
-    const strength = (t: Team, y: number) => {
-      let s = lineupWar(t, y - 1);
-      for (const pk of owned?.owned?.[String(t.roster_id)] ?? []) {
-        const k = (cur + y - 1) - pk.season;   // pick's years-since-draft in year y
-        if (k >= 0 && k <= 2)
-          s += bandRaw(`${tierOf(pk.orig)} ${ORD[pk.round - 1]}`)[String(k + 1)] ?? 0;
-      }
-      return s;
-    };
-    const rows = base.map(({ t }) => ({
-      rid: t.roster_id, name: t.team.trim(),
-      s: [1, 2, 3].map(y => strength(t, y)),
-      age: lineupAge(t),
-    }));
-    // Weight each year by ABSOLUTE strength in it (not rank): an aging #1
-    // whose lineup decays 7.0 → 4.9 tilts to now even while staying #1,
-    // because the years it's strongest are the years its WAR buys the most.
-    // +1 WAR is the liquidity floor (present production is always tradeable);
-    // 0.9^y is uncertainty decay; normalization keeps a common budget so only
-    // the tilt differs between teams.
-    const BUDGET = NEUTRAL.reduce((a, b) => a + b, 0);
-    return rows.map(r => {
-      const rankNow = rankNowOf.get(r.rid)!;
-      const raw = [0, 1, 2].map(y => (1 + Math.max(0, r.s[y])) * 0.9 ** y);
-      const k = BUDGET / raw.reduce((a, b) => a + b, 0);
-      const status = rankNow <= 4 ? "contender" : rankNow <= 8 ? "middling" : "rebuilding";
-      return { ...r, rankNow, status, w: raw.map(x => Math.round(x * k * 100) / 100) };
-    }).sort((a, b) => a.name.localeCompare(b.name));
+    return computePostures(proj.players, teams, pv, owned, +proj.meta.roster_season);
   }, [proj, teams, pv, owned]);
   const postureOf = (name: string) => postures.find(p => p.name === name) ?? null;
   const weights: [number[], number[]] = [
@@ -207,17 +146,32 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
     const m = new Map<string, Set<string>>();
     for (const p of postures) {
       const set = new Set<string>();
-      for (const pk of owned?.owned?.[String(p.rid)] ?? []) {
-        const rk = postures.find(x => x.rid === pk.orig)?.rankNow ?? 6;
-        const tier = rk >= 9 ? "Early" : rk >= 5 ? "Mid" : "Late";
-        set.add(`${pk.season} ${tier} ${ORD[pk.round - 1]}`);
-      }
+      for (const pk of owned?.owned?.[String(p.rid)] ?? [])
+        set.add(pickLabel(postures, pk));
       m.set(p.name, set);
     }
     return m;
   }, [postures, owned]);
   const ownsIt = (name: string, a: Asset) =>
     a.kind === "player" ? a.team === name : (pickLabelsOf.get(name)?.has(a.label) ?? false);
+
+  // prefill from a franchise page's "Try it out" — sides are asset keys
+  useEffect(() => {
+    if (!options.length || !postures.length) return;
+    const raw = sessionStorage.getItem("bdd-trade-prefill");
+    if (!raw) return;
+    sessionStorage.removeItem("bdd-trade-prefill");
+    try {
+      const pf = JSON.parse(raw) as { whoA: string; whoB: string; a: string[]; b: string[] };
+      const find = (k: string) => options.find(o => o.key === k);
+      setWho([pf.whoA ?? "", pf.whoB ?? ""]);
+      setSides([
+        (pf.a ?? []).map(find).filter((x): x is Asset => !!x),
+        (pf.b ?? []).map(find).filter((x): x is Asset => !!x),
+      ]);
+    } catch { /* stale prefill — ignore */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options, postures]);
 
   const add = (side: 0 | 1, a: Asset) => setSides(prev => {
     if (prev[0].some(x => x.key === a.key) || prev[1].some(x => x.key === a.key)) return prev;

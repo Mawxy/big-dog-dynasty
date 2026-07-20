@@ -6,7 +6,8 @@ import TradeCalc from "../components/TradeCalc";
  *  (contenders discount future WAR harder than rebuilders). The old
  *  league-wide trade log lives on in each franchise page's Trades tab. */
 export default function Trades() {
-  const [mode, setMode] = useState<"generic" | "team">("generic");
+  const [mode, setMode] = useState<"generic" | "team">(
+    () => sessionStorage.getItem("bdd-trade-prefill") ? "team" : "generic");
   return (
     <>
       <div className="bar" style={{ marginBottom: 10 }}>
