@@ -309,6 +309,11 @@ def main():
             comp = list(proj)
         comp_lo = [round(max(comp[i] + p20s[i], 0.0), 3) for i in range(len(comp))]
         comp_hi = [round(comp[i] + p80s[i], 3) for i in range(len(comp))]
+        # PPG derived from OUR model, not Sleeper: invert the fitted
+        # pts_to_war line (WAR = a + b*pts per 13) at the year-1 composite
+        # rate, so leaderboard Pts/PPG and WAR come from one source.
+        ppg = (round((comp[0] - ptw[pos]['a']) / ptw[pos]['b'] / FULL_GP, 2)
+               if pos in ptw and ptw[pos]['b'] else None)
         L0, _ = wlevel(rate_s[pid], gp_s[pid], seed)
         exp0 = (seed - draft_season + 1) if draft_season else None
         pw0 = prior_weight(exp0, L0 if L0 is not None else 0.0)
@@ -321,7 +326,7 @@ def main():
             'proj': proj, 'nat_low': nat_lo, 'nat_high': nat_hi,
             'expected': expv, 'adj_low': adj_lo, 'adj_high': adj_hi,
             'composite': comp, 'comp_low': comp_lo, 'comp_high': comp_hi,
-            'proj_ext': proj_ext,
+            'ppg': ppg, 'proj_ext': proj_ext,
             'total': round(sum(proj), 3), 'total_exp': round(sum(expv), 3),
             'total_comp': round(sum(comp), 3),
         })

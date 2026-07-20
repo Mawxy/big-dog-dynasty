@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { PlayersMin, ProjectionsFile, SeasonData, SleeperProjFile } from "../lib/types";
+import type { PlayersMin, ProjectionsFile, SeasonData } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, clsOf } from "../lib/stats";
 import { pInfo, ownerOf } from "../lib/league";
@@ -14,7 +14,7 @@ interface Row {
   waa: number; war: number; waaG: number; warG: number; posRank: number;
   /** row built from projections (preseason): σ/WAA render as dashes */
   proj?: boolean;
-  /** projection row with no Sleeper points projection: Pts/PPG dash too */
+  /** projection row with no derivable PPG (no pts_to_war fit): Pts/PPG dash */
   noPts?: boolean;
 }
 type Key = keyof Row;
@@ -42,7 +42,6 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
   const [dir, setDir] = useState(-1);
   const [openPid, setOpenPid] = useState<string | null>(null);
   const [projs, setProjs] = useState<ProjectionsFile | null>(null);
-  const [sprojs, setSprojs] = useState<SleeperProjFile | null>(null);
   const gpFloor = minGp ?? defaultMinGp;
 
   // preseason: no scored weeks yet — fall back to the projection model
@@ -50,7 +49,6 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
     if (data.summary.length) return;
     let live = true;
     j<ProjectionsFile>("data/projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
-    j<SleeperProjFile>("data/proj_sleeper.json").then(p => { if (live) setSprojs(p); }).catch(() => {});
     return () => { live = false; };
   }, [data]);
   const isProj = !data.summary.length && projs != null
@@ -63,15 +61,16 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
         // same columns as a played season, projected. Composite stream (full
         // healthy 13-game season, no injury discount) — matches Bridge B and
         // the player-page verdict line, so leaderboard and market agree.
+        // PPG is derived from the same WAR (inverted pts_to_war), not Sleeper.
         const gp = 13;
         const war = p.composite[0] ?? 0;
-        const s = sprojs?.players[p.pid];
+        const ppg = p.ppg ?? null;
         return {
           id: p.pid, nm: pInfo(players, p.pid)[0], pos: p.pos,
           team: owners[p.pid] || "—",
-          gp, pts: (s?.ppg ?? 0) * gp, ppg: s?.ppg ?? 0, sdv: 0,
+          gp, pts: (ppg ?? 0) * gp, ppg: ppg ?? 0, sdv: 0,
           waa: 0, war, waaG: 0, warG: war / gp,
-          posRank: 0, proj: true, noPts: !s,
+          posRank: 0, proj: true, noPts: ppg == null,
         };
       })
       : data.summary.map(r => {
@@ -97,7 +96,7 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
       ? (a[k] as string).localeCompare(b[k] as string) * dir
       : ((a[k] as number) - (b[k] as number)) * dir);
     return rs;
-  }, [data, players, pos, q, gpFloor, sortCol, dir, isProj, projs, sprojs]);
+  }, [data, players, pos, q, gpFloor, sortCol, dir, isProj, projs]);
 
   const clickCol = (i: number) => {
     if (sortCol === i) setDir(-dir);
@@ -110,8 +109,9 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
       {isProj && (
         <div style={{ color: "var(--dim)", fontSize: 12.5, margin: "0 0 10px" }}>
           No scored weeks yet — showing <b style={{ color: "var(--txt)" }}>projections</b>
-          for a full healthy 13-game season: Pts/PPG from Sleeper, WAR = year-1
-          composite (no injury discount). σ and WAA are not projected.
+          for a full healthy 13-game season: WAR = year-1 composite (no injury
+          discount), Pts/PPG implied by that same WAR via the fitted points↔WAR
+          line. σ and WAA are not projected.
         </div>
       )}
       <div className="bar">

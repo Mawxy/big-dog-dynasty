@@ -100,6 +100,8 @@ export interface Projection {
   proj: number[]; nat_low: number[]; nat_high: number[];      // Natural (if-healthy)
   composite: number[]; comp_low: number[]; comp_high: number[];
   expected: number[]; adj_low: number[]; adj_high: number[];  // Adjusted (injury)
+  /** PPG implied by the year-1 composite WAR rate (inverted pts_to_war fit) */
+  ppg?: number | null;
   proj_ext: number | null;
   total: number; total_exp: number; total_comp: number;
 }

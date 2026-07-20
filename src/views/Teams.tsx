@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { Matchups, MatchEntry, PlayersMin, ProjectionsFile, SeasonData, SleeperProjFile, Team, Weekly } from "../lib/types";
+import type { Matchups, MatchEntry, PlayersMin, ProjectionsFile, SeasonData, Team, Weekly } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean, normCdf, normInv } from "../lib/stats";
 import { pInfo, weekIndex, seasonSeg, optimalLineup } from "../lib/league";
@@ -47,7 +47,6 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   const nav = useNavigate();
 
   const [projs, setProjs] = useState<ProjectionsFile | null>(null);
-  const [sprojs, setSprojs] = useState<SleeperProjFile | null>(null);
 
   useEffect(() => {
     if (season === "ALL") return;
@@ -64,7 +63,6 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
     if (data.summary.length) return;
     let live = true;
     j<ProjectionsFile>("data/projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
-    j<SleeperProjFile>("data/proj_sleeper.json").then(p => { if (live) setSprojs(p); }).catch(() => {});
     return () => { live = false; };
   }, [data]);
   const isProj = !data.summary.length && projs != null
@@ -90,7 +88,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         const { slots } = optimalLineup(pool);
         const lineup: LineupEntry[] = slots.filter(s => s.player).map(s => ({
           ...s.player!, slot: s.slot === "SUPER_FLEX" ? "SF" : s.slot,
-          ppg: sprojs?.players[s.player!.id]?.ppg ?? null,
+          ppg: byPid.get(s.player!.id)?.ppg ?? null,
         }));
         const war = lineup.reduce((a, l) => a + l.war, 0);
         const ppg = lineup.reduce((a, l) => a + (l.ppg ?? 0), 0);
@@ -181,7 +179,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       ? (a[k] as string).localeCompare(b[k] as string) * dir
       : ((a[k] as number) - (b[k] as number)) * dir);
     return rs;
-  }, [data, mw, wkIdx, sortCol, dir, isProj, projs, sprojs]);
+  }, [data, mw, wkIdx, sortCol, dir, isProj, projs]);
 
   if (season === "ALL") return <div className="empty">Teams are a per-season view — pick a year from the dropdown.</div>;
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
