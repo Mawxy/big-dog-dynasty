@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { PicksOwned, PickValues, ProjectionsFile, Team } from "../lib/types";
-import { j } from "../lib/data";
+import type { PicksOwned, PickValues, ProjectionsFile, Team, Values } from "../lib/types";
+import { j, jDaily } from "../lib/data";
 import { fmt, sgn } from "../lib/stats";
 import { computePostures, suggestTrades } from "../lib/tradeModel";
 import { PlayerLink } from "./PlayerLink";
@@ -15,6 +15,7 @@ export default function SuggestedTrades({ rid }: { rid: number }) {
   const [teams, setTeams] = useState<Team[] | null>(null);
   const [pv, setPv] = useState<PickValues | null>(null);
   const [owned, setOwned] = useState<PicksOwned | null>(null);
+  const [vals, setVals] = useState<Values | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -26,6 +27,7 @@ export default function SuggestedTrades({ rid }: { rid: number }) {
     }).catch(() => {});
     j<PickValues>("data/pick_values.json").then(x => { if (live) setPv(x); }).catch(() => {});
     j<PicksOwned>("data/picks_owned.json").then(x => { if (live) setOwned(x); }).catch(() => {});
+    jDaily<Values>("data/values.json").then(x => { if (live) setVals(x); }).catch(() => {});
     return () => { live = false; };
   }, []);
 
@@ -35,11 +37,22 @@ export default function SuggestedTrades({ rid }: { rid: number }) {
     const postures = computePostures(proj.players, teams, pv, owned, season);
     return {
       me: postures.find(p => p.rid === rid) ?? null,
-      list: suggestTrades(rid, proj.players, teams, pv, owned, postures, season),
+      list: suggestTrades(rid, proj.players, teams, pv, owned, postures, season, vals),
     };
-  }, [proj, teams, pv, owned, rid]);
+  }, [proj, teams, pv, owned, vals, rid]);
 
-  if (!sugg || !sugg.list.length) return null;
+  if (!sugg) return null;
+  if (!sugg.list.length) return (
+    <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 16px", margin: "12px 0 4px" }}>
+      <b style={{ color: "var(--txt)", fontSize: 13.5 }}>Suggested trades</b>{" "}
+      <span style={{ color: "var(--dim)", fontSize: 12.5 }}>
+        none found — no deal fills this roster's weakest spot while leaving both
+        sides better off at realistic market prices. That usually means the roster
+        is strong everywhere, or the missing piece is priced above what the
+        surplus can buy.
+      </span>
+    </div>
+  );
   const tryIt = (s: (typeof sugg.list)[number]) => {
     sessionStorage.setItem("bdd-trade-prefill", JSON.stringify({
       whoA: sugg.me?.name ?? "", whoB: s.fromName,

@@ -1,4 +1,4 @@
-import type { PicksOwned, PickValues, Projection, Team } from "./types";
+import type { PicksOwned, PickValues, Projection, Team, Values } from "./types";
 import { optimalLineup } from "./league";
 
 /** Shared trade-valuation model: franchise postures (per-year window weights),
@@ -44,8 +44,12 @@ const poolOf = (t: Team, byPid: Map<string, Projection>): PoolP[] =>
     .filter((p): p is Projection => !!p)
     .map(p => ({ id: p.pid, pos: p.pos, comp: p.composite, age: p.age }));
 
+// waiver floor: no rational lineup starts a negative-composite player when
+// free agency offers ~0-WAR bodies, so lineup value clamps each starter at 0.
+// This also kills "addition by subtraction" trades — shipping away a bad
+// player gains nothing, because benching him was always free.
 const lwY = (pool: PoolP[], y: number) =>
-  optimalLineup(pool.map(p => ({ id: p.id, pos: p.pos, war: p.comp[y] ?? 0 })))
+  optimalLineup(pool.map(p => ({ id: p.id, pos: p.pos, war: Math.max(0, p.comp[y] ?? 0) })))
     .slots.reduce((a, s) => a + (s.player?.war ?? 0), 0);
 
 /** Per-franchise posture: strength per year = aged optimal lineup + owned
@@ -117,7 +121,7 @@ export interface SuggestedTrade {
  *  gets a 15% residual so bench bodies aren't literally free. */
 export function suggestTrades(rid: number, players: Projection[], teams: Team[],
   pv: PickValues, owned: PicksOwned | null, postures: Posture[],
-  rosterSeason: number): SuggestedTrade[] {
+  rosterSeason: number, vals: Values | null = null): SuggestedTrade[] {
   const byPid = new Map(players.map(p => [p.pid, p]));
   const me = teams.find(t => t.roster_id === rid);
   const myPost = postures.find(p => p.rid === rid);
@@ -172,6 +176,34 @@ export function suggestTrades(rid: number, players: Projection[], teams: Team[],
     pickStream(pv, tierFor(postures, pk.orig), pk.round)
       .reduce((a, x, k) => a + x * wAt(w, (pk.season - rosterSeason) + k), 0);
 
+  // ---- market sanity: packages must be roughly fair by KTC/FC too ----------
+  // Lineup-marginal math alone will happily ship a blue-chip young asset whose
+  // CURRENT lineup contribution is small (Nabers for a mid TE). Real managers
+  // price assets, not just lineups — so both packages must land within a band
+  // of each other's market value or the deal is discarded as unrealistic.
+  const mvPlayer = (pid: string) => {
+    const v = vals?.players?.[pid];
+    return v?.ktc ?? v?.fc ?? 500;
+  };
+  const ktcPicks = new Map(vals?.picks?.ktc ?? []);
+  const fcPicks = new Map(vals?.picks?.fc ?? []);
+  const mvPick = (k: { season: number; round: number; orig: number }) => {
+    const label = pickLabel(postures, k);
+    return ktcPicks.get(label)
+      ?? fcPicks.get(`${k.season} ${ORD[k.round - 1]}`) ?? 400;
+  };
+  const MV_BAND: [number, number] = [0.6, 1.67];
+  // market-implied 3-yr WAR (Bridge B, precomputed into values.json). Blended
+  // into each side's net at partial weight so the market's asset pricing has a
+  // real vote: lineup math alone would trade Nabers for a mid TE because his
+  // CURRENT marginal is small — the market knows what he resells for.
+  const MKT_W = 0.35;
+  const impPlayer = (pid: string) => {
+    const iw = vals?.players?.[pid]?.impWar;
+    const xs = [iw?.ktc, iw?.fc].filter((x): x is number => x != null);
+    return xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null;
+  };
+
   // ---- search ---------------------------------------------------------------
   const DEPTH = 0.15;    // residual value of non-lineup bodies
   const MIN_NET = 0.15;  // both sides must clear this to count as win-win
@@ -184,6 +216,9 @@ export function suggestTrades(rid: number, players: Projection[], teams: Team[],
       const targets = pools.get(g)!.filter(p => p.pos === need.P)
         .sort((a, b) => raw3(b, wMe) - raw3(a, wMe)).slice(0, 2);
       for (const X of targets) {
+        // the target must be worth having on his own — never suggest a body
+        // whose "value" is really the stuff leaving the other column
+        if (val(wMe, swapDelta(rid, [X], new Set())) < 0.1) continue;
         // candidate packages I could send back
         const pkgs: { ps: typeof sendables; pk: typeof myPicks }[] = [];
         for (const s1 of sendables) pkgs.push({ ps: [s1], pk: [] });
@@ -200,13 +235,28 @@ export function suggestTrades(rid: number, players: Projection[], teams: Team[],
           const dMe = swapDelta(rid, [X], sentIds);
           const dG = swapDelta(g, pkg.ps.map(x => x.p), new Set([X.id]));
           // depth residuals: what doesn't crack a lineup isn't worthless
-          const depthMe = DEPTH * (raw3(X, wMe) - val(wMe, dMe) > 0.01 ? raw3(X, wMe) - Math.max(0, val(wMe, dMe)) : 0);
+          // market fairness gate first — cheap, and prunes fantasy-land deals
+          const mvRecv = mvPlayer(X.id);
+          const mvSent = pkg.ps.reduce((a, x) => a + mvPlayer(x.p.id), 0)
+            + pkg.pk.reduce((a, k) => a + mvPick(k), 0);
+          if (mvSent <= 0 || mvRecv / mvSent < MV_BAND[0] || mvRecv / mvSent > MV_BAND[1]) continue;
+          const depthMe = DEPTH * Math.max(0, raw3(X, wMe) - Math.max(0, val(wMe, dMe)));
           const depthG = DEPTH * pkg.ps.reduce((a, x) =>
             a + Math.max(0, raw3(x.p, wG) - Math.max(0, val(wG, dG))), 0);
-          const netMe = val(wMe, dMe) + Math.max(0, depthMe)
-            - pkg.pk.reduce((a, k) => a + pickVal(wMe, k), 0);
-          const netG = val(wG, dG) + depthG
-            + pkg.pk.reduce((a, k) => a + pickVal(wG, k), 0);
+          // SYMMETRIC depth: what I ship out beyond its lineup marginal is a
+          // real cost to me (asset/bench value), not just a gain for them
+          const depthCostMe = DEPTH * pkg.ps.reduce((a, x) =>
+            a + Math.max(0, raw3(x.p, wMe) - x.lossMe), 0);
+          // market-implied differential: what crosses the table by Bridge B
+          // (players; picks fall back to their Bridge A stream value)
+          const impRecv = impPlayer(X.id) ?? raw3(X, NEUTRAL);
+          const impSent = pkg.ps.reduce((a, x) => a + (impPlayer(x.p.id) ?? raw3(x.p, NEUTRAL)), 0)
+            + pkg.pk.reduce((a, k) => a + pickVal(NEUTRAL, k), 0);
+          const mktDiff = impRecv - impSent;
+          const netMe = (1 - MKT_W) * (val(wMe, dMe) + depthMe - depthCostMe
+            - pkg.pk.reduce((a, k) => a + pickVal(wMe, k), 0)) + MKT_W * mktDiff;
+          const netG = (1 - MKT_W) * (val(wG, dG) + depthG
+            + pkg.pk.reduce((a, k) => a + pickVal(wG, k), 0)) + MKT_W * -mktDiff;
           if (netMe < MIN_NET || netG < MIN_NET) continue;
           const score = Math.min(netMe, netG);
           const prev = best.get(X.id);
