@@ -7,21 +7,27 @@ import { pInfo, weekIndex, seasonSeg, optimalLineup } from "../lib/league";
 import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
 import FranchisePage from "../components/FranchisePage";
+import HoverTip from "../components/HoverTip";
 
 type WkIdx = Record<string, Record<number, [number, number]>>;
 const REG_WEEKS = 14;   // regular season length; composite rates are per-13 (bye)
-interface LineupEntry { id: string; pos: string; war: number; slot: string; ppg: number | null; bye: number | null }
+interface LineupEntry { id: string; pos: string; war: number; slot: string; ppg: number | null; bye: number | null; age?: number }
 interface Row {
   rid: number; seed: number; team: string; manager: string; wins: number; fpts: number;
   rec: string; med: string; medw: number; ppg: number; sdv: number; waa: number; war: number;
   ent: MatchEntry[];
   /** preseason: row built from projections — record is predicted, σ/WAA/vs-Median dash */
-  proj?: boolean; lineup?: LineupEntry[];
+  proj?: boolean; lineup?: LineupEntry[]; bench?: LineupEntry[];
   /** preseason: avg opponent lineup WAR + per-week schedule with win prob,
    *  that week's bye-adjusted lineup WAR, and the opponent's bye WAR cost */
   sos?: number | null;
   sched?: { wk: number; opp: number; p: number; war?: number; oppD?: number;
-    pts?: number; oppPts?: number }[];
+    pts?: number; oppPts?: number;
+    /** slot-by-slot lineup changes vs full strength (bye replacements) */
+    subs?: { slot: string; out: string | null; in: string | null }[];
+    /** opponent's bye-adjusted lineup this week + their bye replacements */
+    oppL?: { slot: string; id: string | null; war: number }[];
+    oppSubs?: { slot: string; out: string | null; in: string | null }[] }[];
 }
 type Key = keyof Row;
 const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: number | string }[] = [
@@ -87,22 +93,31 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         const pool = t.players
           .map(pid => byPid.get(pid))
           .filter((p): p is NonNullable<typeof p> => !!p)
-          .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0, bye: p.bye ?? null, ppg: p.ppg ?? 0 }));
-        const { slots } = optimalLineup(pool);
+          .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0, bye: p.bye ?? null, ppg: p.ppg ?? 0, age: p.age }));
+        const { slots, starters } = optimalLineup(pool);
         const lineup: LineupEntry[] = slots.filter(s => s.player).map(s => ({
           ...s.player!, slot: s.slot === "SUPER_FLEX" ? "SF" : s.slot,
           ppg: byPid.get(s.player!.id)?.ppg ?? null,
         }));
+        // slot-by-slot ids of the full-strength lineup, for weekly diffs
+        const slotInfo = slots.map(s => ({
+          name: s.slot === "SUPER_FLEX" ? "SF" : s.slot, id: s.player?.id ?? null,
+        }));
+        const bench: LineupEntry[] = pool.filter(p => !starters.has(p.id))
+          .sort((a, b) => b.war - a.war).slice(0, 5)
+          .map(p => ({ ...p, slot: "BN", ppg: byPid.get(p.id)?.ppg ?? null }));
         const war = lineup.reduce((a, l) => a + l.war, 0);
         const ppg = lineup.reduce((a, l) => a + (l.ppg ?? 0), 0);
-        return { t, pool, war, ppg, lineup };
+        return { t, pool, war, ppg, lineup, bench, slotInfo };
       });
       const meanWar = mean(built.map(b => b.war));
       const warOf = new Map(built.map(b => [b.t.roster_id, b.war]));
       const poolOf = new Map(built.map(b => [b.t.roster_id, b.pool]));
+      const slotsOf = new Map(built.map(b => [b.t.roster_id, b.slotInfo]));
       // bye-aware weekly lineup: rebuild the optimal lineup without that
       // week's bye players, so a stacked bye week costs real win probability
-      const wkCache = new Map<string, { war: number; ppg: number }>();
+      interface WkSlot { id: string | null; war: number }
+      const wkCache = new Map<string, { war: number; ppg: number; slots: WkSlot[] }>();
       const lineupAt = (rid: number, wk: number) => {
         const key = `${rid}:${wk}`;
         let v = wkCache.get(key);
@@ -111,6 +126,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
           v = {
             war: slots.reduce((a, s) => a + (s.player?.war ?? 0), 0),
             ppg: slots.reduce((a, s) => a + (s.player?.ppg ?? 0), 0),
+            slots: slots.map(s => ({ id: s.player?.id ?? null, war: s.player?.war ?? 0 })),
           };
           wkCache.set(key, v);
         }
@@ -131,19 +147,34 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
           (games[b] ??= []).push({ wk, opp: a });
         }
       }
-      const rs: Row[] = built.map(({ t, war, ppg, lineup }) => {
+      const rs: Row[] = built.map(({ t, war, ppg, lineup, bench }) => {
         const gs = (games[t.roster_id] ?? []).sort((a, b) => a.wk - b.wk);
         let wins: number, sos: number | null = null;
         let sched: Row["sched"];
         if (gs.length) {
-          sched = gs.map(g => ({
-            ...g,
-            p: normCdf(zAt(t.roster_id, g.wk) - zAt(g.opp, g.wk)),
-            war: warAt(t.roster_id, g.wk),
-            oppD: Math.max(0, (warOf.get(g.opp) ?? 0) - warAt(g.opp, g.wk)),
-            pts: lineupAt(t.roster_id, g.wk).ppg,
-            oppPts: lineupAt(g.opp, g.wk).ppg,
-          }));
+          sched = gs.map(g => {
+            const me = lineupAt(t.roster_id, g.wk);
+            const opp = lineupAt(g.opp, g.wk);
+            const subs = (slotsOf.get(t.roster_id) ?? [])
+              .map((s, i) => ({ slot: s.name, out: s.id, in: me.slots[i]?.id ?? null }))
+              .filter(x => x.out !== x.in);
+            const oppL = (slotsOf.get(g.opp) ?? [])
+              .map((s, i) => ({ slot: s.name, ...opp.slots[i] }));
+            const oppSubs = (slotsOf.get(g.opp) ?? [])
+              .map((s, i) => ({ slot: s.name, out: s.id, in: opp.slots[i]?.id ?? null }))
+              .filter(x => x.out !== x.in);
+            return {
+              ...g,
+              p: normCdf(zAt(t.roster_id, g.wk) - zAt(g.opp, g.wk)),
+              war: me.war,
+              oppD: Math.max(0, (warOf.get(g.opp) ?? 0) - opp.war),
+              pts: me.ppg,
+              oppPts: opp.ppg,
+              subs: subs.length ? subs : undefined,
+              oppL,
+              oppSubs: oppSubs.length ? oppSubs : undefined,
+            };
+          });
           wins = sched.reduce((a, g) => a + g.p, 0);
           sos = mean(gs.map(g => warOf.get(g.opp) ?? meanWar));
         } else {
@@ -154,7 +185,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
           rid: t.roster_id, seed: 0, team: t.team, manager: t.manager,
           wins, fpts: 0, rec: `${fmt(wins, 1)}-${fmt((gs.length || REG_WEEKS) - wins, 1)}`,
           med: "—", medw: 0, ppg, sdv: 0, waa: 0, war, ent: [],
-          proj: true, lineup, sos, sched,
+          proj: true, lineup, bench, sos, sched,
         };
       });
       const seedOrder = rs.slice().sort((a, b) => b.wins - a.wins);
@@ -294,18 +325,26 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
     <>
       <div className="wkhead">
         <b>{r.team}</b> — {r.manager} · projected {r.rec} · {fmt(r.ppg, 1)} ppg
+        {(() => {
+          // WAR-weighted average starter age: the ages attached to the WAR you start
+          const st = (r.lineup ?? []).filter(l => l.age != null);
+          if (!st.length) return null;
+          const wt = st.map(l => Math.max(0.1, l.war));
+          const tot = wt.reduce((a, b) => a + b, 0);
+          const age = st.reduce((a, l, i) => a + l.age! * wt[i], 0) / tot;
+          return <> · <span title="WAR-weighted average age of the projected lineup">avg starter age {fmt(age, 1)}</span></>;
+        })()}
         {r.sos != null && <> · avg opponent lineup WAR {sgn(r.sos, 2)}</>}
       </div>
       <div className="wkflex">
         <div className="wkwrap">
           <table className="wktbl">
-            <thead><tr><th>Slot</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th><th>Bye</th><th>PPG</th><th>Proj WAR</th></tr></thead>
+            <thead><tr><th>Slot</th><th style={{ textAlign: "left" }}>Player</th><th>Bye</th><th>PPG</th><th>Proj WAR</th></tr></thead>
             <tbody>
-              {(r.lineup ?? []).map((l, i) => (
-                <tr key={i}>
+              {[...(r.lineup ?? []), ...(r.bench ?? [])].map((l, i) => (
+                <tr key={i} style={l.slot === "BN" ? { opacity: 0.75 } : undefined}>
                   <td style={{ color: "var(--dim)" }}>{l.slot}</td>
                   <td style={{ textAlign: "left" }}><PlayerLink pid={l.id} name={pInfo(players, l.id)[0]} /></td>
-                  <td><PosBadge pos={l.pos} /></td>
                   <td style={{ color: "var(--dim)" }}>{l.bye ? `W${l.bye}` : "—"}</td>
                   <td>{l.ppg == null ? "—" : fmt(l.ppg, 1)}</td>
                   <td className={clsOf(l.war)}>{sgn(l.war)}</td>
@@ -319,38 +358,77 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
             <table className="wktbl">
               <thead><tr><th>Week</th><th style={{ textAlign: "left" }}>Opponent</th>
                 <th style={{ textAlign: "left" }}>Byes</th>
-                <th title="this week's optimal lineup WAR, byes removed">Lineup</th>
-                <th title="both sides' bye-adjusted lineups, PPG derived from WAR">Proj Score</th>
+                <th style={{ textAlign: "center" }} title="both sides' bye-adjusted lineups, PPG derived from WAR">Proj Score</th>
                 <th>Win %</th></tr></thead>
               <tbody>
                 {r.sched.map(g => {
-                  const weakened = g.war != null && g.war < r.war - 0.005;
+                  const myD = g.war != null ? Math.max(0, r.war - g.war) : 0;
+                  const weakened = myD > 0.005;
+                  const oppName = tnames[g.opp] || `Roster ${g.opp}`;
+                  const drops: [string, number][] = [];
+                  if (weakened) drops.push([r.team.trim(), myD]);
+                  if ((g.oppD ?? 0) > 0.005) drops.push([oppName.trim(), g.oppD!]);
                   // starters (full-strength lineup) sitting out this week
                   const out = (r.lineup ?? []).filter(l => l.bye === g.wk)
                     .map(l => pInfo(players, l.id)[0].split(" ").slice(-1)[0]);
-                  const oppWeak = (g.oppD ?? 0) > 0.005;
                   return (
                     <tr key={g.wk}>
                       <td>W{g.wk}</td>
                       <td style={{ textAlign: "left" }}>
-                        {tnames[g.opp] || `Roster ${g.opp}`}
-                        {oppWeak && <span className="num good" style={{ fontSize: 11 }}
-                          title={`opponent's byes cost them ${fmt(g.oppD!, 2)} lineup WAR this week`}>
-                          {" "}▼{fmt(g.oppD!, 1)}</span>}
+                        {g.oppL ? (
+                          <HoverTip align="left" tip={<>
+                            <div style={{ color: "var(--txt)", marginBottom: 2 }}>{oppName} · W{g.wk} lineup</div>
+                            {g.oppL.map((s, i) => (
+                              <div key={i}>
+                                <span style={{ color: "var(--dim)", display: "inline-block", minWidth: 34 }}>{s.slot}</span>
+                                <span style={{ color: "var(--txt)" }}>{s.id ? pInfo(players, s.id)[0] : "empty"}</span>
+                                {s.id && <span className={clsOf(s.war)}> {sgn(s.war, 2)}</span>}
+                              </div>
+                            ))}
+                            {g.oppSubs && <>
+                              <div style={{ color: "var(--txt)", margin: "4px 0 2px" }}>on bye</div>
+                              {g.oppSubs.map((s, i) => (
+                                <div key={i}>
+                                  <span style={{ color: "var(--dim)" }}>{s.slot}: </span>
+                                  {s.out ? pInfo(players, s.out)[0] : "—"}
+                                  <span style={{ color: "var(--dim)" }}> → </span>
+                                  <span style={{ color: "var(--txt)" }}>{s.in ? pInfo(players, s.in)[0] : "empty"}</span>
+                                </div>
+                              ))}
+                            </>}
+                          </>}>{oppName}</HoverTip>
+                        ) : oppName}
                       </td>
-                      <td style={{ textAlign: "left", color: "var(--dim)", fontSize: 11.5, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
-                        title={out.length ? (r.lineup ?? []).filter(l => l.bye === g.wk).map(l => pInfo(players, l.id)[0]).join(", ") : undefined}>
-                        {out.length ? out.join(", ") : "—"}
+                      <td style={{ textAlign: "left", color: "var(--dim)", fontSize: 11.5, maxWidth: 200 }}>
+                        {g.subs ? (
+                          <HoverTip align="left" block tip={
+                            g.subs.map((s, i) => (
+                              <div key={i}>
+                                <span style={{ color: "var(--dim)" }}>{s.slot}: </span>
+                                {s.out ? pInfo(players, s.out)[0] : "—"}
+                                <span style={{ color: "var(--dim)" }}> → </span>
+                                <span style={{ color: "var(--txt)" }}>{s.in ? pInfo(players, s.in)[0] : "empty"}</span>
+                              </div>
+                            ))}>
+                            <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                              {out.length ? out.join(", ") : "—"}
+                            </span>
+                          </HoverTip>
+                        ) : (out.length ? out.join(", ") : "—")}
                       </td>
-                      <td className={weakened ? "num bad" : undefined}
-                        style={weakened ? undefined : { color: "var(--dim)" }}
-                        title={weakened ? `byes cost ${fmt(r.war - (g.war ?? 0), 2)} WAR this week` : undefined}>
-                        {g.war == null ? "—" : sgn(g.war, 2)}
-                      </td>
-                      <td style={{ whiteSpace: "nowrap" }}>
-                        {g.pts == null || g.oppPts == null ? <span style={{ color: "var(--dim)" }}>—</span> : <>
-                          {fmt(g.pts, 1)}<span style={{ color: "var(--dim)" }}> – </span>{fmt(g.oppPts, 1)}
-                        </>}
+                      <td style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", textAlign: "center" }}>
+                        <HoverTip tip={
+                          drops.length === 0 ? "no bye impact this week" : <>
+                            bye impact:{drops.map(([nm, d], i) => (
+                              <span key={nm}>{i > 0 && " ·"} {nm} <span className="num bad">−{fmt(d, 2)} WAR</span></span>
+                            ))}
+                          </>}>
+                          {g.pts == null || g.oppPts == null ? <span style={{ color: "var(--dim)" }}>—</span> : <>
+                            <span style={{ display: "inline-block", minWidth: "3.2em", textAlign: "right" }}>{fmt(g.pts, 1)}</span>
+                            <span style={{ color: "var(--dim)" }}> – </span>
+                            <span style={{ display: "inline-block", minWidth: "3.2em", textAlign: "left" }}>{fmt(g.oppPts, 1)}</span>
+                          </>}
+                        </HoverTip>
                       </td>
                       <td className={g.p >= 0.5 ? "num good" : "num bad"}>{fmt(g.p * 100, 0)}%</td>
                     </tr>

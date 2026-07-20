@@ -141,6 +141,13 @@ export interface ValueBridge {
   picks: Record<string, [string, number, number, number[]][]>;
 }
 
+/** data/picks_owned.json — who holds which future draft picks right now */
+export interface PicksOwned {
+  meta: { seasons: number[]; as_of: string };
+  /** holder roster_id -> picks (orig = the roster whose finish sets the slot) */
+  owned: Record<string, { season: number; round: number; orig: number }[]>;
+}
+
 /** data/franchises.json — per roster_id (stable franchise) history + transactions */
 export interface FranchiseSeason {
   season: string; name: string; manager: string;

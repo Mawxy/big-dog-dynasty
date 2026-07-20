@@ -325,6 +325,26 @@ def main():
         {pid: [[sn, wk, txt] for _, sn, wk, txt in sorted(evts)]
          for pid, evts in own.items()}))
     (out / "franchises.json").write_text(json.dumps(franchises))
+
+    # --- future draft-pick ownership (trade calculator's team postures) ------
+    # Every roster owns its own pick for the next drafts unless traded_picks
+    # says otherwise. Rounds 1-4, two seasons out (the calculator's horizon).
+    if seasons:
+        newest = max(seasons)
+        tp = load(root / newest / "traded_picks.json") or []
+        rosters = load(root / newest / "rosters.json") or []
+        rids = [r["roster_id"] for r in rosters]
+        fut = [int(newest) + 1, int(newest) + 2]
+        owner = {(int(s), rnd, rid): rid for s in fut for rnd in (1, 2, 3, 4) for rid in rids}
+        for t in tp:
+            k = (int(t["season"]), t["round"], t["roster_id"])
+            if k in owner:
+                owner[k] = t["owner_id"]
+        owned = {}
+        for (s, rnd, orig), holder in sorted(owner.items()):
+            owned.setdefault(str(holder), []).append({"season": s, "round": rnd, "orig": orig})
+        (out / "picks_owned.json").write_text(json.dumps(
+            {"meta": {"seasons": fut, "as_of": newest}, "owned": owned}))
     (out / "meta.json").write_text(json.dumps({
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
         "rosterPositions": roster_positions, "taxiSlots": taxi_slots,

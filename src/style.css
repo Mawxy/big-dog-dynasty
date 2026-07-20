@@ -198,4 +198,6 @@ td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
 .shead .tname{color:var(--acc);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex-shrink:1}
 .shead .chev{color:var(--dim);font-size:11px;flex-shrink:0}
 .ssub{color:var(--dim);font-size:12.5px;margin:2px 0 6px 19px}
-@media (max-width:640px){.seasongrid{grid-template-columns:1fr}}
+@media (max-width:640px){.seasongrid{grid-template-columns:1fr}}/* the expanded-panel row is not clickable — don't inherit the leaderboard
+   rows' pointer cursor / hover background in the gaps between inner tables */
+tbody tr.wkbox:hover{background:transparent;cursor:default}

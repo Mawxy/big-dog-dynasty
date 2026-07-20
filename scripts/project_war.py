@@ -86,10 +86,20 @@ def match_meta(name, pos, idx):
     cands = idx.get((last, pos), [])
     if len(cands) == 1:
         return cands[0][1:]
-    for cn, *rest in cands:
-        cf = cn.split()[0]
-        if cf == first or cf.startswith(first[:3]) or NICK.get(first) == cf:
-            return tuple(rest)
+    # Tiered: exact full name > exact first name > nickname > 3-letter prefix.
+    # The old single loose pass returned the FIRST prefix hit, which matched
+    # Jameson Williams to a 1978-born "James Williams" (age 47 in projections,
+    # 2026-07-20). Within a tier, ties break to the YOUNGEST birth date —
+    # nflverse history is full of decades-old namesakes (Marvin Harrison Sr,
+    # a 1970s Cedric Tillman) and the roster player is essentially always the
+    # recent one. Prefix stays as a last resort for nickname-ish spellings.
+    for test in (lambda cf, cn: cn == n,
+                 lambda cf, cn: cf == first,
+                 lambda cf, cn: NICK.get(first) == cf,
+                 lambda cf, cn: cf.startswith(first[:3])):
+        hits = [rest for cn, *rest in cands if test(cn.split()[0], cn)]
+        if hits:
+            return max(hits, key=lambda h: h[0] or datetime.date.min)
     return None
 
 
