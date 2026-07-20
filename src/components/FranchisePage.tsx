@@ -36,7 +36,13 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
   const [draftSeasons, setDraftSeasons] = useState<string[]>([]);
   const [draftSeason, setDraftSeason] = useState("all");
   const [trades, setTrades] = useState<Trade[] | null>(null);
-  const [openTrade, setOpenTrade] = useState<number | null>(null);
+  // trades render expanded; this tracks the ones collapsed by the user
+  const [closedTrades, setClosedTrades] = useState<Set<number>>(new Set());
+  const toggleTrade = (i: number) => setClosedTrades(prev => {
+    const next = new Set(prev);
+    if (!next.delete(i)) next.add(i);
+    return next;
+  });
   const [rosterSeason, setRosterSeason] = useState<string | null>(null);
   const [roster, setRoster] = useState<
     { team: Team; sum: Map<string, SummaryRow>; rank: Map<string, number> } | null>(null);
@@ -338,8 +344,8 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
             {!trades ? <div style={{ color: "var(--dim)" }}>Loading trades…</div>
               : !shown.length ? <div style={{ color: "var(--dim)" }}>none</div>
                 : shown.map((t, i) => (
-                  <TradeCard key={`${t.ts}-${i}`} t={t} highlightRid={rid} open={openTrade === i}
-                    onToggle={() => setOpenTrade(openTrade === i ? null : i)} />
+                  <TradeCard key={`${t.ts}-${i}`} t={t} highlightRid={rid}
+                    open={!closedTrades.has(i)} onToggle={() => toggleTrade(i)} />
                 ))}
           </>;
         })()}

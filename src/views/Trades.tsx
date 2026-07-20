@@ -10,7 +10,13 @@ export default function Trades() {
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [season, setSeason] = useState("all");
   const [team, setTeam] = useState("all");
-  const [open, setOpen] = useState<number | null>(null);
+  // expanded by default — track which ones the user has COLLAPSED
+  const [closed, setClosed] = useState<Set<number>>(new Set());
+  const toggle = (i: number) => setClosed(prev => {
+    const next = new Set(prev);
+    if (!next.delete(i)) next.add(i);
+    return next;
+  });
   const [delta, setDelta] = useState<number | null>(null);
 
   useEffect(() => {
@@ -34,13 +40,13 @@ export default function Trades() {
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 16, margin: "4px 0 14px", flexWrap: "wrap" }}>
         <label style={lblStyle}>Season
-          <select value={season} onChange={e => { setSeason(e.target.value); setOpen(null); }} style={selStyle}>
+          <select value={season} onChange={e => { setSeason(e.target.value); setClosed(new Set()); }} style={selStyle}>
             <option value="all">All</option>
             {seasons.map(s => <option key={s} value={s}>{s}</option>)}
           </select>
         </label>
         <label style={lblStyle}>Team
-          <select value={team} onChange={e => { setTeam(e.target.value); setOpen(null); }} style={selStyle}>
+          <select value={team} onChange={e => { setTeam(e.target.value); setClosed(new Set()); }} style={selStyle}>
             <option value="all">All</option>
             {teams.map(t => <option key={t} value={t}>{t}</option>)}
           </select>
@@ -53,8 +59,7 @@ export default function Trades() {
       </div>
 
       {rows.map((t, i) => (
-        <TradeCard key={`${t.ts}-${i}`} t={t} open={open === i}
-          onToggle={() => setOpen(open === i ? null : i)} />
+        <TradeCard key={`${t.ts}-${i}`} t={t} open={!closed.has(i)} onToggle={() => toggle(i)} />
       ))}
     </>
   );
