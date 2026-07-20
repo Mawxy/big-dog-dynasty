@@ -17,9 +17,11 @@ interface Row {
   ent: MatchEntry[];
   /** preseason: row built from projections — record is predicted, σ/WAA/vs-Median dash */
   proj?: boolean; lineup?: LineupEntry[];
-  /** preseason: avg opponent lineup WAR + per-week schedule with win prob
-   *  and that week's bye-adjusted lineup WAR */
-  sos?: number | null; sched?: { wk: number; opp: number; p: number; war?: number }[];
+  /** preseason: avg opponent lineup WAR + per-week schedule with win prob,
+   *  that week's bye-adjusted lineup WAR, and the opponent's bye WAR cost */
+  sos?: number | null;
+  sched?: { wk: number; opp: number; p: number; war?: number; oppD?: number;
+    pts?: number; oppPts?: number }[];
 }
 type Key = keyof Row;
 const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: number | string }[] = [
@@ -85,7 +87,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         const pool = t.players
           .map(pid => byPid.get(pid))
           .filter((p): p is NonNullable<typeof p> => !!p)
-          .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0, bye: p.bye ?? null }));
+          .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0, bye: p.bye ?? null, ppg: p.ppg ?? 0 }));
         const { slots } = optimalLineup(pool);
         const lineup: LineupEntry[] = slots.filter(s => s.player).map(s => ({
           ...s.player!, slot: s.slot === "SUPER_FLEX" ? "SF" : s.slot,
@@ -100,17 +102,21 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       const poolOf = new Map(built.map(b => [b.t.roster_id, b.pool]));
       // bye-aware weekly lineup: rebuild the optimal lineup without that
       // week's bye players, so a stacked bye week costs real win probability
-      const wkWarCache = new Map<string, number>();
-      const warAt = (rid: number, wk: number): number => {
+      const wkCache = new Map<string, { war: number; ppg: number }>();
+      const lineupAt = (rid: number, wk: number) => {
         const key = `${rid}:${wk}`;
-        let v = wkWarCache.get(key);
+        let v = wkCache.get(key);
         if (v == null) {
           const { slots } = optimalLineup((poolOf.get(rid) ?? []).filter(p => p.bye !== wk));
-          v = slots.reduce((a, s) => a + (s.player?.war ?? 0), 0);
-          wkWarCache.set(key, v);
+          v = {
+            war: slots.reduce((a, s) => a + (s.player?.war ?? 0), 0),
+            ppg: slots.reduce((a, s) => a + (s.player?.ppg ?? 0), 0),
+          };
+          wkCache.set(key, v);
         }
         return v;
       };
+      const warAt = (rid: number, wk: number) => lineupAt(rid, wk).war;
       const zAt = (rid: number, wk: number) => {
         const s = Math.min(0.45, Math.max(-0.45, (warAt(rid, wk) - meanWar) / 13));
         return normInv(0.5 + s);
@@ -134,6 +140,9 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
             ...g,
             p: normCdf(zAt(t.roster_id, g.wk) - zAt(g.opp, g.wk)),
             war: warAt(t.roster_id, g.wk),
+            oppD: Math.max(0, (warOf.get(g.opp) ?? 0) - warAt(g.opp, g.wk)),
+            pts: lineupAt(t.roster_id, g.wk).ppg,
+            oppPts: lineupAt(g.opp, g.wk).ppg,
           }));
           wins = sched.reduce((a, g) => a + g.p, 0);
           sos = mean(gs.map(g => warOf.get(g.opp) ?? meanWar));
@@ -309,18 +318,39 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
           <div className="wkwrap">
             <table className="wktbl">
               <thead><tr><th>Week</th><th style={{ textAlign: "left" }}>Opponent</th>
-                <th title="this week's optimal lineup WAR, byes removed">Lineup</th><th>Win %</th></tr></thead>
+                <th style={{ textAlign: "left" }}>Byes</th>
+                <th title="this week's optimal lineup WAR, byes removed">Lineup</th>
+                <th title="both sides' bye-adjusted lineups, PPG derived from WAR">Proj Score</th>
+                <th>Win %</th></tr></thead>
               <tbody>
                 {r.sched.map(g => {
                   const weakened = g.war != null && g.war < r.war - 0.005;
+                  // starters (full-strength lineup) sitting out this week
+                  const out = (r.lineup ?? []).filter(l => l.bye === g.wk)
+                    .map(l => pInfo(players, l.id)[0].split(" ").slice(-1)[0]);
+                  const oppWeak = (g.oppD ?? 0) > 0.005;
                   return (
                     <tr key={g.wk}>
                       <td>W{g.wk}</td>
-                      <td style={{ textAlign: "left" }}>{tnames[g.opp] || `Roster ${g.opp}`}</td>
+                      <td style={{ textAlign: "left" }}>
+                        {tnames[g.opp] || `Roster ${g.opp}`}
+                        {oppWeak && <span className="num good" style={{ fontSize: 11 }}
+                          title={`opponent's byes cost them ${fmt(g.oppD!, 2)} lineup WAR this week`}>
+                          {" "}▼{fmt(g.oppD!, 1)}</span>}
+                      </td>
+                      <td style={{ textAlign: "left", color: "var(--dim)", fontSize: 11.5, maxWidth: 130, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}
+                        title={out.length ? (r.lineup ?? []).filter(l => l.bye === g.wk).map(l => pInfo(players, l.id)[0]).join(", ") : undefined}>
+                        {out.length ? out.join(", ") : "—"}
+                      </td>
                       <td className={weakened ? "num bad" : undefined}
                         style={weakened ? undefined : { color: "var(--dim)" }}
                         title={weakened ? `byes cost ${fmt(r.war - (g.war ?? 0), 2)} WAR this week` : undefined}>
                         {g.war == null ? "—" : sgn(g.war, 2)}
+                      </td>
+                      <td style={{ whiteSpace: "nowrap" }}>
+                        {g.pts == null || g.oppPts == null ? <span style={{ color: "var(--dim)" }}>—</span> : <>
+                          {fmt(g.pts, 1)}<span style={{ color: "var(--dim)" }}> – </span>{fmt(g.oppPts, 1)}
+                        </>}
                       </td>
                       <td className={g.p >= 0.5 ? "num good" : "num bad"}>{fmt(g.p * 100, 0)}%</td>
                     </tr>
