@@ -28,7 +28,11 @@ export type Weekly = Record<string, WeeklyRow[]>;
 
 /** [week, pts, opp_roster_id, opp_pts, starters] */
 export type MatchEntry = [number, number, number | null, number | null, string[]];
-export interface Matchups { playoff_start: number; teams: Record<string, MatchEntry[]> }
+export interface Matchups {
+  playoff_start: number; teams: Record<string, MatchEntry[]>;
+  /** future-week pairings from Sleeper (preseason): week -> [[ridA, ridB], ...] */
+  schedule?: Record<string, [number, number][]>;
+}
 
 /** [season, week, text] */
 export type OwnEvent = [string, number, string];

@@ -87,6 +87,17 @@ def dump_league(league_id: str, root: Path):
         week_scored = bool(m and any(t.get("points") for t in m))
         if week_scored:
             save(m, d / "matchups" / f"week_{wk:02d}.json")
+        elif m:
+            # Sleeper publishes the whole season's pairings up front — keep the
+            # slim schedule for unscored weeks so the site can project records
+            # against the REAL schedule preseason. [[ridA, ridB], ...]
+            bym = {}
+            for t in m:
+                if t.get("matchup_id") is not None:
+                    bym.setdefault(t["matchup_id"], []).append(t["roster_id"])
+            pairs = sorted(sorted(v) for v in bym.values() if len(v) == 2)
+            if pairs:
+                save(pairs, d / "schedule" / f"week_{wk:02d}.json")
         t = get(f"/league/{league_id}/transactions/{wk}")
         if t:
             save(t, d / "transactions" / f"week_{wk:02d}.json")

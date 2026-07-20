@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Matchups, MatchEntry, PlayersMin, ProjectionsFile, SeasonData, SleeperProjFile, Team, Weekly } from "../lib/types";
 import { j } from "../lib/data";
-import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
+import { fmt, sgn, clsOf, sd, mean, normCdf, normInv } from "../lib/stats";
 import { pInfo, weekIndex, seasonSeg, optimalLineup } from "../lib/league";
 import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
@@ -17,6 +17,8 @@ interface Row {
   ent: MatchEntry[];
   /** preseason: row built from projections — record is predicted, σ/WAA/vs-Median dash */
   proj?: boolean; lineup?: LineupEntry[];
+  /** preseason: avg opponent lineup WAR + per-week schedule with win prob */
+  sos?: number | null; sched?: { wk: number; opp: number; p: number }[];
 }
 type Key = keyof Row;
 const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: number | string }[] = [
@@ -73,10 +75,12 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   const rows = useMemo<Row[]>(() => {
     if (!mw) return [];
     if (isProj && projs) {
-      // Optimal lineup per roster from year-1 composite WAR; expected wins =
-      // 7 + (lineup WAR − league mean) × 14/13. WAR differences ARE win
-      // differences in this framework, so centering on the league mean turns
-      // lineup strength directly into a predicted record.
+      // Optimal lineup per roster from year-1 composite WAR, then walk the
+      // REAL schedule (Sleeper publishes all pairings preseason). Per game:
+      // each team's per-week win-prob shift vs an average opponent is
+      // s = (lineup WAR − league mean)/13; invert the engine's Φ mapping to an
+      // equivalent margin and the head-to-head is P(i beats j) =
+      // Φ(Φ⁻¹(½+sᵢ) − Φ⁻¹(½+sⱼ)). Expected wins = Σ P over the 14 weeks.
       const byPid = new Map(projs.players.map(p => [p.pid, p]));
       const built = data.teams.map(t => {
         const pool = t.players
@@ -93,13 +97,40 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         return { t, war, ppg, lineup };
       });
       const meanWar = mean(built.map(b => b.war));
+      const warOf = new Map(built.map(b => [b.t.roster_id, b.war]));
+      const zOf = new Map(built.map(b => {
+        const s = Math.min(0.45, Math.max(-0.45, (b.war - meanWar) / 13));
+        return [b.t.roster_id, normInv(0.5 + s)];
+      }));
+      const psWk = mw.playoff_start || 15;
+      const games: Record<number, { wk: number; opp: number }[]> = {};
+      for (const [wkS, pairs] of Object.entries(mw.schedule ?? {})) {
+        const wk = +wkS;
+        if (wk >= psWk) continue;
+        for (const [a, b] of pairs) {
+          (games[a] ??= []).push({ wk, opp: b });
+          (games[b] ??= []).push({ wk, opp: a });
+        }
+      }
       const rs: Row[] = built.map(({ t, war, ppg, lineup }) => {
-        const wins = Math.min(REG_WEEKS, Math.max(0, REG_WEEKS / 2 + (war - meanWar) * (REG_WEEKS / 13)));
+        const gs = (games[t.roster_id] ?? []).sort((a, b) => a.wk - b.wk);
+        let wins: number, sos: number | null = null;
+        let sched: Row["sched"];
+        if (gs.length) {
+          sched = gs.map(g => ({
+            ...g, p: normCdf((zOf.get(t.roster_id) ?? 0) - (zOf.get(g.opp) ?? 0)),
+          }));
+          wins = sched.reduce((a, g) => a + g.p, 0);
+          sos = mean(gs.map(g => warOf.get(g.opp) ?? meanWar));
+        } else {
+          // no schedule published (older data): strength-only fallback
+          wins = Math.min(REG_WEEKS, Math.max(0, REG_WEEKS / 2 + (war - meanWar) * (REG_WEEKS / 13)));
+        }
         return {
           rid: t.roster_id, seed: 0, team: t.team, manager: t.manager,
-          wins, fpts: 0, rec: `${fmt(wins, 1)}-${fmt(REG_WEEKS - wins, 1)}`,
+          wins, fpts: 0, rec: `${fmt(wins, 1)}-${fmt((gs.length || REG_WEEKS) - wins, 1)}`,
           med: "—", medw: 0, ppg, sdv: 0, waa: 0, war, ent: [],
-          proj: true, lineup,
+          proj: true, lineup, sos, sched,
         };
       });
       const seedOrder = rs.slice().sort((a, b) => b.wins - a.wins);
@@ -186,11 +217,13 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       </table>
       <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 8 }}>
         {isProj ? <>
-          No scored weeks yet — <b style={{ color: "var(--txt)" }}>projected</b> standings.
-          WAR = optimal lineup summed from year-1 composite projections; predicted record
-          = 7-7 shifted by lineup WAR vs the league mean (WAR differences are win
-          differences). PPG from Sleeper projections. Schedule &amp; luck not modeled.
-          Click a row for the projected lineup · click a team name for the full roster.
+          No scored weeks yet — <b style={{ color: "var(--txt)" }}>projected</b> standings
+          over the real Sleeper schedule. WAR = optimal lineup summed from year-1
+          composite projections; each game's win probability comes from the two lineups'
+          WAR gap via the same Φ mapping the engine uses, and the predicted record sums
+          those probabilities. PPG from Sleeper projections. Injuries &amp; roster moves
+          not modeled. Click a row for the lineup &amp; schedule · click a team name for
+          the full roster.
         </> : <>
           WAA / WAR are summed from each week's actual starting lineup.
           Lineup WAA is measured against the league-wide <i>optimal</i> starter pool, so most teams land below zero — compare teams to each other, not to 0.
@@ -207,7 +240,7 @@ function TeamRow(props: {
 }) {
   const { r, open, ps, wkIdx, teams, players, bySum, onToggle, onOpenDetail } = props;
   const panel = r.proj
-    ? <ProjPanel r={r} players={players} />
+    ? <ProjPanel r={r} players={players} teams={teams} />
     : <TeamPanel r={r} ps={ps} wkIdx={wkIdx} teams={teams} players={players} bySum={bySum} />;
   return (
     <>
@@ -227,26 +260,50 @@ function TeamRow(props: {
   );
 }
 
-/** Preseason dropdown: the projected optimal lineup this row was scored on. */
-function ProjPanel({ r, players }: { r: Row; players: PlayersMin }) {
+/** Preseason dropdown: projected optimal lineup + the real schedule with
+ *  per-game win probabilities (this is exactly what the row's record sums). */
+function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: Team[] }) {
+  const tnames: Record<number, string> = {};
+  teams.forEach(t => { tnames[t.roster_id] = t.team; });
   return (
     <>
-      <div className="wkhead"><b>{r.team}</b> — {r.manager} · projected {r.rec} · {fmt(r.ppg, 1)} ppg</div>
-      <div className="wkwrap">
-        <table className="wktbl">
-          <thead><tr><th>Slot</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th><th>PPG</th><th>Proj WAR</th></tr></thead>
-          <tbody>
-            {(r.lineup ?? []).map((l, i) => (
-              <tr key={i}>
-                <td style={{ color: "var(--dim)" }}>{l.slot}</td>
-                <td style={{ textAlign: "left" }}><PlayerLink pid={l.id} name={pInfo(players, l.id)[0]} /></td>
-                <td><PosBadge pos={l.pos} /></td>
-                <td>{l.ppg == null ? "—" : fmt(l.ppg, 1)}</td>
-                <td className={clsOf(l.war)}>{sgn(l.war)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="wkhead">
+        <b>{r.team}</b> — {r.manager} · projected {r.rec} · {fmt(r.ppg, 1)} ppg
+        {r.sos != null && <> · avg opponent lineup WAR {sgn(r.sos, 2)}</>}
+      </div>
+      <div className="wkflex">
+        <div className="wkwrap">
+          <table className="wktbl">
+            <thead><tr><th>Slot</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th><th>PPG</th><th>Proj WAR</th></tr></thead>
+            <tbody>
+              {(r.lineup ?? []).map((l, i) => (
+                <tr key={i}>
+                  <td style={{ color: "var(--dim)" }}>{l.slot}</td>
+                  <td style={{ textAlign: "left" }}><PlayerLink pid={l.id} name={pInfo(players, l.id)[0]} /></td>
+                  <td><PosBadge pos={l.pos} /></td>
+                  <td>{l.ppg == null ? "—" : fmt(l.ppg, 1)}</td>
+                  <td className={clsOf(l.war)}>{sgn(l.war)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {r.sched && r.sched.length > 0 && (
+          <div className="wkwrap">
+            <table className="wktbl">
+              <thead><tr><th>Week</th><th style={{ textAlign: "left" }}>Opponent</th><th>Win %</th></tr></thead>
+              <tbody>
+                {r.sched.map(g => (
+                  <tr key={g.wk}>
+                    <td>W{g.wk}</td>
+                    <td style={{ textAlign: "left" }}>{tnames[g.opp] || `Roster ${g.opp}`}</td>
+                    <td className={g.p >= 0.5 ? "num good" : "num bad"}>{fmt(g.p * 100, 0)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
     </>
   );

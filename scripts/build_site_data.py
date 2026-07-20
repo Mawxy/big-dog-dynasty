@@ -122,9 +122,24 @@ def main():
                         [wk, round(pts.get(rid, 0), 2), o,
                          round(pts.get(o, 0), 2) if o else None,
                          t.get("starters") or []])
-        (sout / "matchups.json").write_text(json.dumps(
-            {"playoff_start": league.get("settings", {}).get("playoff_week_start", 15),
-             "teams": mws}))
+        # future-week pairings (sleeper_pull's schedule/ dir): lets the site
+        # project records against the real schedule before any games are scored
+        sched = {}
+        scdir = sdir / "schedule"
+        if scdir.exists():
+            scored_wks = {e[0] for lst in mws.values() for e in lst}
+            for wf in sorted(scdir.glob("week_*.json")):
+                wk = int(wf.stem.split("_")[1])
+                if wk in scored_wks:
+                    continue
+                pairs = load(wf) or []
+                if pairs:
+                    sched[str(wk)] = pairs
+        mpayload = {"playoff_start": league.get("settings", {}).get("playoff_week_start", 15),
+                    "teams": mws}
+        if sched:
+            mpayload["schedule"] = sched
+        (sout / "matchups.json").write_text(json.dumps(mpayload))
 
         # --- absences: label each missing regular-season week BYE / DNP / NR ---
         ps_wk = league.get("settings", {}).get("playoff_week_start", 15)
