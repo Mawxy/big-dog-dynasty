@@ -3,7 +3,7 @@ import type { BridgeKnots, PicksOwned, PickValues, ProjectionsFile, Team, ValueB
 import { j, jDaily } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { optimalLineup } from "../lib/league";
-import { computePostures, NEUTRAL as NEUTRAL_W, pickLabel, type Posture } from "../lib/tradeModel";
+import { computePostures, NEUTRAL as NEUTRAL_W, pickLabel, pickStream, type Posture } from "../lib/tradeModel";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 
@@ -107,8 +107,13 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
       const cur = pv.meta.generated_for_season + 1;   // current rookie class
       const ktcMap = new Map(vals?.picks?.ktc ?? []);
       const fcMap = new Map(vals?.picks?.fc ?? []);
-      const stream = (b?: { raw: Record<string, number> }) =>
-        b ? [1, 2, 3].map(y => b.raw[String(y)] ?? 0) : [0, 0, 0];
+      // option value: busts get cut for waiver bodies, so E[max(0, outcome)]
+      const stream = (b?: { raw: Record<string, number>; dist?: Record<string, number[]> }) =>
+        b ? [1, 2, 3].map(y => {
+          const d = b.dist?.[String(y)];
+          if (d?.length) return d.reduce((a, x) => a + Math.max(0, x), 0) / d.length;
+          return Math.max(0, b.raw[String(y)] ?? 0);
+        }) : [0, 0, 0];
       const band = (label: string) => pv.bands.find(b => b.label === label);
       const mk = (label: string, str: number[], lag: number,
         ktc: number | null, fc: number | null): Asset => {
@@ -133,7 +138,7 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
       for (let y = cur + 1; y <= cur + 2; y++)
         for (let r = 0; r < 4; r++)
           for (const tier of TIERS)
-            out.push(mk(`${y} ${tier} ${ORD[r]}`, stream(band(`${tier} ${ORD[r]}`)), y - cur,
+            out.push(mk(`${y} ${tier} ${ORD[r]}`, pickStream(pv, tier, r + 1), y - cur,
               ktcMap.get(`${y} ${tier} ${ORD[r]}`) ?? null,
               tier === "Mid" ? fcMap.get(`${y} ${ORD[r]}`) ?? null : null));
     }

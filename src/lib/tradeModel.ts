@@ -31,10 +31,19 @@ export const pickLabel = (postures: Posture[],
   pk: { season: number; round: number; orig: number }) =>
   `${pk.season} ${tierFor(postures, pk.orig)} ${ORD[pk.round - 1]}`;
 
-/** Bridge A tier stream for a future pick: WAR by years-since-draft */
+/** Bridge A tier stream for a future pick, as OPTION value: a pick's busts
+ *  get cut for a free ~0-WAR waiver body while its hits get started, so each
+ *  year is E[max(0, outcome)] over the empirical distribution — never
+ *  negative. (Raw means go below zero for late rounds, which made "throwing
+ *  in a pick" read as shedding toxic waste and broke trade suggestions.) */
 export const pickStream = (pv: PickValues, tier: string, round: number): number[] => {
   const b = pv.bands.find(x => x.label === `${tier} ${ORD[round - 1]}`);
-  return b ? [1, 2, 3].map(y => b.raw[String(y)] ?? 0) : [0, 0, 0];
+  if (!b) return [0, 0, 0];
+  return [1, 2, 3].map(y => {
+    const d = b.dist?.[String(y)];
+    if (d?.length) return d.reduce((a, x) => a + Math.max(0, x), 0) / d.length;
+    return Math.max(0, b.raw[String(y)] ?? 0);
+  });
 };
 
 interface PoolP { id: string; pos: string; comp: number[]; age?: number }
@@ -160,9 +169,13 @@ export function suggestTrades(rid: number, players: Projection[], teams: Team[],
   let needs = allNeeds.slice().sort((a, b) => b.shortfall - a.shortfall)
     .filter(x => x.shortfall > 0.05).slice(0, 2);
   // a top roster can be above the league mean everywhere — its "need" is then
-  // its weakest spot RELATIVE to its own strength (worst positional rank)
+  // its weakest spot RELATIVE to its own strength, but only if that spot is
+  // genuinely mediocre (bottom half). Being "4th of 12 at QB" is not a need,
+  // and pretending it is invents pointless churn trades.
   if (!needs.length)
-    needs = allNeeds.slice().sort((a, b) => b.rank - a.rank).slice(0, 1);
+    needs = allNeeds.slice().sort((a, b) => b.rank - a.rank)
+      .filter(x => x.rank >= 6).slice(0, 1);
+  if (!needs.length) return [];
 
   // ---- what I can send: players cheap to me but valuable to others ---------
   const sendables = pools.get(rid)!
