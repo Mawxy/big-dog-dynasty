@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
-import type { Trade, TradesFile } from "../lib/types";
+import type { Trade, TradesPayload } from "../lib/types";
 import { j } from "../lib/data";
-import TradeCard from "../components/TradeCard";
+import TradeCard, { readTrades } from "../components/TradeCard";
 
 const selStyle: CSSProperties = { background: "var(--card)", border: "1px solid var(--line)", color: "var(--txt)", padding: "4px 8px", borderRadius: 8, fontSize: 13 };
 const lblStyle: CSSProperties = { color: "var(--dim)", fontSize: 13, display: "flex", alignItems: "center", gap: 6 };
@@ -14,8 +14,8 @@ export default function Trades() {
   const [delta, setDelta] = useState<number | null>(null);
 
   useEffect(() => {
-    j<TradesFile>("data/trades.json")
-      .then(f => { setTrades(f.trades); setDelta(f.meta?.delta ?? null); })
+    j<TradesPayload>("data/trades.json")
+      .then(p => { const r = readTrades(p); setTrades(r.trades); setDelta(r.delta); })
       .catch(() => setTrades([]));
   }, []);
 

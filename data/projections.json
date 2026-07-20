@@ -9,8 +9,8 @@
    2027,
    2028
   ],
-  "players": 316,
-  "model": "per-13 rate + capital-shrinkage + availability; three streams: if-healthy / composite(half injury) / expected(full injury)"
+  "players": 390,
+  "model": "per-13 rate + capital-shrinkage + availability; three streams: natural(if healthy) / composite(natural blended with Sleeper projection, 80/50/20 by year) / expected(natural x availability)"
  },
  "players": [
   {
@@ -108,6 +108,69 @@
    "total": 4.474,
    "total_exp": 3.36,
    "total_comp": 4.486
+  },
+  {
+   "pid": "13287",
+   "name": "Jeremiyah Love",
+   "pos": "RB",
+   "team": "These Bitches Love 'Doza",
+   "age": 20,
+   "age_src": "matched",
+   "pick": 3,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": 1.584,
+   "proj": [
+    1.331,
+    1.248,
+    1.233
+   ],
+   "nat_low": [
+    0.878,
+    0.796,
+    0.781
+   ],
+   "nat_high": [
+    1.801,
+    1.719,
+    1.704
+   ],
+   "expected": [
+    1.083,
+    1.016,
+    1.004
+   ],
+   "adj_low": [
+    0.715,
+    0.648,
+    0.635
+   ],
+   "adj_high": [
+    1.466,
+    1.399,
+    1.387
+   ],
+   "composite": [
+    0.765,
+    0.916,
+    1.102
+   ],
+   "comp_low": [
+    0.312,
+    0.463,
+    0.649
+   ],
+   "comp_high": [
+    1.236,
+    1.387,
+    1.573
+   ],
+   "proj_ext": 0.623,
+   "total": 3.812,
+   "total_exp": 3.103,
+   "total_comp": 2.783
   },
   {
    "pid": "4881",
@@ -1512,6 +1575,69 @@
    "total": 2.732,
    "total_exp": 2.006,
    "total_comp": 2.885
+  },
+  {
+   "pid": "13269",
+   "name": "Fernando Mendoza",
+   "pos": "QB",
+   "team": "These Bitches Love 'Doza",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 1,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": 0.916,
+   "proj": [
+    0.899,
+    0.896,
+    0.896
+   ],
+   "nat_low": [
+    0.469,
+    0.466,
+    0.465
+   ],
+   "nat_high": [
+    1.348,
+    1.345,
+    1.344
+   ],
+   "expected": [
+    0.727,
+    0.725,
+    0.725
+   ],
+   "adj_low": [
+    0.379,
+    0.377,
+    0.376
+   ],
+   "adj_high": [
+    1.091,
+    1.088,
+    1.088
+   ],
+   "composite": [
+    0.429,
+    0.603,
+    0.779
+   ],
+   "comp_low": [
+    0.0,
+    0.172,
+    0.348
+   ],
+   "comp_high": [
+    0.878,
+    1.052,
+    1.228
+   ],
+   "proj_ext": 0.312,
+   "total": 2.691,
+   "total_exp": 2.177,
+   "total_comp": 1.811
   },
   {
    "pid": "12508",
@@ -3018,6 +3144,102 @@
    "total_comp": 2.125
   },
   {
+   "pid": "4018",
+   "name": "Joe Mixon",
+   "pos": "RB",
+   "team": "Captain Jah\u2019Merica",
+   "age": 29,
+   "age_src": "matched",
+   "pick": 48,
+   "exp": 9,
+   "elite": 1,
+   "war25": 0.0,
+   "career": [
+    [
+     2017,
+     0.15
+    ],
+    [
+     2018,
+     0.904
+    ],
+    [
+     2019,
+     0.463
+    ],
+    [
+     2020,
+     0.351
+    ],
+    [
+     2021,
+     1.134
+    ],
+    [
+     2022,
+     0.925
+    ],
+    [
+     2023,
+     0.941
+    ],
+    [
+     2024,
+     1.292
+    ]
+   ],
+   "level": 1.516,
+   "proj": [
+    0.816,
+    0.66,
+    0.587
+   ],
+   "nat_low": [
+    0.42,
+    0.265,
+    0.192
+   ],
+   "nat_high": [
+    1.25,
+    1.095,
+    1.021
+   ],
+   "expected": [
+    0.573,
+    0.464,
+    0.413
+   ],
+   "adj_low": [
+    0.296,
+    0.186,
+    0.135
+   ],
+   "adj_high": [
+    0.879,
+    0.769,
+    0.718
+   ],
+   "composite": [
+    -0.738,
+    -0.125,
+    0.308
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.304,
+    0.309,
+    0.742
+   ],
+   "proj_ext": -1.126,
+   "total": 2.063,
+   "total_exp": 1.45,
+   "total_comp": -0.555
+  },
+  {
    "pid": "8137",
    "name": "George Pickens",
    "pos": "WR",
@@ -3188,6 +3410,69 @@
    "total": 1.967,
    "total_exp": 1.445,
    "total_comp": 2.054
+  },
+  {
+   "pid": "13279",
+   "name": "Carnell Tate",
+   "pos": "WR",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 20,
+   "age_src": "matched",
+   "pick": 4,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": 0.678,
+   "proj": [
+    0.656,
+    0.651,
+    0.649
+   ],
+   "nat_low": [
+    0.27,
+    0.265,
+    0.263
+   ],
+   "nat_high": [
+    1.092,
+    1.087,
+    1.085
+   ],
+   "expected": [
+    0.529,
+    0.525,
+    0.524
+   ],
+   "adj_low": [
+    0.218,
+    0.214,
+    0.212
+   ],
+   "adj_high": [
+    0.881,
+    0.877,
+    0.876
+   ],
+   "composite": [
+    0.279,
+    0.417,
+    0.556
+   ],
+   "comp_low": [
+    0.0,
+    0.031,
+    0.17
+   ],
+   "comp_high": [
+    0.715,
+    0.853,
+    0.992
+   ],
+   "proj_ext": 0.185,
+   "total": 1.956,
+   "total_exp": 1.578,
+   "total_comp": 1.252
   },
   {
    "pid": "7591",
@@ -3752,6 +4037,69 @@
    "total": 1.855,
    "total_exp": 1.502,
    "total_comp": 1.288
+  },
+  {
+   "pid": "13275",
+   "name": "Ty Simpson",
+   "pos": "QB",
+   "team": "Captain Jah\u2019Merica",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 13,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": 0.34,
+   "proj": [
+    0.583,
+    0.61,
+    0.621
+   ],
+   "nat_low": [
+    0.153,
+    0.18,
+    0.191
+   ],
+   "nat_high": [
+    1.032,
+    1.059,
+    1.07
+   ],
+   "expected": [
+    0.472,
+    0.494,
+    0.503
+   ],
+   "adj_low": [
+    0.124,
+    0.145,
+    0.154
+   ],
+   "adj_high": [
+    0.835,
+    0.857,
+    0.866
+   ],
+   "composite": [
+    -0.882,
+    -0.348,
+    0.231
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.433,
+    0.101,
+    0.68
+   ],
+   "proj_ext": -1.248,
+   "total": 1.814,
+   "total_exp": 1.469,
+   "total_comp": -0.999
   },
   {
    "pid": "12522",
@@ -5450,6 +5798,132 @@
    "total_comp": -0.102
   },
   {
+   "pid": "13289",
+   "name": "Drew Allar",
+   "pos": "QB",
+   "team": "Jeantrification",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 76,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.057,
+   "proj": [
+    0.366,
+    0.413,
+    0.432
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.001
+   ],
+   "nat_high": [
+    0.815,
+    0.861,
+    0.881
+   ],
+   "expected": [
+    0.296,
+    0.334,
+    0.349
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.001
+   ],
+   "adj_high": [
+    0.659,
+    0.697,
+    0.712
+   ],
+   "composite": [
+    -0.871,
+    -0.459,
+    0.067
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.422,
+    -0.01,
+    0.516
+   ],
+   "proj_ext": -1.18,
+   "total": 1.211,
+   "total_exp": 0.979,
+   "total_comp": -1.263
+  },
+  {
+   "pid": "13281",
+   "name": "Jordyn Tyson",
+   "pos": "WR",
+   "team": "Big Bucky Hunter",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 8,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": 0.389,
+   "proj": [
+    0.399,
+    0.4,
+    0.401
+   ],
+   "nat_low": [
+    0.012,
+    0.014,
+    0.015
+   ],
+   "nat_high": [
+    0.835,
+    0.837,
+    0.837
+   ],
+   "expected": [
+    0.322,
+    0.323,
+    0.324
+   ],
+   "adj_low": [
+    0.01,
+    0.011,
+    0.012
+   ],
+   "adj_high": [
+    0.674,
+    0.675,
+    0.676
+   ],
+   "composite": [
+    0.151,
+    0.245,
+    0.339
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.587,
+    0.681,
+    0.775
+   ],
+   "proj_ext": 0.089,
+   "total": 1.2,
+   "total_exp": 0.969,
+   "total_comp": 0.735
+  },
+  {
    "pid": "11584",
    "name": "Bucky Irving",
    "pos": "RB",
@@ -5520,6 +5994,74 @@
    "total": 1.186,
    "total_exp": 0.967,
    "total_comp": 0.896
+  },
+  {
+   "pid": "11565",
+   "name": "J.J. McCarthy",
+   "pos": "QB",
+   "team": "Jeantrification",
+   "age": 28,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.244,
+   "career": [
+    [
+     2025,
+     0.244
+    ]
+   ],
+   "level": 0.46,
+   "proj": [
+    0.403,
+    0.394,
+    0.385
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.86,
+    0.852,
+    0.87
+   ],
+   "expected": [
+    0.289,
+    0.283,
+    0.296
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.618,
+    0.611,
+    0.668
+   ],
+   "composite": [
+    -0.879,
+    -0.389,
+    0.079
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.422,
+    0.068,
+    0.563
+   ],
+   "proj_ext": -1.199,
+   "total": 1.182,
+   "total_exp": 0.868,
+   "total_comp": -1.189
   },
   {
    "pid": "12510",
@@ -5710,74 +6252,6 @@
    "total_comp": -1.212
   },
   {
-   "pid": "11565",
-   "name": "J.J. McCarthy",
-   "pos": "QB",
-   "team": "Jeantrification",
-   "age": 28,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": 0.244,
-   "career": [
-    [
-     2025,
-     0.244
-    ]
-   ],
-   "level": 0.453,
-   "proj": [
-    0.398,
-    0.387,
-    0.381
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    0.855,
-    0.845,
-    0.865
-   ],
-   "expected": [
-    0.285,
-    0.278,
-    0.292
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    0.614,
-    0.606,
-    0.664
-   ],
-   "composite": [
-    -0.88,
-    -0.389,
-    0.075
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    -0.423,
-    0.068,
-    0.559
-   ],
-   "proj_ext": -1.199,
-   "total": 1.166,
-   "total_exp": 0.855,
-   "total_comp": -1.194
-  },
-  {
    "pid": "8155",
    "name": "Breece Hall",
    "pos": "RB",
@@ -5948,6 +6422,69 @@
    "total": 1.1,
    "total_exp": 0.773,
    "total_comp": 0.943
+  },
+  {
+   "pid": "13303",
+   "name": "Cade Klubnik",
+   "pos": "QB",
+   "team": "These Bitches Love 'Doza",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 110,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.141,
+   "proj": [
+    0.321,
+    0.371,
+    0.392
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.769,
+    0.82,
+    0.841
+   ],
+   "expected": [
+    0.259,
+    0.3,
+    0.317
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.622,
+    0.663,
+    0.68
+   ],
+   "composite": [
+    -0.873,
+    -0.492,
+    0.027
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.424,
+    -0.043,
+    0.476
+   ],
+   "proj_ext": -1.172,
+   "total": 1.084,
+   "total_exp": 0.876,
+   "total_comp": -1.338
   },
   {
    "pid": "12518",
@@ -7382,6 +7919,98 @@
    "total_comp": 0.39
   },
   {
+   "pid": "4017",
+   "name": "Deshaun Watson",
+   "pos": "QB",
+   "team": "Bijan al-Gaib",
+   "age": 29,
+   "age_src": "matched",
+   "pick": 12,
+   "exp": 9,
+   "elite": 2,
+   "war25": 0.0,
+   "career": [
+    [
+     2017,
+     1.113
+    ],
+    [
+     2018,
+     1.157
+    ],
+    [
+     2019,
+     1.713
+    ],
+    [
+     2020,
+     1.609
+    ],
+    [
+     2022,
+     0.062
+    ],
+    [
+     2023,
+     0.304
+    ],
+    [
+     2024,
+     0.094
+    ]
+   ],
+   "level": 0.266,
+   "proj": [
+    0.258,
+    0.245,
+    0.251
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.715,
+    0.729,
+    0.735
+   ],
+   "expected": [
+    0.185,
+    0.188,
+    0.193
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.514,
+    0.56,
+    0.565
+   ],
+   "composite": [
+    -0.39,
+    -0.14,
+    0.093
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.067,
+    0.344,
+    0.577
+   ],
+   "proj_ext": -0.552,
+   "total": 0.754,
+   "total_exp": 0.566,
+   "total_comp": -0.437
+  },
+  {
    "pid": "12512",
    "name": "Quinshon Judkins",
    "pos": "RB",
@@ -7448,82 +8077,6 @@
    "total": 0.738,
    "total_exp": 0.602,
    "total_comp": 0.774
-  },
-  {
-   "pid": "9997",
-   "name": "Zay Flowers",
-   "pos": "WR",
-   "team": "Cops Chase Brown People",
-   "age": 26,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": 0.449,
-   "career": [
-    [
-     2023,
-     0.57
-    ],
-    [
-     2024,
-     0.554
-    ],
-    [
-     2025,
-     0.449
-    ]
-   ],
-   "level": 0.503,
-   "proj": [
-    0.284,
-    0.233,
-    0.204
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    0.663,
-    0.612,
-    0.584
-   ],
-   "expected": [
-    0.245,
-    0.201,
-    0.176
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    0.572,
-    0.528,
-    0.503
-   ],
-   "composite": [
-    0.461,
-    0.324,
-    0.236
-   ],
-   "comp_low": [
-    0.055,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    0.84,
-    0.703,
-    0.615
-   ],
-   "proj_ext": 0.505,
-   "total": 0.721,
-   "total_exp": 0.622,
-   "total_comp": 1.021
   },
   {
    "pid": "12545",
@@ -7670,31 +8223,35 @@
    "total_comp": 1.385
   },
   {
-   "pid": "11635",
-   "name": "Ladd McConkey",
+   "pid": "9997",
+   "name": "Zay Flowers",
    "pos": "WR",
-   "team": "Jeantrification",
+   "team": "Cops Chase Brown People",
    "age": 26,
    "age_src": "default",
    "pick": 999,
-   "exp": null,
+   "exp": 3,
    "elite": 0,
-   "war25": 0.399,
+   "war25": 0.449,
    "career": [
     [
+     2023,
+     0.57
+    ],
+    [
      2024,
-     0.576
+     0.554
     ],
     [
      2025,
-     0.399
+     0.449
     ]
    ],
-   "level": 0.497,
+   "level": 0.485,
    "proj": [
-    0.279,
-    0.219,
-    0.194
+    0.269,
+    0.226,
+    0.193
    ],
    "nat_low": [
     0.0,
@@ -7702,14 +8259,14 @@
     0.0
    ],
    "nat_high": [
-    0.658,
-    0.598,
-    0.573
+    0.648,
+    0.605,
+    0.572
    ],
    "expected": [
-    0.24,
-    0.189,
-    0.167
+    0.232,
+    0.195,
+    0.166
    ],
    "adj_low": [
     0.0,
@@ -7717,29 +8274,29 @@
     0.0
    ],
    "adj_high": [
-    0.567,
-    0.516,
-    0.494
+    0.559,
+    0.522,
+    0.493
    ],
    "composite": [
-    0.335,
-    0.246,
-    0.204
+    0.458,
+    0.325,
+    0.227
    ],
    "comp_low": [
-    0.0,
+    0.052,
     0.0,
     0.0
    ],
    "comp_high": [
-    0.714,
-    0.625,
-    0.583
+    0.837,
+    0.704,
+    0.606
    ],
-   "proj_ext": 0.349,
-   "total": 0.692,
-   "total_exp": 0.596,
-   "total_comp": 0.785
+   "proj_ext": 0.505,
+   "total": 0.688,
+   "total_exp": 0.593,
+   "total_comp": 1.01
   },
   {
    "pid": "6790",
@@ -7828,6 +8385,69 @@
    "total": 0.684,
    "total_exp": 0.528,
    "total_comp": 0.557
+  },
+  {
+   "pid": "13286",
+   "name": "Jadarian Price",
+   "pos": "RB",
+   "team": "Hampton Inn",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 32,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": 0.223,
+   "proj": [
+    0.223,
+    0.223,
+    0.223
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.694,
+    0.694,
+    0.694
+   ],
+   "expected": [
+    0.182,
+    0.182,
+    0.182
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.565,
+    0.565,
+    0.565
+   ],
+   "composite": [
+    0.088,
+    0.139,
+    0.189
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.558,
+    0.609,
+    0.659
+   ],
+   "proj_ext": 0.054,
+   "total": 0.669,
+   "total_exp": 0.546,
+   "total_comp": 0.416
   },
   {
    "pid": "7526",
@@ -8250,6 +8870,69 @@
    "total_comp": 0.52
   },
   {
+   "pid": "12511",
+   "name": "Will Howard",
+   "pos": "QB",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 185,
+   "exp": 1,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.258,
+   "proj": [
+    0.257,
+    0.332,
+    0.007
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.705,
+    0.78,
+    0.464
+   ],
+   "expected": [
+    0.208,
+    0.268,
+    0.005
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.571,
+    0.631,
+    0.333
+   ],
+   "composite": [
+    -0.889,
+    -0.594,
+    -0.001
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.44,
+    -0.145,
+    0.456
+   ],
+   "proj_ext": -1.176,
+   "total": 0.596,
+   "total_exp": 0.481,
+   "total_comp": -1.484
+  },
+  {
    "pid": "11620",
    "name": "Rome Odunze",
    "pos": "WR",
@@ -8576,6 +9259,69 @@
    "total": 0.563,
    "total_exp": 0.453,
    "total_comp": 0.435
+  },
+  {
+   "pid": "13272",
+   "name": "Carson Beck",
+   "pos": "QB",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.494,
+   "proj": [
+    0.127,
+    0.195,
+    0.223
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.576,
+    0.644,
+    0.672
+   ],
+   "expected": [
+    0.103,
+    0.158,
+    0.181
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.466,
+    0.521,
+    0.544
+   ],
+   "composite": [
+    -0.717,
+    -0.615,
+    -0.147
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.268,
+    -0.166,
+    0.302
+   ],
+   "proj_ext": -0.928,
+   "total": 0.545,
+   "total_exp": 0.442,
+   "total_comp": -1.479
   },
   {
    "pid": "10222",
@@ -9590,6 +10336,141 @@
    "total_comp": -0.476
   },
   {
+   "pid": "13404",
+   "name": "Garrett Nussmeier",
+   "pos": "QB",
+   "team": "Hampton Inn",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 249,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.324,
+   "proj": [
+    0.22,
+    0.28,
+    -0.066
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.669,
+    0.728,
+    0.391
+   ],
+   "expected": [
+    0.178,
+    0.226,
+    -0.048
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.541,
+    0.589,
+    0.281
+   ],
+   "composite": [
+    -1.037,
+    -0.72,
+    0.028
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.588,
+    -0.271,
+    0.485
+   ],
+   "proj_ext": -1.351,
+   "total": 0.434,
+   "total_exp": 0.356,
+   "total_comp": -1.729
+  },
+  {
+   "pid": "11635",
+   "name": "Ladd McConkey",
+   "pos": "WR",
+   "team": "Jeantrification",
+   "age": 26,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.399,
+   "career": [
+    [
+     2024,
+     0.576
+    ],
+    [
+     2025,
+     0.399
+    ]
+   ],
+   "level": 0.361,
+   "proj": [
+    0.164,
+    0.127,
+    0.101
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.544,
+    0.506,
+    0.481
+   ],
+   "expected": [
+    0.142,
+    0.109,
+    0.087
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.469,
+    0.436,
+    0.414
+   ],
+   "composite": [
+    0.312,
+    0.199,
+    0.124
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.691,
+    0.578,
+    0.503
+   ],
+   "proj_ext": 0.349,
+   "total": 0.392,
+   "total_exp": 0.338,
+   "total_comp": 0.635
+  },
+  {
    "pid": "7049",
    "name": "Jauan Jennings",
    "pos": "WR",
@@ -10012,74 +10893,6 @@
    "total": 0.348,
    "total_exp": 0.3,
    "total_comp": 0.246
-  },
-  {
-   "pid": "12489",
-   "name": "RJ Harvey",
-   "pos": "RB",
-   "team": "Jeantrification",
-   "age": 25,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": 0.376,
-   "career": [
-    [
-     2025,
-     0.376
-    ]
-   ],
-   "level": 0.376,
-   "proj": [
-    0.191,
-    0.158,
-    -0.066
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    0.633,
-    0.6,
-    0.369
-   ],
-   "expected": [
-    0.156,
-    0.129,
-    -0.046
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    0.517,
-    0.49,
-    0.259
-   ],
-   "composite": [
-    -0.09,
-    0.013,
-    -0.042
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    0.352,
-    0.455,
-    0.392
-   ],
-   "proj_ext": -0.16,
-   "total": 0.283,
-   "total_exp": 0.239,
-   "total_comp": -0.119
   },
   {
    "pid": "5927",
@@ -10676,6 +11489,69 @@
    "total": 0.223,
    "total_exp": 0.177,
    "total_comp": 0.016
+  },
+  {
+   "pid": "13294",
+   "name": "Makai Lemon",
+   "pos": "WR",
+   "team": "These Bitches Love 'Doza",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 20,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": 0.007,
+   "proj": [
+    0.059,
+    0.068,
+    0.072
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.495,
+    0.504,
+    0.508
+   ],
+   "expected": [
+    0.047,
+    0.055,
+    0.058
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.399,
+    0.407,
+    0.41
+   ],
+   "composite": [
+    0.016,
+    0.037,
+    0.059
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.452,
+    0.473,
+    0.495
+   ],
+   "proj_ext": 0.005,
+   "total": 0.199,
+   "total_exp": 0.16,
+   "total_comp": 0.112
   },
   {
    "pid": "2449",
@@ -11586,6 +12462,74 @@
    "total_comp": -0.748
   },
   {
+   "pid": "12530",
+   "name": "Travis Hunter",
+   "pos": "WR",
+   "team": "Big Bucky Hunter",
+   "age": 26,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 1,
+   "elite": 0,
+   "war25": -0.015,
+   "career": [
+    [
+     2025,
+     -0.015
+    ]
+   ],
+   "level": 0.212,
+   "proj": [
+    0.038,
+    0.031,
+    0.013
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.417,
+    0.41,
+    0.392
+   ],
+   "expected": [
+    0.033,
+    0.027,
+    0.011
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.36,
+    0.354,
+    0.338
+   ],
+   "composite": [
+    -0.461,
+    -0.277,
+    -0.107
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.082,
+    0.102,
+    0.272
+   ],
+   "proj_ext": -0.586,
+   "total": 0.082,
+   "total_exp": 0.071,
+   "total_comp": -0.845
+  },
+  {
    "pid": "5045",
    "name": "Courtland Sutton",
    "pos": "WR",
@@ -11748,6 +12692,74 @@
    "total": 0.039,
    "total_exp": 0.031,
    "total_comp": 0.288
+  },
+  {
+   "pid": "11583",
+   "name": "Jonathon Brooks",
+   "pos": "RB",
+   "team": "Bijan al-Gaib",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 46,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2024,
+     -0.211
+    ]
+   ],
+   "level": 0.015,
+   "proj": [
+    0.053,
+    0.064,
+    -0.084
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.524,
+    0.534,
+    0.358
+   ],
+   "expected": [
+    0.043,
+    0.052,
+    -0.069
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.426,
+    0.435,
+    0.292
+   ],
+   "composite": [
+    -0.901,
+    -0.656,
+    0.294
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.431,
+    -0.186,
+    0.736
+   ],
+   "proj_ext": -1.139,
+   "total": 0.033,
+   "total_exp": 0.026,
+   "total_comp": -1.263
   },
   {
    "pid": "9500",
@@ -12092,6 +13104,272 @@
    "total": 0.011,
    "total_exp": 0.032,
    "total_comp": -0.252
+  },
+  {
+   "pid": "13298",
+   "name": "KC Concepcion",
+   "pos": "WR",
+   "team": "The Hurt Locker",
+   "age": 20,
+   "age_src": "matched",
+   "pick": 24,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.069,
+   "proj": [
+    -0.009,
+    0.002,
+    0.007
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.427,
+    0.438,
+    0.443
+   ],
+   "expected": [
+    -0.007,
+    0.001,
+    0.005
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.345,
+    0.353,
+    0.357
+   ],
+   "composite": [
+    -0.071,
+    -0.042,
+    -0.012
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.365,
+    0.394,
+    0.424
+   ],
+   "proj_ext": -0.086,
+   "total": 0.0,
+   "total_exp": -0.001,
+   "total_comp": -0.125
+  },
+  {
+   "pid": "12489",
+   "name": "RJ Harvey",
+   "pos": "RB",
+   "team": "Jeantrification",
+   "age": 25,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 1,
+   "elite": 0,
+   "war25": 0.376,
+   "career": [
+    [
+     2025,
+     0.376
+    ]
+   ],
+   "level": 0.236,
+   "proj": [
+    0.079,
+    0.056,
+    -0.16
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.521,
+    0.498,
+    0.274
+   ],
+   "expected": [
+    0.064,
+    0.046,
+    -0.112
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.425,
+    0.406,
+    0.193
+   ],
+   "composite": [
+    -0.112,
+    -0.029,
+    -0.063
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.33,
+    0.413,
+    0.371
+   ],
+   "proj_ext": -0.16,
+   "total": -0.025,
+   "total_exp": -0.002,
+   "total_comp": -0.204
+  },
+  {
+   "pid": "13330",
+   "name": "Kenyon Sadiq",
+   "pos": "TE",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 20,
+   "age_src": "matched",
+   "pick": 16,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.005,
+   "proj": [
+    -0.02,
+    -0.022,
+    -0.023
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.291,
+    0.288,
+    0.287
+   ],
+   "expected": [
+    -0.016,
+    -0.018,
+    -0.019
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.232,
+    0.23,
+    0.229
+   ],
+   "composite": [
+    -0.006,
+    -0.012,
+    -0.019
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.304,
+    0.298,
+    0.291
+   ],
+   "proj_ext": -0.003,
+   "total": -0.065,
+   "total_exp": -0.053,
+   "total_comp": -0.037
+  },
+  {
+   "pid": "11628",
+   "name": "Marvin Harrison",
+   "pos": "WR",
+   "team": "Cops Chase Brown People",
+   "age": 34,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.346,
+   "career": [
+    [
+     2024,
+     0.307
+    ],
+    [
+     2025,
+     0.346
+    ]
+   ],
+   "level": 0.516,
+   "proj": [
+    0.044,
+    -0.015,
+    -0.102
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.398,
+    0.339,
+    0.252
+   ],
+   "expected": [
+    0.034,
+    -0.012,
+    -0.079
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.309,
+    0.264,
+    0.196
+   ],
+   "composite": [
+    0.061,
+    0.025,
+    -0.069
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.415,
+    0.379,
+    0.285
+   ],
+   "proj_ext": 0.065,
+   "total": -0.073,
+   "total_exp": -0.057,
+   "total_comp": 0.017
   },
   {
    "pid": "11637",
@@ -12770,6 +14048,90 @@
    "total_comp": -1.108
   },
   {
+   "pid": "6803",
+   "name": "Brandon Aiyuk",
+   "pos": "WR",
+   "team": "Unsolicited Nix pics",
+   "age": 27,
+   "age_src": "matched",
+   "pick": 25,
+   "exp": 6,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2020,
+     0.593
+    ],
+    [
+     2021,
+     -0.037
+    ],
+    [
+     2022,
+     0.695
+    ],
+    [
+     2023,
+     0.942
+    ],
+    [
+     2024,
+     -0.009
+    ]
+   ],
+   "level": 0.239,
+   "proj": [
+    0.061,
+    -0.019,
+    -0.237
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.44,
+    0.36,
+    0.117
+   ],
+   "expected": [
+    0.053,
+    -0.016,
+    -0.185
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.38,
+    0.311,
+    0.091
+   ],
+   "composite": [
+    -0.245,
+    0.04,
+    0.06
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.134,
+    0.419,
+    0.414
+   ],
+   "proj_ext": -0.321,
+   "total": -0.195,
+   "total_exp": -0.148,
+   "total_comp": -0.145
+  },
+  {
    "pid": "4663",
    "name": "Austin Ekeler",
    "pos": "RB",
@@ -13060,6 +14422,69 @@
    "total": -0.241,
    "total_exp": -0.187,
    "total_comp": 0.293
+  },
+  {
+   "pid": "13276",
+   "name": "Omar Cooper",
+   "pos": "WR",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 30,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.162,
+   "proj": [
+    -0.092,
+    -0.079,
+    -0.074
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.344,
+    0.357,
+    0.363
+   ],
+   "expected": [
+    -0.074,
+    -0.064,
+    -0.059
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.278,
+    0.288,
+    0.293
+   ],
+   "composite": [
+    -0.286,
+    -0.207,
+    -0.126
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.15,
+    0.229,
+    0.31
+   ],
+   "proj_ext": -0.335,
+   "total": -0.245,
+   "total_exp": -0.197,
+   "total_comp": -0.619
   },
   {
    "pid": "4199",
@@ -13710,6 +15135,78 @@
    "total_comp": -0.183
   },
   {
+   "pid": "9502",
+   "name": "Tank Dell",
+   "pos": "WR",
+   "team": "Big Bucky Hunter",
+   "age": 25,
+   "age_src": "matched",
+   "pick": 69,
+   "exp": 3,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2023,
+     0.732
+    ],
+    [
+     2024,
+     0.034
+    ]
+   ],
+   "level": 0.079,
+   "proj": [
+    -0.074,
+    -0.123,
+    -0.135
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.305,
+    0.256,
+    0.244
+   ],
+   "expected": [
+    -0.064,
+    -0.106,
+    -0.116
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.263,
+    0.221,
+    0.211
+   ],
+   "composite": [
+    -0.479,
+    -0.351,
+    -0.224
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.1,
+    0.028,
+    0.155
+   ],
+   "proj_ext": -0.58,
+   "total": -0.332,
+   "total_exp": -0.286,
+   "total_comp": -1.054
+  },
+  {
    "pid": "7002",
    "name": "Juwan Johnson",
    "pos": "TE",
@@ -13934,78 +15431,6 @@
    "total_comp": -0.218
   },
   {
-   "pid": "11628",
-   "name": "Marvin Harrison",
-   "pos": "WR",
-   "team": "Cops Chase Brown People",
-   "age": 34,
-   "age_src": "matched",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": 0.346,
-   "career": [
-    [
-     2024,
-     0.307
-    ],
-    [
-     2025,
-     0.346
-    ]
-   ],
-   "level": 0.382,
-   "proj": [
-    -0.059,
-    -0.117,
-    -0.187
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    0.295,
-    0.237,
-    0.167
-   ],
-   "expected": [
-    -0.046,
-    -0.091,
-    -0.146
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    0.229,
-    0.184,
-    0.13
-   ],
-   "composite": [
-    0.04,
-    -0.026,
-    -0.137
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    0.394,
-    0.328,
-    0.217
-   ],
-   "proj_ext": 0.065,
-   "total": -0.363,
-   "total_exp": -0.283,
-   "total_comp": -0.123
-  },
-  {
    "pid": "11646",
    "name": "Jalen Coker",
    "pos": "WR",
@@ -14220,6 +15645,69 @@
    "total": -0.419,
    "total_exp": -0.358,
    "total_comp": -0.947
+  },
+  {
+   "pid": "13288",
+   "name": "Nicholas Singleton",
+   "pos": "RB",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.244,
+   "proj": [
+    -0.158,
+    -0.144,
+    -0.137
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.313,
+    0.327,
+    0.333
+   ],
+   "expected": [
+    -0.128,
+    -0.117,
+    -0.112
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.255,
+    0.266,
+    0.271
+   ],
+   "composite": [
+    -0.69,
+    -0.483,
+    -0.274
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.219,
+    -0.013,
+    0.196
+   ],
+   "proj_ext": -0.823,
+   "total": -0.439,
+   "total_exp": -0.357,
+   "total_comp": -1.447
   },
   {
    "pid": "9504",
@@ -14482,6 +15970,69 @@
    "total_comp": -1.319
   },
   {
+   "pid": "13346",
+   "name": "Denzel Boston",
+   "pos": "WR",
+   "team": "Hampton Inn",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 39,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.272,
+   "proj": [
+    -0.189,
+    -0.175,
+    -0.168
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.247,
+    0.262,
+    0.268
+   ],
+   "expected": [
+    -0.153,
+    -0.141,
+    -0.135
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.199,
+    0.211,
+    0.217
+   ],
+   "composite": [
+    -0.254,
+    -0.223,
+    -0.188
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.182,
+    0.213,
+    0.248
+   ],
+   "proj_ext": -0.27,
+   "total": -0.532,
+   "total_exp": -0.429,
+   "total_comp": -0.665
+  },
+  {
    "pid": "12519",
    "name": "Luther Burden",
    "pos": "WR",
@@ -14548,74 +16099,6 @@
    "total": -0.538,
    "total_exp": -0.434,
    "total_comp": 0.168
-  },
-  {
-   "pid": "12530",
-   "name": "Travis Hunter",
-   "pos": "WR",
-   "team": "Big Bucky Hunter",
-   "age": 26,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": -0.015,
-   "career": [
-    [
-     2025,
-     -0.015
-    ]
-   ],
-   "level": -0.028,
-   "proj": [
-    -0.164,
-    -0.194,
-    -0.212
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    0.215,
-    0.186,
-    0.167
-   ],
-   "expected": [
-    -0.142,
-    -0.167,
-    -0.183
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    0.185,
-    0.16,
-    0.144
-   ],
-   "composite": [
-    -0.502,
-    -0.39,
-    -0.287
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    -0.123,
-    -0.011,
-    0.092
-   ],
-   "proj_ext": -0.586,
-   "total": -0.57,
-   "total_exp": -0.492,
-   "total_comp": -1.179
   },
   {
    "pid": "12498",
@@ -15074,6 +16557,69 @@
    "total_comp": -2.005
   },
   {
+   "pid": "13274",
+   "name": "Germie Bernard",
+   "pos": "WR",
+   "team": "Unsolicited Nix pics",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 47,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.349,
+   "proj": [
+    -0.259,
+    -0.242,
+    -0.235
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.178,
+    0.194,
+    0.201
+   ],
+   "expected": [
+    -0.209,
+    -0.196,
+    -0.19
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.143,
+    0.156,
+    0.162
+   ],
+   "composite": [
+    -0.505,
+    -0.404,
+    -0.301
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.069,
+    0.032,
+    0.135
+   ],
+   "proj_ext": -0.567,
+   "total": -0.736,
+   "total_exp": -0.595,
+   "total_comp": -1.21
+  },
+  {
    "pid": "11647",
    "name": "Kimani Vidal",
    "pos": "RB",
@@ -15458,6 +17004,69 @@
    "total_comp": -1.873
   },
   {
+   "pid": "13285",
+   "name": "Malachi Fields",
+   "pos": "WR",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 26,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.158,
+   "proj": [
+    -0.274,
+    -0.294,
+    -0.303
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.105,
+    0.085,
+    0.076
+   ],
+   "expected": [
+    -0.236,
+    -0.253,
+    -0.261
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.091,
+    0.074,
+    0.066
+   ],
+   "composite": [
+    -0.622,
+    -0.501,
+    -0.384
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.243,
+    -0.122,
+    -0.005
+   ],
+   "proj_ext": -0.709,
+   "total": -0.871,
+   "total_exp": -0.75,
+   "total_comp": -1.507
+  },
+  {
    "pid": "8408",
    "name": "Jordan Mason",
    "pos": "RB",
@@ -15700,6 +17309,69 @@
    "total": -0.887,
    "total_exp": -0.726,
    "total_comp": -1.881
+  },
+  {
+   "pid": "13319",
+   "name": "Oscar Delp",
+   "pos": "TE",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.336,
+   "proj": [
+    -0.306,
+    -0.3,
+    -0.298
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.005,
+    0.01,
+    0.012
+   ],
+   "expected": [
+    -0.245,
+    -0.24,
+    -0.238
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.004,
+    0.008,
+    0.01
+   ],
+   "composite": [
+    -0.836,
+    -0.634,
+    -0.432
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.526,
+    -0.324,
+    -0.122
+   ],
+   "proj_ext": -0.968,
+   "total": -0.904,
+   "total_exp": -0.723,
+   "total_comp": -1.902
   },
   {
    "pid": "8132",
@@ -16546,6 +18218,69 @@
    "total_comp": -2.516
   },
   {
+   "pid": "13414",
+   "name": "Kaelon Black",
+   "pos": "RB",
+   "team": "Bijan al-Gaib",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 90,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.371,
+   "proj": [
+    -0.261,
+    -0.39,
+    -0.4
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.21,
+    0.052,
+    0.042
+   ],
+   "expected": [
+    -0.212,
+    -0.318,
+    -0.326
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.171,
+    0.042,
+    0.035
+   ],
+   "composite": [
+    -0.859,
+    -0.699,
+    -0.522
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.389,
+    -0.257,
+    -0.08
+   ],
+   "proj_ext": -1.008,
+   "total": -1.051,
+   "total_exp": -0.856,
+   "total_comp": -2.08
+  },
+  {
    "pid": "11638",
    "name": "Ricky Pearsall",
    "pos": "WR",
@@ -16854,6 +18589,69 @@
    "total_comp": -0.384
   },
   {
+   "pid": "13345",
+   "name": "Jonah Coleman",
+   "pos": "RB",
+   "team": "Hampton Inn",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 108,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.476,
+   "proj": [
+    -0.346,
+    -0.325,
+    -0.462
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.125,
+    0.146,
+    -0.02
+   ],
+   "expected": [
+    -0.282,
+    -0.264,
+    -0.377
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.101,
+    0.119,
+    -0.016
+   ],
+   "composite": [
+    -0.756,
+    -0.592,
+    -0.541
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.286,
+    -0.121,
+    -0.099
+   ],
+   "proj_ext": -0.858,
+   "total": -1.133,
+   "total_exp": -0.923,
+   "total_comp": -1.889
+  },
+  {
    "pid": "4993",
    "name": "Mike Gesicki",
    "pos": "TE",
@@ -17016,6 +18814,69 @@
    "total": -1.156,
    "total_exp": -0.933,
    "total_comp": -1.516
+  },
+  {
+   "pid": "13417",
+   "name": "De'Zhaun Stribling",
+   "pos": "WR",
+   "team": "Big Bucky Hunter",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.509,
+   "proj": [
+    -0.401,
+    -0.382,
+    -0.373
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.035,
+    0.055,
+    0.064
+   ],
+   "expected": [
+    -0.324,
+    -0.308,
+    -0.301
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.029,
+    0.044,
+    0.051
+   ],
+   "composite": [
+    -0.434,
+    -0.412,
+    -0.387
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.002,
+    0.024,
+    0.049
+   ],
+   "proj_ext": -0.442,
+   "total": -1.156,
+   "total_exp": -0.933,
+   "total_comp": -1.233
   },
   {
    "pid": "11589",
@@ -17478,6 +19339,74 @@
    "total_comp": -0.508
   },
   {
+   "pid": "11581",
+   "name": "MarShawn Lloyd",
+   "pos": "RB",
+   "team": "Jeantrification",
+   "age": 24,
+   "age_src": "matched",
+   "pick": 88,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2024,
+     -0.051
+    ]
+   ],
+   "level": -0.358,
+   "proj": [
+    -0.397,
+    -0.408,
+    -0.412
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.045,
+    0.034,
+    0.03
+   ],
+   "expected": [
+    -0.324,
+    -0.333,
+    -0.336
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.036,
+    0.028,
+    0.024
+   ],
+   "composite": [
+    -0.858,
+    -0.691,
+    -0.524
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.416,
+    -0.249,
+    -0.082
+   ],
+   "proj_ext": -0.973,
+   "total": -1.217,
+   "total_exp": -0.993,
+   "total_comp": -2.073
+  },
+  {
    "pid": "9511",
    "name": "Keaton Mitchell",
    "pos": "RB",
@@ -17552,82 +19481,6 @@
    "total": -1.236,
    "total_exp": -1.008,
    "total_comp": -1.484
-  },
-  {
-   "pid": "9487",
-   "name": "Parker Washington",
-   "pos": "WR",
-   "team": "Unsolicited Nix pics",
-   "age": 26,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": -0.022,
-   "career": [
-    [
-     2023,
-     -0.158
-    ],
-    [
-     2024,
-     -0.737
-    ],
-    [
-     2025,
-     -0.022
-    ]
-   ],
-   "level": -0.352,
-   "proj": [
-    -0.438,
-    -0.378,
-    -0.428
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    -0.059,
-    0.001,
-    -0.048
-   ],
-   "expected": [
-    -0.378,
-    -0.326,
-    -0.369
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    -0.051,
-    0.001,
-    -0.042
-   ],
-   "composite": [
-    0.063,
-    -0.095,
-    -0.305
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    0.442,
-    0.284,
-    0.074
-   ],
-   "proj_ext": 0.188,
-   "total": -1.244,
-   "total_exp": -1.073,
-   "total_comp": -0.337
   },
   {
    "pid": "12492",
@@ -17788,6 +19641,213 @@
    "total": -1.246,
    "total_exp": -0.969,
    "total_comp": -1.783
+  },
+  {
+   "pid": "13296",
+   "name": "Caleb Douglas",
+   "pos": "WR",
+   "team": "Bijan al-Gaib",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 75,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.544,
+   "proj": [
+    -0.432,
+    -0.412,
+    -0.403
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.004,
+    0.024,
+    0.033
+   ],
+   "expected": [
+    -0.349,
+    -0.332,
+    -0.325
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.003,
+    0.02,
+    0.027
+   ],
+   "composite": [
+    -0.977,
+    -0.762,
+    -0.545
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.541,
+    -0.326,
+    -0.109
+   ],
+   "proj_ext": -1.113,
+   "total": -1.247,
+   "total_exp": -1.006,
+   "total_comp": -2.284
+  },
+  {
+   "pid": "12509",
+   "name": "Tre' Harris",
+   "pos": "WR",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 26,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 1,
+   "elite": 0,
+   "war25": -0.71,
+   "career": [
+    [
+     2025,
+     -0.71
+    ]
+   ],
+   "level": -0.328,
+   "proj": [
+    -0.418,
+    -0.417,
+    -0.414
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.038,
+    -0.038,
+    -0.034
+   ],
+   "expected": [
+    -0.36,
+    -0.359,
+    -0.356
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.033,
+    -0.033,
+    -0.029
+   ],
+   "composite": [
+    -0.445,
+    -0.434,
+    -0.422
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.066,
+    -0.055,
+    -0.043
+   ],
+   "proj_ext": -0.452,
+   "total": -1.249,
+   "total_exp": -1.075,
+   "total_comp": -1.301
+  },
+  {
+   "pid": "9487",
+   "name": "Parker Washington",
+   "pos": "WR",
+   "team": "Unsolicited Nix pics",
+   "age": 26,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 3,
+   "elite": 0,
+   "war25": -0.022,
+   "career": [
+    [
+     2023,
+     -0.158
+    ],
+    [
+     2024,
+     -0.737
+    ],
+    [
+     2025,
+     -0.022
+    ]
+   ],
+   "level": -0.368,
+   "proj": [
+    -0.452,
+    -0.384,
+    -0.438
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.073,
+    -0.005,
+    -0.059
+   ],
+   "expected": [
+    -0.39,
+    -0.331,
+    -0.378
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.063,
+    -0.004,
+    -0.051
+   ],
+   "composite": [
+    0.06,
+    -0.098,
+    -0.313
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.439,
+    0.281,
+    0.066
+   ],
+   "proj_ext": 0.188,
+   "total": -1.274,
+   "total_exp": -1.099,
+   "total_comp": -0.351
   },
   {
    "pid": "4381",
@@ -18030,6 +20090,132 @@
    "total_comp": -1.65
   },
   {
+   "pid": "13305",
+   "name": "Mike Washington",
+   "pos": "RB",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 122,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.546,
+   "proj": [
+    -0.403,
+    -0.38,
+    -0.515
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.067,
+    0.091,
+    -0.073
+   ],
+   "expected": [
+    -0.328,
+    -0.309,
+    -0.42
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.055,
+    0.074,
+    -0.059
+   ],
+   "composite": [
+    -0.757,
+    -0.613,
+    -0.581
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.287,
+    -0.143,
+    -0.139
+   ],
+   "proj_ext": -0.845,
+   "total": -1.298,
+   "total_exp": -1.057,
+   "total_comp": -1.951
+  },
+  {
+   "pid": "13320",
+   "name": "Zachariah Branch",
+   "pos": "WR",
+   "team": "Big Bucky Hunter",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 79,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.566,
+   "proj": [
+    -0.451,
+    -0.431,
+    -0.421
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.015,
+    0.005,
+    0.015
+   ],
+   "expected": [
+    -0.364,
+    -0.348,
+    -0.34
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.012,
+    0.004,
+    0.012
+   ],
+   "composite": [
+    -0.533,
+    -0.492,
+    -0.447
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.097,
+    -0.056,
+    -0.011
+   ],
+   "proj_ext": -0.553,
+   "total": -1.303,
+   "total_exp": -1.052,
+   "total_comp": -1.472
+  },
+  {
    "pid": "12499",
    "name": "Elic Ayomanor",
    "pos": "WR",
@@ -18168,6 +20354,69 @@
    "total": -1.309,
    "total_exp": -1.056,
    "total_comp": -1.496
+  },
+  {
+   "pid": "13293",
+   "name": "Ja'Kobi Lane",
+   "pos": "WR",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 80,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.571,
+   "proj": [
+    -0.456,
+    -0.435,
+    -0.426
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.02,
+    0.001,
+    0.01
+   ],
+   "expected": [
+    -0.368,
+    -0.351,
+    -0.344
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.016,
+    0.001,
+    0.008
+   ],
+   "composite": [
+    -0.602,
+    -0.537,
+    -0.469
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.166,
+    -0.101,
+    -0.033
+   ],
+   "proj_ext": -0.639,
+   "total": -1.317,
+   "total_exp": -1.063,
+   "total_comp": -1.608
   },
   {
    "pid": "7670",
@@ -18402,6 +20651,283 @@
    "total_comp": -2.218
   },
   {
+   "pid": "13353",
+   "name": "Chris Brazzell",
+   "pos": "WR",
+   "team": "Unsolicited Nix pics",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 83,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.587,
+   "proj": [
+    -0.47,
+    -0.449,
+    -0.439
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.033,
+    -0.013,
+    -0.003
+   ],
+   "expected": [
+    -0.379,
+    -0.362,
+    -0.354
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.027,
+    -0.01,
+    -0.002
+   ],
+   "composite": [
+    -0.64,
+    -0.566,
+    -0.488
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.204,
+    -0.13,
+    -0.052
+   ],
+   "proj_ext": -0.683,
+   "total": -1.358,
+   "total_exp": -1.095,
+   "total_comp": -1.694
+  },
+  {
+   "pid": "13348",
+   "name": "J'Mari Taylor",
+   "pos": "RB",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.504,
+   "proj": [
+    -0.369,
+    -0.493,
+    -0.5
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.102,
+    -0.051,
+    -0.058
+   ],
+   "expected": [
+    -0.3,
+    -0.402,
+    -0.408
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.083,
+    -0.041,
+    -0.047
+   ],
+   "composite": [
+    -0.956,
+    -0.798,
+    -0.621
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.485,
+    -0.356,
+    -0.179
+   ],
+   "proj_ext": -1.103,
+   "total": -1.362,
+   "total_exp": -1.11,
+   "total_comp": -2.375
+  },
+  {
+   "pid": "5937",
+   "name": "Diontae Johnson",
+   "pos": "WR",
+   "team": "Point Drake",
+   "age": 29,
+   "age_src": "matched",
+   "pick": 66,
+   "exp": 7,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2019,
+     -0.069
+    ],
+    [
+     2020,
+     0.46
+    ],
+    [
+     2021,
+     1.098
+    ],
+    [
+     2022,
+     0.239
+    ],
+    [
+     2023,
+     0.32
+    ],
+    [
+     2024,
+     -0.135
+    ]
+   ],
+   "level": -0.038,
+   "proj": [
+    -0.382,
+    -0.483,
+    -0.504
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.027,
+    -0.129,
+    -0.15
+   ],
+   "expected": [
+    -0.297,
+    -0.376,
+    -0.392
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.021,
+    -0.101,
+    -0.117
+   ],
+   "composite": [
+    -1.181,
+    -0.932,
+    -0.679
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.827,
+    -0.578,
+    -0.325
+   ],
+   "proj_ext": -1.381,
+   "total": -1.369,
+   "total_exp": -1.065,
+   "total_comp": -2.792
+  },
+  {
+   "pid": "13317",
+   "name": "Ted Hurst",
+   "pos": "WR",
+   "team": "Hampton Inn",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 84,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.592,
+   "proj": [
+    -0.474,
+    -0.453,
+    -0.443
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.038,
+    -0.017,
+    -0.007
+   ],
+   "expected": [
+    -0.383,
+    -0.366,
+    -0.358
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.031,
+    -0.014,
+    -0.006
+   ],
+   "composite": [
+    -0.555,
+    -0.514,
+    -0.469
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.119,
+    -0.078,
+    -0.033
+   ],
+   "proj_ext": -0.575,
+   "total": -1.37,
+   "total_exp": -1.107,
+   "total_comp": -1.538
+  },
+  {
    "pid": "7571",
    "name": "Rashod Bateman",
    "pos": "WR",
@@ -18484,6 +21010,69 @@
    "total": -1.37,
    "total_exp": -1.181,
    "total_comp": -1.736
+  },
+  {
+   "pid": "13349",
+   "name": "Eli Stowers",
+   "pos": "TE",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 54,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.524,
+   "proj": [
+    -0.467,
+    -0.458,
+    -0.453
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.157,
+    -0.148,
+    -0.143
+   ],
+   "expected": [
+    -0.374,
+    -0.366,
+    -0.363
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.126,
+    -0.118,
+    -0.114
+   ],
+   "composite": [
+    -0.543,
+    -0.51,
+    -0.475
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.233,
+    -0.2,
+    -0.165
+   ],
+   "proj_ext": -0.562,
+   "total": -1.378,
+   "total_exp": -1.103,
+   "total_comp": -1.528
   },
   {
    "pid": "12467",
@@ -18688,6 +21277,69 @@
    "total": -1.407,
    "total_exp": -1.135,
    "total_comp": -1.66
+  },
+  {
+   "pid": "13411",
+   "name": "Zavion Thomas",
+   "pos": "WR",
+   "team": "Big Bucky Hunter",
+   "age": 20,
+   "age_src": "matched",
+   "pick": 89,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.616,
+   "proj": [
+    -0.496,
+    -0.474,
+    -0.464
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.059,
+    -0.038,
+    -0.028
+   ],
+   "expected": [
+    -0.4,
+    -0.383,
+    -0.375
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.048,
+    -0.031,
+    -0.023
+   ],
+   "composite": [
+    -0.827,
+    -0.692,
+    -0.553
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.391,
+    -0.256,
+    -0.117
+   ],
+   "proj_ext": -0.91,
+   "total": -1.434,
+   "total_exp": -1.158,
+   "total_comp": -2.072
   },
   {
    "pid": "9757",
@@ -19166,6 +21818,69 @@
    "total_comp": -2.638
   },
   {
+   "pid": "13307",
+   "name": "Marlin Klein",
+   "pos": "TE",
+   "team": "Bijan al-Gaib",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 59,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.562,
+   "proj": [
+    -0.5,
+    -0.489,
+    -0.485
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.19,
+    -0.179,
+    -0.174
+   ],
+   "expected": [
+    -0.4,
+    -0.392,
+    -0.388
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.152,
+    -0.143,
+    -0.139
+   ],
+   "composite": [
+    -0.956,
+    -0.78,
+    -0.602
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.646,
+    -0.47,
+    -0.292
+   ],
+   "proj_ext": -1.07,
+   "total": -1.474,
+   "total_exp": -1.18,
+   "total_comp": -2.338
+  },
+  {
    "pid": "8143",
    "name": "Jerome Ford",
    "pos": "RB",
@@ -19338,6 +22053,69 @@
    "total_comp": -1.822
   },
   {
+   "pid": "13311",
+   "name": "Chris Bell",
+   "pos": "WR",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 94,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.638,
+   "proj": [
+    -0.516,
+    -0.494,
+    -0.484
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.08,
+    -0.058,
+    -0.048
+   ],
+   "expected": [
+    -0.416,
+    -0.399,
+    -0.39
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.064,
+    -0.047,
+    -0.038
+   ],
+   "composite": [
+    -0.607,
+    -0.562,
+    -0.513
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.171,
+    -0.126,
+    -0.077
+   ],
+   "proj_ext": -0.63,
+   "total": -1.494,
+   "total_exp": -1.205,
+   "total_comp": -1.682
+  },
+  {
    "pid": "11586",
    "name": "Blake Corum",
    "pos": "RB",
@@ -19486,6 +22264,69 @@
    "total_comp": -1.747
   },
   {
+   "pid": "13278",
+   "name": "Max Klare",
+   "pos": "TE",
+   "team": "These Bitches Love 'Doza",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 61,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.576,
+   "proj": [
+    -0.512,
+    -0.501,
+    -0.496
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.202,
+    -0.191,
+    -0.186
+   ],
+   "expected": [
+    -0.41,
+    -0.401,
+    -0.397
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.162,
+    -0.153,
+    -0.149
+   ],
+   "composite": [
+    -0.75,
+    -0.655,
+    -0.559
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.44,
+    -0.345,
+    -0.249
+   ],
+   "proj_ext": -0.809,
+   "total": -1.509,
+   "total_exp": -1.208,
+   "total_comp": -1.964
+  },
+  {
    "pid": "12535",
    "name": "Isaac TeSlaa",
    "pos": "WR",
@@ -19628,6 +22469,69 @@
    "total": -1.529,
    "total_exp": -1.229,
    "total_comp": -1.52
+  },
+  {
+   "pid": "13337",
+   "name": "Emmett Johnson",
+   "pos": "RB",
+   "team": "Captain Jah\u2019Merica",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 161,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.705,
+   "proj": [
+    -0.533,
+    -0.505,
+    -0.492
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.062,
+    -0.034,
+    -0.021
+   ],
+   "expected": [
+    -0.434,
+    -0.411,
+    -0.4
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.051,
+    -0.028,
+    -0.017
+   ],
+   "composite": [
+    -0.755,
+    -0.658,
+    -0.556
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.285,
+    -0.188,
+    -0.086
+   ],
+   "proj_ext": -0.811,
+   "total": -1.53,
+   "total_exp": -1.245,
+   "total_comp": -1.969
   },
   {
    "pid": "12521",
@@ -19922,6 +22826,137 @@
    "total_comp": -2.441
   },
   {
+   "pid": "13301",
+   "name": "Antonio Williams",
+   "pos": "WR",
+   "team": "Point Drake",
+   "age": 28,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.278,
+   "proj": [
+    -0.376,
+    -0.581,
+    -0.61
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    0.003,
+    -0.227,
+    -0.255
+   ],
+   "expected": [
+    -0.324,
+    -0.452,
+    -0.474
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    0.003,
+    -0.177,
+    -0.199
+   ],
+   "composite": [
+    -0.542,
+    -0.582,
+    -0.605
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.163,
+    -0.228,
+    -0.251
+   ],
+   "proj_ext": -0.583,
+   "total": -1.567,
+   "total_exp": -1.25,
+   "total_comp": -1.729
+  },
+  {
+   "pid": "11618",
+   "name": "Jalen McMillan",
+   "pos": "WR",
+   "team": "Unsolicited Nix pics",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 92,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2024,
+     -0.464
+    ]
+   ],
+   "level": -0.612,
+   "proj": [
+    -0.492,
+    -0.464,
+    -0.612
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.056,
+    -0.027,
+    -0.233
+   ],
+   "expected": [
+    -0.397,
+    -0.374,
+    -0.527
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.045,
+    -0.022,
+    -0.201
+   ],
+   "composite": [
+    -0.33,
+    -0.377,
+    -0.548
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    0.106,
+    0.059,
+    -0.169
+   ],
+   "proj_ext": -0.29,
+   "total": -1.568,
+   "total_exp": -1.298,
+   "total_comp": -1.255
+  },
+  {
    "pid": "7562",
    "name": "Tutu Atwell",
    "pos": "WR",
@@ -20082,6 +23117,69 @@
    "total_comp": -1.743
   },
   {
+   "pid": "13380",
+   "name": "Brenen Thompson",
+   "pos": "WR",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 105,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.685,
+   "proj": [
+    -0.557,
+    -0.534,
+    -0.524
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.121,
+    -0.098,
+    -0.087
+   ],
+   "expected": [
+    -0.449,
+    -0.431,
+    -0.423
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.097,
+    -0.079,
+    -0.071
+   ],
+   "composite": [
+    -0.959,
+    -0.797,
+    -0.631
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.523,
+    -0.361,
+    -0.195
+   ],
+   "proj_ext": -1.06,
+   "total": -1.615,
+   "total_exp": -1.303,
+   "total_comp": -2.387
+  },
+  {
    "pid": "12487",
    "name": "Terrance Ferguson",
    "pos": "TE",
@@ -20216,6 +23314,69 @@
    "total": -1.635,
    "total_exp": -1.331,
    "total_comp": -2.448
+  },
+  {
+   "pid": "13302",
+   "name": "Adam Randall",
+   "pos": "RB",
+   "team": "Jeantrification",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 174,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.75,
+   "proj": [
+    -0.569,
+    -0.54,
+    -0.526
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.099,
+    -0.069,
+    -0.056
+   ],
+   "expected": [
+    -0.463,
+    -0.439,
+    -0.428
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.08,
+    -0.056,
+    -0.045
+   ],
+   "composite": [
+    -1.0,
+    -0.824,
+    -0.642
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.53,
+    -0.353,
+    -0.172
+   ],
+   "proj_ext": -1.108,
+   "total": -1.635,
+   "total_exp": -1.33,
+   "total_comp": -2.466
   },
   {
    "pid": "8188",
@@ -20598,6 +23759,132 @@
    "total_comp": -1.276
   },
   {
+   "pid": "13268",
+   "name": "Elijah Sarratt",
+   "pos": "WR",
+   "team": "These Bitches Love 'Doza",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 115,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.722,
+   "proj": [
+    -0.591,
+    -0.567,
+    -0.556
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.154,
+    -0.131,
+    -0.12
+   ],
+   "expected": [
+    -0.477,
+    -0.458,
+    -0.449
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.125,
+    -0.106,
+    -0.097
+   ],
+   "composite": [
+    -0.637,
+    -0.607,
+    -0.574
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.201,
+    -0.171,
+    -0.138
+   ],
+   "proj_ext": -0.648,
+   "total": -1.714,
+   "total_exp": -1.384,
+   "total_comp": -1.818
+  },
+  {
+   "pid": "13300",
+   "name": "Le'Veon Moss",
+   "pos": "RB",
+   "team": "Hampton Inn",
+   "age": 25,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.528,
+   "proj": [
+    -0.534,
+    -0.535,
+    -0.671
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.092,
+    -0.093,
+    -0.236
+   ],
+   "expected": [
+    -0.436,
+    -0.436,
+    -0.471
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.075,
+    -0.076,
+    -0.166
+   ],
+   "composite": [
+    -1.192,
+    -0.946,
+    -0.808
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.75,
+    -0.504,
+    -0.374
+   ],
+   "proj_ext": -1.356,
+   "total": -1.74,
+   "total_exp": -1.343,
+   "total_comp": -2.946
+  },
+  {
    "pid": "12533",
    "name": "Jacory Croskey-Merritt",
    "pos": "RB",
@@ -20664,6 +23951,74 @@
    "total": -1.777,
    "total_exp": -1.449,
    "total_comp": -1.337
+  },
+  {
+   "pid": "12641",
+   "name": "Jaylin Lane",
+   "pos": "WR",
+   "team": "Jeantrification",
+   "age": 26,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 1,
+   "elite": 0,
+   "war25": -0.772,
+   "career": [
+    [
+     2025,
+     -0.772
+    ]
+   ],
+   "level": -0.542,
+   "proj": [
+    -0.599,
+    -0.599,
+    -0.597
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.219,
+    -0.219,
+    -0.218
+   ],
+   "expected": [
+    -0.516,
+    -0.516,
+    -0.514
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.189,
+    -0.189,
+    -0.188
+   ],
+   "composite": [
+    -0.8,
+    -0.724,
+    -0.648
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.421,
+    -0.345,
+    -0.269
+   ],
+   "proj_ext": -0.85,
+   "total": -1.795,
+   "total_exp": -1.546,
+   "total_comp": -2.172
   },
   {
    "pid": "8117",
@@ -20744,6 +24099,69 @@
    "total": -1.799,
    "total_exp": -1.551,
    "total_comp": -2.564
+  },
+  {
+   "pid": "13347",
+   "name": "Demond Claiborne",
+   "pos": "RB",
+   "team": "These Bitches Love 'Doza",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 198,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.824,
+   "proj": [
+    -0.63,
+    -0.598,
+    -0.584
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.159,
+    -0.127,
+    -0.113
+   ],
+   "expected": [
+    -0.512,
+    -0.487,
+    -0.475
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.13,
+    -0.104,
+    -0.092
+   ],
+   "composite": [
+    -1.008,
+    -0.85,
+    -0.688
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.538,
+    -0.38,
+    -0.217
+   ],
+   "proj_ext": -1.102,
+   "total": -1.812,
+   "total_exp": -1.474,
+   "total_comp": -2.546
   },
   {
    "pid": "6865",
@@ -21150,6 +24568,74 @@
    "total_comp": -2.477
   },
   {
+   "pid": "11619",
+   "name": "Ja'Lynn Polk",
+   "pos": "WR",
+   "team": "Cops Chase Brown People",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 37,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2024,
+     -0.915
+    ]
+   ],
+   "level": -0.744,
+   "proj": [
+    -0.61,
+    -0.533,
+    -0.71
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.174,
+    -0.096,
+    -0.33
+   ],
+   "expected": [
+    -0.492,
+    -0.43,
+    -0.612
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.14,
+    -0.078,
+    -0.285
+   ],
+   "composite": [
+    -1.227,
+    -0.957,
+    -0.844
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.791,
+    -0.521,
+    -0.465
+   ],
+   "proj_ext": -1.381,
+   "total": -1.853,
+   "total_exp": -1.534,
+   "total_comp": -3.028
+  },
+  {
    "pid": "11435",
    "name": "Emanuel Wilson",
    "pos": "RB",
@@ -21226,6 +24712,69 @@
    "total_comp": -2.314
   },
   {
+   "pid": "13405",
+   "name": "Kaytron Allen",
+   "pos": "RB",
+   "team": "Unsolicited Nix pics",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 187,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.791,
+   "proj": [
+    -0.603,
+    -0.572,
+    -0.701
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.132,
+    -0.102,
+    -0.259
+   ],
+   "expected": [
+    -0.491,
+    -0.466,
+    -0.572
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.108,
+    -0.083,
+    -0.211
+   ],
+   "composite": [
+    -0.897,
+    -0.771,
+    -0.755
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.427,
+    -0.301,
+    -0.313
+   ],
+   "proj_ext": -0.97,
+   "total": -1.876,
+   "total_exp": -1.529,
+   "total_comp": -2.423
+  },
+  {
    "pid": "11610",
    "name": "Malik Washington",
    "pos": "WR",
@@ -21296,6 +24845,69 @@
    "total": -1.885,
    "total_exp": -1.594,
    "total_comp": -1.8
+  },
+  {
+   "pid": "13434",
+   "name": "Will Kacmarek",
+   "pos": "TE",
+   "team": "Jeantrification",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 87,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.727,
+   "proj": [
+    -0.643,
+    -0.628,
+    -0.622
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.333,
+    -0.318,
+    -0.312
+   ],
+   "expected": [
+    -0.514,
+    -0.503,
+    -0.497
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.266,
+    -0.255,
+    -0.249
+   ],
+   "composite": [
+    -0.729,
+    -0.69,
+    -0.648
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.419,
+    -0.38,
+    -0.338
+   ],
+   "proj_ext": -0.751,
+   "total": -1.893,
+   "total_exp": -1.514,
+   "total_comp": -2.067
   },
   {
    "pid": "4177",
@@ -21462,6 +25074,74 @@
    "total_comp": -2.647
   },
   {
+   "pid": "11592",
+   "name": "Erick All",
+   "pos": "TE",
+   "team": "Jeantrification",
+   "age": 24,
+   "age_src": "matched",
+   "pick": 115,
+   "exp": 2,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2024,
+     -0.404
+    ]
+   ],
+   "level": -0.671,
+   "proj": [
+    -0.595,
+    -0.592,
+    -0.729
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.284,
+    -0.282,
+    -0.413
+   ],
+   "expected": [
+    -0.476,
+    -0.474,
+    -0.589
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.227,
+    -0.225,
+    -0.334
+   ],
+   "composite": [
+    -1.21,
+    -0.978,
+    -0.856
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.9,
+    -0.668,
+    -0.541
+   ],
+   "proj_ext": -1.364,
+   "total": -1.916,
+   "total_exp": -1.539,
+   "total_comp": -3.044
+  },
+  {
    "pid": "11834",
    "name": "Devaughn Vele",
    "pos": "WR",
@@ -21606,6 +25286,78 @@
    "total_comp": -2.698
   },
   {
+   "pid": "11575",
+   "name": "Ray Davis",
+   "pos": "RB",
+   "team": "Big Bucky Hunter",
+   "age": 25,
+   "age_src": "default",
+   "pick": 999,
+   "exp": 2,
+   "elite": 0,
+   "war25": -0.867,
+   "career": [
+    [
+     2024,
+     -0.336
+    ],
+    [
+     2025,
+     -0.867
+    ]
+   ],
+   "level": -0.583,
+   "proj": [
+    -0.578,
+    -0.624,
+    -0.735
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.136,
+    -0.182,
+    -0.301
+   ],
+   "expected": [
+    -0.471,
+    -0.509,
+    -0.517
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.111,
+    -0.148,
+    -0.212
+   ],
+   "composite": [
+    -0.818,
+    -0.751,
+    -0.764
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.376,
+    -0.309,
+    -0.33
+   ],
+   "proj_ext": -0.878,
+   "total": -1.937,
+   "total_exp": -1.497,
+   "total_comp": -2.333
+  },
+  {
    "pid": "6151",
    "name": "Miles Sanders",
    "pos": "RB",
@@ -21696,6 +25448,69 @@
    "total": -1.944,
    "total_exp": -1.366,
    "total_comp": -3.018
+  },
+  {
+   "pid": "12462",
+   "name": "Damien Martinez",
+   "pos": "RB",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 223,
+   "exp": 1,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.893,
+   "proj": [
+    -0.685,
+    -0.64,
+    -0.622
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.215,
+    -0.17,
+    -0.152
+   ],
+   "expected": [
+    -0.558,
+    -0.521,
+    -0.506
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.175,
+    -0.138,
+    -0.123
+   ],
+   "composite": [
+    -1.172,
+    -0.967,
+    -0.756
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.702,
+    -0.496,
+    -0.286
+   ],
+   "proj_ext": -1.294,
+   "total": -1.947,
+   "total_exp": -1.585,
+   "total_comp": -2.895
   },
   {
    "pid": "11569",
@@ -22074,6 +25889,69 @@
    "total_comp": -2.193
   },
   {
+   "pid": "13402",
+   "name": "Skyler Bell",
+   "pos": "WR",
+   "team": "Homie G Slicer\u2019s Team",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 125,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.757,
+   "proj": [
+    -0.622,
+    -0.597,
+    -0.747
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.185,
+    -0.161,
+    -0.368
+   ],
+   "expected": [
+    -0.502,
+    -0.482,
+    -0.644
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.15,
+    -0.13,
+    -0.317
+   ],
+   "composite": [
+    -0.622,
+    -0.609,
+    -0.722
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.186,
+    -0.173,
+    -0.343
+   ],
+   "proj_ext": -0.622,
+   "total": -1.966,
+   "total_exp": -1.628,
+   "total_comp": -1.953
+  },
+  {
    "pid": "11650",
    "name": "Luke McCaffrey",
    "pos": "WR",
@@ -22306,6 +26184,69 @@
    "total_comp": -2.778
   },
   {
+   "pid": "13421",
+   "name": "Eli Raridon",
+   "pos": "TE",
+   "team": "Unsolicited Nix pics",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 95,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.765,
+   "proj": [
+    -0.675,
+    -0.66,
+    -0.653
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.365,
+    -0.35,
+    -0.343
+   ],
+   "expected": [
+    -0.54,
+    -0.528,
+    -0.522
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.292,
+    -0.28,
+    -0.274
+   ],
+   "composite": [
+    -0.961,
+    -0.847,
+    -0.729
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.651,
+    -0.537,
+    -0.419
+   ],
+   "proj_ext": -1.033,
+   "total": -1.988,
+   "total_exp": -1.59,
+   "total_comp": -2.537
+  },
+  {
    "pid": "10235",
    "name": "Roschon Johnson",
    "pos": "RB",
@@ -22526,78 +26467,6 @@
    "total_comp": -2.68
   },
   {
-   "pid": "11575",
-   "name": "Ray Davis",
-   "pos": "RB",
-   "team": "Big Bucky Hunter",
-   "age": 25,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": -0.867,
-   "career": [
-    [
-     2024,
-     -0.336
-    ],
-    [
-     2025,
-     -0.867
-    ]
-   ],
-   "level": -0.631,
-   "proj": [
-    -0.616,
-    -0.666,
-    -0.765
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    -0.174,
-    -0.224,
-    -0.331
-   ],
-   "expected": [
-    -0.503,
-    -0.544,
-    -0.538
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    -0.142,
-    -0.183,
-    -0.232
-   ],
-   "composite": [
-    -0.826,
-    -0.772,
-    -0.788
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    -0.384,
-    -0.33,
-    -0.354
-   ],
-   "proj_ext": -0.878,
-   "total": -2.047,
-   "total_exp": -1.585,
-   "total_comp": -2.386
-  },
-  {
    "pid": "12634",
    "name": "Jordan Watkins",
    "pos": "WR",
@@ -22664,6 +26533,69 @@
    "total": -2.054,
    "total_exp": -1.699,
    "total_comp": -3.102
+  },
+  {
+   "pid": "13420",
+   "name": "Bryce Lance",
+   "pos": "WR",
+   "team": "Unsolicited Nix pics",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 136,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.792,
+   "proj": [
+    -0.653,
+    -0.628,
+    -0.776
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.217,
+    -0.192,
+    -0.396
+   ],
+   "expected": [
+    -0.527,
+    -0.507,
+    -0.669
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.175,
+    -0.155,
+    -0.342
+   ],
+   "composite": [
+    -0.98,
+    -0.845,
+    -0.833
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.544,
+    -0.409,
+    -0.454
+   ],
+   "proj_ext": -1.062,
+   "total": -2.057,
+   "total_exp": -1.703,
+   "total_comp": -2.658
   },
   {
    "pid": "7496",
@@ -22752,6 +26684,145 @@
    "total": -2.069,
    "total_exp": -1.65,
    "total_comp": -2.863
+  },
+  {
+   "pid": "13403",
+   "name": "Jam Miller",
+   "pos": "RB",
+   "team": "The Hurt Locker",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 245,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.947,
+   "proj": [
+    -0.729,
+    -0.694,
+    -0.678
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.259,
+    -0.223,
+    -0.207
+   ],
+   "expected": [
+    -0.594,
+    -0.565,
+    -0.552
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.211,
+    -0.182,
+    -0.169
+   ],
+   "composite": [
+    -1.096,
+    -0.941,
+    -0.78
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.626,
+    -0.47,
+    -0.31
+   ],
+   "proj_ext": -1.188,
+   "total": -2.101,
+   "total_exp": -1.711,
+   "total_comp": -2.817
+  },
+  {
+   "pid": "9220",
+   "name": "Evan Hull",
+   "pos": "RB",
+   "team": "These Bitches Love 'Doza",
+   "age": 24,
+   "age_src": "matched",
+   "pick": 176,
+   "exp": 3,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2023,
+     -0.079
+    ],
+    [
+     2024,
+     -0.265
+    ],
+    [
+     2025,
+     -0.174
+    ]
+   ],
+   "level": -0.756,
+   "proj": [
+    -0.717,
+    -0.704,
+    -0.702
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.275,
+    -0.262,
+    -0.26
+   ],
+   "expected": [
+    -0.585,
+    -0.575,
+    -0.573
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.224,
+    -0.214,
+    -0.212
+   ],
+   "composite": [
+    -1.228,
+    -1.03,
+    -0.833
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.786,
+    -0.588,
+    -0.391
+   ],
+   "proj_ext": -1.356,
+   "total": -2.123,
+   "total_exp": -1.733,
+   "total_comp": -3.091
   },
   {
    "pid": "12496",
@@ -23030,6 +27101,258 @@
    "total_comp": -1.635
   },
   {
+   "pid": "13423",
+   "name": "Eli Heidenreich",
+   "pos": "RB",
+   "team": "Cops Chase Brown People",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 230,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.91,
+   "proj": [
+    -0.7,
+    -0.665,
+    -0.791
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.229,
+    -0.195,
+    -0.349
+   ],
+   "expected": [
+    -0.57,
+    -0.542,
+    -0.646
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.187,
+    -0.159,
+    -0.285
+   ],
+   "composite": [
+    -1.225,
+    -1.01,
+    -0.904
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.755,
+    -0.54,
+    -0.462
+   ],
+   "proj_ext": -1.356,
+   "total": -2.156,
+   "total_exp": -1.758,
+   "total_comp": -3.139
+  },
+  {
+   "pid": "13413",
+   "name": "Cyrus Allen",
+   "pos": "WR",
+   "team": "Bijan al-Gaib",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 176,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.9,
+   "proj": [
+    -0.749,
+    -0.722,
+    -0.709
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.312,
+    -0.285,
+    -0.273
+   ],
+   "expected": [
+    -0.604,
+    -0.582,
+    -0.572
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.252,
+    -0.23,
+    -0.22
+   ],
+   "composite": [
+    -1.01,
+    -0.898,
+    -0.782
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.574,
+    -0.462,
+    -0.346
+   ],
+   "proj_ext": -1.075,
+   "total": -2.18,
+   "total_exp": -1.758,
+   "total_comp": -2.69
+  },
+  {
+   "pid": "12738",
+   "name": "Phil Mafah",
+   "pos": "RB",
+   "team": "Bijan al-Gaib",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 239,
+   "exp": 1,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.932,
+   "proj": [
+    -0.718,
+    -0.671,
+    -0.794
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.247,
+    -0.201,
+    -0.352
+   ],
+   "expected": [
+    -0.584,
+    -0.546,
+    -0.648
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.201,
+    -0.163,
+    -0.287
+   ],
+   "composite": [
+    -1.184,
+    -0.986,
+    -0.895
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.714,
+    -0.516,
+    -0.453
+   ],
+   "proj_ext": -1.301,
+   "total": -2.183,
+   "total_exp": -1.778,
+   "total_comp": -3.065
+  },
+  {
+   "pid": "13338",
+   "name": "Kevin Coleman",
+   "pos": "WR",
+   "team": "Bijan al-Gaib",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 177,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.902,
+   "proj": [
+    -0.751,
+    -0.724,
+    -0.711
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.314,
+    -0.287,
+    -0.275
+   ],
+   "expected": [
+    -0.606,
+    -0.584,
+    -0.574
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.254,
+    -0.232,
+    -0.222
+   ],
+   "composite": [
+    -1.041,
+    -0.919,
+    -0.792
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.605,
+    -0.483,
+    -0.356
+   ],
+   "proj_ext": -1.114,
+   "total": -2.186,
+   "total_exp": -1.764,
+   "total_comp": -2.752
+  },
+  {
    "pid": "12516",
    "name": "Kalel Mullings",
    "pos": "RB",
@@ -23196,74 +27519,6 @@
    "total": -2.222,
    "total_exp": -1.563,
    "total_comp": -2.446
-  },
-  {
-   "pid": "12509",
-   "name": "Tre' Harris",
-   "pos": "WR",
-   "team": "Homie G Slicer\u2019s Team",
-   "age": 26,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": -0.71,
-   "career": [
-    [
-     2025,
-     -0.71
-    ]
-   ],
-   "level": -0.71,
-   "proj": [
-    -0.741,
-    -0.746,
-    -0.751
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    -0.361,
-    -0.367,
-    -0.372
-   ],
-   "expected": [
-    -0.638,
-    -0.643,
-    -0.647
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    -0.311,
-    -0.316,
-    -0.32
-   ],
-   "composite": [
-    -0.51,
-    -0.599,
-    -0.691
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    -0.131,
-    -0.22,
-    -0.312
-   ],
-   "proj_ext": -0.452,
-   "total": -2.238,
-   "total_exp": -1.928,
-   "total_comp": -1.8
   },
   {
    "pid": "6920",
@@ -23826,6 +28081,69 @@
    "total_comp": -2.709
   },
   {
+   "pid": "13329",
+   "name": "Malik Benson",
+   "pos": "WR",
+   "team": "These Bitches Love 'Doza",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 195,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.943,
+   "proj": [
+    -0.787,
+    -0.759,
+    -0.746
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.35,
+    -0.323,
+    -0.31
+   ],
+   "expected": [
+    -0.635,
+    -0.612,
+    -0.602
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.283,
+    -0.26,
+    -0.25
+   ],
+   "composite": [
+    -1.262,
+    -1.07,
+    -0.873
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.826,
+    -0.634,
+    -0.437
+   ],
+   "proj_ext": -1.381,
+   "total": -2.292,
+   "total_exp": -1.849,
+   "total_comp": -3.205
+  },
+  {
    "pid": "11577",
    "name": "Will Shipley",
    "pos": "RB",
@@ -23896,6 +28214,132 @@
    "total": -2.33,
    "total_exp": -1.899,
    "total_comp": -2.811
+  },
+  {
+   "pid": "13324",
+   "name": "Matt Hibner",
+   "pos": "TE",
+   "team": "Unsolicited Nix pics",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 133,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.909,
+   "proj": [
+    -0.799,
+    -0.78,
+    -0.772
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.489,
+    -0.47,
+    -0.462
+   ],
+   "expected": [
+    -0.639,
+    -0.624,
+    -0.617
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.391,
+    -0.376,
+    -0.369
+   ],
+   "composite": [
+    -0.997,
+    -0.913,
+    -0.827
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.687,
+    -0.603,
+    -0.517
+   ],
+   "proj_ext": -1.047,
+   "total": -2.351,
+   "total_exp": -1.88,
+   "total_comp": -2.737
+  },
+  {
+   "pid": "13424",
+   "name": "Seth McGowan",
+   "pos": "RB",
+   "team": "Baby Billys Bible Bonkers",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 237,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.928,
+   "proj": [
+    -0.714,
+    -0.82,
+    -0.821
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.243,
+    -0.378,
+    -0.379
+   ],
+   "expected": [
+    -0.581,
+    -0.669,
+    -0.67
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.198,
+    -0.308,
+    -0.309
+   ],
+   "composite": [
+    -1.015,
+    -0.955,
+    -0.875
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.544,
+    -0.513,
+    -0.433
+   ],
+   "proj_ext": -1.09,
+   "total": -2.355,
+   "total_exp": -1.92,
+   "total_comp": -2.845
   },
   {
    "pid": "4040",
@@ -24138,74 +28582,6 @@
    "total_comp": -3.017
   },
   {
-   "pid": "12641",
-   "name": "Jaylin Lane",
-   "pos": "WR",
-   "team": "Jeantrification",
-   "age": 26,
-   "age_src": "default",
-   "pick": 999,
-   "exp": null,
-   "elite": 0,
-   "war25": -0.772,
-   "career": [
-    [
-     2025,
-     -0.772
-    ]
-   ],
-   "level": -0.772,
-   "proj": [
-    -0.793,
-    -0.797,
-    -0.8
-   ],
-   "nat_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "nat_high": [
-    -0.414,
-    -0.418,
-    -0.421
-   ],
-   "expected": [
-    -0.684,
-    -0.687,
-    -0.69
-   ],
-   "adj_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "adj_high": [
-    -0.357,
-    -0.36,
-    -0.363
-   ],
-   "composite": [
-    -0.839,
-    -0.824,
-    -0.81
-   ],
-   "comp_low": [
-    0.0,
-    0.0,
-    0.0
-   ],
-   "comp_high": [
-    -0.46,
-    -0.445,
-    -0.431
-   ],
-   "proj_ext": -0.85,
-   "total": -2.39,
-   "total_exp": -2.061,
-   "total_comp": -2.473
-  },
-  {
    "pid": "8917",
    "name": "KaVontae Turpin",
    "pos": "WR",
@@ -24434,6 +28810,132 @@
    "total_comp": -3.21
   },
   {
+   "pid": "12491",
+   "name": "Corey Kiner",
+   "pos": "RB",
+   "team": "Big Bucky Hunter",
+   "age": 23,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": null,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.981,
+   "proj": [
+    -0.757,
+    -0.825,
+    -0.837
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.287,
+    -0.383,
+    -0.395
+   ],
+   "expected": [
+    -0.616,
+    -0.673,
+    -0.683
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.233,
+    -0.313,
+    -0.323
+   ],
+   "composite": [
+    -1.236,
+    -1.091,
+    -0.941
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.766,
+    -0.649,
+    -0.499
+   ],
+   "proj_ext": -1.356,
+   "total": -2.419,
+   "total_exp": -1.972,
+   "total_comp": -3.268
+  },
+  {
+   "pid": "13400",
+   "name": "Justin Joly",
+   "pos": "TE",
+   "team": "Jeantrification",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 152,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.965,
+   "proj": [
+    -0.848,
+    -0.828,
+    -0.819
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.538,
+    -0.518,
+    -0.509
+   ],
+   "expected": [
+    -0.679,
+    -0.663,
+    -0.655
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.431,
+    -0.414,
+    -0.407
+   ],
+   "composite": [
+    -0.801,
+    -0.808,
+    -0.813
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.491,
+    -0.498,
+    -0.503
+   ],
+   "proj_ext": -0.789,
+   "total": -2.495,
+   "total_exp": -1.997,
+   "total_comp": -2.422
+  },
+  {
    "pid": "2197",
    "name": "Brandin Cooks",
    "pos": "WR",
@@ -24544,6 +29046,74 @@
    "total": -2.498,
    "total_exp": -1.942,
    "total_comp": -2.994
+  },
+  {
+   "pid": "12718",
+   "name": "Konata Mumpfield",
+   "pos": "WR",
+   "team": "Big Bucky Hunter",
+   "age": 22,
+   "age_src": "matched",
+   "pick": 242,
+   "exp": 1,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2025,
+     -1.171
+    ]
+   ],
+   "level": -1.033,
+   "proj": [
+    -0.867,
+    -0.827,
+    -0.811
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.431,
+    -0.391,
+    -0.375
+   ],
+   "expected": [
+    -0.699,
+    -0.668,
+    -0.655
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.347,
+    -0.316,
+    -0.302
+   ],
+   "composite": [
+    -1.004,
+    -0.932,
+    -0.856
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.568,
+    -0.496,
+    -0.42
+   ],
+   "proj_ext": -1.038,
+   "total": -2.505,
+   "total_exp": -2.022,
+   "total_comp": -2.792
   },
   {
    "pid": "11370",
@@ -24692,6 +29262,69 @@
    "total": -2.51,
    "total_exp": -2.024,
    "total_comp": -2.844
+  },
+  {
+   "pid": "13408",
+   "name": "Tanner Koziol",
+   "pos": "TE",
+   "team": "Bijan al-Gaib",
+   "age": 21,
+   "age_src": "matched",
+   "pick": 164,
+   "exp": 0,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -0.998,
+   "proj": [
+    -0.876,
+    -0.855,
+    -0.846
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.566,
+    -0.545,
+    -0.536
+   ],
+   "expected": [
+    -0.701,
+    -0.684,
+    -0.677
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.453,
+    -0.436,
+    -0.428
+   ],
+   "composite": [
+    -1.003,
+    -0.945,
+    -0.884
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.693,
+    -0.635,
+    -0.574
+   ],
+   "proj_ext": -1.035,
+   "total": -2.577,
+   "total_exp": -2.062,
+   "total_comp": -2.832
   },
   {
    "pid": "12670",
@@ -25194,6 +29827,82 @@
    "total_comp": -3.011
   },
   {
+   "pid": "8127",
+   "name": "Charlie Kolar",
+   "pos": "TE",
+   "team": "Bijan al-Gaib",
+   "age": 26,
+   "age_src": "matched",
+   "pick": 128,
+   "exp": 4,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [
+    [
+     2023,
+     -0.099
+    ],
+    [
+     2024,
+     -0.899
+    ],
+    [
+     2025,
+     -0.921
+    ]
+   ],
+   "level": -0.892,
+   "proj": [
+    -0.933,
+    -0.947,
+    -0.949
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.618,
+    -0.631,
+    -0.634
+   ],
+   "expected": [
+    -0.755,
+    -0.766,
+    -0.768
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.5,
+    -0.511,
+    -0.513
+   ],
+   "composite": [
+    -0.971,
+    -0.964,
+    -0.955
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.656,
+    -0.649,
+    -0.64
+   ],
+   "proj_ext": -0.98,
+   "total": -2.829,
+   "total_exp": -2.289,
+   "total_comp": -2.89
+  },
+  {
    "pid": "8172",
    "name": "Greg Dulcich",
    "pos": "TE",
@@ -25272,6 +29981,69 @@
    "total": -2.843,
    "total_exp": -2.293,
    "total_comp": -1.835
+  },
+  {
+   "pid": "12860",
+   "name": "Theo Wease",
+   "pos": "WR",
+   "team": "Jeantrification",
+   "age": 24,
+   "age_src": "matched",
+   "pick": 999,
+   "exp": null,
+   "elite": 0,
+   "war25": 0.0,
+   "career": [],
+   "level": -1.063,
+   "proj": [
+    -0.893,
+    -0.981,
+    -0.998
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.457,
+    -0.602,
+    -0.618
+   ],
+   "expected": [
+    -0.721,
+    -0.846,
+    -0.86
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.369,
+    -0.519,
+    -0.533
+   ],
+   "composite": [
+    -0.839,
+    -0.903,
+    -0.963
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.403,
+    -0.524,
+    -0.584
+   ],
+   "proj_ext": -0.825,
+   "total": -2.872,
+   "total_exp": -2.427,
+   "total_comp": -2.705
   },
   {
    "pid": "11608",
@@ -25416,6 +30188,110 @@
    "total": -3.057,
    "total_exp": -2.377,
    "total_comp": -3.229
+  },
+  {
+   "pid": "2078",
+   "name": "Odell Beckham",
+   "pos": "WR",
+   "team": "Captain Jah\u2019Merica",
+   "age": 32,
+   "age_src": "matched",
+   "pick": 12,
+   "exp": 12,
+   "elite": 1,
+   "war25": 0.0,
+   "career": [
+    [
+     2014,
+     1.048
+    ],
+    [
+     2015,
+     1.601
+    ],
+    [
+     2016,
+     1.153
+    ],
+    [
+     2017,
+     0.373
+    ],
+    [
+     2018,
+     1.142
+    ],
+    [
+     2019,
+     0.344
+    ],
+    [
+     2020,
+     0.099
+    ],
+    [
+     2021,
+     -0.025
+    ],
+    [
+     2023,
+     0.051
+    ],
+    [
+     2024,
+     -0.768
+    ]
+   ],
+   "level": -0.856,
+   "proj": [
+    -1.01,
+    -1.078,
+    -1.069
+   ],
+   "nat_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "nat_high": [
+    -0.656,
+    -0.724,
+    -0.715
+   ],
+   "expected": [
+    -0.786,
+    -0.839,
+    -0.831
+   ],
+   "adj_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "adj_high": [
+    -0.51,
+    -0.563,
+    -0.556
+   ],
+   "composite": [
+    -1.122,
+    -1.114,
+    -1.085
+   ],
+   "comp_low": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "comp_high": [
+    -0.768,
+    -0.76,
+    -0.731
+   ],
+   "proj_ext": -1.15,
+   "total": -3.157,
+   "total_exp": -2.456,
+   "total_comp": -3.321
   },
   {
    "pid": "8135",

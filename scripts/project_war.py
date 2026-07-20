@@ -153,6 +153,26 @@ def main():
     teams = json.load(open(ROOT / 'data' / f'{roster_season}' / 'teams.json', encoding='utf-8'))
     owner = {pid: t['team'] for t in teams for pid in t['players']}
     names = json.load(open(ROOT / 'data' / 'players_min.json', encoding='utf-8'))
+
+    # ---- fantasy rookie-draft capital ------------------------------------
+    # An incoming rookie has no league history and isn't in nflverse yet, so
+    # the NFL-pick prior can't reach them. Their FANTASY rookie-draft slot is
+    # known the moment they're drafted, and Bridge A already prices every slot
+    # in realized WAR — so that's the seed. Sleeper's projection then carries
+    # year 1 through the existing composite blend.
+    fslot, slot_exp = {}, {}
+    dfile = ROOT / 'data' / 'drafts.json'
+    if dfile.exists():
+        for picks in json.load(open(dfile, encoding='utf-8')).values():
+            for p in picks:
+                if p.get('kind') == 'rookie' and p.get('pid') and not p.get('traded'):
+                    fslot[p['pid']] = (int(p['season']), p['slot'])
+    pvfile = ROOT / 'data' / 'pick_values.json'
+    if pvfile.exists():
+        pv = json.load(open(pvfile, encoding='utf-8'))
+        yrs = sorted(int(y) for y in (pv.get('meta') or {}).get('years_published') or [])
+        slot_exp = {b['bucket']: [float(b.get('raw', {}).get(str(y), 0.0)) for y in yrs]
+                    for b in pv.get('picks', [])}
     model = json.load(open(ROOT / 'nfl_history' / 'aging_curves.json', encoding='utf-8'))
     curves, avail, priors = model['curves'], model['availability'], model['capital_priors']
     UDFA_PICK = model['meta'].get('udfa_pick', 260)
@@ -182,16 +202,21 @@ def main():
     def avail_for(pos, age):
         return group_for(avail[pos], age)['avail']
 
-    rows, skipped, age_def = [], 0, 0
+    rows, skipped, age_def, rookies = [], 0, 0, 0
     for pid in owner:
-        if pid not in pos_s:
-            skipped += 1; continue
-        pos = pos_s[pid]
-        if pos not in curves or not curves[pos]:
+        # a player with no league history is still projectable if we know his
+        # fantasy draft capital — that's the whole point of the slot prior
+        pos = pos_s.get(pid) or (names.get(pid) or [None, None])[1]
+        if not pos or pos not in curves or not curves[pos]:
+            if pid not in pos_s:
+                skipped += 1
             continue
         nm = names.get(pid, [pid, pos, ''])[0]
         m = match_meta(nm, pos, idx)
         birth, draft_season, pick, gsis = (m if m else (None, None, 999, None))
+        fs = fslot.get(pid)
+        if draft_season is None and fs:
+            draft_season = fs[0]          # fantasy class stands in for the NFL one
         if birth is None:
             base_age, asrc = DEFAULT_AGE.get(pos, 26), 'default'; age_def += 1
         else:
@@ -199,6 +224,13 @@ def main():
         cf = priors[pos]
         pick_eff = pick if pick < 999 else UDFA_PICK
         prior = cf['a'] + cf['b'] * math.log(pick_eff)
+        # Prefer the fantasy rookie slot when the NFL pick is unknown (nflverse
+        # has no 2026 class yet). Bridge A's year-1 value is a realized WAR, so
+        # divide out availability to get the per-13 RATE the model works in.
+        if pick >= 999 and fs and fs[1] in slot_exp and slot_exp[fs[1]]:
+            av0 = avail_for(pos, base_age) or 1.0
+            prior = slot_exp[fs[1]][0] / av0
+            rookies += 1
 
         rw = realwar.get(pid, {}); hw = histwar.get(gsis, {}) if gsis else {}
         career = [[y, round(rw.get(y, hw.get(y, 0.0)), 3)] for y in sorted(set(rw) | set(hw))]
@@ -280,7 +312,8 @@ def main():
     (ROOT / 'data' / 'projections.json').write_text(json.dumps(out, indent=1), encoding='utf-8')
 
     print(f"seed {seed}  rosters {roster_season}  projected {len(rows)}  "
-          f"skipped no-history {skipped}  age-default {age_def}")
+          f"skipped no-history {skipped}  age-default {age_def}  "
+          f"seeded from fantasy draft slot {rookies}")
     print(f"\n{'name':21s} {'pos':3s} {'ag':>2s} {'pick':>4s} {'lvl':>5s} | "
           f"3-yr totals: healthy / composite / injury")
     for r in rows[:22]:

@@ -1,12 +1,12 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react";
-import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesFile } from "../lib/types";
+import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, pInfo, posRanks } from "../lib/league";
 import { useLeague } from "../lib/context";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
-import TradeCard from "./TradeCard";
+import TradeCard, { readTrades } from "./TradeCard";
 
 function ord(n: number) {
   const s = ["th", "st", "nd", "rd"], v = n % 100;
@@ -90,8 +90,10 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
   useEffect(() => {
     if (cur !== "trades" || trades) return;
     let live = true;
-    j<TradesFile>("data/trades.json")
-      .then(f => { if (live) setTrades(f.trades.filter(t => t.sides.some(s => s.rid === rid))); })
+    j<TradesPayload>("data/trades.json")
+      .then(p => {
+        if (live) setTrades(readTrades(p).trades.filter(t => t.sides.some(s => s.rid === rid)));
+      })
       .catch(() => { if (live) setTrades([]); });
     return () => { live = false; };
   }, [cur, trades, rid]);
