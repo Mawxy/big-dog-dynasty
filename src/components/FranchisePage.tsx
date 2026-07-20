@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react";
-import type { DraftPick, Drafts, Franchise, Franchises, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload } from "../lib/types";
+import type { DraftPick, Drafts, Franchise, Franchises, Insights, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, pInfo, posRanks } from "../lib/league";
@@ -53,9 +53,12 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
     season: string; war: Map<string, number>;
     ppg: Map<string, number>; pts: Map<string, number>; rank: Map<string, number>;
   } | null>(null);
+  const [insights, setInsights] = useState<Insights | null>(null);
+  const insight = insights?.teams[String(rid)] ?? null;
 
   useEffect(() => {
     let live = true;
+    j<Insights>("data/insights.json").then(x => { if (live) setInsights(x); }).catch(() => {});
     j<Franchises>("data/franchises.json").then(f => {
       if (!live) return;
       const rec = f[String(rid)] ?? null;
@@ -166,6 +169,18 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
         </div>
 
         {cur === "overview" && <>
+        {insight && (
+          <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 16px", margin: "16px 0 4px" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+              <b style={{ color: "var(--txt)", fontSize: 13.5 }}>{insights?.meta.season} outlook</b>
+              <span style={{ color: "var(--dim)", fontSize: 12 }}>{insight.head}</span>
+            </div>
+            <div style={{ color: "var(--txt)", fontSize: 13.5, lineHeight: 1.65, marginTop: 6 }}>{insight.text}</div>
+            <div style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 6 }}>
+              written {insights?.meta.generated} — {insights?.meta.note}
+            </div>
+          </div>
+        )}
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "18px 0 8px" }}>
           <h3 style={{ margin: 0 }}>Roster</h3>
           <select value={rosterSeason ?? ""} onChange={e => setRosterSeason(e.target.value)} style={selStyle}>

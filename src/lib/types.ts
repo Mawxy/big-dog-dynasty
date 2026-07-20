@@ -141,6 +141,12 @@ export interface ValueBridge {
   picks: Record<string, [string, number, number, number[]][]>;
 }
 
+/** data/insights.json — written per-franchise outlooks, keyed by roster_id */
+export interface Insights {
+  meta: { generated: string; season: number; note: string };
+  teams: Record<string, { head: string; text: string }>;
+}
+
 /** data/picks_owned.json — who holds which future draft picks right now */
 export interface PicksOwned {
   meta: { seasons: number[]; as_of: string };
