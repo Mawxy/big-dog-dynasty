@@ -175,12 +175,13 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
           : <div style={{ color: "var(--dim)" }}>no roster for this season</div>}
 
         <h3 style={{ margin: "22px 0 6px" }}>Year by year</h3>
+        <div className="tscroll">
         <table className="wide">
           <thead><tr>
             <th>Season</th><th style={{ textAlign: "left" }}>Team</th><th>Record</th>
-            <th>Seed</th><th>Finish</th><th>PPG</th><th>WAR</th>
-            <th style={{ textAlign: "left" }}>Top WAR</th>
-            <th style={{ textAlign: "left" }}>Low starter</th>
+            <th className="hm">Seed</th><th>Finish</th><th className="hm">PPG</th><th>WAR</th>
+            <th className="hm" style={{ textAlign: "left" }}>Top WAR</th>
+            <th className="hm" style={{ textAlign: "left" }}>Low starter</th>
           </tr></thead>
           <tbody>
             {seasons.slice().reverse().map(s => (
@@ -203,6 +204,7 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
             ))}
           </tbody>
         </table>
+        </div>
         </>}
 
         {cur === "draft" && <>
@@ -246,11 +248,12 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
           const kept = (arr: DraftPick[]) => arr.filter(p => !p.traded).length;
 
           return (
-            <table style={{ width: "auto" }}>
+            <div className="tscroll">
+            <table className="wide">
               <thead><tr>
                 <th>Pick</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th>
-                <th>WAR</th><th>On roster</th><th>Expected</th><th>vs</th>
-                <th style={{ textAlign: "left" }}>Better available</th>
+                <th>WAR</th><th className="hm">On roster</th><th className="hm">Expected</th><th>vs</th>
+                <th className="hm" style={{ textAlign: "left" }}>Better available</th>
               </tr></thead>
               <tbody>
                 {seasons.map(season => {
@@ -293,13 +296,13 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
                           <td><PosBadge pos={p.pos} /></td>
                           <td className={p.traded ? "" : clsOf(p.war)}
                             style={p.traded ? { color: "var(--dim)" } : undefined}>{fmt(p.war, 2)}</td>
-                          <td className={p.traded ? "" : clsOf(p.war_roster ?? 0)}
+                          <td className={"hm " + (p.traded ? "" : clsOf(p.war_roster ?? 0))}
                             style={p.traded ? { color: "var(--dim)" } : undefined}>
                             {p.traded ? "—" : fmt(p.war_roster ?? 0, 2)}</td>
-                          <td style={{ color: "var(--dim)" }}>{p.expected == null ? "—" : fmt(p.expected, 2)}</td>
+                          <td className="hm" style={{ color: "var(--dim)" }}>{p.expected == null ? "—" : fmt(p.expected, 2)}</td>
                           <td className={p.diff == null ? "" : clsOf(p.diff)}>
                             {p.diff == null ? "—" : sgn(p.diff, 2)}</td>
-                          <td style={{ textAlign: "left", color: "var(--dim)" }}
+                          <td className="hm" style={{ textAlign: "left", color: "var(--dim)" }}
                             title={p.alts.map(a => `${a.name} (pick ${a.pick_no}) ${a.war.toFixed(2)}`).join(" · ")}>
                             {p.alts.length === 0 ? "—"
                               : p.alts.slice(0, 2).map(a => `${a.name} ${a.war.toFixed(2)}`).join(", ")}
@@ -311,6 +314,7 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
                 })}
               </tbody>
             </table>
+            </div>
           );
         })()}
         </>}
@@ -440,18 +444,18 @@ function RosterTable({ team, sum, players, proj, projPpg, projPts, rank, lineup,
     <td className="pcol" style={{ textAlign: "left" }}><PlayerLink pid={r.id} name={r.nm} />
       {r.tag && r.tag !== "START" && <span className="tag"> {r.tag}</span>}</td>
     <td><PosBadge pos={r.pos} /></td>
-    <td style={{ color: "var(--dim)" }}>{r.fin ? `${r.pos}${r.fin}` : "—"}</td>
-    {!proj && <td>{r.gp}</td>}
-    <td>{r.ppg ? fmt(r.ppg, 1) : "—"}</td>
-    <td>{r.pts ? fmt(r.pts, 1) : "—"}</td>
+    <td className="hm" style={{ color: "var(--dim)" }}>{r.fin ? `${r.pos}${r.fin}` : "—"}</td>
+    {!proj && <td className="hm">{r.gp}</td>}
+    <td className="hm">{r.ppg ? fmt(r.ppg, 1) : "—"}</td>
+    <td className="hm">{r.pts ? fmt(r.pts, 1) : "—"}</td>
     <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
   </>);
   const cols = <thead><tr>
     <th className="pcol" style={{ textAlign: "left" }}>Player</th><th>Pos</th>
-    <th>{proj ? "Proj fin" : "Finish"}</th>
-    {!proj && <th>GP</th>}
-    <th>{proj ? "Proj PPG" : "PPG"}</th>
-    <th>{proj ? "Proj pts" : "Points"}</th>
+    <th className="hm">{proj ? "Proj fin" : "Finish"}</th>
+    {!proj && <th className="hm">GP</th>}
+    <th className="hm">{proj ? "Proj PPG" : "PPG"}</th>
+    <th className="hm">{proj ? "Proj pts" : "Points"}</th>
     <th>{proj ? "Proj WAR" : "WAR"}</th>
   </tr></thead>;
   const span = proj ? 6 : 7;

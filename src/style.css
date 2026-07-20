@@ -44,6 +44,8 @@ main{flex:1;min-width:0;padding:26px 34px 60px;max-width:1560px;margin:0 auto}
    grid row, so a 12-row half would drift out of step with a 13-row half */
 .benchsplit{display:grid;grid-template-columns:repeat(auto-fit,minmax(440px,1fr));
   align-items:start}
+/* the roster cards scroll internally rather than widening the page */
+.rcard{overflow-x:auto}
 .benchsplit table+table{border-left:1px solid var(--line)}
 /* group break inside a bench column: header typography, but line-height is
    pinned to the body's 15px/1.5 so the row is exactly one data row tall and
@@ -158,6 +160,24 @@ td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
   main{padding:52px 10px 40px}   /* top clears the floating nav button */
   th,td{padding:7px 8px;font-size:13px}
   .hm{display:none}
+
+  /* Wide tables must scroll INSIDE their container. Without this they widen
+     the page itself, which drags the sidebar and floating nav off-screen. */
+  .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  /* fixed 92px columns are a desktop number — let content size them here */
+  .rcard table{table-layout:auto}
+  .rcard th,.rcard td{width:auto}
+  .rcard th.pcol,.rcard td.pcol{width:auto;max-width:none}
+
+  /* tabs scroll sideways rather than bursting their underline */
+  .tabs{overflow-x:auto;scrollbar-width:none}
+  .tabs::-webkit-scrollbar{display:none}
+  .tabs button{padding:9px 11px;white-space:nowrap}
+
+  /* trade sides: team on its own line, the two figures beneath it */
+  .tradesides{grid-template-columns:1fr}
+  .tradeside{grid-template-columns:auto auto 1fr;column-gap:12px}
+  .tradeteam{grid-column:1/-1}
 }
 
 .seasongrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;align-items:start}
