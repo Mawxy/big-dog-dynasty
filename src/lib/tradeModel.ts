@@ -31,19 +31,32 @@ export const pickLabel = (postures: Posture[],
   pk: { season: number; round: number; orig: number }) =>
   `${pk.season} ${tierFor(postures, pk.orig)} ${ORD[pk.round - 1]}`;
 
-/** Bridge A tier stream for a future pick, as OPTION value: a pick's busts
- *  get cut for a free ~0-WAR waiver body while its hits get started, so each
- *  year is E[max(0, outcome)] over the empirical distribution — never
- *  negative. (Raw means go below zero for late rounds, which made "throwing
- *  in a pick" read as shedding toxic waste and broke trade suggestions.) */
-export const pickStream = (pv: PickValues, tier: string, round: number): number[] => {
-  const b = pv.bands.find(x => x.label === `${tier} ${ORD[round - 1]}`);
+const optStream = (pv: PickValues, label: string): number[] => {
+  const b = pv.bands.find(x => x.label === label);
   if (!b) return [0, 0, 0];
   return [1, 2, 3].map(y => {
     const d = b.dist?.[String(y)];
     if (d?.length) return d.reduce((a, x) => a + Math.max(0, x), 0) / d.length;
     return Math.max(0, b.raw[String(y)] ?? 0);
   });
+};
+
+/** Bridge A tier stream for a future pick, as NET option value.
+ *  Two corrections over the raw band means:
+ *  1. busts get cut for waiver bodies, so outcomes clamp at 0 (E[max(0,x)]) —
+ *     raw means go negative for late rounds, which made "throwing in a pick"
+ *     read as shedding toxic waste;
+ *  2. the counterfactual isn't zero — every manager already holds unlimited
+ *     free darts on the waiver wire, so a pick is only worth its option value
+ *     ABOVE the free-agency dart. The Late 4th band is empirically waiver-tier
+ *     and serves as that baseline (and itself nets to ~0, matching how the
+ *     league actually treats 4ths: throw-ins).
+ *  Net effect: Early 1sts barely change, late picks deflate to sweetener
+ *  money instead of being priced like real roster players. */
+export const pickStream = (pv: PickValues, tier: string, round: number): number[] => {
+  const opt = optStream(pv, `${tier} ${ORD[round - 1]}`);
+  const base = optStream(pv, "Late 4th");
+  return opt.map((x, i) => Math.max(0, x - (base[i] ?? 0)));
 };
 
 interface PoolP { id: string; pos: string; comp: number[]; age?: number }

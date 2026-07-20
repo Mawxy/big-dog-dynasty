@@ -107,14 +107,20 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
       const cur = pv.meta.generated_for_season + 1;   // current rookie class
       const ktcMap = new Map(vals?.picks?.ktc ?? []);
       const fcMap = new Map(vals?.picks?.fc ?? []);
-      // option value: busts get cut for waiver bodies, so E[max(0, outcome)]
+      // net option value, same as tradeModel.pickStream: outcomes clamp at 0
+      // (busts get cut) and the free waiver dart (Late 4th band) is netted out
+      const base = pickStream(pv, "Late", 4).map((x, i) => {
+        const b4 = pv.bands.find(b => b.label === "Late 4th");
+        const d = b4?.dist?.[String(i + 1)];
+        return d?.length ? d.reduce((a, v) => a + Math.max(0, v), 0) / d.length : 0;
+      });
       const stream = (b?: { raw: Record<string, number>; dist?: Record<string, number[]> }) =>
         b ? [1, 2, 3].map(y => {
           const d = b.dist?.[String(y)];
-          if (d?.length) return d.reduce((a, x) => a + Math.max(0, x), 0) / d.length;
-          return Math.max(0, b.raw[String(y)] ?? 0);
+          const opt = d?.length ? d.reduce((a, x) => a + Math.max(0, x), 0) / d.length
+            : Math.max(0, b.raw[String(y)] ?? 0);
+          return Math.max(0, opt - (base[y - 1] ?? 0));
         }) : [0, 0, 0];
-      const band = (label: string) => pv.bands.find(b => b.label === label);
       const mk = (label: string, str: number[], lag: number,
         ktc: number | null, fc: number | null): Asset => {
         const imps = [impliedAt("ktc", ktc), impliedAt("fc", fc)]
