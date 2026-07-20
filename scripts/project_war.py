@@ -81,7 +81,25 @@ def build_meta_index():
     return idx
 
 
+# Sleeper display name -> nflverse LEGAL name (2026-07-20). nflverse indexes
+# some players by legal first name, beyond what nickname/prefix matching can
+# bridge. Every entry was verified against the player's real draft slot.
+MANUAL_NAMES = {
+    'DK Metcalf': 'DeKaylin Metcalf', 'CeeDee Lamb': 'Cedarian Lamb',
+    'A.J. Brown': 'Arthur Brown', 'Tee Higgins': 'Tamurice Higgins',
+    'Geno Smith': 'Eugene Smith', 'J.J. McCarthy': 'Jonathan McCarthy',
+    'Mac Jones': 'Michael Jones', 'Chris Godwin': 'Rod Godwin',
+    'Zay Flowers': 'Xavien Flowers', 'Deebo Samuel': 'Tyshun Samuel',
+    'Ladd McConkey': 'Andrew McConkey', 'Jauan Jennings': 'Bennie Jennings',
+    'DJ Moore': 'Denniston Moore', "Tre' Harris": 'Cleveland Harris',
+    'RJ Harvey': 'Robert Harvey', 'Parker Washington': 'Christopher Washington',
+    'Malachi Fields': 'Steven Fields', 'Jaylin Lane': 'Joshua Lane',
+    'Ray Davis': "Re'Mahn Davis",
+}
+
+
 def match_meta(name, pos, idx):
+    name = MANUAL_NAMES.get(name, name)
     n = norm(name); first, last = n.split()[0], n.split()[-1]
     cands = idx.get((last, pos), [])
     if len(cands) == 1:
