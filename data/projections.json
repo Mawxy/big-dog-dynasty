@@ -1,6 +1,6 @@
 {
  "meta": {
-  "generated": "2026-07-19",
+  "generated": "2026-07-20",
   "seed_season": 2025,
   "roster_season": 2026,
   "horizon": 3,
@@ -10,7 +10,7 @@
    2028
   ],
   "players": 316,
-  "model": "per-13 rate + capital-shrinkage + availability; three streams: if-healthy / composite(half injury) / expected(full injury)"
+  "model": "per-13 rate + capital-shrinkage + availability; three streams: natural(if healthy) / composite(natural blended with Sleeper projection, 80/50/20 by year) / expected(natural x availability)"
  },
  "players": [
   {
