@@ -104,6 +104,8 @@ export interface Projection {
   ppg?: number | null;
   /** NFL bye week in the roster season (null: no team / byes unpublished) */
   bye?: number | null;
+  /** projected positional finish per projected year (composite, e.g. WR6) */
+  posFin?: number[];
   proj_ext: number | null;
   total: number; total_exp: number; total_comp: number;
 }

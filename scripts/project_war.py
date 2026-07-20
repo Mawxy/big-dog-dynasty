@@ -374,6 +374,17 @@ def main():
             'total_comp': round(sum(comp), 3),
         })
 
+    # projected positional finish per year (composite stream): lets the UI say
+    # "WAR declines but he's still WR6" — ranks fall far slower than raw WAR
+    # because the whole position ages together. Ranked among projected
+    # (rostered) players, same convention as the leaderboard pos ranks.
+    for y in range(H):
+        for ps in {r['pos'] for r in rows}:
+            grp = sorted((r for r in rows if r['pos'] == ps),
+                         key=lambda r: -(r['composite'][y] if y < len(r['composite']) else -9))
+            for i, r in enumerate(grp):
+                r.setdefault('posFin', [0] * H)[y] = i + 1
+
     rows.sort(key=lambda r: r['total'], reverse=True)
     out = {'meta': {
         'generated': datetime.date.today().isoformat(),

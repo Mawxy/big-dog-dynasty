@@ -36,7 +36,10 @@ export default function Projection({ p, trend, sleeper, years }: {
   const lastActual = hist.length ? hist[hist.length - 1].WAR : 0;
   const data: Record<string, unknown>[] = [
     ...hist.map(h => ({ season: h.season, actual: h.WAR })),
-    ...years.map((y, i) => ({ season: String(y), proj: line[i], band: [lo[i], hi[i]] as [number, number] })),
+    ...years.map((y, i) => ({
+      season: String(y), proj: line[i], band: [lo[i], hi[i]] as [number, number],
+      fin: p.posFin?.[i] ?? null,
+    })),
   ];
   if (hist.length) {
     data[hist.length - 1].proj = lastActual;                     // bridge the line
@@ -64,9 +67,14 @@ export default function Projection({ p, trend, sleeper, years }: {
           <Tooltip
             contentStyle={{ background: "#161b23", border: "1px solid #242c38", borderRadius: 8, fontSize: 12.5 }}
             labelStyle={{ color: "#e6ebf2" }} itemStyle={{ padding: 0 }}
-            formatter={(v: number | number[], name: string) =>
-              [Array.isArray(v) ? `${v[0].toFixed(2)} – ${v[1].toFixed(2)}` : (v as number).toFixed(2),
-              name === "band" ? "p20–p80" : name === "proj" ? t.label : "actual"]} />
+            formatter={(v: number | number[], name: string, item: { payload?: { fin?: number | null } }) => {
+              const val = Array.isArray(v) ? `${v[0].toFixed(2)} – ${v[1].toFixed(2)}` : (v as number).toFixed(2);
+              // projected finish softens a shrinking WAR — the whole position
+              // ages together, so WR6 stays WR6-ish while the raw number falls
+              const fin = name === "proj" && item?.payload?.fin
+                ? `${val} · proj ${p.pos}${item.payload.fin}` : val;
+              return [fin, name === "band" ? "p20–p80" : name === "proj" ? t.label : "actual"];
+            }} />
           <ReferenceLine y={0} stroke="#8b96a5" />
           <Area type="monotone" dataKey="band" stroke="none" fill={t.color} fillOpacity={0.13} />
           <Line type="linear" dataKey="actual" stroke={GOLD} strokeWidth={2.5} connectNulls
