@@ -42,7 +42,7 @@ const optStream = (pv: PickValues, label: string): number[] => {
 };
 
 /** Bridge A tier stream for a future pick, as NET option value.
- *  Two corrections over the raw band means:
+ *  Corrections over the raw band means:
  *  1. busts get cut for waiver bodies, so outcomes clamp at 0 (E[max(0,x)]) —
  *     raw means go negative for late rounds, which made "throwing in a pick"
  *     read as shedding toxic waste;
@@ -50,14 +50,51 @@ const optStream = (pv: PickValues, label: string): number[] => {
  *     free darts on the waiver wire, so a pick is only worth its option value
  *     ABOVE the free-agency dart. The Late 4th band is empirically waiver-tier
  *     and serves as that baseline (and itself nets to ~0, matching how the
- *     league actually treats 4ths: throw-ins).
- *  Net effect: Early 1sts barely change, late picks deflate to sweetener
- *  money instead of being priced like real roster players. */
-export const pickStream = (pv: PickValues, tier: string, round: number): number[] => {
-  const opt = optStream(pv, `${tier} ${ORD[round - 1]}`);
+ *     league actually treats 4ths: throw-ins);
+ *  3. board monotonicity: an earlier pick can never be worth less than a later
+ *     one. Thin adjacent bands (Mid 3rd vs Mid 4th) invert on sampling noise,
+ *     so a pool-adjacent-violators pass makes 3-yr totals non-increasing down
+ *     the board, each band's yearly shape rescaled to its adjusted total. */
+const TIER_ORDER = ["Early", "Mid", "Late"];
+const pickTableCache = new WeakMap<PickValues, Map<string, number[]>>();
+function pickTable(pv: PickValues): Map<string, number[]> {
+  let t = pickTableCache.get(pv);
+  if (t) return t;
   const base = optStream(pv, "Late 4th");
-  return opt.map((x, i) => Math.max(0, x - (base[i] ?? 0)));
-};
+  const entries: { key: string; stream: number[]; total: number }[] = [];
+  for (let r = 1; r <= 4; r++)
+    for (const tier of TIER_ORDER) {
+      const stream = optStream(pv, `${tier} ${ORD[r - 1]}`)
+        .map((x, i) => Math.max(0, x - (base[i] ?? 0)));
+      entries.push({ key: `${tier} ${ORD[r - 1]}`, stream,
+        total: stream.reduce((a, b) => a + b, 0) });
+    }
+  // PAV, non-increasing in board order
+  const blocks: { sum: number; n: number }[] = [];
+  for (const e of entries) {
+    blocks.push({ sum: e.total, n: 1 });
+    while (blocks.length > 1 &&
+      blocks[blocks.length - 2].sum / blocks[blocks.length - 2].n
+      < blocks[blocks.length - 1].sum / blocks[blocks.length - 1].n) {
+      const b = blocks.pop()!;
+      blocks[blocks.length - 1].sum += b.sum;
+      blocks[blocks.length - 1].n += b.n;
+    }
+  }
+  const fit: number[] = [];
+  for (const b of blocks) for (let i = 0; i < b.n; i++) fit.push(b.sum / b.n);
+  t = new Map(entries.map((e, i) => {
+    const target = fit[i];
+    const scaled = e.total > 1e-9
+      ? e.stream.map(x => x * target / e.total)
+      : [target / 3, target / 3, target / 3];
+    return [e.key, scaled.map(x => Math.round(x * 1000) / 1000)];
+  }));
+  pickTableCache.set(pv, t);
+  return t;
+}
+export const pickStream = (pv: PickValues, tier: string, round: number): number[] =>
+  pickTable(pv).get(`${tier} ${ORD[round - 1]}`) ?? [0, 0, 0];
 
 interface PoolP { id: string; pos: string; comp: number[]; age?: number }
 
