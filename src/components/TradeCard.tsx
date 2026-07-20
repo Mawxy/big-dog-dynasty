@@ -41,7 +41,13 @@ function Asset({ a }: { a: TradeAsset }) {
 export default function TradeCard({ t, open, onToggle, highlightRid }:
   { t: Trade; open: boolean; onToggle: () => void; highlightRid?: number }) {
   // the edge is judged on REALIZED WAR only — projection is promise, not return
-  const spread = Math.max(...t.sides.map(s => s.war)) - Math.min(...t.sides.map(s => s.war));
+  const mine = highlightRid === undefined ? undefined : t.sides.find(s => s.rid === highlightRid);
+  const others = t.sides.filter(s => s !== mine);
+  // On a franchise page the edge is SIGNED from that team's point of view —
+  // negative when they lost the trade. League-wide it's just the spread.
+  const edge = mine && others.length
+    ? mine.war - Math.max(...others.map(s => s.war))
+    : Math.max(...t.sides.map(s => s.war)) - Math.min(...t.sides.map(s => s.war));
   // the viewing franchise's side leads
   const sides = highlightRid === undefined ? t.sides
     : [...t.sides].sort((a, b) => Number(b.rid === highlightRid) - Number(a.rid === highlightRid));
@@ -51,7 +57,7 @@ export default function TradeCard({ t, open, onToggle, highlightRid }:
         <span className="ownwk">{t.season} W{t.week}</span>
         <span style={{ color: "var(--dim)", fontSize: 12 }}>{tradeWhen(t.ts)}</span>
         <span style={{ marginLeft: "auto", color: "var(--dim)", fontSize: 12 }}>
-          {spread < 0.001 ? "even" : `${sgn(spread, 2)} WAR edge`} · {open ? "hide" : "detail"}
+          {Math.abs(edge) < 0.001 ? "even" : `${sgn(edge, 2)} WAR edge`} · {open ? "hide" : "detail"}
         </span>
       </div>
       <div className="tradesides">
