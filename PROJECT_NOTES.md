@@ -223,6 +223,23 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
    was a Sleeper name gap patched via name_override in build_site_data) →
    Dchaillier10 / "Captain Jah'Merica" (2024-26) — same team, maintain the
    lineage.
+6. **Multi-league / "any league" support (long term — parked 2026-07-20).**
+   Version A (a chosen handful of leagues) needs no new infrastructure: the
+   pipeline is league_id-parameterized, so run it over a list and write
+   `data/<league_id>/...` + a league switcher. Version B (anyone enters a
+   league_id) is the goal, built on the insight that raw weekly stat lines are
+   league-independent: pull them ONCE into a shared store (document DB — Mongo
+   or Postgres JSONB — fits the JSON shape), then a league costs only its
+   settings + light pulls (matchups/rosters/transactions/drafts) and points =
+   Σ scoring_settings[k] × stat[k]. Compute layer re-scores and runs the WAR
+   engine with the pool derived from `roster_positions` + team count instead
+   of the hardcoded 108 superflex slots. Caveats: scoring reimplementation
+   must be exactly faithful (bonuses, TE premium); nfl_history curves are
+   superflex-shaped, so projections approximate for other formats until refit.
+   First step when picked up: validation spike — re-score Big Dog itself from
+   raw stats × our own scoring_settings and diff against Sleeper's
+   `players_points`; reconciling a full season proves the thesis and yields
+   the scoring engine. Not before the current feature work is done.
 
 ## Working conventions (from Max)
 

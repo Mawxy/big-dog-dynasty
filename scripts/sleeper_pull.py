@@ -80,6 +80,24 @@ def dump_league(league_id: str, root: Path):
         if tp:
             save(tp, d / f"draft_{did}_traded_picks.json")
 
+    # NFL byes for this season, derived from the league-independent schedule
+    # feed (published at NFL schedule release, well before Sleeper populates
+    # players' bye_week). A team's bye = the week it appears in no live game.
+    sched = get(f"https://api.sleeper.app/schedule/nfl/regular/{season}")
+    if sched:
+        by_week = {}
+        for g in sched:
+            if g.get("status") == "canceled":
+                continue
+            by_week.setdefault(g["week"], set()).update((g["home"], g["away"]))
+        all_teams = set().union(*by_week.values())
+        byes = {}
+        for wk, playing in sorted(by_week.items()):
+            for tm in all_teams - playing:
+                byes.setdefault(tm, wk)
+        if byes:
+            save(byes, d / "byes.json")
+
     # weeks: use last_scored_leg when the season is done, else assume 18
     last_week = league.get("settings", {}).get("last_scored_leg") or 18
     for wk in range(1, last_week + 1):

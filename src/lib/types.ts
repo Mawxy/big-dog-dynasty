@@ -102,6 +102,8 @@ export interface Projection {
   expected: number[]; adj_low: number[]; adj_high: number[];  // Adjusted (injury)
   /** PPG implied by the year-1 composite WAR rate (inverted pts_to_war fit) */
   ppg?: number | null;
+  /** NFL bye week in the roster season (null: no team / byes unpublished) */
+  bye?: number | null;
   proj_ext: number | null;
   total: number; total_exp: number; total_comp: number;
 }

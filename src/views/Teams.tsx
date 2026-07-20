@@ -10,15 +10,16 @@ import FranchisePage from "../components/FranchisePage";
 
 type WkIdx = Record<string, Record<number, [number, number]>>;
 const REG_WEEKS = 14;   // regular season length; composite rates are per-13 (bye)
-interface LineupEntry { id: string; pos: string; war: number; slot: string; ppg: number | null }
+interface LineupEntry { id: string; pos: string; war: number; slot: string; ppg: number | null; bye: number | null }
 interface Row {
   rid: number; seed: number; team: string; manager: string; wins: number; fpts: number;
   rec: string; med: string; medw: number; ppg: number; sdv: number; waa: number; war: number;
   ent: MatchEntry[];
   /** preseason: row built from projections — record is predicted, σ/WAA/vs-Median dash */
   proj?: boolean; lineup?: LineupEntry[];
-  /** preseason: avg opponent lineup WAR + per-week schedule with win prob */
-  sos?: number | null; sched?: { wk: number; opp: number; p: number }[];
+  /** preseason: avg opponent lineup WAR + per-week schedule with win prob
+   *  and that week's bye-adjusted lineup WAR */
+  sos?: number | null; sched?: { wk: number; opp: number; p: number; war?: number }[];
 }
 type Key = keyof Row;
 const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: number | string }[] = [
@@ -84,7 +85,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         const pool = t.players
           .map(pid => byPid.get(pid))
           .filter((p): p is NonNullable<typeof p> => !!p)
-          .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0 }));
+          .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0, bye: p.bye ?? null }));
         const { slots } = optimalLineup(pool);
         const lineup: LineupEntry[] = slots.filter(s => s.player).map(s => ({
           ...s.player!, slot: s.slot === "SUPER_FLEX" ? "SF" : s.slot,
@@ -92,14 +93,28 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         }));
         const war = lineup.reduce((a, l) => a + l.war, 0);
         const ppg = lineup.reduce((a, l) => a + (l.ppg ?? 0), 0);
-        return { t, war, ppg, lineup };
+        return { t, pool, war, ppg, lineup };
       });
       const meanWar = mean(built.map(b => b.war));
       const warOf = new Map(built.map(b => [b.t.roster_id, b.war]));
-      const zOf = new Map(built.map(b => {
-        const s = Math.min(0.45, Math.max(-0.45, (b.war - meanWar) / 13));
-        return [b.t.roster_id, normInv(0.5 + s)];
-      }));
+      const poolOf = new Map(built.map(b => [b.t.roster_id, b.pool]));
+      // bye-aware weekly lineup: rebuild the optimal lineup without that
+      // week's bye players, so a stacked bye week costs real win probability
+      const wkWarCache = new Map<string, number>();
+      const warAt = (rid: number, wk: number): number => {
+        const key = `${rid}:${wk}`;
+        let v = wkWarCache.get(key);
+        if (v == null) {
+          const { slots } = optimalLineup((poolOf.get(rid) ?? []).filter(p => p.bye !== wk));
+          v = slots.reduce((a, s) => a + (s.player?.war ?? 0), 0);
+          wkWarCache.set(key, v);
+        }
+        return v;
+      };
+      const zAt = (rid: number, wk: number) => {
+        const s = Math.min(0.45, Math.max(-0.45, (warAt(rid, wk) - meanWar) / 13));
+        return normInv(0.5 + s);
+      };
       const psWk = mw.playoff_start || 15;
       const games: Record<number, { wk: number; opp: number }[]> = {};
       for (const [wkS, pairs] of Object.entries(mw.schedule ?? {})) {
@@ -116,7 +131,9 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         let sched: Row["sched"];
         if (gs.length) {
           sched = gs.map(g => ({
-            ...g, p: normCdf((zOf.get(t.roster_id) ?? 0) - (zOf.get(g.opp) ?? 0)),
+            ...g,
+            p: normCdf(zAt(t.roster_id, g.wk) - zAt(g.opp, g.wk)),
+            war: warAt(t.roster_id, g.wk),
           }));
           wins = sched.reduce((a, g) => a + g.p, 0);
           sos = mean(gs.map(g => warOf.get(g.opp) ?? meanWar));
@@ -217,10 +234,11 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         {isProj ? <>
           No scored weeks yet — <b style={{ color: "var(--txt)" }}>projected</b> standings
           over the real Sleeper schedule. WAR = optimal lineup summed from year-1
-          composite projections; each game's win probability comes from the two lineups'
-          WAR gap via the same Φ mapping the engine uses, and the predicted record sums
-          those probabilities. PPG from Sleeper projections. Injuries &amp; roster moves
-          not modeled. Click a row for the lineup &amp; schedule · click a team name for
+          composite projections; each game rebuilds both teams' optimal lineups
+          <i> without that week's bye players</i>, and its win probability comes from the
+          two lineups' WAR gap via the same Φ mapping the engine uses — the predicted
+          record sums those probabilities. PPG derived from the same WAR. Injuries &amp;
+          roster moves not modeled. Click a row for the lineup &amp; schedule · click a team name for
           the full roster.
         </> : <>
           WAA / WAR are summed from each week's actual starting lineup.
@@ -272,13 +290,14 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
       <div className="wkflex">
         <div className="wkwrap">
           <table className="wktbl">
-            <thead><tr><th>Slot</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th><th>PPG</th><th>Proj WAR</th></tr></thead>
+            <thead><tr><th>Slot</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th><th>Bye</th><th>PPG</th><th>Proj WAR</th></tr></thead>
             <tbody>
               {(r.lineup ?? []).map((l, i) => (
                 <tr key={i}>
                   <td style={{ color: "var(--dim)" }}>{l.slot}</td>
                   <td style={{ textAlign: "left" }}><PlayerLink pid={l.id} name={pInfo(players, l.id)[0]} /></td>
                   <td><PosBadge pos={l.pos} /></td>
+                  <td style={{ color: "var(--dim)" }}>{l.bye ? `W${l.bye}` : "—"}</td>
                   <td>{l.ppg == null ? "—" : fmt(l.ppg, 1)}</td>
                   <td className={clsOf(l.war)}>{sgn(l.war)}</td>
                 </tr>
@@ -289,15 +308,24 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
         {r.sched && r.sched.length > 0 && (
           <div className="wkwrap">
             <table className="wktbl">
-              <thead><tr><th>Week</th><th style={{ textAlign: "left" }}>Opponent</th><th>Win %</th></tr></thead>
+              <thead><tr><th>Week</th><th style={{ textAlign: "left" }}>Opponent</th>
+                <th title="this week's optimal lineup WAR, byes removed">Lineup</th><th>Win %</th></tr></thead>
               <tbody>
-                {r.sched.map(g => (
-                  <tr key={g.wk}>
-                    <td>W{g.wk}</td>
-                    <td style={{ textAlign: "left" }}>{tnames[g.opp] || `Roster ${g.opp}`}</td>
-                    <td className={g.p >= 0.5 ? "num good" : "num bad"}>{fmt(g.p * 100, 0)}%</td>
-                  </tr>
-                ))}
+                {r.sched.map(g => {
+                  const weakened = g.war != null && g.war < r.war - 0.005;
+                  return (
+                    <tr key={g.wk}>
+                      <td>W{g.wk}</td>
+                      <td style={{ textAlign: "left" }}>{tnames[g.opp] || `Roster ${g.opp}`}</td>
+                      <td className={weakened ? "num bad" : undefined}
+                        style={weakened ? undefined : { color: "var(--dim)" }}
+                        title={weakened ? `byes cost ${fmt(r.war - (g.war ?? 0), 2)} WAR this week` : undefined}>
+                        {g.war == null ? "—" : sgn(g.war, 2)}
+                      </td>
+                      <td className={g.p >= 0.5 ? "num good" : "num bad"}>{fmt(g.p * 100, 0)}%</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

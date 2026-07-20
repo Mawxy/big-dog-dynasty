@@ -153,6 +153,9 @@ def main():
     teams = json.load(open(ROOT / 'data' / f'{roster_season}' / 'teams.json', encoding='utf-8'))
     owner = {pid: t['team'] for t in teams for pid in t['players']}
     names = json.load(open(ROOT / 'data' / 'players_min.json', encoding='utf-8'))
+    # NFL bye weeks for the roster season (team -> week), when published
+    byes_f = ROOT / 'data' / f'{roster_season}' / 'byes.json'
+    byes = json.load(open(byes_f, encoding='utf-8')) if byes_f.exists() else {}
 
     # ---- fantasy rookie-draft capital ------------------------------------
     # An incoming rookie has no league history and isn't in nflverse yet, so
@@ -326,7 +329,8 @@ def main():
             'proj': proj, 'nat_low': nat_lo, 'nat_high': nat_hi,
             'expected': expv, 'adj_low': adj_lo, 'adj_high': adj_hi,
             'composite': comp, 'comp_low': comp_lo, 'comp_high': comp_hi,
-            'ppg': ppg, 'proj_ext': proj_ext,
+            'ppg': ppg, 'bye': byes.get((names.get(pid) or [None, None, None])[2]),
+            'proj_ext': proj_ext,
             'total': round(sum(proj), 3), 'total_exp': round(sum(expv), 3),
             'total_comp': round(sum(comp), 3),
         })

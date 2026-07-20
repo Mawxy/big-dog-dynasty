@@ -122,6 +122,12 @@ def main():
                         [wk, round(pts.get(rid, 0), 2), o,
                          round(pts.get(o, 0), 2) if o else None,
                          t.get("starters") or []])
+        # NFL bye weeks (team -> week), derived by sleeper_pull from the NFL
+        # schedule feed; project_war attaches each player's bye to projections
+        bf = sdir / "byes.json"
+        if bf.exists():
+            (sout / "byes.json").write_text(bf.read_text())
+
         # future-week pairings (sleeper_pull's schedule/ dir): lets the site
         # project records against the real schedule before any games are scored
         sched = {}
