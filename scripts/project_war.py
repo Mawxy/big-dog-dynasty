@@ -325,9 +325,12 @@ def main():
             av = min(1.0, max(0.35, avail_for(pos, age) + av_delta))
             e = r * av
             proj.append(round(r, 3)); expv.append(round(e, 3))
-            nat_lo.append(round(max(r + g['p20'], 0.0), 3))
+            # NO zero-floor on the pessimistic band: negative projections are
+            # real, and a band that can't go below 0 renders ABOVE the line
+            # for sub-replacement players (Darnell Washington bug, 2026-07-20)
+            nat_lo.append(round(r + g['p20'], 3))
             nat_hi.append(round(r + g['p80'], 3))
-            adj_lo.append(round(max((r + g['p20']) * av, 0.0), 3))
+            adj_lo.append(round((r + g['p20']) * av, 3))
             adj_hi.append(round((r + g['p80']) * av, 3))
             p20s.append(g['p20']); p80s.append(g['p80'])
             # roll forward WITHOUT re-regressing: feed a value dampened toward the
@@ -349,7 +352,7 @@ def main():
         else:
             proj_ext = None
             comp = list(proj)
-        comp_lo = [round(max(comp[i] + p20s[i], 0.0), 3) for i in range(len(comp))]
+        comp_lo = [round(comp[i] + p20s[i], 3) for i in range(len(comp))]
         comp_hi = [round(comp[i] + p80s[i], 3) for i in range(len(comp))]
         # PPG derived from OUR model, not Sleeper: invert the fitted
         # pts_to_war line (WAR = a + b*pts per 13) at the year-1 composite
