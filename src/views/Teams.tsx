@@ -1,18 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { Matchups, MatchEntry, PlayersMin, SeasonData, Team, Weekly } from "../lib/types";
+import type { Matchups, MatchEntry, PlayersMin, ProjectionsFile, SeasonData, SleeperProjFile, Team, Weekly } from "../lib/types";
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
-import { pInfo, weekIndex, seasonSeg } from "../lib/league";
+import { pInfo, weekIndex, seasonSeg, optimalLineup } from "../lib/league";
 import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
 import FranchisePage from "../components/FranchisePage";
 
 type WkIdx = Record<string, Record<number, [number, number]>>;
+const REG_WEEKS = 14;   // regular season length; composite rates are per-13 (bye)
+interface LineupEntry { id: string; pos: string; war: number; slot: string; ppg: number | null }
 interface Row {
   rid: number; seed: number; team: string; manager: string; wins: number; fpts: number;
   rec: string; med: string; medw: number; ppg: number; sdv: number; waa: number; war: number;
   ent: MatchEntry[];
+  /** preseason: row built from projections — record is predicted, σ/WAA/vs-Median dash */
+  proj?: boolean; lineup?: LineupEntry[];
 }
 type Key = keyof Row;
 const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: number | string }[] = [
@@ -40,6 +44,9 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   const [openRid, setOpenRid] = useState<number | null>(null);
   const nav = useNavigate();
 
+  const [projs, setProjs] = useState<ProjectionsFile | null>(null);
+  const [sprojs, setSprojs] = useState<SleeperProjFile | null>(null);
+
   useEffect(() => {
     if (season === "ALL") return;
     let live = true;
@@ -50,10 +57,59 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
     return () => { live = false; };
   }, [season]);
 
+  // preseason: no scored weeks — predict the standings from the projections
+  useEffect(() => {
+    if (data.summary.length) return;
+    let live = true;
+    j<ProjectionsFile>("data/projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
+    j<SleeperProjFile>("data/proj_sleeper.json").then(p => { if (live) setSprojs(p); }).catch(() => {});
+    return () => { live = false; };
+  }, [data]);
+  const isProj = !data.summary.length && projs != null
+    && String(projs.meta.roster_season) === season;
+
   const wkIdx: WkIdx = useMemo(() => weekly ? weekIndex(weekly) : {}, [weekly]);
 
   const rows = useMemo<Row[]>(() => {
     if (!mw) return [];
+    if (isProj && projs) {
+      // Optimal lineup per roster from year-1 composite WAR; expected wins =
+      // 7 + (lineup WAR − league mean) × 14/13. WAR differences ARE win
+      // differences in this framework, so centering on the league mean turns
+      // lineup strength directly into a predicted record.
+      const byPid = new Map(projs.players.map(p => [p.pid, p]));
+      const built = data.teams.map(t => {
+        const pool = t.players
+          .map(pid => byPid.get(pid))
+          .filter((p): p is NonNullable<typeof p> => !!p)
+          .map(p => ({ id: p.pid, pos: p.pos, war: p.composite[0] ?? 0 }));
+        const { slots } = optimalLineup(pool);
+        const lineup: LineupEntry[] = slots.filter(s => s.player).map(s => ({
+          ...s.player!, slot: s.slot === "SUPER_FLEX" ? "SF" : s.slot,
+          ppg: sprojs?.players[s.player!.id]?.ppg ?? null,
+        }));
+        const war = lineup.reduce((a, l) => a + l.war, 0);
+        const ppg = lineup.reduce((a, l) => a + (l.ppg ?? 0), 0);
+        return { t, war, ppg, lineup };
+      });
+      const meanWar = mean(built.map(b => b.war));
+      const rs: Row[] = built.map(({ t, war, ppg, lineup }) => {
+        const wins = Math.min(REG_WEEKS, Math.max(0, REG_WEEKS / 2 + (war - meanWar) * (REG_WEEKS / 13)));
+        return {
+          rid: t.roster_id, seed: 0, team: t.team, manager: t.manager,
+          wins, fpts: 0, rec: `${fmt(wins, 1)}-${fmt(REG_WEEKS - wins, 1)}`,
+          med: "—", medw: 0, ppg, sdv: 0, waa: 0, war, ent: [],
+          proj: true, lineup,
+        };
+      });
+      const seedOrder = rs.slice().sort((a, b) => b.wins - a.wins);
+      rs.forEach(r => { r.seed = seedOrder.indexOf(r) + 1; });
+      const k = COLS[sortCol].key;
+      rs.sort((a, b) => typeof a[k] === "string"
+        ? (a[k] as string).localeCompare(b[k] as string) * dir
+        : ((a[k] as number) - (b[k] as number)) * dir);
+      return rs;
+    }
     const ps = mw.playoff_start || 15;
     const weekPts: Record<number, number[]> = {};
     for (const list of Object.values(mw.teams))
@@ -63,7 +119,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       const v = pts.slice().sort((a, b) => a - b), n = v.length;
       medians[+wk] = n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
     }
-    const rs = data.teams.map(t => {
+    const rs: Row[] = data.teams.map(t => {
       const ent = mw.teams[String(t.roster_id)] || [];
       const reg = ent.filter(e => e[0] < ps);
       const pts = reg.map(e => e[1]);
@@ -94,7 +150,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       ? (a[k] as string).localeCompare(b[k] as string) * dir
       : ((a[k] as number) - (b[k] as number)) * dir);
     return rs;
-  }, [data, mw, wkIdx, sortCol, dir]);
+  }, [data, mw, wkIdx, sortCol, dir, isProj, projs, sprojs]);
 
   if (season === "ALL") return <div className="empty">Teams are a per-season view — pick a year from the dropdown.</div>;
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
@@ -129,9 +185,17 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         </tbody>
       </table>
       <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 8 }}>
-        WAA / WAR are summed from each week's actual starting lineup.
-        Lineup WAA is measured against the league-wide <i>optimal</i> starter pool, so most teams land below zero — compare teams to each other, not to 0.
-        Click a row for matchups &amp; roster highlights · click a team name for the full roster.
+        {isProj ? <>
+          No scored weeks yet — <b style={{ color: "var(--txt)" }}>projected</b> standings.
+          WAR = optimal lineup summed from year-1 composite projections; predicted record
+          = 7-7 shifted by lineup WAR vs the league mean (WAR differences are win
+          differences). PPG from Sleeper projections. Schedule &amp; luck not modeled.
+          Click a row for the projected lineup · click a team name for the full roster.
+        </> : <>
+          WAA / WAR are summed from each week's actual starting lineup.
+          Lineup WAA is measured against the league-wide <i>optimal</i> starter pool, so most teams land below zero — compare teams to each other, not to 0.
+          Click a row for matchups &amp; roster highlights · click a team name for the full roster.
+        </>}
       </div>
     </>
   );
@@ -142,6 +206,9 @@ function TeamRow(props: {
   bySum: SeasonData["summary"]; onToggle: () => void; onOpenDetail: () => void;
 }) {
   const { r, open, ps, wkIdx, teams, players, bySum, onToggle, onOpenDetail } = props;
+  const panel = r.proj
+    ? <ProjPanel r={r} players={players} />
+    : <TeamPanel r={r} ps={ps} wkIdx={wkIdx} teams={teams} players={players} bySum={bySum} />;
   return (
     <>
       <tr onClick={onToggle}>
@@ -151,15 +218,36 @@ function TeamRow(props: {
         <td>{r.rec}</td>
         <td className="hm">{r.med}</td>
         <td>{fmt(r.ppg, 1)}</td>
-        <td>{fmt(r.sdv, 1)}</td>
-        <td className={clsOf(r.waa)}>{fmt(r.waa, 3)}</td>
+        <td>{r.proj ? "—" : fmt(r.sdv, 1)}</td>
+        <td className={r.proj ? undefined : clsOf(r.waa)}>{r.proj ? "—" : fmt(r.waa, 3)}</td>
         <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
       </tr>
-      {open && (
-        <tr className="wkbox"><td colSpan={COLS.length}>
-          <TeamPanel r={r} ps={ps} wkIdx={wkIdx} teams={teams} players={players} bySum={bySum} />
-        </td></tr>
-      )}
+      {open && <tr className="wkbox"><td colSpan={COLS.length}>{panel}</td></tr>}
+    </>
+  );
+}
+
+/** Preseason dropdown: the projected optimal lineup this row was scored on. */
+function ProjPanel({ r, players }: { r: Row; players: PlayersMin }) {
+  return (
+    <>
+      <div className="wkhead"><b>{r.team}</b> — {r.manager} · projected {r.rec} · {fmt(r.ppg, 1)} ppg</div>
+      <div className="wkwrap">
+        <table className="wktbl">
+          <thead><tr><th>Slot</th><th style={{ textAlign: "left" }}>Player</th><th>Pos</th><th>PPG</th><th>Proj WAR</th></tr></thead>
+          <tbody>
+            {(r.lineup ?? []).map((l, i) => (
+              <tr key={i}>
+                <td style={{ color: "var(--dim)" }}>{l.slot}</td>
+                <td style={{ textAlign: "left" }}><PlayerLink pid={l.id} name={pInfo(players, l.id)[0]} /></td>
+                <td><PosBadge pos={l.pos} /></td>
+                <td>{l.ppg == null ? "—" : fmt(l.ppg, 1)}</td>
+                <td className={clsOf(l.war)}>{sgn(l.war)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
