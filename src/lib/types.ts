@@ -1,6 +1,8 @@
 /** One row of data/<season>/summary.json:
- *  [player_id, pos, gp, pts, ppg, WAA, WAR, sigma?] */
-export type SummaryRow = [string, string, number, number, number, number, number, number?];
+ *  [player_id, pos, gp, pts, ppg, WAA, WAR, sigma?, VoWP?]
+ *  VoWP (value over waiver player) is null for seasons pulled before the
+ *  full-NFL stats feed existed (pre-2022 / dumps without allstats). */
+export type SummaryRow = [string, string, number, number, number, number, number, number?, (number | null)?];
 
 export interface Meta {
   league: string; seasons: string[]; updated: string; latest?: string;

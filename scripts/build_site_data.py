@@ -115,6 +115,7 @@ def main():
         # --- summary + weekly (only exist for seasons with scored weeks) ---
         acsv = root / "analysis" / f"waa_war_{season}.csv"
         summary = []
+        vowp_of = {}          # pid -> season VoWP (blank/absent for pre-VoWP dumps)
         if acsv.exists():
             with open(acsv, encoding="utf-8") as f:
                 for row in csv.DictReader(f):
@@ -122,6 +123,9 @@ def main():
                     summary.append([row["player_id"], row["pos"], int(row["gp"]),
                                     float(row["pts"]), float(row["ppg"]),
                                     float(row["WAA"]), float(row["WAR"])])
+                    vw = row.get("VoWP")
+                    if vw not in (None, ""):
+                        vowp_of[row["player_id"]] = float(vw)
         wcsv = root / "analysis" / f"weekly_detail_{season}.csv"
         weekly = {}
         if wcsv.exists():
@@ -226,9 +230,10 @@ def main():
                 if ab:
                     absence[pid] = ab
         guard_write(sout / "absence.json", absence)
-        for row in summary:                      # append point st-dev per player
+        for row in summary:                      # append point st-dev, then VoWP
             v = [w[1] for w in weekly.get(row[0], [])]
-            row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)
+            row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)  # [7] sdv
+            row.append(vowp_of.get(row[0]))                                   # [8] VoWP (or null)
         guard_write(sout / "summary.json", summary)
         if summary:
             latest_with_data = season
