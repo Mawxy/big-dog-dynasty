@@ -20,7 +20,7 @@ Output: data/drafts.json  -> { roster_id: [pick records, newest draft first] }
 
 Usage: python scripts/draft_analysis.py
 """
-import json
+import json, sys
 from pathlib import Path
 
 from draft_slots import build_slot_maps
@@ -37,6 +37,11 @@ def load(p):
 
 
 def main():
+    if not RAW.exists():
+        # sleeper_data/ is gitignored and often absent locally — running
+        # without it would overwrite committed drafts.json with an empty one
+        sys.exit(f"{RAW} not found — run sleeper_pull.py first; "
+                 "refusing to rebuild data/drafts.json")
     meta = load(DATA / "meta.json")
     seasons = [int(s) for s in meta["seasons"]]
     latest = int(meta.get("latest") or max(seasons))
@@ -149,6 +154,9 @@ def main():
 
     for rid in out:                                  # newest draft first
         out[rid].sort(key=lambda r: (r["season"], r["pick_no"]), reverse=True)
+    if not out and load(DATA / "drafts.json"):
+        sys.exit(f"built 0 picks but {DATA / 'drafts.json'} is non-empty — "
+                 "draft dumps missing? refusing to overwrite")
     (DATA / "drafts.json").write_text(json.dumps(out), encoding="utf-8")
     n = sum(len(v) for v in out.values())
     print(f"wrote {DATA/'drafts.json'} — {n} picks across {len(out)} franchises")

@@ -104,11 +104,20 @@ def main():
         print(f"  {pos}: {sum(1 for v in out.values() if v['pos'] == pos)} players")
         time.sleep(0.3)
 
+    dest = ROOT / "data" / "proj_sleeper.json"
+    # Every spring /state/nfl rolls to the new season before Sleeper publishes
+    # projections for it — the endpoint then returns [] with HTTP 200. Writing
+    # that would gut the committed file; exit non-zero and keep the old one
+    # (data-refresh.yml treats this step as best-effort, so the pipeline
+    # continues on last week's projections instead).
+    empty = [p for p in POSITIONS if not any(v["pos"] == p for v in out.values())]
+    if empty:
+        sys.exit(f"no projections returned for {', '.join(empty)} "
+                 f"(season {season}) — not yet published? refusing to overwrite {dest}")
     result = {"meta": {"season": season, "league_id": args.league_id,
                        "league_games": LEAGUE_GAMES, "players": len(out),
                        "note": "pts13 = league-scored projected points scaled to 13 games"},
               "players": out}
-    dest = ROOT / "data" / "proj_sleeper.json"
     dest.write_text(json.dumps(result, indent=1), encoding="utf-8")
     print(f"wrote {dest}  ({len(out)} players, season {season})")
 

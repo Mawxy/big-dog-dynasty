@@ -23,11 +23,13 @@ from pathlib import Path
 BASE = "https://api.sleeper.app/v1"
 DELAY = 0.15          # seconds between calls; keeps well under Sleeper's ~1000/min limit
 RETRIES = 3
+RATE_LIMIT_TRIES = 10   # 429s get their own budget, separate from error retries
 
 def get(path):
-    """GET a Sleeper endpoint, return parsed JSON (None on 404/null)."""
+    """GET a Sleeper endpoint, return parsed JSON (None ONLY on 404/null)."""
     url = path if path.startswith("http") else BASE + path
-    for attempt in range(RETRIES):
+    attempt = rate_hits = 0
+    while True:
         try:
             time.sleep(DELAY)
             with urllib.request.urlopen(url, timeout=30) as r:
@@ -37,13 +39,20 @@ def get(path):
             if e.code == 404:
                 return None
             if e.code == 429:            # rate limited: back off hard
+                rate_hits += 1
+                if rate_hits >= RATE_LIMIT_TRIES:
+                    # never fall through to None here — a silent None becomes a
+                    # silently incomplete dump that build + commit would publish
+                    raise RuntimeError(f"rate-limited {rate_hits}x, giving up: {url}")
                 time.sleep(30)
                 continue
-            if attempt == RETRIES - 1:
+            attempt += 1
+            if attempt >= RETRIES:
                 raise
             time.sleep(2 ** attempt)
         except Exception:
-            if attempt == RETRIES - 1:
+            attempt += 1
+            if attempt >= RETRIES:
                 raise
             time.sleep(2 ** attempt)
 
@@ -51,6 +60,13 @@ def save(obj, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(obj, indent=2), encoding="utf-8")
     print(f"  wrote {path}")
+
+def require(obj, what):
+    """Refuse to treat a null API response as data for a must-exist resource —
+    json.dumps(None) is the string "null", which would clobber a good file."""
+    if obj is None:
+        raise RuntimeError(f"Sleeper returned null for {what} — refusing to save")
+    return obj
 
 def dump_league(league_id: str, root: Path):
     """Dump one season's league and return its previous_league_id (or None)."""
@@ -62,9 +78,11 @@ def dump_league(league_id: str, root: Path):
     d = root / season
     print(f"Season {season} — {league.get('name')} ({league_id})")
     save(league, d / "league.json")
-    save(get(f"/league/{league_id}/rosters"), d / "rosters.json")
-    save(get(f"/league/{league_id}/users"), d / "users.json")
-    save(get(f"/league/{league_id}/traded_picks"), d / "traded_picks.json")
+    save(require(get(f"/league/{league_id}/rosters"), f"league {league_id} rosters"),
+         d / "rosters.json")
+    save(require(get(f"/league/{league_id}/users"), f"league {league_id} users"),
+         d / "users.json")
+    save(get(f"/league/{league_id}/traded_picks") or [], d / "traded_picks.json")
 
     for name in ("winners_bracket", "losers_bracket"):
         b = get(f"/league/{league_id}/{name}")
@@ -75,7 +93,7 @@ def dump_league(league_id: str, root: Path):
     save(drafts, d / "drafts.json")
     for dr in drafts:
         did = dr["draft_id"]
-        save(get(f"/draft/{did}/picks"), d / f"draft_{did}_picks.json")
+        save(get(f"/draft/{did}/picks") or [], d / f"draft_{did}_picks.json")
         tp = get(f"/draft/{did}/traded_picks")
         if tp:
             save(tp, d / f"draft_{did}_traded_picks.json")

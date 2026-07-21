@@ -19,7 +19,7 @@ Output: data/trades.json — newest first.
 
 Usage: python scripts/trade_analysis.py
 """
-import argparse, json
+import argparse, json, sys
 from pathlib import Path
 
 from draft_slots import SLOT_FIX, build_slot_maps  # noqa: F401  (SLOT_FIX re-exported)
@@ -56,7 +56,12 @@ def main():
 
     meta = load(DATA / "meta.json")
     seasons = [int(s) for s in meta["seasons"]]
-    players = load(RAW / "players.json") or {}
+    players = load(RAW / "players.json")
+    if players is None:
+        # sleeper_data/ is gitignored and often absent locally — running
+        # without it would overwrite committed trades.json with a gutted one
+        sys.exit(f"{RAW / 'players.json'} not found — run sleeper_pull.py "
+                 "(--players) first; refusing to rebuild data/trades.json")
 
     # ---- mark-to-market inputs -------------------------------------------
     # Realized WAR alone makes every recent trade look like a 0-0 tie, so each
@@ -183,6 +188,11 @@ def main():
                                    "sides": sorted(sides.values(), key=lambda x: -x["war"])})
 
     trades.sort(key=lambda t: -t["ts"])
+    prev = load(DATA / "trades.json")
+    if not trades and prev and prev.get("trades"):
+        sys.exit(f"built 0 trades but {DATA / 'trades.json'} holds "
+                 f"{len(prev['trades'])} — transaction dumps missing? "
+                 "refusing to overwrite")
     (DATA / "trades.json").write_text(json.dumps(
         {"meta": {"delta": delta, "proj_season": proj_season,
                   "note": "war = realized while starting for the acquiring team; "

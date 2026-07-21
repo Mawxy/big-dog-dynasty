@@ -15,14 +15,39 @@ Outputs:
 import argparse, csv, json, statistics, time
 from pathlib import Path
 
+ALLOW_EMPTY = False   # set by --allow-empty
+
 def load(p):
     return json.loads(Path(p).read_text(encoding="utf-8"))
 
+def guard_write(path, obj, content=None):
+    """Write JSON, but refuse to replace a non-empty committed file with empty
+    output — that's how a run against a missing/partial dump silently empties
+    the site (it has happened). `content` overrides what emptiness is judged
+    on when the written object is a wrapper. --allow-empty skips the check."""
+    gauge = obj if content is None else content
+    if not gauge and not ALLOW_EMPTY and Path(path).exists():
+        try:
+            old = json.loads(Path(path).read_text(encoding="utf-8"))
+        except (ValueError, OSError):
+            old = None
+        if old:
+            raise SystemExit(
+                f"refusing to overwrite non-empty {path} with empty output — "
+                "did sleeper_pull.py / sleeper_war.py run against this --data "
+                "dir? (--allow-empty to override)")
+    Path(path).write_text(json.dumps(obj))
+
 def main():
+    global ALLOW_EMPTY
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="sleeper_data")
     ap.add_argument("--out", default="data")
+    ap.add_argument("--allow-empty", action="store_true",
+                    help="permit overwriting non-empty outputs with empty ones "
+                         "(deliberate resets only)")
     args = ap.parse_args()
+    ALLOW_EMPTY = args.allow_empty
     root, out = Path(args.data), Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
 
@@ -38,7 +63,22 @@ def main():
     def fr(rid):
         return franchises.setdefault(rid, {"seasons": [], "tx": []})
 
-    for sdir in sorted((d for d in root.iterdir() if d.is_dir() and (d / "league.json").exists())):
+    season_dirs = sorted(d for d in root.iterdir()
+                         if d.is_dir() and (d / "league.json").exists())
+    # pre-flight, before ANY write: a season with scored matchup weeks must
+    # have its analysis CSV, or summary/weekly would come out empty mid-run
+    if not ALLOW_EMPTY:
+        for sdir in season_dirs:
+            sn = load(sdir / "league.json")["season"]
+            has_weeks = (sdir / "matchups").exists() and \
+                any((sdir / "matchups").glob("week_*.json"))
+            if has_weeks and not (root / "analysis" / f"waa_war_{sn}.csv").exists():
+                raise SystemExit(
+                    f"{sdir} has scored matchup weeks but {root}/analysis/"
+                    f"waa_war_{sn}.csv is missing — run sleeper_war.py first "
+                    "(--allow-empty to override)")
+
+    for sdir in season_dirs:
         league = load(sdir / "league.json")
         season = league["season"]
         league_name = league.get("name", league_name)
@@ -70,7 +110,7 @@ def main():
                 "starters": r.get("starters") or [],
                 "taxi": r.get("taxi") or [], "reserve": r.get("reserve") or [],
             })
-        (sout / "teams.json").write_text(json.dumps(teams))
+        guard_write(sout / "teams.json", teams)
 
         # --- summary + weekly (only exist for seasons with scored weeks) ---
         acsv = root / "analysis" / f"waa_war_{season}.csv"
@@ -91,7 +131,7 @@ def main():
                         [int(row["week"]), float(row["pts"]),
                          float(row["pts_above_avg"]), float(row["pts_above_repl"]),
                          float(row["WAA_week"]), float(row["WAR_week"])])
-        (sout / "weekly.json").write_text(json.dumps(weekly))
+        guard_write(sout / "weekly.json", weekly)
         for rows_w in weekly.values():
             for w in rows_w:
                 if w[1] < pts_min: pts_min = w[1]
@@ -185,11 +225,11 @@ def main():
                     ab[w] = "BYE" if team and team in byes.get(w, set()) else "DNP"
                 if ab:
                     absence[pid] = ab
-        (sout / "absence.json").write_text(json.dumps(absence))
+        guard_write(sout / "absence.json", absence)
         for row in summary:                      # append point st-dev per player
             v = [w[1] for w in weekly.get(row[0], [])]
             row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)
-        (sout / "summary.json").write_text(json.dumps(summary))
+        guard_write(sout / "summary.json", summary)
         if summary:
             latest_with_data = season
 
@@ -290,8 +330,11 @@ def main():
         standing = sorted(teams, key=lambda t: (-t["wins"], -t["fpts"]))
         seed = {t["roster_id"]: i + 1 for i, t in enumerate(standing)}
         finish = {}                                  # roster_id -> final placement
-        wb = load(sdir / "winners_bracket.json") or []
-        lb = load(sdir / "losers_bracket.json") or []
+        # sleeper_pull writes brackets only when Sleeper returns one — absent
+        # is normal for a season whose bracket hasn't been generated yet
+        wbf, lbf = sdir / "winners_bracket.json", sdir / "losers_bracket.json"
+        wb = (load(wbf) or []) if wbf.exists() else []
+        lb = (load(lbf) or []) if lbf.exists() else []
         n_playoff = len({r for m in wb for r in (m.get("t1"), m.get("t2")) if r})
         for m in wb:                                 # winners bracket: places 1..N
             if m.get("p") and m.get("w") and m.get("l"):
@@ -320,11 +363,11 @@ def main():
                          p.get("position") or "?", p.get("team") or ""]
         else:
             pmin[pid] = [f"#{pid}", "?", ""]   # team defenses etc.
-    (out / "players_min.json").write_text(json.dumps(pmin))
-    (out / "ownership.json").write_text(json.dumps(
-        {pid: [[sn, wk, txt] for _, sn, wk, txt in sorted(evts)]
-         for pid, evts in own.items()}))
-    (out / "franchises.json").write_text(json.dumps(franchises))
+    guard_write(out / "players_min.json", pmin)
+    guard_write(out / "ownership.json",
+                {pid: [[sn, wk, txt] for _, sn, wk, txt in sorted(evts)]
+                 for pid, evts in own.items()})
+    guard_write(out / "franchises.json", franchises)
 
     # --- future draft-pick ownership (trade calculator's team postures) ------
     # Every roster owns its own pick for the next drafts unless traded_picks
@@ -343,14 +386,17 @@ def main():
         owned = {}
         for (s, rnd, orig), holder in sorted(owner.items()):
             owned.setdefault(str(holder), []).append({"season": s, "round": rnd, "orig": orig})
-        (out / "picks_owned.json").write_text(json.dumps(
-            {"meta": {"seasons": fut, "as_of": newest}, "owned": owned}))
-    (out / "meta.json").write_text(json.dumps({
+        guard_write(out / "picks_owned.json",
+                    {"meta": {"seasons": fut, "as_of": newest}, "owned": owned},
+                    content=owned)
+    # gauge meta on `latest`: regressing it to null means no season produced
+    # summary data, which for this league is always a broken run
+    guard_write(out / "meta.json", {
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
         "rosterPositions": roster_positions, "taxiSlots": taxi_slots,
         "ptsRange": [round(pts_min, 1), round(pts_max, 1)],
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
-    }))
+    }, content=latest_with_data)
     print(f"site data written to {out}/ for seasons: {', '.join(seasons)}")
 
 if __name__ == "__main__":

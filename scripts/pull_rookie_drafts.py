@@ -37,9 +37,10 @@ COLUMNS = ["season", "pick_no", "round", "sleeper_id", "name", "pos", "source"]
 
 
 def get(path):
-    """GET a Sleeper endpoint, return parsed JSON (None on 404/null)."""
+    """GET a Sleeper endpoint, return parsed JSON (None ONLY on 404/null)."""
     url = path if path.startswith("http") else BASE + path
-    for attempt in range(RETRIES):
+    attempt = rate_hits = 0
+    while True:
         try:
             time.sleep(DELAY)
             with urllib.request.urlopen(url, timeout=30) as r:
@@ -49,13 +50,20 @@ def get(path):
             if e.code == 404:
                 return None
             if e.code == 429:
+                rate_hits += 1
+                if rate_hits >= 10:
+                    # a silent None here reads as "league not found" and quietly
+                    # truncates the corpus — fail loudly instead
+                    raise RuntimeError(f"rate-limited {rate_hits}x, giving up: {url}")
                 time.sleep(30)
                 continue
-            if attempt == RETRIES - 1:
+            attempt += 1
+            if attempt >= RETRIES:
                 raise
             time.sleep(2 ** attempt)
         except Exception:
-            if attempt == RETRIES - 1:
+            attempt += 1
+            if attempt >= RETRIES:
                 raise
             time.sleep(2 ** attempt)
 

@@ -23,7 +23,7 @@ A player with no record in either source gets no shard; the site treats a 404
 as "no projection" and falls back to the plain WAR trend chart, which is the
 same behaviour as before sharding.
 """
-import argparse, json, shutil
+import argparse, json, shutil, sys
 from pathlib import Path
 
 def load(p):
@@ -46,13 +46,22 @@ def main():
     reachable = set(load(out / "players_min.json") or {})
 
     pdir = out / "player"
+    wanted = (set(proj) | set(sproj)) & reachable
+    # never wipe committed shards because the inputs were missing — that's a
+    # silent local-run data-loss mode, not a legitimate rebuild
+    if not reachable:
+        sys.exit(f"refusing to rebuild {pdir}: {out / 'players_min.json'} "
+                 "missing or empty")
+    if not wanted and pdir.exists() and any(pdir.iterdir()):
+        sys.exit(f"refusing to wipe {pdir}: no projection inputs loaded "
+                 f"(projections.json={bool(projf)}, "
+                 f"proj_sleeper.json={bool(sprojf)}) but shards are present")
+
     # rebuild from scratch: a player who drops off every roster must lose his
     # shard, or the site would serve last season's projection forever
     if pdir.exists():
         shutil.rmtree(pdir)
     pdir.mkdir(parents=True)
-
-    wanted = (set(proj) | set(sproj)) & reachable
     for pid in sorted(wanted):
         (pdir / f"{pid}.json").write_text(json.dumps({
             "years": years,

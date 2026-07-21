@@ -22,6 +22,8 @@ jobs:
         run: python scripts/fetch_values.py --players data/players_min.json --out data/values.json
       - name: Bridge B (market value -> WAR, needs data/projections.json)
         run: python scripts/value_bridge.py
+      - name: Validate values before committing
+        run: python scripts/validate_data.py --values-only
       - name: Commit updated values
         run: |
           git config user.name "big-dog-bot"
