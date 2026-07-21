@@ -44,6 +44,45 @@ from pathlib import Path
 
 CORE = {"QB", "RB", "WR", "TE"}
 
+# VoWP (value over waiver player): like WAR but the baseline is the best player
+# you could realistically ADD off the wire, not the best rostered player below
+# the startable line. The single best free agent each week is boom-noise (a
+# spot starter who blows up once, then gets claimed), so we anchor to the
+# Nth-best unrostered player at each position — deep enough to skip the weekly
+# noisemaker and reflect "what you'd actually land after the obvious guy goes".
+WAIVER_RANK = 3
+
+
+def score_stats(stats, scoring, pos):
+    """League points for a raw stat line (mirrors Sleeper's own scoring; verified
+    to match players_points exactly for offensive players). Used to score the
+    full-NFL stats feed — including free agents — onto the same scale as the
+    league's players_points, so the two can share one player pool."""
+    pts = 0.0
+    for k, v in (scoring or {}).items():
+        if k == "bonus_rec_te":
+            continue                         # TE-only, handled below
+        s = stats.get(k)
+        if isinstance(s, (int, float)):
+            pts += v * s
+    if pos == "TE" and "bonus_rec_te" in (scoring or {}):
+        pts += scoring["bonus_rec_te"] * (stats.get("rec") or 0)
+    return pts
+
+
+def nth_best_unrostered(points, positions, rostered, n=WAIVER_RANK):
+    """Waiver baseline per position: the Nth-best UNROSTERED player's points.
+    Falls to the deepest available (or 0.0) when fewer than N free agents scored."""
+    by_pos = defaultdict(list)
+    for pid, pts in points.items():
+        if pid not in rostered:
+            by_pos[positions[pid]].append(pts)
+    out = {}
+    for pos in CORE:
+        vals = sorted(by_pos.get(pos, []), reverse=True)
+        out[pos] = vals[n - 1] if len(vals) >= n else (vals[-1] if vals else 0.0)
+    return out
+
 # Multi-position slots, mapped to the positions they accept. Sleeper uses
 # distinct names per league era: this league family ran WRRB_FLEX in 2018-19
 # and REC_FLEX in 2020 before settling on FLEX + SUPER_FLEX.
@@ -140,8 +179,13 @@ def run_season(season_dir: Path, players, args):
 
     team_scores = []
     acc = defaultdict(lambda: {"pts": 0.0, "gp": 0, "paa": 0.0, "par": 0.0,
-                               "waa": 0.0, "war": 0.0})
+                               "waa": 0.0, "war": 0.0, "paw": 0.0, "vowp": 0.0})
     weekly_rows = []
+    scoring = league.get("scoring_settings") or {}
+    # VoWP needs the full-NFL stats feed (allstats/) for every scored week; if any
+    # week is missing it (older dumps, nfl_history's synthetic data), we can't
+    # publish a complete VoWP for the season and leave it blank.
+    vowp_ok = True
 
     # first pass: team score distribution PER WEEK (a big game in a
     # low-scoring week is worth more wins than in a shootout week)
@@ -184,9 +228,35 @@ def run_season(season_dir: Path, players, args):
                 points[pid], positions[pid] = pts, pos
         if not points:
             continue
-        startable, avg, repl = build_week(points, positions, slots)
+        rostered = set(points)                     # league membership this week
+
+        # Full player universe: rostered players (authoritative players_points)
+        # PLUS every other scored NFL player from the stats feed, so a free agent
+        # who outscores the rostered "replacement" enters the startable pool and
+        # the waiver baseline can be measured. Without the feed we fall back to
+        # the rostered-only pool (old behavior) and can't compute VoWP.
+        afile = season_dir / "allstats" / f"week_{wk:02d}.json"
+        if afile.exists():
+            pool_pts, pool_pos = dict(points), dict(positions)
+            for r in load_json(afile):
+                pid = r.get("player_id")
+                if not pid or pid in pool_pts:
+                    continue
+                pos = player_pos(players, pid)
+                if not pos:
+                    continue
+                pw = score_stats(r.get("stats") or {}, scoring, pos)
+                if pw <= 0:
+                    continue                       # only real production sets baselines
+                pool_pts[pid], pool_pos[pid] = pw, pos
+            waiver = nth_best_unrostered(pool_pts, pool_pos, rostered)
+        else:
+            pool_pts, pool_pos, waiver = points, positions, None
+            vowp_ok = False
+
+        startable, avg, repl = build_week(pool_pts, pool_pos, slots)
         sig = sigmas.get(wk, sigma)                # pure weekly sigma
-        for pid, pts in points.items():
+        for pid, pts in points.items():            # accrue only for rostered players
             pos = positions[pid]
             paa, par = pts - avg[pos], pts - repl[pos]
             waa_w, war_w = norm_win_shift(paa, sig), norm_win_shift(par, sig)
@@ -195,11 +265,18 @@ def run_season(season_dir: Path, players, args):
             a["paa"] += paa; a["par"] += par
             a["waa"] += waa_w
             a["war"] += war_w
+            paw = vowp_w = None
+            if waiver is not None:
+                paw = pts - waiver[pos]
+                vowp_w = norm_win_shift(paw, sig)
+                a["paw"] += paw; a["vowp"] += vowp_w
             weekly_rows.append([league["season"], wk, pid, player_name(players, pid),
                                 pos, round(pts, 2), round(paa, 2), round(par, 2),
                                 round(waa_w, 4), round(war_w, 4), round(sig, 1),
-                                int(pid in startable)])
-    return league["season"], sigma, acc, weekly_rows, players
+                                int(pid in startable),
+                                round(paw, 2) if paw is not None else "",
+                                round(vowp_w, 4) if vowp_w is not None else ""])
+    return league["season"], sigma, acc, weekly_rows, players, vowp_ok
 
 def write_csv(path, header, rows):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -231,25 +308,28 @@ def main():
         if not res:
             print(f"{sdir.name}: no scored weeks, skipping")
             continue
-        season, sigma, acc, weekly, _ = res
+        season, sigma, acc, weekly, _, vowp_ok = res
         rows = []
         for pid, a in acc.items():
             pos = player_pos(players, pid)
+            paw = round(a["paw"], 1) if vowp_ok else ""
+            vowp = round(a["vowp"], 3) if vowp_ok else ""
             rows.append([pid, player_name(players, pid), pos, a["gp"],
                          round(a["pts"], 1), round(a["pts"]/a["gp"], 2),
                          round(a["paa"], 1), round(a["par"], 1),
-                         round(a["waa"], 3), round(a["war"], 3)])
+                         round(a["waa"], 3), round(a["war"], 3), paw, vowp])
             c = career[pid]
             c["pts"] += a["pts"]; c["gp"] += a["gp"]
             c["waa"] += a["waa"]; c["war"] += a["war"]; c["pos"] = pos
         rows.sort(key=lambda r: -r[9])
         hdr = ["player_id", "name", "pos", "gp", "pts", "ppg",
-               "pts_above_avg", "pts_above_repl", "WAA", "WAR"]
+               "pts_above_avg", "pts_above_repl", "WAA", "WAR",
+               "pts_above_waiver", "VoWP"]
         write_csv(root / "analysis" / f"waa_war_{season}.csv", hdr, rows)
         write_csv(root / "analysis" / f"weekly_detail_{season}.csv",
                   ["season", "week", "player_id", "name", "pos", "pts",
                    "pts_above_avg", "pts_above_repl", "WAA_week", "WAR_week",
-                   "week_sigma", "startable"], weekly)
+                   "week_sigma", "startable", "pts_above_waiver", "VoWP_week"], weekly)
         print(f"\n=== {season}  (team-score sigma {sigma:.1f}) — top {args.top} by WAR ===")
         print(f"{'name':<24}{'pos':<5}{'gp':>3}{'ppg':>7}{'WAA':>8}{'WAR':>8}")
         for r in rows[:args.top]:

@@ -162,9 +162,19 @@ def dump_league(league_id: str, root: Path, state=None):
         if t:
             save(t, d / "transactions" / f"week_{wk:02d}.json")
         if week_scored:
-            played = fetch_played(season, wk)
+            rows = fetch_week_stats(season, wk)
+            # played: bye vs DNP, per the position rule in row_played()
+            played = {r["player_id"]: (r.get("team") or "")
+                      for r in rows if r.get("player_id") and row_played(r)}
             if played:
                 save(played, d / "played" / f"week_{wk:02d}.json")
+            # allstats: the full scored universe (incl free agents) for the WAR
+            # pool fix + VoWP waiver baseline. Trimmed to id + raw stats;
+            # sleeper_war scores it to league rules itself.
+            allstats = [{"player_id": r["player_id"], "stats": r.get("stats") or {}}
+                        for r in rows if r.get("player_id") and r.get("stats")]
+            if allstats:
+                save(allstats, d / "allstats" / f"week_{wk:02d}.json")
 
     return league.get("previous_league_id")
 
@@ -210,20 +220,14 @@ def row_played(row):
                 or st.get("st_snp") or st.get("tm_off_snp")
                 or st.get("tm_def_snp") or st.get("tm_st_snp") or has_stats)
 
-def fetch_played(season, week):
-    """Player IDs (QB/RB/WR/TE) who count as PLAYED that week, per Sleeper's
-    stats feed and the position-dependent rule in row_played(). Distinguishes
-    a real 0.00-point game from a bye/inactive week."""
+def fetch_week_stats(season, week):
+    """Full-NFL QB/RB/WR/TE stat lines for one week — EVERY player, rostered or
+    free agent. One call feeds two consumers: the `played` set (bye vs DNP) and
+    `allstats` (the full scored universe sleeper_war uses to fix the startable
+    pool and measure the waiver baseline for VoWP)."""
     url = (f"https://api.sleeper.app/stats/nfl/{season}/{week}"
            f"?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE")
-    rows = get(url) or []
-    played = {}   # player_id -> NFL team that week (lets us tell BYE from DNP)
-    for row in rows:
-        if row_played(row):
-            pid = row.get("player_id")
-            if pid:
-                played[pid] = row.get("team") or ""
-    return played
+    return get(url) or []
 
 def main():
     ap = argparse.ArgumentParser(description="Dump a Sleeper league's full history to JSON.")
