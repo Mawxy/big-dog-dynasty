@@ -29,9 +29,14 @@ jobs:
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data/values.json data/values_history.json data/value_bridge.json
-          git diff --cached --quiet || git commit -m "Market values $(date -u +%F)"
-          git pull --rebase --autostash
-          git push
+          git diff --cached --quiet && { echo "no value changes to commit"; exit 0; }
+          git commit -m "Market values $(date -u +%F)"
+          # retry rebase+push so a concurrent push doesn't drop this run
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash && git push && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1
   deploy:
     needs: values
     uses: ./.github/workflows/deploy.yml

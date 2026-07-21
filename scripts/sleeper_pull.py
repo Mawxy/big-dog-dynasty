@@ -68,7 +68,28 @@ def require(obj, what):
         raise RuntimeError(f"Sleeper returned null for {what} — refusing to save")
     return obj
 
-def dump_league(league_id: str, root: Path):
+def week_complete(season, wk, state):
+    """Is (season, wk) a FULLY-played week, safe to freeze as final?
+
+    'Any points present' is not enough: on a mid-week manual run the Thu/early
+    games have points while the Sun-night/Mon players still read 0, so freezing
+    then records a partial week (bad sigma, real players marked DNP). Use the
+    current NFL week from /state/nfl — already fetched — as the cutoff."""
+    if not state or not str(season).isdigit():
+        return True                                  # no state / unknown season: old behavior
+    cur_season = int(state.get("season") or 0)
+    season = int(season)
+    if season != cur_season:
+        return season < cur_season                   # past season done; future not
+    st = state.get("season_type")
+    if st in ("post", "off"):
+        return True                                  # regular season finished
+    if st == "pre":
+        return False                                 # hasn't started
+    return wk < int(state.get("week") or 0)          # in-season: only weeks before the live one
+
+
+def dump_league(league_id: str, root: Path, state=None):
     """Dump one season's league and return its previous_league_id (or None)."""
     league = get(f"/league/{league_id}")
     if not league:
@@ -120,7 +141,10 @@ def dump_league(league_id: str, root: Path):
     last_week = league.get("settings", {}).get("last_scored_leg") or 18
     for wk in range(1, last_week + 1):
         m = get(f"/league/{league_id}/matchups/{wk}")
-        week_scored = bool(m and any(t.get("points") for t in m))
+        # a week is "final" only if it has points AND is fully played — never
+        # freeze the live in-progress week on a mid-week manual dispatch
+        week_scored = bool(m and any(t.get("points") for t in m)) \
+            and week_complete(season, wk, state)
         if week_scored:
             save(m, d / "matchups" / f"week_{wk:02d}.json")
         elif m:
@@ -239,7 +263,7 @@ def main():
     seen = set()
     while league_id and league_id not in seen:
         seen.add(league_id)
-        league_id = dump_league(league_id, root)
+        league_id = dump_league(league_id, root, state)
         if args.no_history:
             break
 

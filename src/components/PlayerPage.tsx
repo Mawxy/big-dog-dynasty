@@ -83,7 +83,10 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   const pts = blocks.reduce((s, b) => s + (b.sum?.[3] || 0), 0);
   const waa = blocks.reduce((s, b) => s + (b.sum?.[5] || 0), 0);
   const war = blocks.reduce((s, b) => s + (b.sum?.[6] || 0), 0);
-  const owner = blocks.find(b => b.team)?.team;
+  // current owner = the LATEST season's roster only (blocks are newest-first).
+  // Using find(b => b.team) reported the most recent season a player was EVER
+  // rostered, so a dropped player never showed as a free agent.
+  const owner = blocks[0]?.team;
   const trend = blocks.slice().reverse().filter(b => b.sum)
     .map(b => ({ season: b.season, WAR: b.sum![6], WAA: b.sum![5] }));
 

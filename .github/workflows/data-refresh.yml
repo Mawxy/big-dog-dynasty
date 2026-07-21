@@ -29,13 +29,22 @@ jobs:
         run: python scripts/sleeper_war.py --data sleeper_data
       - name: Build site JSON
         run: python scripts/build_site_data.py --data sleeper_data --out data
+      - name: Rebuild pick values (Bridge A; needs data/<season>/summary.json)
+        run: python scripts/pick_value.py
       - name: Draft results per franchise (needs data/pick_values.json)
         run: python scripts/draft_analysis.py
       - name: Trade tracker
         run: python scripts/trade_analysis.py
       - name: Fetch Sleeper projections (composite input)
+        id: fetch_proj
         run: python scripts/fetch_projections.py
         continue-on-error: true
+      - name: Flag stale projections
+        if: steps.fetch_proj.outcome == 'failure'
+        run: |
+          echo "::warning title=Stale projections::fetch_projections.py failed — \
+          projections/composite this run are computed from the PREVIOUS inputs. \
+          Trade values may be a week stale; investigate before relying on them."
       - name: Recompute WAR projections
         run: python scripts/project_war.py
       - name: Shard per-player projections for the site
@@ -49,9 +58,15 @@ jobs:
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           git add data
-          git diff --cached --quiet || git commit -m "Weekly data update $(date -u +%F)"
-          git pull --rebase --autostash
-          git push
+          git diff --cached --quiet && { echo "no data changes to commit"; exit 0; }
+          git commit -m "Weekly data update $(date -u +%F)"
+          # retry rebase+push: a human/bot push in the window would otherwise
+          # fail the run outright and drop this week's update
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash && git push && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1
   deploy:
     needs: refresh
     uses: ./.github/workflows/deploy.yml

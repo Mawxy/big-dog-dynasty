@@ -65,6 +65,22 @@ def main():
     published = (pvj.get("meta") or {}).get("years_published") or []
     exp_years = max(published) if published else EXP_YEARS_FALLBACK
 
+    def season_complete(y):
+        """A league season is finished once its championship game has a winner.
+        A missing bracket (older committed seasons) is treated as complete."""
+        b = load(RAW / str(y) / "winners_bracket.json")
+        if not b:
+            return True
+        champ = next((m for m in b if m.get("p") == 1), None)
+        return champ is None or champ.get("w") is not None
+
+    # Latest fully-finished season. Anything after it (the in-progress season)
+    # has only partial WAR, so it must NOT be scored against a full-year
+    # expectation — otherwise the whole current rookie class reads as misses
+    # until the season ends.
+    last_complete = max((y for y in seasons if y <= latest and season_complete(y)),
+                        default=latest)
+
     # roster -> draft slot, and what was selected at each (round, slot);
     # lets us list picks a franchise originally owned but traded away.
     slot_of, sel_at = build_slot_maps(seasons, RAW, load=load)
@@ -79,13 +95,16 @@ def main():
         if not picks:
             continue
         elapsed = [y for y in seasons if s <= y <= latest]      # seasons since drafted
-        n_exp = min(len(elapsed), exp_years)
+        # expected comparison counts only FULLY FINISHED seasons; the raw career
+        # display can still include the in-progress season's partial WAR.
+        elapsed_done = [y for y in elapsed if y <= last_complete]
+        n_exp = min(len(elapsed_done), exp_years)
 
         def career(pid):
             return round(sum(war.get(pid, {}).get(y, 0.0) for y in elapsed), 3)
 
-        def window(pid):     # WAR over the first n_exp seasons (for expected compare)
-            return round(sum(war.get(pid, {}).get(y, 0.0) for y in elapsed[:n_exp]), 3)
+        def window(pid):     # WAR over the first n_exp FINISHED seasons (for expected compare)
+            return round(sum(war.get(pid, {}).get(y, 0.0) for y in elapsed_done[:n_exp]), 3)
 
         board = sorted(picks, key=lambda p: p["pick_no"])
         # the inaugural season is a full startup draft (many rounds of vets);
@@ -98,8 +117,10 @@ def main():
             md = p.get("metadata") or {}
             slot = f"{p['round']}.{p.get('draft_slot', 0):02d}"
             exp = pv.get(slot, {})
+            # None (not 0.0) when no season has fully elapsed yet — a not-yet-
+            # scored pick must not read as a zero-expected, zero-diff hit.
             expected = round(sum(float(exp.get(str(y), 0.0)) for y in range(1, n_exp + 1)), 3) \
-                if exp else None
+                if exp and n_exp else None
             on_roster = round(sum(war.get(pid, {}).get(y, 0.0)
                                   for y in elapsed if pid in roster.get(y, {}).get(rid, set())), 3)
             actual_win = window(pid)

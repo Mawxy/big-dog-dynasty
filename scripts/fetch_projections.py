@@ -65,7 +65,9 @@ def score_line(stats, scoring, pos):
         if isinstance(s, (int, float)):
             pts += v * s
     if pos == "TE" and "bonus_rec_te" in scoring:
-        pts += scoring["bonus_rec_te"] * stats.get("rec", 0) or 0.0
+        # guard the STAT, not the product: `... * stats.get("rec") or 0.0` binds
+        # `or` to the product and still raises if rec is present-but-null
+        pts += scoring["bonus_rec_te"] * (stats.get("rec") or 0)
     return pts
 
 

@@ -8,12 +8,17 @@ permissions:
   contents: read
   pages: write
   id-token: write
-concurrency:
-  group: pages-deploy
-  cancel-in-progress: true   # rapid pushes: newest build wins, stale ones cancel
 jobs:
   build-deploy:
     runs-on: ubuntu-latest
+    # Concurrency MUST live on the job, not the workflow: when this workflow is
+    # invoked via workflow_call (data/values refresh), a workflow-level group is
+    # ignored and the deploy inherits the caller's `data-push` group — so a
+    # chained deploy and a push-triggered deploy could race and publish a stale
+    # build over a fresh one. Job-level applies no matter how we're triggered.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: true   # rapid pushes: newest build wins, stale ones cancel
     environment:
       name: github-pages
     steps:
@@ -25,6 +30,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
       - run: npm ci
       - name: Typecheck (vite build does NOT typecheck — this is the only gate)
         run: npm run typecheck

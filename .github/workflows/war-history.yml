@@ -27,7 +27,12 @@ jobs:
       - name: Install nflreadpy
         run: pip install nflreadpy
       - name: Shape nflverse data to league form
-        run: python scripts/nfl_history.py --start "${{ github.event.inputs.start }}" --end "${{ github.event.inputs.end }}" --out nfl_history_data
+        # inputs go through env, never interpolated straight into the shell —
+        # a crafted dispatch input would otherwise be command injection
+        env:
+          START: ${{ github.event.inputs.start }}
+          END: ${{ github.event.inputs.end }}
+        run: python scripts/nfl_history.py --start "$START" --end "$END" --out nfl_history_data
       - name: Compute WAA/WAR (unchanged engine)
         run: python scripts/sleeper_war.py --data nfl_history_data --top 10
       - name: Collect outputs
@@ -36,10 +41,18 @@ jobs:
           cp nfl_history_data/analysis/*.csv nfl_history/
           cp nfl_history_data/players_meta.csv nfl_history/
       - name: Commit history CSVs
+        env:
+          START: ${{ github.event.inputs.start }}
+          END: ${{ github.event.inputs.end }}
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           git add nfl_history
-          git diff --cached --quiet || git commit -m "WAR history rebuild (${{ github.event.inputs.start }}-${{ github.event.inputs.end }})"
-          git pull --rebase --autostash
-          git push
+          git diff --cached --quiet && { echo "no history changes to commit"; exit 0; }
+          git commit -m "WAR history rebuild ($START-$END)"
+          # retry rebase+push so a concurrent push doesn't drop this run
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash && git push && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1

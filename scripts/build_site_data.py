@@ -240,6 +240,8 @@ def main():
                 continue
             for pk in load(df) or []:
                 pid = pk.get("player_id")
+                if not pid:
+                    continue          # unmade pick: a None key serializes to "null"
                 rid = pk.get("roster_id")
                 try:
                     rid = int(rid)

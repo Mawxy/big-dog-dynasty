@@ -62,7 +62,11 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
   const [pv, setPv] = useState<PickValues | null>(null);
   const [teams, setTeams] = useState<Team[] | null>(null);
   const [owned, setOwned] = useState<PicksOwned | null>(null);
-  const [sides, setSides] = useState<[Asset[], Asset[]]>([[], []]);
+  // Store asset KEYS, not Asset snapshots: an asset added (or prefilled) before
+  // values.json/value_bridge.json resolve would otherwise freeze its null
+  // ktc/fc/iWar forever (shows "—", excluded from mkt-WAR). Keys re-resolve
+  // against the live `options` every render, so late-loading values fill in.
+  const [sideKeys, setSideKeys] = useState<[string[], string[]]>([[], []]);
   const [who, setWho] = useState<[string, string]>(["", ""]);
 
   useEffect(() => {
@@ -140,8 +144,13 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
             ktcMap.get(`${cur} ${tier} ${ORD[r]}`) ?? null,
             fcMap.get(`${cur} Pick ${bucket}`) ?? null));
         }
-      // future years: Early/Mid/Late tiers (market prices these directly)
-      for (let y = cur + 1; y <= cur + 2; y++)
+      // future years: Early/Mid/Late tiers (market prices these directly).
+      // Cover every season picks_owned.json knows about, not just cur+2: that
+      // file rolls forward on its own weekly cadence and can list a year beyond
+      // pick_values' manually-bumped `cur`. Without this, those owned picks are
+      // absent from the universe and get silently dropped at prefill.
+      const lastYear = Math.max(cur + 2, ...(owned?.meta?.seasons ?? []));
+      for (let y = cur + 1; y <= lastYear; y++)
         for (let r = 0; r < 4; r++)
           for (const tier of TIERS)
             out.push(mk(`${y} ${tier} ${ORD[r]}`, pickStream(pv, tier, r + 1), y - cur,
@@ -149,7 +158,14 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
               tier === "Mid" ? fcMap.get(`${y} ${ORD[r]}`) ?? null : null));
     }
     return out;
-  }, [proj, vals, bridge, pv]);
+  }, [proj, vals, bridge, pv, owned]);
+
+  // resolve the stored keys to live Asset objects each render (see sideKeys)
+  const optByKey = useMemo(() => new Map(options.map(o => [o.key, o])), [options]);
+  const sides = useMemo<[Asset[], Asset[]]>(() => [
+    sideKeys[0].map(k => optByKey.get(k)).filter((a): a is Asset => !!a),
+    sideKeys[1].map(k => optByKey.get(k)).filter((a): a is Asset => !!a),
+  ], [sideKeys, optByKey]);
 
   /** the pick labels a franchise can actually trade (its real stash, tiered
    *  by each pick's original owner's projected finish) */
@@ -174,25 +190,23 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
     sessionStorage.removeItem("bdd-trade-prefill");
     try {
       const pf = JSON.parse(raw) as { whoA: string; whoB: string; a: string[]; b: string[] };
-      const find = (k: string) => options.find(o => o.key === k);
       setWho([pf.whoA ?? "", pf.whoB ?? ""]);
-      setSides([
-        (pf.a ?? []).map(find).filter((x): x is Asset => !!x),
-        (pf.b ?? []).map(find).filter((x): x is Asset => !!x),
-      ]);
+      // store the keys directly — they resolve to live assets via optByKey, so
+      // a pick/player whose values load a beat later still fills in
+      setSideKeys([pf.a ?? [], pf.b ?? []]);
     } catch { /* stale prefill — ignore */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options, postures]);
 
-  const add = (side: 0 | 1, a: Asset) => setSides(prev => {
-    if (prev[0].some(x => x.key === a.key) || prev[1].some(x => x.key === a.key)) return prev;
-    const next: [Asset[], Asset[]] = [[...prev[0]], [...prev[1]]];
-    next[side] = [...next[side], a];
+  const add = (side: 0 | 1, a: Asset) => setSideKeys(prev => {
+    if (prev[0].includes(a.key) || prev[1].includes(a.key)) return prev;
+    const next: [string[], string[]] = [[...prev[0]], [...prev[1]]];
+    next[side] = [...next[side], a.key];
     return next;
   });
-  const remove = (side: 0 | 1, key: string) => setSides(prev => {
-    const next: [Asset[], Asset[]] = [[...prev[0]], [...prev[1]]];
-    next[side] = next[side].filter(x => x.key !== key);
+  const remove = (side: 0 | 1, key: string) => setSideKeys(prev => {
+    const next: [string[], string[]] = [[...prev[0]], [...prev[1]]];
+    next[side] = next[side].filter(k => k !== key);
     return next;
   });
 

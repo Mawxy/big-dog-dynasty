@@ -41,6 +41,14 @@ function seasonOf(seg: string | undefined, meta: Meta): string {
   return defaultSeason(meta);
 }
 
+/** a route segment as a non-negative integer, or null for a bogus one (e.g.
+ *  /teams/2025/abc) — keeps NaN out of rid/week props */
+function intParam(seg: string | undefined): number | null {
+  if (seg == null) return null;
+  const n = Number(seg);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
+
 export default function App() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [players, setPlayers] = useState<PlayersMin | null>(null);
@@ -169,7 +177,7 @@ function TeamsRoute() {
   const season = seasonOf(p.season, meta);
   const data = useSeasonData(season);
   if (!data) return <div className="empty">Loading…</div>;
-  return <Teams data={data} season={season} players={players} detailRid={p.rid ? +p.rid : null}
+  return <Teams data={data} season={season} players={players} detailRid={intParam(p.rid)}
     tab={p.tab} />;
 }
 
@@ -179,12 +187,15 @@ function WeeklyRoute() {
   const season = seasonOf(p.season, meta);
   const data = useSeasonData(season);
   if (!data) return <div className="empty">Loading…</div>;
-  return <WeeklyView data={data} season={season} players={players} week={p.wk ? +p.wk : null} />;
+  return <WeeklyView data={data} season={season} players={players} week={intParam(p.wk)} />;
 }
 
 function PlayerRoute() {
   const { meta, players } = useLeague();
   const pid = useParams().pid!;
   const nav = useNavigate();
-  return <PlayerPage pid={pid} players={players} meta={meta} back={() => nav(-1)} />;
+  // key={pid} forces a fresh mount per player: without it, QuickJump reuses the
+  // component and a shard that 404s leaves the previous player's projection on
+  // screen (state is never reset on fetch failure).
+  return <PlayerPage key={pid} pid={pid} players={players} meta={meta} back={() => nav(-1)} />;
 }

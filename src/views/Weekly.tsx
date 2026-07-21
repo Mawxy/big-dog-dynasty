@@ -16,17 +16,22 @@ export default function Weekly({ data, season, players, week }: Props) {
   const [weekly, setWeekly] = useState<WeeklyT | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
   const [expWeek, setExpWeek] = useState<number | null>(null);
+  const [err, setErr] = useState(false);
+  const [reload, setReload] = useState(0);
   const nav = useNavigate();
 
   useEffect(() => {
     if (season === "ALL") return;
     let live = true;
+    setErr(false);
     Promise.all([
       j<WeeklyT>(`data/${season}/weekly.json`),
       j<Matchups>(`data/${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
-    ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } });
+    ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } })
+      // without this, a transient weekly.json failure hangs on "Loading…" forever
+      .catch(() => { if (live) setErr(true); });
     return () => { live = false; };
-  }, [season]);
+  }, [season, reload]);
 
   const byWeek = useMemo(() => {
     const bw: Record<number, Entry[]> = {};
@@ -44,6 +49,8 @@ export default function Weekly({ data, season, players, week }: Props) {
   }, [mw]);
 
   if (season === "ALL") return <div className="empty">Weekly is a per-season view — pick a year from the dropdown.</div>;
+  if (err) return <div className="empty">Couldn't load weekly data.{" "}
+    <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></div>;
   if (!weekly || !mw) return <div className="empty">Loading weekly data…</div>;
   const wks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
   if (!wks.length) return <div className="empty">No scored weeks yet for this season.</div>;
@@ -170,7 +177,9 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
         </tr></thead>
         <tbody>
           {pairs.map(([a, ap, b, bp]) => {
-            const aw = ap > (bp ?? -1), bw = bp != null && bp > ap;
+            // a null opponent (bye / unpaired) is not a win — require a real
+            // opposing score before styling either side as the winner
+            const aw = bp != null && ap > bp, bw = bp != null && bp > ap;
             return (
               <tr key={a} style={{ cursor: "default" }}>
                 <td style={{ textAlign: "left", ...(aw ? { color: "var(--acc)" } : {}) }}>{tnames[a] || "?"}</td>

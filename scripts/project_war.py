@@ -57,6 +57,8 @@ NICK = {'cam': 'cameron', 'tank': 'nathaniel', 'joe': 'joseph', 'trevor': 'willi
         'matt': 'matthew', 'josh': 'joshua', 'ken': 'kenneth', 'mike': 'michael',
         'gabe': 'gabriel', 'chig': 'chigoziem'}
 DEFAULT_AGE = {"QB": 28, "RB": 25, "WR": 26, "TE": 27}
+ROOKIE_AGE = 22                     # typical age on Sep 1 of a player's draft year;
+                                    # used when birthdate is unknown but draft class is
 
 
 def norm(s):
@@ -248,7 +250,11 @@ def main():
         fs = fslot.get(pid)
         if draft_season is None and fs:
             draft_season = fs[0]          # fantasy class stands in for the NFL one
-        if birth is None:
+        if birth is None and draft_season is not None:
+            # no birthdate, but we know the draft class — age from it rather than
+            # slapping a veteran DEFAULT_AGE on a rookie (Travis Hunter was 26).
+            base_age, asrc = ROOKIE_AGE + (seed - draft_season), 'class'; age_def += 1
+        elif birth is None:
             base_age, asrc = DEFAULT_AGE.get(pos, 26), 'default'; age_def += 1
         else:
             base_age, asrc = age_on_sep1(birth, seed), 'matched'
@@ -342,13 +348,20 @@ def main():
         # the projection heavily near-term and handing off to the math:
         # yr1 80/20, yr2 50/50, yr3 20/80.  Falls back to pure math if no projection.
         sp = sproj.get(pid)
-        if sp is not None and pos in ptw:
+        # pts13 == 0 means Sleeper has no projection for this player (2542/3103
+        # of the file); treat that as absent, not a real 0-point projection —
+        # otherwise proj_ext collapses to the intercept and prices backups as
+        # deeply negative assets.
+        if sp is not None and pos in ptw and sp.get('pts13'):
             proj_ext = round(ptw[pos]['a'] + ptw[pos]['b'] * sp['pts13'], 3)
             comp = []
             for i in range(len(proj)):
                 w = BLEND_W[i] if i < len(BLEND_W) else 0.0
-                shape = proj[i] / proj[0] if proj[0] > 0.05 else 1.0   # decay of the math path
-                comp.append(round(w * (proj_ext * shape) + (1 - w) * proj[i], 3))
+                # Age proj_ext along the math path's ADDITIVE decay, not the
+                # ratio proj[i]/proj[0] — a signed/near-zero proj[0] made that
+                # ratio sign-flip and amplify (Brooks yr3 went +0.294).
+                proj_path = proj_ext + (proj[i] - proj[0])
+                comp.append(round(w * proj_path + (1 - w) * proj[i], 3))
         else:
             proj_ext = None
             comp = list(proj)

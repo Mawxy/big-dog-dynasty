@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: npm
       - run: npm ci
       - name: Typecheck (vite build does NOT typecheck)
         run: npm run typecheck

@@ -250,10 +250,31 @@ export function suggestTrades(rid: number, players: Projection[], teams: Team[],
   };
   const ktcPicks = new Map(vals?.picks?.ktc ?? []);
   const fcPicks = new Map(vals?.picks?.fc ?? []);
+  // KTC and FC price picks on different scales (KTC ~2x FC), while mvPlayer is
+  // on the KTC scale. A raw FC fallback therefore breaks the MV_BAND fairness
+  // gate. Derive the KTC/FC scale from rounds present in both maps (FC's
+  // round-level keys like "2027 1st" vs KTC's tier keys "2027 {Early,Mid,Late}
+  // 1st") and rescale the fallback onto the KTC scale.
+  const fcToKtc = (() => {
+    const rs: number[] = [];
+    for (const [fk, fv] of fcPicks) {
+      const parts = fk.split(" ");
+      if (parts.length !== 2 || !(fv > 0)) continue;        // round-level keys only
+      const [season, ord] = parts;
+      const tiers = ["Early", "Mid", "Late"]
+        .map(t => ktcPicks.get(`${season} ${t} ${ord}`))
+        .filter((x): x is number => x != null);
+      if (tiers.length) rs.push(tiers.reduce((a, b) => a + b, 0) / tiers.length / fv);
+    }
+    rs.sort((a, b) => a - b);
+    return rs.length ? rs[Math.floor(rs.length / 2)] : 1;
+  })();
   const mvPick = (k: { season: number; round: number; orig: number }) => {
     const label = pickLabel(postures, k);
-    return ktcPicks.get(label)
-      ?? fcPicks.get(`${k.season} ${ORD[k.round - 1]}`) ?? 400;
+    const ktc = ktcPicks.get(label);
+    if (ktc != null) return ktc;
+    const fc = fcPicks.get(`${k.season} ${ORD[k.round - 1]}`);
+    return fc != null ? fc * fcToKtc : 400;
   };
   const MV_BAND: [number, number] = [0.6, 1.67];
   // market-implied 3-yr WAR (Bridge B, precomputed into values.json). Blended
@@ -310,6 +331,11 @@ export function suggestTrades(rid: number, players: Projection[], teams: Team[],
           // real cost to me (asset/bench value), not just a gain for them
           const depthCostMe = DEPTH * pkg.ps.reduce((a, x) =>
             a + Math.max(0, raw3(x.p, wMe) - x.lossMe), 0);
+          // ...and the same the other way: X leaving g beyond ITS lineup
+          // marginal is a real cost to g. Without this, netG was overstated
+          // and "win-win" suggestions could be net-negative for g.
+          const lossGX = -val(wG, swapDelta(g, [], new Set([X.id])));
+          const depthCostG = DEPTH * Math.max(0, raw3(X, wG) - lossGX);
           // market-implied differential: what crosses the table by Bridge B
           // (players; picks fall back to their Bridge A stream value)
           const impRecv = impPlayer(X.id) ?? raw3(X, NEUTRAL);
@@ -318,7 +344,7 @@ export function suggestTrades(rid: number, players: Projection[], teams: Team[],
           const mktDiff = impRecv - impSent;
           const netMe = (1 - MKT_W) * (val(wMe, dMe) + depthMe - depthCostMe
             - pkg.pk.reduce((a, k) => a + pickVal(wMe, k), 0)) + MKT_W * mktDiff;
-          const netG = (1 - MKT_W) * (val(wG, dG) + depthG
+          const netG = (1 - MKT_W) * (val(wG, dG) + depthG - depthCostG
             + pkg.pk.reduce((a, k) => a + pickVal(wG, k), 0)) + MKT_W * -mktDiff;
           if (netMe < MIN_NET || netG < MIN_NET) continue;
           const score = Math.min(netMe, netG);

@@ -60,10 +60,6 @@ FLEX_ORDER = sorted(FLEX_SLOTS, key=lambda s: len(FLEX_SLOTS[s]))
 # Bench/reserve slots occupy roster_positions but never start anyone.
 NON_STARTING_SLOTS = {"BN", "IR", "TAXI"}
 
-# Back-compat aliases (some callers/tests import these directly).
-FLEX_ELIG = FLEX_SLOTS["FLEX"]
-SF_ELIG = FLEX_SLOTS["SUPER_FLEX"]
-
 def norm_win_shift(points, sigma):
     """Change in single-week win probability from adding `points` to an average team."""
     if sigma <= 0:

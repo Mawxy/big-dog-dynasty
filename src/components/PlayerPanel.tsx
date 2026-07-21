@@ -14,20 +14,28 @@ interface Props { pid: string; season: string; teams: Team[]; players: PlayersMi
 export default function PlayerPanel({ pid, season, teams, players }: Props) {
   const [wks, setWks] = useState<WeeklyRow[] | null>(null);
   const [own, setOwn] = useState<Ownership>({});
+  const [err, setErr] = useState(false);
   useEffect(() => {
     let live = true;
+    setErr(false);
     (async () => {
-      const [weekly, ownership] = await Promise.all([
-        j<Weekly>(`data/${season}/weekly.json`),
-        j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
-      ]);
-      if (!live) return;
-      setWks((weekly[pid] || []).slice().sort((a, b) => a[0] - b[0]));
-      setOwn(ownership);
+      try {
+        const [weekly, ownership] = await Promise.all([
+          j<Weekly>(`data/${season}/weekly.json`),
+          j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
+        ]);
+        if (!live) return;
+        setWks((weekly[pid] || []).slice().sort((a, b) => a[0] - b[0]));
+        setOwn(ownership);
+      } catch {
+        // a transient weekly.json failure otherwise hangs on "loading…" forever
+        if (live) setErr(true);
+      }
     })();
     return () => { live = false; };
   }, [pid, season]);
 
+  if (err) return <div style={{ color: "var(--dim)" }}>couldn't load — reopen to retry</div>;
   if (!wks) return <div style={{ color: "var(--dim)" }}>loading…</div>;
   const [nm, pos] = pInfo(players, pid);
   const owner = ownerOf(teams)[pid];

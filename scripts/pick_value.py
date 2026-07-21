@@ -106,9 +106,11 @@ def load_sources(last_season):
         meta[(n.split()[-1], r['pos'])].append((n, r['gsis_id'], r['draft_season']))
 
     hist = defaultdict(dict)                       # gsis -> {season: war}
+    hist_seasons = set()                           # seasons whose waa_war file exists
     for yr in range(FIRST_CLASS, last_season + 1):
         f = ROOT / 'nfl_history' / f'waa_war_{yr}.csv'
         if f.exists():
+            hist_seasons.add(yr)
             for r in csv.DictReader(open(f, encoding='utf-8')):
                 hist[r['player_id']][yr] = float(r['WAR'])
 
@@ -119,7 +121,7 @@ def load_sources(last_season):
             if f.exists():
                 for row in json.load(open(f, encoding='utf-8')):
                     real[str(row[0])][int(d.name)] = float(row[6])
-    return meta, hist, real
+    return meta, hist, real, hist_seasons
 
 
 def match_gsis(name, pos, season, meta):
@@ -167,20 +169,36 @@ def summarize(order, cells, hits, years, labels=None):
     return rows
 
 
+def latest_history_season():
+    """Newest NFL season with published historical WAR (waa_war_<yr>.csv).
+    These land only after a season completes, so this is the right default for
+    'last completed season' — and it advances on its own once war-history runs,
+    which is what lets the weekly refresh pick up year-4 unlocks with no edit."""
+    yrs = [int(f.stem.rsplit('_', 1)[-1])
+           for f in (ROOT / 'nfl_history').glob('waa_war_*.csv')
+           if f.stem.rsplit('_', 1)[-1].isdigit()]
+    return max(yrs) if yrs else 2025
+
+
 def main():
     ap = argparse.ArgumentParser(description="rookie pick -> WAR stream (Bridge A)")
-    ap.add_argument('--last-season', type=int, default=2025,
-                    help='last completed NFL season')
+    ap.add_argument('--last-season', type=int, default=None,
+                    help='last completed NFL season '
+                         '(default: newest nfl_history/waa_war_<yr>.csv)')
     args = ap.parse_args()
-    last = args.last_season
+    last = args.last_season if args.last_season is not None else latest_history_season()
 
-    meta, hist, real = load_sources(last)
+    meta, hist, real, hist_seasons = load_sources(last)
 
     def war_of(sleeper_id, gsis, season):
         """Real league WAR first, calibrated history second, else None."""
         if season in real.get(sleeper_id, {}):
             return real[sleeper_id][season]
-        if gsis is not None:
+        # Only treat a missing player-season as a real (busted) zero if that
+        # season's waa_war file actually exists. A missing waa_war_<season>.csv
+        # is "no source" -> None (skip), never a corpus-wide zero — otherwise
+        # running before war-history regenerates poisons the whole column.
+        if gsis is not None and season in hist_seasons:
             return hist.get(gsis, {}).get(season, 0.0)
         return None
 

@@ -56,16 +56,21 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   const nav = useNavigate();
 
   const [projs, setProjs] = useState<ProjectionsFile | null>(null);
+  const [err, setErr] = useState(false);
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     if (season === "ALL") return;
     let live = true;
+    setErr(false);
     Promise.all([
       j<Weekly>(`data/${season}/weekly.json`),
       j<Matchups>(`data/${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
-    ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } });
+    ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } })
+      // without this, a transient weekly.json failure hangs on "Loading…" forever
+      .catch(() => { if (live) setErr(true); });
     return () => { live = false; };
-  }, [season]);
+  }, [season, reload]);
 
   // preseason: no scored weeks — predict the standings from the projections
   useEffect(() => {
@@ -239,9 +244,14 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   }, [data, mw, wkIdx, sortCol, dir, isProj, projs]);
 
   if (season === "ALL") return <div className="empty">Teams are a per-season view — pick a year from the dropdown.</div>;
+  if (err) return <div className="empty">Couldn't load team data.{" "}
+    <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></div>;
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
   if (detailRid !== null)
-    return <FranchisePage rid={detailRid} players={players} tab={tab}
+    // key={detailRid} forces a fresh mount per franchise: without it, QuickJump
+    // reuses the component and franchise A's pre-filtered trades stay rendered
+    // under franchise B (the trades effect early-returns when trades is set).
+    return <FranchisePage key={detailRid} rid={detailRid} players={players} tab={tab}
       onTab={t => nav(`/teams/${seasonSeg(season)}/${detailRid}/${t}`, { replace: true })}
       back={() => nav(`/teams/${seasonSeg(season)}`)} />;
   const ps = mw.playoff_start || 15;

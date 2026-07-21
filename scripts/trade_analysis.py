@@ -118,14 +118,41 @@ def main():
                     if v:
                         war_wk.setdefault((s, int(rid_str), pid), []).append((e[0], v))
 
+    # When each player LEFT each roster (traded away or dropped). Lets war_for
+    # stop at the end of the continuous stint that began with a given trade — a
+    # later re-acquisition is a different trade and must not accrue here.
+    departures = {}
+    for s in seasons:
+        tdir = RAW / str(s) / "transactions"
+        if not tdir.exists():
+            continue
+        for tf in sorted(tdir.glob("week_*.json")):
+            for tx in (load(tf) or []):
+                if tx.get("status") != "complete":
+                    continue
+                wk = tx.get("leg", 0)
+                for pid, rid in (tx.get("drops") or {}).items():
+                    departures.setdefault((rid, str(pid)), []).append((s, wk))
+    for k in departures:
+        departures[k].sort()
+
     def war_for(rid, pid, from_season, from_week):
-        """WAR this player produced starting for `rid` from the trade onward."""
+        """WAR this player produced starting for `rid` during the single
+        continuous stint that began with this trade — stops the moment they
+        first leave `rid` (docstring's 'stops if they leave that roster')."""
+        # first departure from rid at/after the trade point ends the stint
+        end = next(((ds, dw) for ds, dw in departures.get((rid, str(pid)), [])
+                    if (ds, dw) >= (from_season, from_week)), None)
         tot = 0.0
         for s in seasons:
             if s < from_season:
                 continue
+            if end and s > end[0]:
+                break
             for wk, v in war_wk.get((s, rid, str(pid)), []):
                 if s == from_season and wk < from_week:
+                    continue
+                if end and (s, wk) >= end:      # already left the roster
                     continue
                 tot += v
         return round(tot, 3)
@@ -133,6 +160,11 @@ def main():
     # draft slot ownership + the selection made at each (round, slot).
     # Shared with draft_analysis.py — see scripts/draft_slots.py.
     slot_of, sel_at = build_slot_maps(seasons, RAW, load=load)
+    # seasons whose rookie draft has actually happened (has selections). A pick
+    # for a season NOT in here hasn't been drafted yet — it carries future
+    # value, it is not an "unused" slot. `ps > max(seasons)` mislabeled every
+    # current-year pick as unused each Feb–May before that draft ran.
+    drafted_seasons = {k[0] for k in sel_at}
 
     trades = []
     for s in seasons:
@@ -168,7 +200,7 @@ def main():
                                                  "label": f"{label} → {nm}", "war": w,
                                                  "future": future_player(rid, str(sel["player_id"]))})
                     else:   # not drafted yet (future pick) or the slot went unused
-                        undrafted = ps > max(seasons)
+                        undrafted = ps not in drafted_seasons
                         tail = " (not yet drafted)" if undrafted else " (unused)"
                         side(rid)["got"].append({"kind": "pick", "pid": None,
                                                  "label": label + tail, "war": 0.0,
