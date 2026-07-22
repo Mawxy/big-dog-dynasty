@@ -1,0 +1,67 @@
+name: League crawl (dynasty signals + trades)
+# Manual/occasional: snowball-crawl dynasty leagues from the Big Dog chain to
+# gather crowd-sourced signals (roster%, start%, ADP) and a real trade corpus.
+# Commits data/league_signals.json; uploads the (large) trade_corpus.json as an
+# artifact rather than committing it. Long-running — bounded by max_leagues.
+on:
+  workflow_dispatch:
+    inputs:
+      max_leagues:
+        description: "Max dynasty leagues to VISIT (matched or not)"
+        default: "10000"
+      teams:
+        description: "Only COUNT leagues with this many teams (0 = any)"
+        default: "12"
+      any_qb:
+        description: "Also count non-superflex leagues? (true/false)"
+        default: "false"
+      trade_weeks:
+        description: "Transaction weeks scanned per league (0 = skip trades)"
+        default: "18"
+permissions:
+  contents: write
+concurrency:            # its OWN group: a multi-hour crawl must not block the
+  group: league-crawl   # weekly data-refresh / daily values-refresh (data-push)
+  cancel-in-progress: false
+jobs:
+  crawl:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350            # under the 360-min hard cap; checkpoints guard the rest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Crawl dynasty leagues
+        env:                        # via env, never interpolated into the shell
+          MAX: ${{ github.event.inputs.max_leagues }}
+          TEAMS: ${{ github.event.inputs.teams }}
+          ANY_QB: ${{ github.event.inputs.any_qb }}
+          TW: ${{ github.event.inputs.trade_weeks }}
+        run: |
+          FLAGS=""
+          [ "$ANY_QB" = "true" ] && FLAGS="--any-qb"
+          python scripts/sleeper_crawl.py \
+            --max-leagues "$MAX" --teams "$TEAMS" --trade-weeks "$TW" $FLAGS
+      - name: Upload trade corpus (too large to commit)
+        if: always()                # keep whatever the crawl checkpointed, even on timeout
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-corpus
+          path: data/trade_corpus.json
+          retention-days: 90
+          if-no-files-found: ignore
+      - name: Commit league signals
+        if: always()
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/league_signals.json
+          git diff --cached --quiet && { echo "no signal changes"; exit 0; }
+          git commit -m "Dynasty crawl signals $(date -u +%F)"
+          # retry rebase+push so a concurrent commit doesn't drop the run
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash && git push && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1

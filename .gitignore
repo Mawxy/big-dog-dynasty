@@ -5,3 +5,5 @@ dist/
 nfl_history_data/
 HANDOFF.md
 vite.config.*.timestamp-*.mjs
+# raw trade corpus can be tens of MB at scale — kept as a CI artifact, not committed
+data/trade_corpus.json
