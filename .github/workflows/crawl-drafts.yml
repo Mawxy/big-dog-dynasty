@@ -1,0 +1,45 @@
+name: Crawl - drafts (startup/rookie ADP)
+# Reads data/crawl_leagues.json and pulls draft boards for ADP. Light (a few
+# calls per league), so a single unsharded job on its own runner is plenty.
+# Commits data/draft_signals.json; state persists via cache with a 7-day window.
+on:
+  schedule:
+    - cron: "0 2,8,14,20 * * *"   # two hours after signals
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: crawl-drafts
+  cancel-in-progress: false
+jobs:
+  drafts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore/persist crawl state
+        uses: actions/cache@v4
+        with:
+          path: .crawl-state/drafts
+          key: crawl-drafts-${{ github.run_id }}
+          restore-keys: crawl-drafts-
+      - name: Crawl drafts
+        run: |
+          python scripts/sleeper_crawl.py --mode drafts \
+            --state .crawl-state/drafts --max-minutes 330
+      - name: Commit draft signals
+        if: always()
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/draft_signals.json
+          git diff --cached --quiet && { echo "no changes"; exit 0; }
+          git commit -m "Crawl drafts $(date -u +%FT%H:%MZ)"
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash && git push && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1

@@ -1,0 +1,46 @@
+name: Crawl - trades (4-way sharded corpus)
+# Reads data/crawl_leagues.json (published by the signals crawl) and pulls
+# transactions for its shard of the leagues. Four shards run on four runners =
+# four separate IPs = 4x the rate budget. Each shard owns its own cache + output
+# (trade_corpus_<shard>.json, uploaded as an artifact — too large to commit).
+on:
+  schedule:
+    - cron: "0 1,7,13,19 * * *"   # an hour after signals, so the list is fresh
+  workflow_dispatch:
+permissions:
+  contents: read                  # only reads the committed league list
+jobs:
+  trades:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    concurrency:
+      group: crawl-trades-${{ matrix.shard }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore/persist shard state
+        uses: actions/cache@v4
+        with:
+          path: .crawl-state/trades-${{ matrix.shard }}
+          key: crawl-trades-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: crawl-trades-${{ matrix.shard }}-
+      - name: Crawl trades (shard ${{ matrix.shard }} of 4)
+        run: |
+          python scripts/sleeper_crawl.py --mode trades \
+            --state .crawl-state/trades-${{ matrix.shard }} \
+            --shard ${{ matrix.shard }} --nshards 4 --max-minutes 330
+      - name: Upload corpus shard
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trade-corpus-shard-${{ matrix.shard }}
+          path: data/trade_corpus_${{ matrix.shard }}.json
+          retention-days: 90
+          if-no-files-found: ignore

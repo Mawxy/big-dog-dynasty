@@ -1,0 +1,54 @@
+name: Crawl - signals (discovery + roster/start rates)
+# The ONLY discoverer. Snowballs dynasty leagues, records roster%/start%/taxi%
+# over a rolling window, and publishes the counted-league list the trades/drafts
+# crawlers consume. State persists across runs via the cache; a 7-day cooldown
+# means each 6-hour run reaches new leagues (and refreshes stale ones).
+on:
+  schedule:
+    - cron: "0 0,6,12,18 * * *"   # every 6h; trades/drafts run an hour later
+  workflow_dispatch:
+    inputs:
+      max_leagues:
+        description: "visit cap per run (blank = time-bounded only)"
+        default: ""
+permissions:
+  contents: write
+concurrency:
+  group: crawl-signals
+  cancel-in-progress: false
+jobs:
+  signals:
+    runs-on: ubuntu-latest
+    timeout-minutes: 345          # backstop; the crawler self-stops at 330 min
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore/persist crawl state
+        uses: actions/cache@v4
+        with:
+          path: .crawl-state/signals
+          key: crawl-signals-${{ github.run_id }}   # unique -> always saves
+          restore-keys: crawl-signals-              # restore latest previous
+      - name: Crawl signals
+        env:
+          MAX: ${{ github.event.inputs.max_leagues }}
+        run: |
+          EXTRA=""
+          [ -n "$MAX" ] && EXTRA="--max-leagues $MAX"
+          python scripts/sleeper_crawl.py --mode signals \
+            --state .crawl-state/signals --max-minutes 330 $EXTRA
+      - name: Commit signals + league list
+        if: always()
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/league_signals.json data/crawl_leagues.json
+          git diff --cached --quiet && { echo "no changes"; exit 0; }
+          git commit -m "Crawl signals $(date -u +%FT%H:%MZ)"
+          for i in 1 2 3 4 5; do
+            git pull --rebase --autostash && git push && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1
