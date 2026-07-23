@@ -22,7 +22,7 @@ skipped until its per-mode timestamp is older than --cooldown-days, so repeated
 
 Seeds (signals): the Big Dog Dynasty chain, 2022-2026.
 """
-import argparse, datetime, json, sys, time, urllib.error, urllib.request
+import argparse, datetime, hashlib, json, sys, time, urllib.error, urllib.request
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -71,6 +71,13 @@ def get(path):
             time.sleep(2 ** attempt)
 
 
+def shard_of(lid, nshards):
+    """Stable, uniform shard for a league_id. NOT int(lid) % n: Sleeper IDs are
+    Snowflake IDs whose low bits (a sequence counter) are almost always 0, so
+    modulo dumps nearly everything into shard 0. md5 scrambles the bits evenly."""
+    return int(hashlib.md5(lid.encode()).hexdigest()[:8], 16) % nshards
+
+
 def is_dynasty(l):
     return bool(l) and (l.get("settings") or {}).get("type") == 2
 
@@ -113,6 +120,32 @@ def jdump(p, obj):
     p = Path(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     p.write_text(json.dumps(obj), encoding="utf-8")
+
+
+def git_push(paths, message):
+    """Best-effort commit+push of output files mid-crawl (durable incremental
+    saves + gets crawl_leagues.json to the trades/drafts crawlers early). Never
+    fatal: the end-of-job commit step is the backstop."""
+    import subprocess
+    def run(*a):
+        return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True)
+    try:
+        run("config", "user.name", "big-dog-bot")
+        run("config", "user.email", "actions@users.noreply.github.com")
+        run("add", *paths)
+        if run("diff", "--cached", "--quiet").returncode == 0:
+            return                                  # nothing new to push
+        run("commit", "-m", message)
+        for i in range(1, 5):
+            if (run("pull", "--rebase", "--autostash").returncode == 0
+                    and run("push").returncode == 0):
+                print(f"  pushed: {message}", file=sys.stderr, flush=True)
+                return
+            time.sleep(i * 5)
+        print("  periodic push failed; end-of-run commit is the backstop",
+              file=sys.stderr, flush=True)
+    except Exception as e:
+        print(f"  periodic push error: {e}", file=sys.stderr, flush=True)
 
 
 def fresh(ts, cooldown_days):
@@ -233,6 +266,10 @@ def mode_signals(args, t0):
                                   "starters": list(here_s), "taxi": list(here_t)}
                 if n_counted % CHECKPOINT_EVERY == 0:
                     flush()
+                if args.commit_every and n_counted % args.commit_every == 0:
+                    git_push([args.signals_out, args.leagues_out],
+                             f"Crawl signals (partial, {n_counted} leagues) "
+                             f"{datetime.date.today().isoformat()}")
         except RuntimeError:
             raise
         except Exception as e:
@@ -252,7 +289,7 @@ def mode_trades(args, t0):
     trades = jload(sd / "trades.json", {})         # tid -> trade
     league_list = jload(ROOT / args.leagues_out, {}).get("leagues", [])
     mine = [lid for lid in league_list
-            if int(lid) % args.nshards == args.shard
+            if shard_of(lid, args.nshards) == args.shard
             and not fresh(progress.get(lid), args.cooldown_days)]
     n_done = 0
     counters = lambda: {"shard": f"{args.shard}/{args.nshards}", "todo": len(mine) - n_done,
@@ -372,6 +409,10 @@ def mode_drafts(args, t0):
             n_done += 1
             if n_done % CHECKPOINT_EVERY == 0:
                 flush()
+            if args.commit_every and n_done % args.commit_every == 0:
+                git_push([args.drafts_out],
+                         f"Crawl drafts (partial, {n_done} leagues) "
+                         f"{datetime.date.today().isoformat()}")
         except RuntimeError:
             raise
         except Exception as e:
@@ -396,6 +437,9 @@ def main():
     ap.add_argument("--trade-weeks", type=int, default=18)
     ap.add_argument("--shard", type=int, default=0, help="trades: this shard index")
     ap.add_argument("--nshards", type=int, default=1, help="trades: total shards")
+    ap.add_argument("--commit-every", type=int, default=0,
+                    help="signals/drafts: git commit+push outputs every N counted "
+                         "leagues (0 = only at end)")
     ap.add_argument("--log-every", type=float, default=10.0)
     ap.add_argument("--signals-out", default="data/league_signals.json")
     ap.add_argument("--leagues-out", default="data/crawl_leagues.json")

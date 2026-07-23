@@ -38,7 +38,7 @@ jobs:
           EXTRA=""
           [ -n "$MAX" ] && EXTRA="--max-leagues $MAX"
           python scripts/sleeper_crawl.py --mode signals \
-            --state .crawl-state/signals --max-minutes 330 $EXTRA
+            --state .crawl-state/signals --max-minutes 330 --commit-every 1000 $EXTRA
       - name: Commit signals + league list
         if: always()
         run: |
