@@ -134,10 +134,12 @@ def main():
     # site-facing DVI: value + rank only, no component breakdown.
     ranked = sorted((pid for pid in out if out[pid]["rating"] is not None),
                     key=lambda pid: -out[pid]["rating"])
-    dvi = {}
+    dvi, pos_seen = {}, {}
     for i, pid in enumerate(ranked, 1):
         r = out[pid]
-        dvi[pid] = {"name": r["name"], "pos": r["pos"], "dvi": r["rating"], "rank": i}
+        pos_seen[r["pos"]] = pos_seen.get(r["pos"], 0) + 1   # rank within position (DVI order)
+        dvi[pid] = {"name": r["name"], "pos": r["pos"], "dvi": r["rating"],
+                    "rank": i, "pos_rank": pos_seen[r["pos"]]}
     (DATA / "dvi.json").write_text(json.dumps(
         {"generated": __import__("datetime").date.today().isoformat(),
          "players": dvi}, separators=(",", ":")), encoding="utf-8")

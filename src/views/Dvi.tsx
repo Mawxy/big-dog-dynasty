@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { jDaily } from "../lib/data";
 import { PlayerLink } from "../components/PlayerLink";
-import PosBadge from "../components/PosBadge";
 
-interface DviRow { name: string; pos: string; dvi: number; rank: number }
+interface DviRow { name: string; pos: string; dvi: number; rank: number; pos_rank: number }
 interface DviFile { generated: string; players: Record<string, DviRow> }
 
 const POS = ["ALL", "QB", "RB", "WR", "TE"];
@@ -54,7 +53,7 @@ export default function Dvi() {
             <tr>
               <th style={{ width: 46 }}>#</th>
               <th style={{ textAlign: "left" }} className="pcol">Player</th>
-              <th style={{ width: 58 }}>Pos</th>
+              <th style={{ width: 66 }}>Pos rank</th>
               <th style={{ width: 84 }}>DVI</th>
             </tr>
           </thead>
@@ -63,7 +62,7 @@ export default function Dvi() {
               <tr key={r.pid}>
                 <td>{i + 1}</td>
                 <td style={{ textAlign: "left" }} className="pcol"><PlayerLink pid={r.pid} name={r.name} /></td>
-                <td><PosBadge pos={r.pos} /></td>
+                <td><span className={"pos " + r.pos} title={`${r.pos}${r.pos_rank} by DVI`}>{r.pos}{r.pos_rank}</span></td>
                 <td><b>{r.dvi.toFixed(1)}</b></td>
               </tr>
             ))}
