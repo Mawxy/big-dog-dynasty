@@ -22,7 +22,7 @@ export default function Draft() {
     <>
       <div className="bar">
         <span style={{ color: "var(--dim)", fontSize: 13 }}>
-          classes {pv.meta.classes} · {pv.meta.picks_used} picks
+          classes {pv.meta.classes} · {(pv.meta.picks_analyzed ?? pv.meta.picks_used).toLocaleString()} picks analyzed
         </span>
       </div>
 

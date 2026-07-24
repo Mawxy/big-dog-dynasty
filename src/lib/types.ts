@@ -84,7 +84,7 @@ export interface PickValues {
   meta: {
     generated_for_season: number; classes: string; years_published: number[];
     min_obs_by_round: Record<string, number>; hit_threshold_war: number;
-    picks_used: number; vets_excluded: number; unmatched: number; source: string;
+    picks_used: number; picks_analyzed?: number; vets_excluded: number; unmatched: number; source: string;
   };
   /** every slot individually: 1.01 … 4.12 */
   picks: PickBucket[];

@@ -238,17 +238,21 @@ def main():
             continue
         picks.append((season, pick, r['sleeper_id'], gsis))
 
+    csv_n = len(picks)                 # curated CSV observations
     # --- Bridge A supplement: the crawled rookie-draft corpus (thousands of
     #     superflex leagues). Per slot, distribute a fixed observation budget
     #     across the players taken there, weighted by how many leagues took each,
     #     so the modal pick dominates without swamping memory. Blends with the
     #     curated CSV above. Absent (before the crawl) => no-op.
     corpus_f = ROOT / 'data' / 'rookie_pick_corpus.json'
+    raw_crawl = 0                      # actual rookie picks analyzed (all leagues)
     if corpus_f.exists():
         by_slot = defaultdict(list)
         for season, pick, sid, name, pos, cnt in (json.load(open(corpus_f)).get('picks') or []):
-            if season <= last and pick <= MAX_PICK and cnt >= CRAWL_MIN:
-                by_slot[(season, pick)].append((sid, name, pos, cnt))
+            if season <= last and pick <= MAX_PICK:
+                raw_crawl += cnt
+                if cnt >= CRAWL_MIN:
+                    by_slot[(season, pick)].append((sid, name, pos, cnt))
         added = 0
         for (season, pick), es in by_slot.items():
             tot = sum(c for *_, c in es)
@@ -313,6 +317,10 @@ def main():
         'min_obs_by_round': MIN_OBS_BY_ROUND,
         'hit_threshold_war': HIT_WAR,
         'picks_used': len(picks), 'vets_excluded': vets,
+        # total real rookie-draft picks behind the values (curated CSV + every
+        # crawled league's pick), for the headline count — vs picks_used, which
+        # is the weighted/compressed sample the bands are actually built from.
+        'picks_analyzed': csv_n + raw_crawl,
         'unmatched': len(unmatched),
         'source': 'real Big Dog WAR where available, calibrated NFL history otherwise',
     },

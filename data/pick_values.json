@@ -16,6 +16,7 @@
   "hit_threshold_war": 1.0,
   "picks_used": 1065,
   "vets_excluded": 15,
+  "picks_analyzed": 1065,
   "unmatched": 0,
   "source": "real Big Dog WAR where available, calibrated NFL history otherwise"
  },
