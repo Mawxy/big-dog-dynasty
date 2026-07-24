@@ -152,18 +152,20 @@ def fresh(ts, cooldown_days):
     return ts is not None and (time.time() - ts) < cooldown_days * 86400
 
 
-def load_player_exp(state_dir, cache_hours=20):
-    """{pid: years_exp} for the rookie-class filter, refreshed from /players/nfl
-    at most ~daily (Sleeper asks the 5MB map be pulled sparingly)."""
-    f = Path(state_dir) / "player_exp.json"
+def load_player_meta(state_dir, cache_hours=20):
+    """{pid: {exp, name, pos}} from /players/nfl (rookie-class filter + the rookie
+    pick corpus's name/pos, which pick_value matches to gsis). Refreshed ~daily."""
+    f = Path(state_dir) / "player_meta.json"
     cached = jload(f, {})
     if cached.get("ts") and (time.time() - cached["ts"]) < cache_hours * 3600:
-        return cached.get("exp", {})
+        return cached.get("meta", {})
     pmap = get("/players/nfl") or {}
-    exp = {pid: p.get("years_exp") for pid, p in pmap.items()
-           if isinstance(p, dict) and p.get("years_exp") is not None}
-    jdump(f, {"ts": time.time(), "exp": exp})
-    return exp
+    meta = {pid: {"exp": p.get("years_exp"),
+                  "name": (p.get("first_name", "") + " " + p.get("last_name", "")).strip(),
+                  "pos": p.get("position")}
+            for pid, p in pmap.items() if isinstance(p, dict)}
+    jdump(f, {"ts": time.time(), "meta": meta})
+    return meta
 
 
 def load_player_teams(state_dir, cache_hours=20):
@@ -391,14 +393,17 @@ def mode_drafts(args, t0):
     progress = jload(sd / "progress.json", {})     # lid -> last_drafts ts
     contrib = jload(sd / "contrib.json", {})       # lid -> {ts, startup:{pid:[pno]}, rookie:{...}}
     seen_drafts = set(jload(sd / "seen_drafts.json", []))
+    # rookie-pick corpus for Bridge A: "season|pick|pid" -> # drafts. Persistent
+    # and NOT windowed — a completed rookie draft is a permanent historical fact.
+    rookie_corpus = jload(sd / "rookie_corpus.json", {})
     league_list = jload(ROOT / args.leagues_out, {}).get("leagues", [])
     mine = [lid for lid in league_list if not fresh(progress.get(lid), args.cooldown_days)]
-    exp = load_player_exp(sd)                      # {pid: years_exp}
+    pmeta = load_player_meta(sd)                   # {pid: {exp, name, pos}}
     cur = int(args.season)
 
     def is_rookie_of(pid, dseason):
         """True iff the player's draft class == this draft's season."""
-        ye = exp.get(pid)
+        ye = (pmeta.get(pid) or {}).get("exp")
         return ye is not None and dseason and (cur - ye) == int(dseason)
 
     n_done = 0
@@ -423,6 +428,15 @@ def mode_drafts(args, t0):
             players[pid] = {"startup_adp": sa, "startup_n": sn, "rookie_adp": ra, "rookie_n": rn}
         jdump(ROOT / args.drafts_out,
               {"generated": datetime.date.today().isoformat(), "leagues": len(live), "players": players})
+        # rookie pick corpus -> Bridge A. [season, pick, pid, name, pos, count]
+        corpus = []
+        for key, cnt in rookie_corpus.items():
+            season, pno, pid = key.split("|")
+            m = pmeta.get(pid) or {}
+            corpus.append([int(season), int(pno), pid, m.get("name"), m.get("pos"), cnt])
+        jdump(ROOT / "data/rookie_pick_corpus.json",
+              {"generated": datetime.date.today().isoformat(), "picks": corpus})
+        jdump(sd / "rookie_corpus.json", rookie_corpus)
         jdump(sd / "progress.json", progress)
         jdump(sd / "contrib.json", contrib)
         jdump(sd / "seen_drafts.json", list(seen_drafts))
@@ -451,6 +465,8 @@ def mode_drafts(args, t0):
                         su[pid].append(pno)          # startups: everyone counts
                     elif is_rookie_of(pid, dseason):
                         rk[pid].append(pno)          # rookie bucket: matching class only
+                        key = f"{dseason}|{pno}|{pid}"
+                        rookie_corpus[key] = rookie_corpus.get(key, 0) + 1
             contrib[lid] = {"ts": time.time(), "startup": dict(su), "rookie": dict(rk)}
             progress[lid] = time.time()
             n_done += 1
