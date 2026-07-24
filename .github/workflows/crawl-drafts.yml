@@ -35,7 +35,7 @@ jobs:
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data/draft_signals.json
+          git add data/draft_signals.json data/rookie_pick_corpus.json
           git diff --cached --quiet && { echo "no changes"; exit 0; }
           git commit -m "Crawl drafts $(date -u +%FT%H:%MZ)"
           for i in 1 2 3 4 5; do

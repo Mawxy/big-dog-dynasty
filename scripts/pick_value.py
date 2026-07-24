@@ -50,6 +50,11 @@ MIN_OBS_BY_ROUND = {1: 10, 2: 10, 3: 10, 4: 7}
 MAX_YEARS = 6
 MAX_PICK = 48            # rounds 1-4
 HIT_WAR = 1.0            # 3-yr raw total that counts as a "hit"
+# crawl rookie-pick corpus blend: ignore (slot, player) combos taken in fewer
+# than CRAWL_MIN leagues (flukes), and give each slot CRAWL_BUDGET weighted
+# observations split across its players by how often each was taken.
+CRAWL_MIN = 3
+CRAWL_BUDGET = 40
 
 NICK = {'cam': 'cameron', 'tank': 'nathaniel', 'joe': 'joseph', 'trevor': 'william',
         'matt': 'matthew', 'josh': 'joshua', 'ken': 'kenneth', 'mike': 'michael',
@@ -202,28 +207,59 @@ def main():
             return hist.get(gsis, {}).get(season, 0.0)
         return None
 
+    def resolve(name, pos, season):
+        """name+pos+class -> (gsis, status). gsis '' = zero output, None = real-
+        WAR-only. status 'ok' | 'unmatched' | 'vet'."""
+        if name in MANUAL:
+            return MANUAL[name], 'ok'
+        if name in ZEROES:
+            return '', 'ok'
+        if name in NO_GSIS:
+            return None, 'ok'
+        m = match_gsis(name, pos, season, meta)
+        if not m:
+            return None, 'unmatched'
+        if m[2] and int(m[2]) != season:            # veteran pick, not a rookie
+            return None, 'vet'
+        return m[1], 'ok'
+
     picks, unmatched, vets = [], [], 0
     for r in csv.DictReader(open(ROOT / 'nfl_history' / 'rookie_drafts.csv',
                                  encoding='utf-8')):
         season, pick = int(r['season']), int(r['pick_no'])
         if season > last or pick > MAX_PICK:
             continue
-        if r['name'] in MANUAL:
-            gsis = MANUAL[r['name']]
-        elif r['name'] in ZEROES:
-            gsis = ''                              # matched, zero output
-        elif r['name'] in NO_GSIS:
-            gsis = None                            # real-WAR only
-        else:
-            m = match_gsis(r['name'], r['pos'], season, meta)
-            if not m:
-                unmatched.append((r['season'], r['name'], r['source']))
-                continue
-            if m[2] and int(m[2]) != season:        # veteran pick, not a rookie
-                vets += 1
-                continue
-            gsis = m[1]
+        gsis, st = resolve(r['name'], r['pos'], season)
+        if st == 'unmatched':
+            unmatched.append((r['season'], r['name'], r['source']))
+            continue
+        if st == 'vet':
+            vets += 1
+            continue
         picks.append((season, pick, r['sleeper_id'], gsis))
+
+    # --- Bridge A supplement: the crawled rookie-draft corpus (thousands of
+    #     superflex leagues). Per slot, distribute a fixed observation budget
+    #     across the players taken there, weighted by how many leagues took each,
+    #     so the modal pick dominates without swamping memory. Blends with the
+    #     curated CSV above. Absent (before the crawl) => no-op.
+    corpus_f = ROOT / 'data' / 'rookie_pick_corpus.json'
+    if corpus_f.exists():
+        by_slot = defaultdict(list)
+        for season, pick, sid, name, pos, cnt in (json.load(open(corpus_f)).get('picks') or []):
+            if season <= last and pick <= MAX_PICK and cnt >= CRAWL_MIN:
+                by_slot[(season, pick)].append((sid, name, pos, cnt))
+        added = 0
+        for (season, pick), es in by_slot.items():
+            tot = sum(c for *_, c in es)
+            for sid, name, pos, cnt in es:
+                gsis, st = resolve(name, pos, season)
+                if st != 'ok':
+                    continue
+                reps = max(1, round(CRAWL_BUDGET * cnt / tot))
+                picks.extend([(season, pick, sid, gsis)] * reps)
+                added += reps
+        print(f"  crawl corpus: +{added} weighted picks from {len(by_slot)} slots")
 
     # Fill every candidate year, then prune below by real observation counts.
     candidates = list(range(1, MAX_YEARS + 1))
