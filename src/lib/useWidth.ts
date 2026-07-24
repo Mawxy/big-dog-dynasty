@@ -18,3 +18,18 @@ export function useWidth<T extends HTMLElement>(
   }, [min, max]);
   return [ref, w];
 }
+
+/** True when the viewport is at or below the phone breakpoint (≤640px), so
+ *  grouped-header colspans can drop the columns hidden by `.hm`. */
+export function useMobile(query = "(max-width: 640px)"): boolean {
+  const [m, setM] = useState(() =>
+    typeof window !== "undefined" && window.matchMedia(query).matches);
+  useEffect(() => {
+    const mq = window.matchMedia(query);
+    const on = () => setM(mq.matches);
+    on();
+    mq.addEventListener("change", on);
+    return () => mq.removeEventListener("change", on);
+  }, [query]);
+  return m;
+}

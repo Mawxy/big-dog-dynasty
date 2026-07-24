@@ -4,43 +4,26 @@ import type { Matchups, MatchEntry, PlayersMin, ProjectionsFile, SeasonData, Tea
 import { j } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean, normCdf, normInv } from "../lib/stats";
 import { pInfo, weekIndex, seasonSeg, optimalLineup } from "../lib/league";
-import PosBadge from "../components/PosBadge";
+import { useMobile } from "../lib/useWidth";
 import { PlayerLink } from "../components/PlayerLink";
 import FranchisePage from "../components/FranchisePage";
 import HoverTip from "../components/HoverTip";
 
 type WkIdx = Record<string, Record<number, [number, number]>>;
-const REG_WEEKS = 14;   // regular season length; composite rates are per-13 (bye)
+const REG_WEEKS = 14;
 interface LineupEntry { id: string; pos: string; war: number; slot: string; ppg: number | null; bye: number | null; age?: number }
 interface Row {
   rid: number; seed: number; team: string; manager: string; wins: number; fpts: number;
-  rec: string; med: string; medw: number; ppg: number; sdv: number; waa: number; war: number;
+  rec: string; med: string; medw: number; ppg: number; sdv: number; war: number;
   ent: MatchEntry[];
-  /** preseason: row built from projections — record is predicted, σ/WAA/vs-Median dash */
   proj?: boolean; lineup?: LineupEntry[]; bench?: LineupEntry[];
-  /** preseason: avg opponent lineup WAR + per-week schedule with win prob,
-   *  that week's bye-adjusted lineup WAR, and the opponent's bye WAR cost */
   sos?: number | null;
   sched?: { wk: number; opp: number; p: number; war?: number; oppD?: number;
     pts?: number; oppPts?: number;
-    /** slot-by-slot lineup changes vs full strength (bye replacements) */
     subs?: { slot: string; out: string | null; in: string | null }[];
-    /** opponent's bye-adjusted lineup this week + their bye replacements */
     oppL?: { slot: string; id: string | null; war: number }[];
     oppSubs?: { slot: string; out: string | null; in: string | null }[] }[];
 }
-type Key = keyof Row;
-const COLS: { label: string; key: Key; hm?: boolean; noUpper?: boolean; w?: number | string }[] = [
-  { label: "Seed", key: "seed", w: 44 },
-  { label: "Team", key: "team" },
-  { label: "Manager", key: "manager", hm: true, w: 170 },
-  { label: "Record", key: "wins", w: 88 },
-  { label: "vs Median", key: "medw", hm: true, w: 96 },
-  { label: "PPG", key: "ppg", w: 80 },
-  { label: "σ", key: "sdv", noUpper: true, w: 70 },
-  { label: "WAA", key: "waa", w: 92 },
-  { label: "WAR", key: "war", w: 92 },
-];
 
 interface Props {
   data: SeasonData; season: string; players: PlayersMin;
@@ -50,10 +33,9 @@ interface Props {
 export default function Teams({ data, season, players, detailRid, tab }: Props) {
   const [weekly, setWeekly] = useState<Weekly | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
-  const [sortCol, setSortCol] = useState(0);
-  const [dir, setDir] = useState(1);
   const [openRid, setOpenRid] = useState<number | null>(null);
   const nav = useNavigate();
+  const mobile = useMobile();
 
   const [projs, setProjs] = useState<ProjectionsFile | null>(null);
   const [err, setErr] = useState(false);
@@ -67,32 +49,23 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       j<Weekly>(`data/${season}/weekly.json`),
       j<Matchups>(`data/${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
     ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } })
-      // without this, a transient weekly.json failure hangs on "Loading…" forever
       .catch(() => { if (live) setErr(true); });
     return () => { live = false; };
   }, [season, reload]);
 
-  // preseason: no scored weeks — predict the standings from the projections
   useEffect(() => {
     if (data.summary.length) return;
     let live = true;
     j<ProjectionsFile>("data/projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
     return () => { live = false; };
   }, [data]);
-  const isProj = !data.summary.length && projs != null
-    && String(projs.meta.roster_season) === season;
+  const isProj = !data.summary.length && projs != null && String(projs.meta.roster_season) === season;
 
   const wkIdx: WkIdx = useMemo(() => weekly ? weekIndex(weekly) : {}, [weekly]);
 
   const rows = useMemo<Row[]>(() => {
     if (!mw) return [];
     if (isProj && projs) {
-      // Optimal lineup per roster from year-1 composite WAR, then walk the
-      // REAL schedule (Sleeper publishes all pairings preseason). Per game:
-      // each team's per-week win-prob shift vs an average opponent is
-      // s = (lineup WAR − league mean)/13; invert the engine's Φ mapping to an
-      // equivalent margin and the head-to-head is P(i beats j) =
-      // Φ(Φ⁻¹(½+sᵢ) − Φ⁻¹(½+sⱼ)). Expected wins = Σ P over the 14 weeks.
       const byPid = new Map(projs.players.map(p => [p.pid, p]));
       const built = data.teams.map(t => {
         const pool = t.players
@@ -104,7 +77,6 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
           ...s.player!, slot: s.slot === "SUPER_FLEX" ? "SF" : s.slot,
           ppg: byPid.get(s.player!.id)?.ppg ?? null,
         }));
-        // slot-by-slot ids of the full-strength lineup, for weekly diffs
         const slotInfo = slots.map(s => ({
           name: s.slot === "SUPER_FLEX" ? "SF" : s.slot, id: s.player?.id ?? null,
         }));
@@ -119,8 +91,6 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       const warOf = new Map(built.map(b => [b.t.roster_id, b.war]));
       const poolOf = new Map(built.map(b => [b.t.roster_id, b.pool]));
       const slotsOf = new Map(built.map(b => [b.t.roster_id, b.slotInfo]));
-      // bye-aware weekly lineup: rebuild the optimal lineup without that
-      // week's bye players, so a stacked bye week costs real win probability
       interface WkSlot { id: string | null; war: number }
       const wkCache = new Map<string, { war: number; ppg: number; slots: WkSlot[] }>();
       const lineupAt = (rid: number, wk: number) => {
@@ -183,22 +153,18 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
           wins = sched.reduce((a, g) => a + g.p, 0);
           sos = mean(gs.map(g => warOf.get(g.opp) ?? meanWar));
         } else {
-          // no schedule published (older data): strength-only fallback
           wins = Math.min(REG_WEEKS, Math.max(0, REG_WEEKS / 2 + (war - meanWar) * (REG_WEEKS / 13)));
         }
         return {
           rid: t.roster_id, seed: 0, team: t.team, manager: t.manager,
           wins, fpts: 0, rec: `${fmt(wins, 1)}-${fmt((gs.length || REG_WEEKS) - wins, 1)}`,
-          med: "—", medw: 0, ppg, sdv: 0, waa: 0, war, ent: [],
+          med: "—", medw: 0, ppg, sdv: 0, war, ent: [],
           proj: true, lineup, bench, sos, sched,
         };
       });
       const seedOrder = rs.slice().sort((a, b) => b.wins - a.wins);
       rs.forEach(r => { r.seed = seedOrder.indexOf(r) + 1; });
-      const k = COLS[sortCol].key;
-      rs.sort((a, b) => typeof a[k] === "string"
-        ? (a[k] as string).localeCompare(b[k] as string) * dir
-        : ((a[k] as number) - (b[k] as number)) * dir);
+      rs.sort((a, b) => a.seed - b.seed);
       return rs;
     }
     const ps = mw.playoff_start || 15;
@@ -214,10 +180,10 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
       const ent = mw.teams[String(t.roster_id)] || [];
       const reg = ent.filter(e => e[0] < ps);
       const pts = reg.map(e => e[1]);
-      let waa = 0, war = 0;
+      let war = 0;
       for (const e of reg) for (const p of e[4]) {
         const v = wkIdx[p]?.[e[0]];
-        if (v) { waa += v[0]; war += v[1]; }
+        if (v) war += v[1];
       }
       let mwin = 0, mloss = 0, mtie = 0;
       for (const e of reg) {
@@ -231,103 +197,141 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
         rec: `${t.wins}-${t.losses}${t.ties ? "-" + t.ties : ""}`,
         med: `${mwin}-${mloss}${mtie ? "-" + mtie : ""}`, medw: mwin,
         ppg: pts.length ? mean(pts) : (g ? t.fpts / g : 0),
-        sdv: sd(pts), waa, war, ent,
+        sdv: sd(pts), war, ent,
       };
     });
     const seedOrder = rs.slice().sort((a, b) => b.wins - a.wins || b.fpts - a.fpts);
     rs.forEach(r => { r.seed = seedOrder.indexOf(r) + 1; });
-    const k = COLS[sortCol].key;
-    rs.sort((a, b) => typeof a[k] === "string"
-      ? (a[k] as string).localeCompare(b[k] as string) * dir
-      : ((a[k] as number) - (b[k] as number)) * dir);
+    rs.sort((a, b) => a.seed - b.seed);
     return rs;
-  }, [data, mw, wkIdx, sortCol, dir, isProj, projs]);
+  }, [data, mw, wkIdx, isProj, projs]);
 
   if (season === "ALL") return <div className="empty">Teams are a per-season view — pick a year from the dropdown.</div>;
   if (err) return <div className="empty">Couldn't load team data.{" "}
     <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></div>;
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
   if (detailRid !== null)
-    // key={detailRid} forces a fresh mount per franchise: without it, QuickJump
-    // reuses the component and franchise A's pre-filtered trades stay rendered
-    // under franchise B (the trades effect early-returns when trades is set).
-    return <FranchisePage key={detailRid} rid={detailRid} players={players} tab={tab}
+    return <div className="legacy"><FranchisePage key={detailRid} rid={detailRid} players={players} tab={tab}
       onTab={t => nav(`/teams/${seasonSeg(season)}/${detailRid}/${t}`, { replace: true })}
-      back={() => nav(`/teams/${seasonSeg(season)}`)} />;
+      back={() => nav(`/teams/${seasonSeg(season)}`)} /></div>;
+
+  const warMax = Math.max(0.01, ...rows.map(r => r.war));
+  const tnames: Record<number, string> = {};
+  data.teams.forEach(t => { tnames[t.roster_id] = t.team; });
+  const openRow = openRid != null ? rows.find(r => r.rid === openRid) : undefined;
   const ps = mw.playoff_start || 15;
-  const clickCol = (i: number) => {
-    if (sortCol === i) setDir(-dir);
-    else { setSortCol(i); setDir(i <= 2 ? 1 : -1); }
-  };
+
   return (
     <>
+      <div className="screen-head">
+        <span className="screen-title">{isProj ? "Projected standings" : "Final standings"}</span>
+        <span className="screen-note">Playoffs from week {ps} · top 6 seeds</span>
+      </div>
+
       <table>
+        <colgroup>
+          <col style={{ width: 52 }} /><col /><col className="hm" style={{ width: 150 }} />
+          <col style={{ width: 96 }} /><col className="hm" style={{ width: 110 }} /><col style={{ width: 96 }} />
+          <col style={{ width: 86 }} /><col className="hm" style={{ width: 100 }} /><col style={{ width: 186 }} />
+        </colgroup>
         <thead>
-          <tr>{COLS.map((c, i) => (
-            <th key={c.label} style={{ width: c.w, ...(c.label === "Manager" ? { textAlign: "left" } : {}) }}
-              className={`${c.hm ? "hm " : ""}${sortCol === i ? "sorted" : ""}`} onClick={() => clickCol(i)}>
-              {c.noUpper ? <span style={{ textTransform: "none" }}>{c.label}</span> : c.label}
-              {sortCol === i ? (dir < 0 ? " ▼" : " ▲") : ""}
-            </th>
-          ))}</tr>
+          <tr className="grp">
+            <th colSpan={mobile ? 2 : 3}></th>
+            <th className="edge" colSpan={mobile ? 2 : 3}>Results</th>
+            <th className="edge value" colSpan={mobile ? 2 : 3}>Scoring &amp; value</th>
+          </tr>
+          <tr>
+            <th className="c">Seed</th>
+            <th className="t">Franchise</th>
+            <th className="t hm">Manager</th>
+            <th className="n edge">Record</th>
+            <th className="n hm">Vs median</th>
+            <th className="n">Luck</th>
+            <th className="n edge">PPG</th>
+            <th className="n hm">Volatility</th>
+            <th className="n key">Lineup WAR</th>
+          </tr>
         </thead>
         <tbody>
-          {rows.map(r => (
-            <TeamRow key={r.rid} r={r} open={openRid === r.rid} ps={ps} wkIdx={wkIdx}
-              teams={data.teams} players={players} bySum={data.summary}
-              onToggle={() => setOpenRid(openRid === r.rid ? null : r.rid)}
-              onOpenDetail={() => nav(`/teams/${seasonSeg(season)}/${r.rid}`)} />
-          ))}
+          {rows.map((r, i) => {
+            const luck = r.proj ? null : r.wins - r.medw;
+            return (
+              <tr key={r.rid} className={`click ${openRid === r.rid ? "open" : i % 2 ? "zebra" : ""}`}
+                onClick={() => setOpenRid(openRid === r.rid ? null : r.rid)}>
+                <td className="rank">
+                  <span className="spine" style={{ background: r.seed <= 6 ? "var(--acc)" : "#2b3642" }} />
+                  <span className="fig">{r.seed}</span>
+                </td>
+                <td className="name">
+                  <span className="tlink" onClick={e => { e.stopPropagation(); nav(`/teams/${seasonSeg(season)}/${r.rid}`); }}>{r.team}</span>
+                </td>
+                <td className="sub hm">{r.manager}</td>
+                <td className="edge n" style={{ font: "600 20px/1 var(--cond)" }}>{r.rec}</td>
+                <td className="fig quiet hm n">{r.proj ? "—" : r.med}</td>
+                <td className="n" style={{ font: "600 15px/1.4 var(--cond)", color: luckColor(luck) }}>{luckStr(luck)}</td>
+                <td className="fig strong edge n">{fmt(r.ppg, 1)}</td>
+                <td className="fig quiet hm n">{r.proj ? "—" : fmt(r.sdv, 1)}</td>
+                <td className="n last">
+                  <div className="meter">
+                    <div className="track team"><div className="fill" style={{ width: Math.round(r.war / warMax * 100) + "%" }} /></div>
+                    <span className="val head-fig md">{fmt(r.war, 3)}</span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
-      <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 8 }}>
-        {isProj ? <>
-          No scored weeks yet — <b style={{ color: "var(--txt)" }}>projected</b> standings
-          over the real Sleeper schedule. WAR = optimal lineup summed from year-1
-          composite projections; each game rebuilds both teams' optimal lineups
-          <i> without that week's bye players</i>, and its win probability comes from the
-          two lineups' WAR gap via the same Φ mapping the engine uses — the predicted
-          record sums those probabilities. PPG derived from the same WAR. Injuries &amp;
-          roster moves not modeled. Click a row for the lineup &amp; schedule · click a team name for
-          the full roster.
-        </> : <>
-          WAA / WAR are summed from each week's actual starting lineup.
-          Lineup WAA is measured against the league-wide <i>optimal</i> starter pool, so most teams land below zero — compare teams to each other, not to 0.
-          Click a row for matchups &amp; roster highlights · click a team name for the full roster.
-        </>}
+
+      {openRow && !openRow.proj && <TeamDrawer r={openRow} tnames={tnames} ps={ps} />}
+      {openRow && openRow.proj && (
+        <div className="drawer"><div className="legacy">
+          <ProjPanel r={openRow} players={players} teams={data.teams} />
+        </div></div>
+      )}
+
+      <div className="footnote">
+        Vs median = record against each week's league median score · luck = actual wins minus median wins ·
+        lineup WAR sums each week's real starters, measured against the league-wide optimal pool
       </div>
     </>
   );
 }
 
-function TeamRow(props: {
-  r: Row; open: boolean; ps: number; wkIdx: WkIdx; teams: Team[]; players: PlayersMin;
-  bySum: SeasonData["summary"]; onToggle: () => void; onOpenDetail: () => void;
-}) {
-  const { r, open, ps, wkIdx, teams, players, bySum, onToggle, onOpenDetail } = props;
-  const panel = r.proj
-    ? <ProjPanel r={r} players={players} teams={teams} />
-    : <TeamPanel r={r} ps={ps} wkIdx={wkIdx} teams={teams} players={players} bySum={bySum} />;
+const luckStr = (l: number | null) => l == null ? "—" : (l > 0 ? "+" : l < 0 ? "−" : "") + Math.abs(l);
+const luckColor = (l: number | null) => l == null || l === 0 ? "var(--dim)" : l > 0 ? "var(--good)" : "var(--bad)";
+
+/** Season as a wrap of week cards, rendered after the table. */
+function TeamDrawer({ r, tnames, ps }: { r: Row; tnames: Record<number, string>; ps: number }) {
   return (
-    <>
-      <tr onClick={onToggle}>
-        <td style={{ color: "var(--dim)" }}>{r.seed}</td>
-        <td><span className="tlink" onClick={e => { e.stopPropagation(); onOpenDetail(); }}>{r.team}</span></td>
-        <td className="hm" style={{ textAlign: "left", color: "var(--dim)" }}>{r.manager}</td>
-        <td>{r.rec}</td>
-        <td className="hm">{r.med}</td>
-        <td>{fmt(r.ppg, 1)}</td>
-        <td>{r.proj ? "—" : fmt(r.sdv, 1)}</td>
-        <td className={r.proj ? undefined : clsOf(r.waa)}>{r.proj ? "—" : fmt(r.waa, 3)}</td>
-        <td className={clsOf(r.war)}>{fmt(r.war, 3)}</td>
-      </tr>
-      {open && <tr className="wkbox"><td colSpan={COLS.length}>{panel}</td></tr>}
-    </>
+    <div className="drawer">
+      <div className="drawer-head">
+        <span className="drawer-title">{r.team}</span>
+        <span className="drawer-sub">{r.manager} · {r.rec} · {fmt(r.ppg, 1)} ppg · lineup WAR {fmt(r.war, 3)}</span>
+      </div>
+      <div className="week-grid">
+        {r.ent.filter(e => e[0] < ps).map(e => {
+          const [wk, pts, opp, oppPts] = e;
+          const res = oppPts == null ? "—" : pts > oppPts ? "W" : pts < oppPts ? "L" : "T";
+          const cls = res === "W" ? "win" : res === "L" ? "loss" : "";
+          return (
+            <div key={wk} className={`week-card ${cls}`}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 8 }}>
+                <span className="wk">W{wk}</span>
+                <span className="res" style={{ color: res === "W" ? "var(--good)" : res === "L" ? "var(--bad)" : "var(--dim)" }}>{res}</span>
+              </div>
+              <div className="score">{fmt(pts, 1)}</div>
+              <div className="opp">vs {opp != null ? tnames[opp] || "?" : "—"}</div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
-/** Preseason dropdown: projected optimal lineup + the real schedule with
- *  per-game win probabilities (this is exactly what the row's record sums). */
+/** Preseason projection detail — projected lineup + real schedule with per-game
+ *  win probabilities (v1 presentation, kept behind `.legacy`). */
 function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: Team[] }) {
   const tnames: Record<number, string> = {};
   teams.forEach(t => { tnames[t.roster_id] = t.team; });
@@ -335,15 +339,6 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
     <>
       <div className="wkhead">
         <b>{r.team}</b> — {r.manager} · projected {r.rec} · {fmt(r.ppg, 1)} ppg
-        {(() => {
-          // WAR-weighted average starter age: the ages attached to the WAR you start
-          const st = (r.lineup ?? []).filter(l => l.age != null);
-          if (!st.length) return null;
-          const wt = st.map(l => Math.max(0.1, l.war));
-          const tot = wt.reduce((a, b) => a + b, 0);
-          const age = st.reduce((a, l, i) => a + l.age! * wt[i], 0) / tot;
-          return <> · <span title="WAR-weighted average age of the projected lineup">avg starter age {fmt(age, 1)}</span></>;
-        })()}
         {r.sos != null && <> · avg opponent lineup WAR {sgn(r.sos, 2)}</>}
       </div>
       <div className="wkflex">
@@ -366,21 +361,10 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
         {r.sched && r.sched.length > 0 && (
           <div className="wkwrap">
             <table className="wktbl">
-              <thead><tr><th>Week</th><th style={{ textAlign: "left" }}>Opponent</th>
-                <th style={{ textAlign: "left" }}>Byes</th>
-                <th style={{ textAlign: "center" }} title="both sides' bye-adjusted lineups, PPG derived from WAR">Proj Score</th>
-                <th>Win %</th></tr></thead>
+              <thead><tr><th>Week</th><th style={{ textAlign: "left" }}>Opponent</th><th style={{ textAlign: "center" }}>Proj Score</th><th>Win %</th></tr></thead>
               <tbody>
                 {r.sched.map(g => {
-                  const myD = g.war != null ? Math.max(0, r.war - g.war) : 0;
-                  const weakened = myD > 0.005;
                   const oppName = tnames[g.opp] || `Roster ${g.opp}`;
-                  const drops: [string, number][] = [];
-                  if (weakened) drops.push([r.team.trim(), myD]);
-                  if ((g.oppD ?? 0) > 0.005) drops.push([oppName.trim(), g.oppD!]);
-                  // starters (full-strength lineup) sitting out this week
-                  const out = (r.lineup ?? []).filter(l => l.bye === g.wk)
-                    .map(l => pInfo(players, l.id)[0].split(" ").slice(-1)[0]);
                   return (
                     <tr key={g.wk}>
                       <td>W{g.wk}</td>
@@ -395,50 +379,15 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
                                 {s.id && <span className={clsOf(s.war)}> {sgn(s.war, 2)}</span>}
                               </div>
                             ))}
-                            {g.oppSubs && <>
-                              <div style={{ color: "var(--txt)", margin: "4px 0 2px" }}>on bye</div>
-                              {g.oppSubs.map((s, i) => (
-                                <div key={i}>
-                                  <span style={{ color: "var(--dim)" }}>{s.slot}: </span>
-                                  {s.out ? pInfo(players, s.out)[0] : "—"}
-                                  <span style={{ color: "var(--dim)" }}> → </span>
-                                  <span style={{ color: "var(--txt)" }}>{s.in ? pInfo(players, s.in)[0] : "empty"}</span>
-                                </div>
-                              ))}
-                            </>}
                           </>}>{oppName}</HoverTip>
                         ) : oppName}
                       </td>
-                      <td style={{ textAlign: "left", color: "var(--dim)", fontSize: 11.5, maxWidth: 200 }}>
-                        {g.subs ? (
-                          <HoverTip align="left" block tip={
-                            g.subs.map((s, i) => (
-                              <div key={i}>
-                                <span style={{ color: "var(--dim)" }}>{s.slot}: </span>
-                                {s.out ? pInfo(players, s.out)[0] : "—"}
-                                <span style={{ color: "var(--dim)" }}> → </span>
-                                <span style={{ color: "var(--txt)" }}>{s.in ? pInfo(players, s.in)[0] : "empty"}</span>
-                              </div>
-                            ))}>
-                            <span style={{ display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                              {out.length ? out.join(", ") : "—"}
-                            </span>
-                          </HoverTip>
-                        ) : (out.length ? out.join(", ") : "—")}
-                      </td>
                       <td style={{ whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums", textAlign: "center" }}>
-                        <HoverTip tip={
-                          drops.length === 0 ? "no bye impact this week" : <>
-                            bye impact:{drops.map(([nm, d], i) => (
-                              <span key={nm}>{i > 0 && " ·"} {nm} <span className="num bad">−{fmt(d, 2)} WAR</span></span>
-                            ))}
-                          </>}>
-                          {g.pts == null || g.oppPts == null ? <span style={{ color: "var(--dim)" }}>—</span> : <>
-                            <span style={{ display: "inline-block", minWidth: "3.2em", textAlign: "right" }}>{fmt(g.pts, 1)}</span>
-                            <span style={{ color: "var(--dim)" }}> – </span>
-                            <span style={{ display: "inline-block", minWidth: "3.2em", textAlign: "left" }}>{fmt(g.oppPts, 1)}</span>
-                          </>}
-                        </HoverTip>
+                        {g.pts == null || g.oppPts == null ? <span style={{ color: "var(--dim)" }}>—</span> : <>
+                          <span style={{ display: "inline-block", minWidth: "3.2em", textAlign: "right" }}>{fmt(g.pts, 1)}</span>
+                          <span style={{ color: "var(--dim)" }}> – </span>
+                          <span style={{ display: "inline-block", minWidth: "3.2em", textAlign: "left" }}>{fmt(g.oppPts, 1)}</span>
+                        </>}
                       </td>
                       <td className={g.p >= 0.5 ? "num good" : "num bad"}>{fmt(g.p * 100, 0)}%</td>
                     </tr>
@@ -452,62 +401,3 @@ function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: 
     </>
   );
 }
-
-function TeamPanel({ r, ps, wkIdx, teams, players, bySum }: {
-  r: Row; ps: number; wkIdx: WkIdx; teams: Team[]; players: PlayersMin; bySum: SeasonData["summary"];
-}) {
-  const tnames: Record<number, string> = {};
-  teams.forEach(t => { tnames[t.roster_id] = t.team; });
-  const t = teams.find(x => x.roster_id === r.rid)!;
-  const sumById = new Map(bySum.map(s => [s[0], s]));
-  const ranked = t.players.map(p => sumById.get(p)).filter((x): x is NonNullable<typeof x> => !!x)
-    .sort((a, b) => b[6] - a[6]);
-  const five = (a: typeof ranked) => a.map((s, i) => (
-    <div key={i}><PlayerLink pid={s[0]} name={pInfo(players, s[0])[0]} /> <PosBadge pos={s[1]} /> <span className={clsOf(s[6])}>{fmt(s[6], 3)}</span></div>
-  ));
-  return (
-    <>
-      <div className="wkhead"><b>{r.team}</b> — {r.manager} · {r.rec} · {fmt(r.ppg, 1)} ppg · σ {fmt(r.sdv, 1)}</div>
-      <div className="wkflex">
-        <div>
-          {r.ent.length ? (
-            <div className="wkwrap">
-              <table className="wktbl">
-                <thead><tr><th>Week</th><th>Pts</th><th>Opponent</th><th>Opp Pts</th><th>Res</th><th>Lineup WAR</th></tr></thead>
-                <tbody>
-                  {r.ent.map(e => {
-                    const [wk, pts, opp, opts, starters] = e;
-                    let war = 0;
-                    for (const p of starters) { const v = wkIdx[p]?.[wk]; if (v) war += v[1]; }
-                    const res = opts == null ? "—" : pts > opts ? "W" : pts < opts ? "L" : "T";
-                    return (
-                      <tr key={wk}>
-                        <td>W{wk}{wk >= ps && <> <span className="tag">P</span></>}</td>
-                        <td><b>{fmt(pts, 1)}</b></td>
-                        <td style={{ textAlign: "left" }}>{opp ? tnames[opp] || "?" : "—"}</td>
-                        <td>{opts == null ? "—" : fmt(opts, 1)}</td>
-                        <td className={res === "W" ? "num good" : res === "L" ? "num bad" : ""}>{res}</td>
-                        <td>{wk < ps ? sgn(war) : "—"}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : <div style={{ color: "var(--dim)" }}>no games yet</div>}
-        </div>
-        <div className="wkright" style={{ fontSize: 12.5, lineHeight: 1.9 }}>
-          {ranked.length > 0 && (
-            <>
-              <b style={{ color: "var(--txt)" }}>Top 5 by WAR</b>
-              {five(ranked.slice(0, 5))}
-              <div style={{ marginTop: 8 }}><b style={{ color: "var(--txt)" }}>Bottom 5 by WAR</b></div>
-              {five(ranked.slice(-5).reverse())}
-            </>
-          )}
-        </div>
-      </div>
-    </>
-  );
-}
-

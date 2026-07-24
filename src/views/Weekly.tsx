@@ -8,7 +8,8 @@ import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
 import PlayerPanel from "../components/PlayerPanel";
 
-interface Entry { pid: string; pts: number; waa: number; war: number; pos: string }
+interface Entry { pid: string; pts: number; war: number; pos: string }
+const POS: Record<string, string> = { QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)" };
 
 interface Props { data: SeasonData; season: string; players: PlayersMin; week: number | null }
 
@@ -28,7 +29,6 @@ export default function Weekly({ data, season, players, week }: Props) {
       j<WeeklyT>(`data/${season}/weekly.json`),
       j<Matchups>(`data/${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
     ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } })
-      // without this, a transient weekly.json failure hangs on "Loading…" forever
       .catch(() => { if (live) setErr(true); });
     return () => { live = false; };
   }, [season, reload]);
@@ -36,10 +36,25 @@ export default function Weekly({ data, season, players, week }: Props) {
   const byWeek = useMemo(() => {
     const bw: Record<number, Entry[]> = {};
     if (weekly) for (const [pid, rows] of Object.entries(weekly))
-      for (const [wk, pts, , , waa, war] of rows)
-        (bw[wk] ??= []).push({ pid, pts, waa, war, pos: pInfo(players, pid)[1] });
+      for (const [wk, pts, , , , war] of rows)
+        (bw[wk] ??= []).push({ pid, pts, war, pos: pInfo(players, pid)[1] });
     return bw;
   }, [weekly, players]);
+
+  const scores = useMemo(() => {
+    // per-week high & median of the twelve team scores
+    const out: Record<number, { high: number; median: number }> = {};
+    if (mw) {
+      const byWk: Record<number, number[]> = {};
+      for (const list of Object.values(mw.teams))
+        for (const e of list) (byWk[e[0]] ??= []).push(e[1]);
+      for (const [wk, pts] of Object.entries(byWk)) {
+        const v = pts.slice().sort((a, b) => a - b), n = v.length;
+        out[+wk] = { high: v[n - 1], median: n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2 };
+      }
+    }
+    return out;
+  }, [mw]);
 
   const startedBy = useMemo(() => {
     const sb: Record<number, Set<string>> = {};
@@ -54,84 +69,122 @@ export default function Weekly({ data, season, players, week }: Props) {
   if (!weekly || !mw) return <div className="empty">Loading weekly data…</div>;
   const wks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
   if (!wks.length) return <div className="empty">No scored weeks yet for this season.</div>;
-  if (week !== null) {
-    return <WeekDetail wk={week} season={season} data={data} weekly={weekly} mw={mw} players={players} back={() => nav(`/weekly/${seasonSeg(season)}`)} />;
-  }
+  if (week !== null)
+    return <div className="legacy"><WeekDetail wk={week} season={season} data={data} weekly={weekly} mw={mw} players={players} back={() => nav(`/weekly/${seasonSeg(season)}`)} /></div>;
 
-  const line = (e: Entry) => (
-    <><PlayerLink pid={e.pid} name={pInfo(players, e.pid)[0]} /> <PosBadge pos={e.pos} /> <span style={{ color: "var(--dim)" }}>{fmt(e.pts, 1)} pts</span></>
-  );
+  const ps = mw.playoff_start || 15;
+  const owners = ownerOf(data.teams);
+  const twMax = Math.max(0.01, ...wks.map(w => Math.max(...byWeek[w].map(e => e.war))));
+  const openW = expWeek != null && byWeek[expWeek] ? expWeek : null;
+
   return (
     <>
+      <div className="screen-head">
+        <span className="screen-title">Week by week</span>
+        <span className="screen-note">Click a week for the top three at each position</span>
+      </div>
+
       <table>
-        <thead><tr>
-          <th>Week</th><th style={{ textAlign: "left" }}>Biggest WAR</th><th>WAR</th>
-          <th style={{ textAlign: "left" }} className="hm">Lowest WAR (started)</th><th className="hm">WAR</th>
-        </tr></thead>
+        <colgroup>
+          <col style={{ width: 74 }} /><col style={{ width: 110 }} /><col style={{ width: 100 }} />
+          <col /><col style={{ width: 150 }} />
+          <col className="hm" /><col className="hm" style={{ width: 120 }} />
+        </colgroup>
+        <thead>
+          <tr className="grp">
+            <th colSpan={3}>League scoring</th>
+            <th className="edge value" colSpan={2}>Biggest win added</th>
+            <th className="edge hm" colSpan={2}>Worst started</th>
+          </tr>
+          <tr>
+            <th className="t">Week</th>
+            <th className="n">High score</th>
+            <th className="n">Median</th>
+            <th className="t edge">Player</th>
+            <th className="n key">WAR</th>
+            <th className="t edge hm">Player</th>
+            <th className="n hm">WAR</th>
+          </tr>
+        </thead>
         <tbody>
-          {wks.map(w => {
+          {wks.map((w, i) => {
             const a = byWeek[w];
-            const topWar = a.reduce((m, e) => e.war > m.war ? e : m);
+            const top = a.reduce((m, e) => e.war > m.war ? e : m);
             const started = a.filter(e => startedBy[w]?.has(e.pid));
-            const lowWar = (started.length ? started : a).reduce((m, e) => e.war < m.war ? e : m);
+            const low = (started.length ? started : a).reduce((m, e) => e.war < m.war ? e : m);
+            const sc = scores[w];
             return (
-              <WeekRow key={w} w={w} open={expWeek === w} arr={a} players={players}
-                onToggle={() => setExpWeek(expWeek === w ? null : w)}
-                onOpen={() => nav(`/weekly/${seasonSeg(season)}/${w}`)}
-                cells={
-                  <>
-                    <td style={{ textAlign: "left" }}>{line(topWar)}</td>
-                    <td className={clsOf(topWar.war)}>{fmt(topWar.war, 3)}</td>
-                    <td style={{ textAlign: "left" }} className="hm">{line(lowWar)}</td>
-                    <td className={`hm ${clsOf(lowWar.war)}`}>{fmt(lowWar.war, 3)}</td>
-                  </>
-                } />
+              <tr key={w} className={`click ${openW === w ? "open" : i % 2 ? "zebra" : ""}`}
+                onClick={() => setExpWeek(openW === w ? null : w)}>
+                <td className="t">
+                  <span className="tlink" style={{ font: "700 21px/1 var(--cond)", letterSpacing: ".02em" }}
+                    onClick={e => { e.stopPropagation(); nav(`/weekly/${seasonSeg(season)}/${w}`); }}>W{w}</span>
+                  {w >= ps && <span className="tag">PO</span>}
+                </td>
+                <td className="fig strong n">{sc ? fmt(sc.high, 1) : "—"}</td>
+                <td className="fig quiet n">{sc ? fmt(sc.median, 1) : "—"}</td>
+                <td className="edge" style={{ whiteSpace: "nowrap" }}>
+                  <span className="pos sm" style={{ background: POS[top.pos], marginRight: 8 }}>{top.pos}</span>
+                  <span style={{ font: "600 14px/1 var(--sans)" }}>{pInfo(players, top.pid)[0]}</span>
+                  <span className="sub" style={{ marginLeft: 8, display: "inline" }}>{fmt(top.pts, 1)} pts · {owners[top.pid] || "—"}</span>
+                </td>
+                <td className="n" style={{ padding: "6px 10px" }}>
+                  <div className="meter">
+                    <div className="track week"><div className="fill" style={{ width: Math.round(top.war / twMax * 100) + "%" }} /></div>
+                    <span className="val head-fig" style={{ fontSize: 22 }}>{fmt(top.war, 3)}</span>
+                  </div>
+                </td>
+                <td className="edge hm" style={{ whiteSpace: "nowrap" }}>
+                  <span className="pos sm" style={{ background: POS[low.pos], marginRight: 8 }}>{low.pos}</span>
+                  <span className="quiet" style={{ font: "600 13.5px/1 var(--sans)", color: "var(--txt2)" }}>{pInfo(players, low.pid)[0]}</span>
+                  <span className="sub" style={{ marginLeft: 8, display: "inline" }}>{fmt(low.pts, 1)} pts · {owners[low.pid] || "—"}</span>
+                </td>
+                <td className="hm last n" style={{ font: "700 20px/1 var(--cond)", color: "var(--bad)" }}>{fmt(low.war, 3)}</td>
+              </tr>
             );
           })}
         </tbody>
       </table>
-      <div style={{ color: "var(--dim)", fontSize: 12, marginTop: 8 }}>
-        Click a row for the top 5 at each position · click the week number for full matchups &amp; leaders.
+
+      {openW != null && <WeekDrawer wk={openW} arr={byWeek[openW]} players={players} />}
+
+      <div className="footnote">
+        A fixed margin is worth more wins in a low-scoring week — each week's conversion uses that week's own σ of the twelve team scores
       </div>
     </>
   );
 }
 
-function WeekRow({ w, open, arr, players, onToggle, onOpen, cells }: {
-  w: number; open: boolean; arr: Entry[]; players: PlayersMin;
-  onToggle: () => void; onOpen: () => void; cells: React.ReactNode;
-}) {
-  const col = (pos: string) => {
-    const top = arr.filter(e => e.pos === pos).sort((a, b) => b.war - a.war).slice(0, 5);
-    return (
-      <div style={{ minWidth: 200 }} key={pos}>
-        <PosBadge pos={pos} />
-        {top.map((e, i) => (
-          <div key={e.pid}>{i + 1}. <PlayerLink pid={e.pid} name={pInfo(players, e.pid)[0]} />{" "}
-            <span style={{ color: "var(--dim)" }}>{fmt(e.pts, 1)}</span>{" "}
-            <span className={clsOf(e.war)}>{fmt(e.war, 3)}</span></div>
-        ))}
-      </div>
-    );
-  };
+/** Top three by WAR at each position, in four columns. */
+function WeekDrawer({ wk, arr, players }: { wk: number; arr: Entry[]; players: PlayersMin }) {
   return (
-    <>
-      <tr onClick={onToggle}>
-        <td style={{ textAlign: "left" }}><span className="tlink" onClick={e => { e.stopPropagation(); onOpen(); }}>W{w}</span></td>
-        {cells}
-      </tr>
-      {open && (
-        <tr className="wkbox"><td colSpan={5}>
-          <div style={{ color: "var(--dim)", fontSize: 11, marginBottom: 4 }}>top 5 by WAR — points · WAR</div>
-          <div className="wkflex" style={{ fontSize: 12.5, lineHeight: 1.9, gap: 32 }}>
-            {["QB", "RB", "WR", "TE"].map(col)}
-          </div>
-        </td></tr>
-      )}
-    </>
+    <div className="drawer">
+      <div className="drawer-head">
+        <span className="drawer-title">Week {wk} — top three by position</span>
+      </div>
+      <div className="pos-cols">
+        {["QB", "RB", "WR", "TE"].map(p => {
+          const top = arr.filter(e => e.pos === p).sort((a, b) => b.war - a.war).slice(0, 3);
+          return (
+            <div key={p} className="pos-col" style={{ borderTopColor: POS[p] }}>
+              <div className="hd" style={{ color: POS[p] }}>{p}</div>
+              {top.map((e, j) => (
+                <div key={e.pid} className="row">
+                  <span className="n">{j + 1}</span>
+                  <span className="nm">{pInfo(players, e.pid)[0]}</span>
+                  <span className="pts">{fmt(e.pts, 1)}</span>
+                  <span className="war">{fmt(e.war, 3)}</span>
+                </div>
+              ))}
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
+/** Full week page (matchups + top 50 performers), v1 presentation behind `.legacy`. */
 function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
   wk: number; season: string; data: SeasonData; weekly: WeeklyT; mw: Matchups; players: PlayersMin; back: () => void;
 }) {
@@ -177,8 +230,6 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
         </tr></thead>
         <tbody>
           {pairs.map(([a, ap, b, bp]) => {
-            // a null opponent (bye / unpaired) is not a win — require a real
-            // opposing score before styling either side as the winner
             const aw = bp != null && ap > bp, bw = bp != null && bp > ap;
             return (
               <tr key={a} style={{ cursor: "default" }}>

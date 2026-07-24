@@ -1,211 +1,711 @@
-:root{--bg:#0e1116;--card:#161b23;--line:#242c38;--txt:#e6ebf2;--dim:#8b96a5;
-      --acc:#f0a01e;--good:#3fb26f;--bad:#e05b5b;}
-*{box-sizing:border-box;margin:0}
-body{background:var(--bg);color:var(--txt);font:15px/1.5 system-ui,Segoe UI,Roboto,sans-serif}
-.chip, select, input[type=search]{
-  background:var(--card);border:1px solid var(--line);color:var(--txt);
-  padding:7px 14px;border-radius:8px;font-size:14px;cursor:pointer}
+/* ==========================================================================
+   Big Dog Dynasty — WAR Board v2 ("Broadcast")
+   Drop-in replacement for src/style.css.
 
-/* ---------- app shell: fixed sidebar + scrolling content ---------- */
-.app{display:flex;align-items:flex-start;min-height:100vh}
-.sidebar{position:sticky;top:0;flex:0 0 212px;width:212px;height:100vh;
-  display:flex;flex-direction:column;gap:4px;padding:16px 12px;
-  background:var(--card);border-right:1px solid var(--line);
-  transition:width .16s ease,flex-basis .16s ease}
-.app.navshut .sidebar{flex-basis:60px;width:60px}
+   Requires in index.html <head>:
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+   <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Saira+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
 
-.sbtop{display:flex;align-items:center;gap:10px;padding:2px 4px 14px;min-width:0}
-.sbtoggle{background:none;border:0;color:var(--dim);cursor:pointer;padding:6px;
-  border-radius:8px;display:flex;flex:0 0 auto}
-.sbtoggle:hover{color:var(--txt);background:var(--bg)}
-.sbtitle{font-weight:600;font-size:15px;color:var(--acc);white-space:nowrap;
-  overflow:hidden;text-overflow:ellipsis}
+   Two font roles, held to strictly:
+     --sans  Archivo         names, prose, body figures
+     --cond  Saira Condensed labels, column headers, headline figures
+   If it is a label or a number that carries weight, it is --cond, uppercase,
+   letter-spaced. If it is a name or a sentence, it is --sans.
 
-.sidebar nav{display:flex;flex-direction:column;gap:2px}
-.sidebar nav button{display:flex;align-items:center;gap:11px;width:100%;
-  background:none;border:0;color:var(--dim);cursor:pointer;
-  padding:9px 10px;border-radius:8px;font-size:14px;text-align:left;white-space:nowrap}
-.sidebar nav button svg{flex:0 0 auto}
-.sidebar nav button:hover{background:var(--bg);color:var(--txt)}
-.sidebar nav button.on{background:var(--bg);color:var(--acc);font-weight:600;
-  box-shadow:inset 2px 0 0 var(--acc)}
+   Zero border-radius is intentional. Do not soften it.
+   ========================================================================== */
 
-.sbfoot{margin-top:auto;display:flex;flex-direction:column;gap:8px;padding:12px 4px 2px}
-.sbfoot select{width:100%}
-.sbupdated{color:var(--dim);font-size:11px}
-.app.navshut .sblabel,.app.navshut .sbtitle,.app.navshut .sbfoot{display:none}
-.app.navshut .sidebar nav button{justify-content:center;padding:9px 0}
+:root {
+  --deep: #05070a;
+  --bg: #0c0f13;
+  --band: #11161c;
+  --zebra: #0f1318;
+  --sel: #182029;
+  --rule: #1b232c;
+  --hair: #11161c;
 
-main{flex:1;min-width:0;padding:26px 34px 60px;max-width:1560px;margin:0 auto}
+  --txt: #eef2f6;
+  --txt2: #c3ccd6;
+  --dim: #7b8794;
+  --dim2: #6b7784;
+  --dim3: #5c6874;
 
-/* roster: lineup card, then bench card stacked beneath it, both full width */
-.rostergrid{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
-/* align-items:start matters — stretched tables pad their rows to fill the
-   grid row, so a 12-row half would drift out of step with a 13-row half */
-/* a bench half-table costs ~560-650px of fixed 92px columns before the player
-   name gets any room, so only split into two columns when each half can have
-   ~680px — below that the names get crushed to slivers ("J.J. M...") */
-.benchsplit{display:grid;grid-template-columns:repeat(auto-fit,minmax(680px,1fr));
-  align-items:start}
-@media (max-width:1400px){.benchsplit{grid-template-columns:1fr}}
-/* the roster cards scroll internally rather than widening the page */
-.rcard{overflow-x:auto}
-.benchsplit table+table{border-left:1px solid var(--line)}
-/* group break inside a bench column: header typography, but line-height is
-   pinned to the body's 15px/1.5 so the row is exactly one data row tall and
-   the two bench columns stay in step */
-.grouprow td{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;
-  line-height:22.5px;border-bottom:1px solid var(--line)}
-/* full-bleed table whose left-aligned text column absorbs the slack */
-table.wide{width:100%}
-table.wide th:nth-child(2),table.wide td:nth-child(2){width:99%}
-.rcard{background:var(--card);border:1px solid var(--line);border-radius:10px;
-  /* overflow-x:auto (not hidden) so wide roster tables scroll instead of
-     clipping at 641-1000px; y stays hidden to keep the rounded corners */
-  overflow-x:auto;overflow-y:hidden;min-width:0}
-.rhead{display:flex;align-items:baseline;gap:8px;padding:11px 14px;font-weight:600;
-  border-bottom:1px solid var(--line)}
-/* fixed widths so the two bench sub-tables line up with each other and with
-   the lineup above them — auto layout sizes each table independently */
-.rcard table{border-radius:0;background:transparent;table-layout:fixed}
-.rcard th,.rcard td{width:92px}
-.rcard th.pcol,.rcard td.pcol{width:auto}
-.rcard td.pcol{overflow:hidden;text-overflow:ellipsis}
-.rcard td.empty{color:var(--dim);opacity:.5}
+  /* swap this one value to retheme the whole board */
+  --acc: #f5c518;
+  --acc-ink: #05070a;
+  --good: #2bd07a;
+  --bad: #ff5a5a;
 
-/* mobile: the sidebar becomes an overlay drawer */
-.navfab{display:none}
-@media(max-width:820px){
-  .sidebar{position:fixed;z-index:40;flex-basis:212px;width:212px;
-    transform:translateX(-100%);transition:transform .18s ease}
-  .app.navdrawer .sidebar{transform:none}
-  .app.navshut .sblabel,.app.navshut .sbtitle,.app.navshut .sbfoot{display:revert}
-  .app.navshut .sidebar nav button{justify-content:flex-start;padding:9px 10px}
-  .scrim{position:fixed;inset:0;background:#0009;z-index:30}
-  .navfab{display:flex;position:fixed;top:12px;left:12px;z-index:20;
-    background:var(--card);border:1px solid var(--line);color:var(--txt);
-    padding:8px;border-radius:9px;cursor:pointer}
-  .app.navdrawer .navfab{display:none}
-  main{padding:56px 16px 60px}
-}
-.bar{display:flex;gap:8px;padding:0 0 14px;flex-wrap:wrap;align-items:center}
-.chip.on{background:var(--acc);color:#14161a;border-color:var(--acc);font-weight:600}
-input[type=search]{cursor:text;min-width:200px}
-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:10px;overflow:hidden}
-th,td{padding:8px 12px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
-th:first-child,td:first-child,th:nth-child(2),td:nth-child(2){text-align:left}
-th{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.05em;cursor:pointer;user-select:none}
-th.sorted{color:var(--acc)}
-thead th{position:sticky;top:0;background:var(--card);z-index:1}
-.pvtbl td.detail{padding:14px 16px;white-space:normal}
-.lb{table-layout:fixed}
-.lb td{overflow:hidden;text-overflow:ellipsis}
-.pvtbl th:nth-child(2),.pvtbl td:nth-child(2){text-align:right}
-tbody tr:hover{background:#1c2330;cursor:pointer}
-.pos{display:inline-block;min-width:40px;text-align:center;box-sizing:border-box;font-size:11px;padding:1px 4px;border-radius:5px;font-weight:700;color:#fff}
-.QB{background:#9333ea}.RB{background:#1f7a4d}.WR{background:#1e6fd9}.TE{background:#c2571c}
-/* tabular figures so decimal points line up down every numeric column */
-.num{font-variant-numeric:tabular-nums}
-.num.good{color:var(--good)} .num.bad{color:var(--bad)}
-#teamDetail h2{margin:18px 0 4px} #teamDetail .mgr{color:var(--dim);margin-bottom:12px}
-.back{color:var(--acc);cursor:pointer;font-size:14px;display:inline-block;margin:10px 0}
+  --qb: #9333ea;
+  --rb: #1f7a4d;
+  --wr: #1e6fd9;
+  --te: #c2571c;
 
-/* section tabs (franchise page) */
-.tabs{display:flex;gap:2px;margin:18px 0 4px;border-bottom:1px solid var(--line)}
-.tabs button{background:none;border:0;border-bottom:2px solid transparent;color:var(--dim);
-  cursor:pointer;padding:9px 14px;font-size:14px;margin-bottom:-1px}
-.tabs button:hover{color:var(--txt)}
-.tabs button.on{color:var(--acc);border-bottom-color:var(--acc);font-weight:600}
-.wkbox td{background:#11151c;font-size:13px;color:var(--dim);white-space:normal;line-height:2}
-.wkbox .pos{display:inline-block;margin:2px 0 4px}
-tr.wkbox:hover{background:transparent}
-.wkbox:hover td{background:#11151c}
-.ownevt{margin:7px 0;line-height:1.5}
-.ownwk{display:inline-block;background:var(--bg);border:1px solid var(--line);border-radius:4px;
-       padding:0 6px;font-size:11px;color:var(--dim);margin-right:7px;white-space:nowrap}
-.ownsides{margin:4px 0 0 12px;padding-left:9px;border-left:2px solid var(--line)}
-/* trade tracker */
-.trade{background:var(--card);border:1px solid var(--line);border-radius:9px;
-       padding:7px 10px;margin-bottom:6px;cursor:pointer}
-.trade:hover{border-color:var(--dim)}
-.tradehead{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.tradesides{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:8px}
-/* align-content:start keeps a one-asset side flush with the top of a
-   five-asset one instead of floating in the middle of the stretched cell */
-/* fixed number columns — `auto` sized to each card's own content, so figures
-   drifted out of line from card to card and side to side */
-.tradeside{background:var(--bg);border:1px solid var(--line);border-radius:7px;padding:6px 9px;
-  display:grid;grid-template-columns:1fr 76px 76px;align-items:baseline;align-content:start;
-  column-gap:10px}
-/* team name and WAR share the top line; assets span the full width below */
-.tradeteam{font-size:12.5px;color:var(--txt);font-weight:600;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap}
-.tradenum{display:flex;align-items:baseline;gap:4px;white-space:nowrap;justify-content:flex-end}
-.tradewar{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums}
-.tradelbl{font-size:9.5px;color:var(--dim);text-transform:uppercase;letter-spacing:.05em;
-  width:26px;flex:0 0 26px}
-.tradeassets{grid-column:1/-1;font-size:11.5px;color:var(--dim);line-height:1.4}
-.tradeside table{grid-column:1/-1}
-.tradeside table{background:transparent;border-radius:0;margin-top:3px;table-layout:fixed}
-.tradeside th,.tradeside td{border:0;padding:1px 0;font-size:12px;white-space:normal}
-/* per-asset figures sit directly under the side's REAL / PROJ columns: the
-   first numeric column carries the 10px grid gap as right padding so both
-   right edges land where the headers above them do */
-.tradeside td:nth-child(2){width:86px;text-align:right;padding-right:10px;
-  font-variant-numeric:tabular-nums}
-.tradeside td:nth-child(3){width:76px;text-align:right;font-variant-numeric:tabular-nums}
-.tradeside tr:hover td{background:transparent}
-.wkhead{color:var(--txt);font-size:13px;margin:2px 0 6px}
-.wkhead .own{color:var(--acc)}
-.wkwrap{overflow-x:auto}
-.wktbl{width:auto;background:transparent;border-radius:0}
-.wktbl th{position:static;font-size:11px;padding:2px 14px 4px 0;text-align:right;cursor:default}
-.wktbl td{padding:2px 14px 2px 0;font-size:12.5px;border:0;text-align:right;color:var(--txt)}
-.wktbl th:first-child,.wktbl td:first-child{text-align:left}
-.wktbl tbody tr:hover{background:transparent;cursor:default}
-.wkflex{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
-.wkright{min-width:260px;max-width:360px;flex:1}
-td.roster{max-width:110px;overflow:hidden;text-overflow:ellipsis}
-.tlink{color:var(--acc);cursor:pointer}
-.tlink:hover{text-decoration:underline}
-.about{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:22px;max-width:800px}
-.about h2{margin:14px 0 6px;font-size:17px;color:var(--acc)} .about p{margin-bottom:8px;color:#c6cdd7}
-.empty{color:var(--dim);padding:30px;text-align:center}
-.retry{color:var(--accent,#4a9);background:none;border:1px solid currentColor;border-radius:4px;padding:2px 10px;cursor:pointer;font:inherit}
-.retry:hover{opacity:.8}
-.tag{font-size:10px;border:1px solid var(--line);color:var(--dim);border-radius:4px;padding:0 5px;margin-left:6px;vertical-align:middle}
-@media (max-width:640px){
-  .bar{padding:0 0 10px} input[type=search]{flex:1;min-width:110px}
-  main{padding:52px 10px 40px}   /* top clears the floating nav button */
-  th,td{padding:7px 8px;font-size:13px}
-  .hm{display:none}
+  --sans: Archivo, system-ui, -apple-system, sans-serif;
+  --cond: "Saira Condensed", "Archivo Narrow", system-ui, sans-serif;
 
-  /* Wide tables must scroll INSIDE their container. Without this they widen
-     the page itself, which drags the sidebar and floating nav off-screen. */
-  .tscroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
-  /* fixed 92px columns are a desktop number — let content size them here */
-  .rcard table{table-layout:auto}
-  .rcard th,.rcard td{width:auto}
-  .rcard th.pcol,.rcard td.pcol{width:auto;max-width:none}
-
-  /* tabs scroll sideways rather than bursting their underline */
-  .tabs{overflow-x:auto;scrollbar-width:none}
-  .tabs::-webkit-scrollbar{display:none}
-  .tabs button{padding:9px 11px;white-space:nowrap}
-
-  /* trade sides: team on its own line, the two figures beneath it */
-  .tradesides{grid-template-columns:1fr}
-  .tradeside{grid-template-columns:76px 76px 1fr;column-gap:12px}
-  .tradeteam{grid-column:1/-1}
-  .tradenum{justify-content:flex-start}
+  --pad: 26px;          /* page gutter */
+  --bar-track: var(--rule);
 }
 
-.seasongrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(360px,1fr));gap:16px;align-items:start}
-.scard{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;min-width:0}
-.shead{cursor:pointer;user-select:none;display:flex;gap:8px;align-items:baseline;min-width:0}
-.shead .tname{color:var(--acc);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex-shrink:1}
-.shead .chev{color:var(--dim);font-size:11px;flex-shrink:0}
-.ssub{color:var(--dim);font-size:12.5px;margin:2px 0 6px 19px}
-@media (max-width:640px){.seasongrid{grid-template-columns:1fr}}/* the expanded-panel row is not clickable — don't inherit the leaderboard
-   rows' pointer cursor / hover background in the gaps between inner tables */
-tbody tr.wkbox:hover{background:transparent;cursor:default}
+*, *::before, *::after { box-sizing: border-box; }
+* { margin: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--txt);
+  font: 400 15px/1.5 var(--sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: var(--acc); text-decoration: none; }
+a:hover { text-decoration: underline; }
+
+/* ---------- shell -------------------------------------------------------- */
+
+.app { min-height: 100vh; background: var(--bg); }
+
+/* masthead ---------------------------------------------------------------- */
+.mast {
+  display: flex;
+  align-items: stretch;
+  background: var(--deep);
+}
+.mast::before {                     /* the accent slab */
+  content: "";
+  flex: 0 0 6px;
+  background: var(--acc);
+}
+.mast-in {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 14px var(--pad);
+}
+.mast-name {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.wordmark {
+  font: 700 27px/1 var(--cond);
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.wordmark-tag {
+  font: 600 15px/1 var(--cond);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--acc);
+}
+.mast-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mast-updated {
+  font: 400 15px/1 var(--cond);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+/* the season <select> lives here; it is styled to read as a solid chip */
+.season-chip {
+  appearance: none;
+  border: 0;
+  background: var(--acc);
+  color: var(--acc-ink);
+  font: 700 16px/1 var(--cond);
+  letter-spacing: .08em;
+  padding: 4px 12px;
+  cursor: pointer;
+}
+
+/* nav --------------------------------------------------------------------- */
+.tabs {
+  display: flex;
+  background: var(--band);
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button {
+  background: none;
+  border: 0;
+  border-top: 3px solid transparent;      /* reserved so the active tab doesn't shift */
+  color: var(--dim);
+  font: 600 16px/1 var(--cond);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 11px 22px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.tabs button:hover { color: var(--txt); }
+.tabs button.on {
+  color: var(--txt);
+  background: var(--bg);
+  border-top-color: var(--acc);
+}
+
+/* screen header ----------------------------------------------------------- */
+.screen-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 14px var(--pad) 12px;
+}
+.screen-title {
+  font: 700 20px/1 var(--cond);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.screen-note {
+  margin-left: auto;
+  font: 400 15px/1 var(--cond);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.screen-note b { color: var(--txt); font-weight: 700; }
+
+/* filters ----------------------------------------------------------------- */
+.chip {
+  font: 600 15px/1 var(--cond);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  padding: 4px 15px;
+  background: transparent;
+  color: var(--dim);
+  border: 1px solid var(--rule);
+  cursor: pointer;
+}
+.chip:hover { color: var(--txt); }
+.chip.on {
+  background: var(--acc);
+  border-color: var(--acc);
+  color: var(--acc-ink);
+}
+input[type="search"] {
+  background: var(--band);
+  border: 1px solid var(--rule);
+  color: var(--txt);
+  font: 400 13px/1.4 var(--sans);
+  padding: 6px 11px;
+  min-width: 220px;
+}
+input[type="search"]::placeholder { color: var(--dim); }
+
+/* ---------- tables ------------------------------------------------------
+   One set of rules for every table on the site. The v1 problem was that
+   each view sized its own columns; here the alignment class does the work
+   and per-view widths are set with <col> or inline width on the <th>.
+   ----------------------------------------------------------------------- */
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+/* group band (PRODUCTION / WINS ADDED / …) */
+tr.grp { background: var(--deep); }
+tr.grp th {
+  padding: 5px 0 4px;
+  font: 600 12px/1 var(--cond);
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--dim2);
+  text-align: center;
+}
+tr.grp th.value { color: var(--acc); }
+tr.grp th.edge,
+thead tr:not(.grp) th.edge { border-left: 1px solid var(--rule); }
+
+/* column band */
+thead tr:not(.grp) { background: var(--band); }
+thead th {
+  padding: 7px 10px;
+  font: 600 13px/1 var(--cond);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+thead th.sortable { cursor: pointer; user-select: none; }
+thead th.sortable:hover { color: var(--txt); }
+thead th.sorted { color: var(--acc); }
+thead th.key { color: var(--acc); font-weight: 700; }
+
+/* alignment — exactly three column types, no exceptions */
+th.t, td.t { text-align: left; }
+th.n, td.n { text-align: right; }
+th.c, td.c { text-align: center; }
+
+tbody td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--hair);
+  white-space: nowrap;
+}
+tbody td.edge { border-left: 1px solid var(--hair); }
+tbody td.last { padding-right: 22px; }
+tbody tr.zebra { background: var(--zebra); }
+tbody tr.click { cursor: pointer; }
+tbody tr.open { background: var(--sel); }
+
+/* rank cell with its position/seed spine */
+td.rank {
+  position: relative;
+  padding: 0;
+  text-align: center;
+}
+td.rank .spine {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+}
+td.rank .fig {
+  font: 600 19px/1 var(--cond);
+  color: var(--dim);
+  padding: 9px 8px;
+}
+
+/* text cells */
+td.name { font: 600 14.5px/1.4 var(--sans); }
+td.name.quiet { font-weight: 400; color: var(--txt2); }
+td.sub { font: 400 12.5px/1.4 var(--sans); color: var(--dim); overflow: hidden; text-overflow: ellipsis; }
+
+/* figures */
+td.fig { font: 400 14px/1.4 var(--sans); }
+td.fig.strong { font-weight: 600; }
+td.fig.quiet { font-size: 13.5px; color: var(--dim); }
+.head-fig { font: 700 25px/1 var(--cond); }
+.head-fig.sm { font-size: 20px; font-weight: 600; }
+.head-fig.md { font-size: 24px; }
+.good { color: var(--good); }
+.bad { color: var(--bad); }
+.flat { color: var(--dim); }
+
+/* position badge — fixed footprint so RB1 and QB12 occupy the same box */
+.pos {
+  display: inline-block;
+  width: 42px;
+  padding: 2px 0;
+  text-align: center;
+  font: 700 13px/1.35 var(--cond);
+  letter-spacing: .06em;
+  color: #fff;
+}
+.pos.wide { width: 48px; }   /* DVI: three-digit position ranks */
+.pos.sm   { width: 34px; font-size: 11.5px; }
+.pos.QB { background: var(--qb); }
+.pos.RB { background: var(--rb); }
+.pos.WR { background: var(--wr); }
+.pos.TE { background: var(--te); }
+.pos.PICK { background: var(--rule); color: var(--dim); }
+
+/* small tag (playoff marker) */
+.tag {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 1px 5px;
+  font: 400 11px/1.4 var(--cond);
+  letter-spacing: .12em;
+  background: var(--dim);
+  color: var(--acc-ink);
+}
+
+/* ---------- bars --------------------------------------------------------
+   A figure that matters gets a bar beside it, never behind it. The track is
+   always the same colour; only length carries meaning.
+   ----------------------------------------------------------------------- */
+
+.meter {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.meter .track {
+  background: var(--bar-track);
+  flex: 0 0 auto;
+}
+.meter .fill { background: var(--acc); height: 100%; }
+.meter .track.war  { width: 66px; height: 9px; }
+.meter .track.team { width: 72px; height: 9px; }
+.meter .track.week { width: 56px; height: 8px; }
+.meter .track.cons { width: 48px; height: 5px; }
+.meter .track.cons .fill { background: #4e5d6c; }
+.meter .track.grow { flex: 1; height: 10px; }   /* DVI */
+.meter .val { min-width: 54px; text-align: right; }
+.meter .val.sm { min-width: 32px; font: 400 12.5px/1.4 var(--sans); color: var(--dim); }
+
+/* ---------- detail drawer ----------------------------------------------
+   Rendered AFTER the table, never as an inserted <tr> — an extra row in a
+   grouped-header table wrecks the column widths.
+   ----------------------------------------------------------------------- */
+
+.drawer {
+  border-top: 3px solid var(--acc);
+  background: var(--band);
+  padding: 16px var(--pad) 20px;
+}
+.drawer-head {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.drawer-title {
+  font: 700 24px/1 var(--cond);
+  letter-spacing: .03em;
+  text-transform: uppercase;
+}
+.drawer-sub {
+  font: 400 15px/1.3 var(--cond);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.drawer-body { display: flex; gap: 36px; flex-wrap: wrap; align-items: flex-start; }
+.chart-label {
+  font: 400 12px/1 var(--cond);
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  color: var(--dim2);
+  margin-bottom: 8px;
+}
+.stat-row { display: flex; gap: 28px; flex-wrap: wrap; }
+.stat-k {
+  font: 400 12px/1 var(--cond);
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--dim2);
+}
+.stat-v { font: 700 30px/1.15 var(--cond); }
+.stat-v.acc { color: var(--acc); }
+
+/* week cards (Teams drawer) */
+.week-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.week-card {
+  min-width: 132px;
+  background: var(--bg);
+  border-left: 3px solid var(--dim);
+  padding: 7px 10px;
+}
+.week-card.win  { border-left-color: var(--good); }
+.week-card.loss { border-left-color: var(--bad); }
+.week-card .wk {
+  font: 400 13px/1 var(--cond);
+  letter-spacing: .12em;
+  color: var(--dim3);
+}
+.week-card .res { font: 700 15px/1 var(--cond); }
+.week-card .score { font: 700 21px/1.15 var(--cond); }
+.week-card .opp {
+  font: 400 11px/1.4 var(--sans);
+  color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 118px;
+}
+
+/* position columns (Weekly drawer) */
+.pos-cols { display: flex; gap: 14px; flex-wrap: wrap; }
+.pos-col { flex: 1; min-width: 250px; background: var(--bg); border-top: 3px solid; }
+.pos-col > .hd {
+  font: 700 15px/1 var(--cond);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  padding: 7px 12px 6px;
+  background: var(--deep);
+}
+.pos-col .row {
+  display: flex; align-items: baseline; gap: 9px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--hair);
+}
+.pos-col .row .n { font: 400 15px/1 var(--cond); color: var(--dim3); width: 14px; }
+.pos-col .row .nm { font: 600 13.5px/1.4 var(--sans); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.pos-col .row .pts { font-size: 12px; color: var(--dim); }
+.pos-col .row .war { font: 700 17px/1 var(--cond); color: var(--acc); min-width: 44px; text-align: right; }
+
+/* ---------- draft ------------------------------------------------------- */
+
+.panel {
+  background: var(--band);
+  border-top: 3px solid var(--acc);
+  padding: 16px 20px 20px;
+  margin: 0 var(--pad) 20px;
+}
+.box-rows { display: flex; flex-direction: column; gap: 7px; }
+.box-row { display: flex; align-items: center; gap: 12px; }
+.box-row .lbl {
+  flex: 0 0 56px;
+  font: 700 16px/1 var(--cond);
+  letter-spacing: .1em;
+}
+.box-row svg { flex: 0 0 800px; overflow: visible; }
+.box-row .meta { font: 400 11.5px/1.4 var(--sans); color: var(--dim); white-space: nowrap; }
+/* axis tick labels are HTML, absolutely positioned — SVG <text> is avoided
+   so the labels stay selectable and inherit the type stack */
+.axis { display: flex; gap: 12px; margin-top: 6px; }
+.axis .pad { flex: 0 0 56px; }
+.axis .scale { position: relative; flex: 0 0 800px; height: 18px; }
+.axis .scale span {
+  position: absolute;
+  transform: translateX(-50%);
+  font: 400 11.5px/1 var(--sans);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim3);
+}
+
+.heat { display: flex; flex-direction: column; gap: 3px; padding: 0 var(--pad) 20px; }
+.heat-row { display: flex; gap: 3px; align-items: stretch; }
+.heat-row .lbl {
+  flex: 0 0 58px;
+  display: flex; align-items: center;
+  font: 600 14px/1 var(--cond);
+  letter-spacing: .1em;
+  color: var(--dim);
+}
+.heat-cell { flex: 1; min-width: 52px; padding: 8px 6px; text-align: center; }
+.heat-cell .slot { font: 400 11px/1 var(--cond); letter-spacing: .1em; }
+.heat-cell .val  { font: 700 17px/1.2 var(--cond); }
+
+.pick-tables { display: flex; gap: 20px; padding: 6px var(--pad) 24px; flex-wrap: wrap; align-items: flex-start; }
+.pick-tables > div { flex: 1; min-width: 420px; }
+.pick-title {
+  font: 700 15px/1 var(--cond);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  padding: 7px 0 8px;
+}
+.pick-title.best  { color: var(--good); }
+.pick-title.worst { color: var(--bad); }
+.pick-tables table { background: var(--band); }
+.pick-tables thead th { padding: 6px 10px; font-size: 12px; letter-spacing: .14em; color: var(--dim2); }
+.pick-tables tbody td { padding: 7px 10px; border-bottom: 1px solid var(--bg); }
+
+/* ---------- trade ledger ------------------------------------------------ */
+
+.ledger { display: flex; flex-direction: column; gap: 12px; padding: 0 var(--pad) 24px; }
+.trade {
+  background: var(--band);
+  border-left: 3px solid var(--dim);
+}
+.trade.win  { border-left-color: var(--good); }
+.trade.pick { border-left-color: var(--acc); }
+.trade-head {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 9px 16px;
+  background: var(--deep);
+}
+.trade-wk {
+  font: 700 15px/1 var(--cond);
+  letter-spacing: .12em;
+  color: var(--dim3);
+}
+.trade-verdict {
+  font: 600 15px/1 var(--cond);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+.trade-sides { display: flex; flex-wrap: wrap; }
+.trade-side {
+  flex: 1; min-width: 330px;
+  padding: 12px 16px 14px;
+  border-right: 1px solid var(--bg);
+}
+.trade-side .hd {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  margin-bottom: 9px;
+}
+.trade-side .k {
+  font: 400 12px/1 var(--cond);
+  letter-spacing: .2em;
+  text-transform: uppercase;
+  color: var(--dim2);
+}
+.trade-side .team {
+  font: 600 15px/1.3 var(--sans);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  max-width: 230px;
+}
+.trade-side .total { font: 700 27px/1.05 var(--cond); }
+.trade-asset {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 0;
+  border-top: 1px solid var(--bg);
+}
+.trade-asset .nm { font: 400 13.5px/1.4 var(--sans); flex: 1; }
+.trade-asset .nm.pick { color: var(--dim); }
+.trade-asset .war { font: 600 17px/1 var(--cond); min-width: 52px; text-align: right; }
+
+/* ---------- footnote + footer ------------------------------------------- */
+
+.footnote {
+  padding: 12px var(--pad) 22px;
+  background: var(--deep);
+  font: 400 14px/1.5 var(--cond);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: var(--dim3);
+}
+.site-foot {
+  border-top: 1px solid var(--rule);
+  background: var(--deep);
+  padding: 20px var(--pad) 30px;
+  display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
+}
+.site-foot p { font: 400 12px/1.6 var(--sans); color: var(--dim3); max-width: 640px; }
+.site-foot .attr { font: 400 12px/1.6 var(--sans); color: var(--dim3); }
+
+.empty { color: var(--dim); padding: 30px; text-align: center; }
+.retry {
+  color: var(--acc);
+  background: none;
+  border: 1px solid currentColor;
+  padding: 2px 10px;
+  cursor: pointer;
+  font: inherit;
+}
+
+/* ---------- responsive -------------------------------------------------- */
+
+@media (max-width: 900px) {
+  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .box-row svg, .axis .scale { flex-basis: 640px; }
+}
+
+@media (max-width: 640px) {
+  :root { --pad: 14px; }
+  .hm { display: none; }                 /* same escape hatch as v1 */
+  thead th, tbody td { padding: 7px 8px; }
+  td.fig { font-size: 13px; }
+  .wordmark { font-size: 22px; }
+  .mast-updated { display: none; }
+  .head-fig { font-size: 23px; }         /* headline figures stay big on purpose */
+  .drawer-body { gap: 20px; }
+  .trade-side { min-width: 100%; border-right: 0; }
+  input[type="search"] { min-width: 0; flex: 1; }
+}
+
+/* ==========================================================================
+   Compatibility layer (v1)
+   The redesign above covers the shell and the six main list views. Secondary
+   routes — player page, franchise page, weekly-week detail, the trade
+   calculator — keep their v1 presentation. Their markup is wrapped in
+   `.legacy`, and every v1 rule they need is re-declared here, scoped to that
+   class so it never touches a redesigned surface. v1 token names are aliased
+   to the new palette so v1 inline styles (var(--card)/--line/--accent) resolve.
+   ========================================================================== */
+:root { --card: var(--band); --line: var(--rule); --accent: var(--acc); }
+
+/* small shared helpers, safe everywhere */
+.num { font-variant-numeric: tabular-nums; }
+.num.good, .good { color: var(--good); }
+.num.bad, .bad { color: var(--bad); }
+.tlink { color: var(--acc); cursor: pointer; }
+.tlink:hover { text-decoration: underline; }
+.back { color: var(--acc); cursor: pointer; font-size: 14px; display: inline-block; margin: 10px 0; }
+.back:hover { text-decoration: underline; }
+
+/* ---- legacy tables ---- */
+.legacy { padding: 22px 26px 40px; max-width: 1560px; margin: 0 auto; }
+.drawer .legacy { padding: 0; max-width: none; }
+.legacy table { width: 100%; border-collapse: collapse; background: var(--card); border-radius: 10px; overflow: hidden; font-variant-numeric: tabular-nums; }
+.legacy th, .legacy td { padding: 8px 12px; text-align: right; border-bottom: 1px solid var(--line); white-space: nowrap; font-family: var(--sans); }
+.legacy th:first-child, .legacy td:first-child,
+.legacy th:nth-child(2), .legacy td:nth-child(2) { text-align: left; }
+.legacy th { color: var(--dim); font-size: 12px; font-weight: 400; text-transform: uppercase; letter-spacing: .05em; cursor: pointer; user-select: none; }
+.legacy thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
+.legacy th.sorted { color: var(--acc); }
+.legacy tbody tr:hover { background: #1c2330; cursor: pointer; }
+.legacy .pvtbl td.detail { padding: 14px 16px; white-space: normal; }
+.legacy .lb { table-layout: fixed; }
+.legacy .lb td { overflow: hidden; text-overflow: ellipsis; }
+.legacy .pvtbl th:nth-child(2), .legacy .pvtbl td:nth-child(2) { text-align: right; }
+
+/* ---- legacy roster / franchise cards ---- */
+.legacy .bar { display: flex; gap: 8px; padding: 0 0 14px; flex-wrap: wrap; align-items: center; }
+.legacy .rostergrid { display: grid; grid-template-columns: 1fr; gap: 16px; align-items: start; }
+.legacy .benchsplit { display: grid; grid-template-columns: repeat(auto-fit, minmax(680px, 1fr)); align-items: start; }
+@media (max-width: 1400px) { .legacy .benchsplit { grid-template-columns: 1fr; } }
+.legacy .benchsplit table + table { border-left: 1px solid var(--line); }
+.legacy .grouprow td { color: var(--dim); font-size: 12px; text-transform: uppercase; letter-spacing: .05em; line-height: 22.5px; border-bottom: 1px solid var(--line); }
+.legacy table.wide { width: 100%; }
+.legacy table.wide th:nth-child(2), .legacy table.wide td:nth-child(2) { width: 99%; }
+.legacy .rcard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; overflow-x: auto; overflow-y: hidden; min-width: 0; }
+.legacy .rhead { display: flex; align-items: baseline; gap: 8px; padding: 11px 14px; font-weight: 600; border-bottom: 1px solid var(--line); }
+.legacy .rcard table { border-radius: 0; background: transparent; table-layout: fixed; }
+.legacy .rcard th, .legacy .rcard td { width: 92px; }
+.legacy .rcard th.pcol, .legacy .rcard td.pcol { width: auto; }
+.legacy .rcard td.pcol { overflow: hidden; text-overflow: ellipsis; }
+.legacy .rcard td.empty { color: var(--dim); opacity: .5; }
+
+/* ---- legacy franchise-page section tabs ---- */
+.legacy .tabs { display: flex; gap: 2px; margin: 18px 0 4px; border-bottom: 1px solid var(--line); background: none; overflow-x: auto; }
+.legacy .tabs button { background: none; border: 0; border-bottom: 2px solid transparent; color: var(--dim); cursor: pointer; padding: 9px 14px; font: 400 14px/1 var(--sans); text-transform: none; letter-spacing: 0; margin-bottom: -1px; white-space: nowrap; }
+.legacy .tabs button:hover { color: var(--txt); background: none; }
+.legacy .tabs button.on { color: var(--acc); border-bottom-color: var(--acc); font-weight: 600; background: none; }
+
+/* ---- legacy week/expansion panels ---- */
+.legacy .wkbox td, .drawer .legacy .wkbox td { background: #11151c; font-size: 13px; color: var(--dim); white-space: normal; line-height: 2; }
+.legacy .wkbox .pos { display: inline-block; margin: 2px 0 4px; }
+.legacy tr.wkbox:hover td { background: #11151c; }
+.legacy .wkhead { color: var(--txt); font-size: 13px; margin: 2px 0 6px; }
+.legacy .wkhead .own { color: var(--acc); }
+.legacy .wkwrap { overflow-x: auto; }
+.legacy .wktbl { width: auto; background: transparent; border-radius: 0; }
+.legacy .wktbl th { position: static; font-size: 11px; padding: 2px 14px 4px 0; text-align: right; cursor: default; }
+.legacy .wktbl td { padding: 2px 14px 2px 0; font-size: 12.5px; border: 0; text-align: right; color: var(--txt); }
+.legacy .wktbl th:first-child, .legacy .wktbl td:first-child { text-align: left; }
+.legacy .wktbl tbody tr:hover { background: transparent; }
+.legacy .wkflex { display: flex; gap: 28px; flex-wrap: wrap; align-items: flex-start; }
+.legacy .wkright { min-width: 260px; max-width: 360px; flex: 1; }
+.legacy td.roster { max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- legacy ownership / trade tracker ---- */
+.legacy .ownevt { margin: 7px 0; line-height: 1.5; }
+.legacy .ownwk { display: inline-block; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 0 6px; font-size: 11px; color: var(--dim); margin-right: 7px; white-space: nowrap; }
+.legacy .ownsides { margin: 4px 0 0 12px; padding-left: 9px; border-left: 2px solid var(--line); }
+.legacy .trade { background: var(--card); border: 1px solid var(--line); border-radius: 9px; padding: 7px 10px; margin-bottom: 6px; cursor: pointer; }
+.legacy .trade:hover { border-color: var(--dim); }
+.legacy .tradehead { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.legacy .tradesides { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 8px; }
+.legacy .tradeside { background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 6px 9px; display: grid; grid-template-columns: 1fr 76px 76px; align-items: baseline; align-content: start; column-gap: 10px; }
+.legacy .tradeteam { font-size: 12.5px; color: var(--txt); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.legacy .tradenum { display: flex; align-items: baseline; gap: 4px; white-space: nowrap; justify-content: flex-end; }
+.legacy .tradewar { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.legacy .tradelbl { font-size: 9.5px; color: var(--dim); text-transform: uppercase; letter-spacing: .05em; width: 26px; flex: 0 0 26px; }
+.legacy .tradeassets { grid-column: 1 / -1; font-size: 11.5px; color: var(--dim); line-height: 1.4; }
+.legacy .tradeside table { grid-column: 1 / -1; background: transparent; border-radius: 0; margin-top: 3px; table-layout: fixed; }
+.legacy .tradeside th, .legacy .tradeside td { border: 0; padding: 1px 0; font-size: 12px; white-space: normal; }
+.legacy .tradeside td:nth-child(2) { width: 86px; text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
+.legacy .tradeside td:nth-child(3) { width: 76px; text-align: right; font-variant-numeric: tabular-nums; }
+.legacy .tradeside tr:hover td { background: transparent; }
+
+/* ---- legacy about + season boxes ---- */
+.legacy .about { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 22px; max-width: 800px; }
+.legacy .about h2 { margin: 14px 0 6px; font-size: 17px; color: var(--acc); }
+.legacy .about p { margin-bottom: 8px; color: #c6cdd7; }
+.legacy .seasongrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 16px; align-items: start; }
+.legacy .scard { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; min-width: 0; }
+.legacy .shead { cursor: pointer; user-select: none; display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+.legacy .shead .tname { color: var(--acc); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex-shrink: 1; }
+.legacy .shead .chev { color: var(--dim); font-size: 11px; flex-shrink: 0; }
+.legacy .ssub { color: var(--dim); font-size: 12.5px; margin: 2px 0 6px 19px; }
+@media (max-width: 640px) {
+  .legacy { padding: 18px 12px 40px; }
+  .legacy th, .legacy td { padding: 7px 8px; font-size: 13px; }
+  .legacy .seasongrid { grid-template-columns: 1fr; }
+  .legacy .tradesides { grid-template-columns: 1fr; }
+}
