@@ -10,12 +10,14 @@ import Teams from "./views/Teams";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
 import Trades from "./views/Trades";
+import Dvi from "./views/Dvi";
 import PlayerPage from "./components/PlayerPage";
 import Methodology from "./components/Methodology";
 
-const VIEWS = ["players", "teams", "weekly", "draft", "trades"] as const;
+const VIEWS = ["players", "teams", "weekly", "draft", "trades", "dvi"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
-const GLOBAL_VIEWS = ["draft", "trades"];
+const GLOBAL_VIEWS = ["draft", "trades", "dvi"];
+const LABEL = (v: string) => (v === "dvi" ? "DVI" : v[0].toUpperCase() + v.slice(1));
 
 /** 20x20 stroke icons, inlined to avoid pulling in an icon dependency */
 const ICONS: Record<string, string> = {
@@ -24,6 +26,7 @@ const ICONS: Record<string, string> = {
   weekly: "M3 5h14v13H3zM3 9h14M7 2v4M13 2v4",
   draft: "M7 3h6v3H7zM5 5h10v13H5zM8 10h4M8 13h4",
   trades: "M4 7h10l-3-3M16 13H6l3 3",
+  dvi: "M3 16l4-5 3 3 5-7 2 3M3 3v14h14",
 };
 
 const NAV_KEY = "bdd.nav.open";
@@ -113,13 +116,13 @@ function Shell() {
 
         <nav>
           {VIEWS.map(v => (
-            <button key={v} className={parts[1] === v ? "on" : ""} title={v[0].toUpperCase() + v.slice(1)}
+            <button key={v} className={parts[1] === v ? "on" : ""} title={LABEL(v)}
               onClick={() => { nav(GLOBAL_VIEWS.includes(v) ? `/${v}` : `/${v}/${curSeasonSeg}`); setMobileOpen(false); }}>
               <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
                 <path d={ICONS[v]} fill="none" stroke="currentColor" strokeWidth="1.5"
                   strokeLinecap="round" strokeLinejoin="round" />
               </svg>
-              <span className="sblabel">{v[0].toUpperCase() + v.slice(1)}</span>
+              <span className="sblabel">{LABEL(v)}</span>
             </button>
           ))}
         </nav>
@@ -153,6 +156,7 @@ function Shell() {
           <Route path="/weekly/:season/:wk" element={<WeeklyRoute />} />
           <Route path="/draft" element={<Draft />} />
           <Route path="/trades" element={<Trades />} />
+          <Route path="/dvi" element={<Dvi />} />
           <Route path="/player/:pid" element={<PlayerRoute />} />
           <Route path="*" element={<Navigate to={`/players/${seasonSeg(latest)}`} replace />} />
         </Routes>

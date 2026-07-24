@@ -23,6 +23,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   const [own, setOwn] = useState<Ownership>({});
   const [vals, setVals] = useState<Values | null>(null);
   const [warRank, setWarRank] = useState<{ season: string; rank: number } | null>(null);
+  const [dvi, setDvi] = useState<{ dvi: number; rank: number } | null>(null);
   const [proj, setProj] = useState<ProjRec | null>(null);
   const [sproj, setSproj] = useState<SleeperProj | null>(null);
   const [projYears, setProjYears] = useState<number[]>([]);
@@ -40,6 +41,8 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
         j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
       ]);
       jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
+      jDaily<{ players: Record<string, { dvi: number; rank: number }> }>("data/dvi.json")
+        .then(d => { if (live) setDvi(d.players[pid] ?? null); }).catch(() => {});
       // one ~2 KB shard instead of all of projections.json + proj_sleeper.json;
       // a 404 just means no projection, and Projection falls back to WarTrend
       j<PlayerShard>(`data/player/${pid}.json`).then(sh => {
@@ -103,7 +106,12 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
             {pos}{warRank?.rank ?? ""}
           </span>
           {warRank && <span style={{ color: "var(--dim)", fontSize: 12 }}> by {warRank.season} WAR</span>}
-          {nfl && <span style={{ color: "var(--dim)", fontSize: 14 }}> {nfl}</span>}</h2>
+          {nfl && <span style={{ color: "var(--dim)", fontSize: 14 }}> {nfl}</span>}
+          {dvi && <span title="Dynasty Value Index"
+            style={{ marginLeft: 10, fontSize: 13, fontWeight: 600, padding: "2px 9px",
+                     borderRadius: 6, background: "var(--accent, #4a9)", color: "#0b0f14",
+                     verticalAlign: "middle" }}>
+            DVI {dvi.dvi.toFixed(1)}<span style={{ opacity: .7 }}> · #{dvi.rank}</span></span>}</h2>
         <div className="mgr">
           {owner ? <>owned by <span className="own">{owner}</span></> : "free agent"}
           {gp > 0 && <> · {gp} games · {fmt(pts / gp, 1)} ppg · σ {fmt(sd(allPts), 1)}

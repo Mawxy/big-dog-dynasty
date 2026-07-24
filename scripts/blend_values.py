@@ -1,16 +1,21 @@
 #!/usr/bin/env python3
 """
-blend_values.py — an ENSEMBLE trade value: combine production (projected WAR),
-both markets (KTC, FantasyCalc), and league behavior from the crawl (roster%,
-start% when available) into one number, so no single flawed signal dominates.
+blend_values.py — an ensemble "trade rating" in the spirit of NFL passer rating:
+each signal is clamped into a meaningful range (below a floor = no credit, above
+a ceiling = no extra), then weighted and summed, so no single flawed signal
+dominates and separation comes from excelling across ALL of them.
 
-Each signal is percentile-ranked across the tradeable universe (robust to the
-wildly different raw scales), blended under several weight presets, and the
-blended percentile is mapped back onto the KTC value scale so the output reads
-in familiar units. Emits data/blended_values.json and prints a comparison.
+Signals: projected WAR (production), KTC + FantasyCalc (two markets), roster%
+(crowd demand, capped since it saturates), and start% (real starter usage).
 
-Inputs (all committed): data/projections.json, data/values.json,
-data/league_signals.json.  Usage: python scripts/blend_values.py
+start% is the subtle one — it blends the crawl's SEASON AVERAGE with the current
+SNAPSHOT on a schedule that trusts the snapshot early (thin data) and shifts to
+the season average by week 8, so one injured week never tanks a value. Injured-
+flagged players skip the start component while the snapshot still dominates.
+
+Inputs (committed): data/projections.json, data/values.json,
+data/league_signals.json, sleeper_data/players.json (injury flags).
+Output: data/blended_values.json.  Usage: python scripts/blend_values.py
 """
 import json
 from pathlib import Path
@@ -18,107 +23,138 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 
-# weight presets over [war, ktc, fc, roster, start]; missing signals drop out
-# and the remaining weights renormalize per player.
-PRESETS = {
-    "balanced":   {"war": 1, "ktc": 1, "fc": 1, "roster": 1, "start": 1},
-    "market":     {"war": 0.5, "ktc": 2, "fc": 2, "roster": 1, "start": 1},
-    "production": {"war": 3, "ktc": 1, "fc": 1, "roster": 0.5, "start": 1},
-    "behavior":   {"war": 1, "ktc": 1, "fc": 1, "roster": 2.5, "start": 2.5},
-}
+# ---- knobs -----------------------------------------------------------------
+# KTC and FC are the SAME market, so they're merged into one "market" opinion
+# that gets a fixed share; WAR/roster/start split the rest (weighted among
+# themselves). MARKET_SHARE=0.5 => a true second opinion, not a KTC echo.
+MARKET_SHARE = 0.50
+WEIGHTS_NM = {"war": 1.0, "roster": 1.0, "start": 1.2}   # non-market, relative
+# clamp ranges: below lo -> 0, above hi -> 1. markets keep a high ceiling to
+# preserve top-end spread; roster% caps early because it saturates ~0.9.
+CLAMP = {"war": ("p10", "p95"), "ktc": ("p10", "p99"), "fc": ("p10", "p99"),
+         "roster": (0.30, 0.90), "start": (0.05, 0.85)}
+# snapshot weight by regular-season week (season-average weight = 1 - this):
+# 100% snapshot wk<=1 -> 0% (fully season avg) by wk>=8.
+SNAP_SCHEDULE = {2: 0.85, 3: 0.75, 4: 0.65, 5: 0.50, 6: 0.30, 7: 0.10}
+INJURED = {"Out", "Doubtful", "IR", "PUP", "Sus", "NA"}
+INJURY_SKIP_BEFORE_WEEK = 8      # while the snapshot still drives start%
 
 
-def pct_ranks(values):
-    """map {key: number} -> {key: percentile in [0,1]} (ties share mid-rank)."""
-    items = sorted(values.items(), key=lambda kv: kv[1])
-    n = len(items)
-    out = {}
-    i = 0
-    while i < n:
-        j = i
-        while j + 1 < n and items[j + 1][1] == items[i][1]:
-            j += 1
-        p = ((i + j) / 2) / (n - 1) if n > 1 else 0.5
-        for k, _ in items[i:j + 1]:
-            out[k] = p
-        i = j + 1
-    return out
+def snap_weight(week):
+    if not week or week <= 1:
+        return 1.0                # offseason / wk1: snapshot only
+    return SNAP_SCHEDULE.get(week, 0.0)   # wk>=8 -> season average only
+
+
+def start_value(s, week):
+    """Blend season-average and current-snapshot start% per the week schedule."""
+    season, now, obs = s.get("start_rate"), s.get("start_rate_now"), s.get("start_obs", 0)
+    if now is None and season is None:
+        return None
+    if not obs or season is None:
+        return now                # no season data yet -> snapshot
+    w = snap_weight(week)
+    return w * (now if now is not None else season) + (1 - w) * season
+
+
+def pctl(xs, q):
+    xs = sorted(xs)
+    return xs[min(len(xs) - 1, int(q * (len(xs) - 1)))] if xs else 0.0
+
+
+def clamp(x, lo, hi):
+    return None if x is None else max(0.0, min(1.0, (x - lo) / (hi - lo)))
 
 
 def main():
-    proj = json.load(open(DATA / "projections.json", encoding="utf-8"))["players"]
-    vals = json.load(open(DATA / "values.json", encoding="utf-8")).get("players", {})
-    sig = json.load(open(DATA / "league_signals.json", encoding="utf-8")).get("players", {})
+    proj = {p["pid"]: p for p in json.load(open(DATA / "projections.json"))["players"]}
+    vals = json.load(open(DATA / "values.json")).get("players", {})
+    # crawl signals are optional — before the first crawl DVI still computes from
+    # market + production, just without roster%/start%
+    sf = DATA / "league_signals.json"
+    sigf = json.load(open(sf)) if sf.exists() else {}
+    sig = sigf.get("players", {})
+    week = sigf.get("week", 0)
+    players_meta = json.load(open(ROOT / "sleeper_data" / "players.json")) \
+        if (ROOT / "sleeper_data" / "players.json").exists() else {}
 
-    # raw signal per player (only players we actually project = tradeable universe)
-    raw = {}
-    for p in proj:
-        pid = p["pid"]
-        v = vals.get(pid, {})
-        s = sig.get(pid, {})
-        comp = p.get("composite") or [0]
-        raw[pid] = {
-            "name": p.get("name"), "pos": p.get("pos"),
-            "war": comp[0],
-            "ktc": v.get("ktc"),
-            "fc": v.get("fc"),
-            "roster": s.get("roster_rate", 0.0),      # absent from crawl => ~0
-            "start": s.get("start_rate"),             # None until the crawl collects starters
-        }
+    # resolve percentile-based clamp bounds from the data
+    dist = {"war": [(p.get("composite") or [0])[0] for p in proj.values()],
+            "ktc": [v["ktc"] for v in vals.values() if v.get("ktc")],
+            "fc": [v["fc"] for v in vals.values() if v.get("fc")]}
+    rng = {}
+    for k, (lo, hi) in CLAMP.items():
+        rng[k] = (pctl(dist[k], float(lo[1:]) / 100) if isinstance(lo, str) else lo,
+                  pctl(dist[k], float(hi[1:]) / 100) if isinstance(hi, str) else hi)
+    ktc_sorted = sorted(v["ktc"] for v in vals.values() if v.get("ktc"))
 
-    # percentile-rank each signal across players that HAVE it
-    SIGNALS = ["war", "ktc", "fc", "roster", "start"]
-    ranks = {}
-    for sg in SIGNALS:
-        present = {pid: r[sg] for pid, r in raw.items() if r[sg] is not None}
-        ranks[sg] = pct_ranks(present) if present else {}
-
-    # KTC scale for mapping blended percentile back to familiar units
-    ktc_sorted = sorted(v.get("ktc") for v in vals.values() if v.get("ktc") is not None)
-
-    def to_ktc(pctile):
-        if not ktc_sorted:
-            return None
-        idx = min(len(ktc_sorted) - 1, int(round(pctile * (len(ktc_sorted) - 1))))
-        return ktc_sorted[idx]
+    def to_ktc(p01):
+        return ktc_sorted[min(len(ktc_sorted) - 1, int(p01 * (len(ktc_sorted) - 1)))] if ktc_sorted else None
 
     out = {}
-    for pid, r in raw.items():
-        prow = {sg: ranks[sg].get(pid) for sg in SIGNALS}
-        blends = {}
-        for name, w in PRESETS.items():
-            num = den = 0.0
-            for sg in SIGNALS:
-                if prow[sg] is not None and w.get(sg):
-                    num += w[sg] * prow[sg]
-                    den += w[sg]
-            pct = num / den if den else None
-            blends[name] = {"pct": round(pct, 4) if pct is not None else None,
-                            "ktc": to_ktc(pct) if pct is not None else None}
-        out[pid] = {"name": r["name"], "pos": r["pos"],
-                    "signals": {sg: (round(prow[sg], 3) if prow[sg] is not None else None)
-                                for sg in SIGNALS},
-                    "blends": blends}
+    for pid, p in proj.items():
+        v = vals.get(pid, {})
+        s = sig.get(pid, {}) or {}
+        inj = (players_meta.get(pid, {}) or {}).get("injury_status")
+        sv = start_value(s, week)
+        start_c = clamp(sv, *rng["start"])
+        if inj in INJURED and (not week or week < INJURY_SKIP_BEFORE_WEEK):
+            start_c = None            # hurt + snapshot-driven -> don't penalize
+        comps = {
+            "war": clamp((p.get("composite") or [0])[0], *rng["war"]),
+            "ktc": clamp(v.get("ktc"), *rng["ktc"]),
+            "fc": clamp(v.get("fc"), *rng["fc"]),
+            "roster": clamp(s.get("roster_rate", 0.0), *rng["roster"]),
+            "start": start_c,
+        }
+        # market = one opinion (average the two market clamps that exist)
+        mparts = [c for c in (comps["ktc"], comps["fc"]) if c is not None]
+        market = sum(mparts) / len(mparts) if mparts else None
+        # non-market signals weighted among themselves
+        nnum = nden = 0.0
+        for k in ("war", "roster", "start"):
+            if comps[k] is not None:
+                nnum += WEIGHTS_NM[k] * comps[k]
+                nden += WEIGHTS_NM[k]
+        nonmarket = nnum / nden if nden else None
+        if market is not None and nonmarket is not None:
+            score = MARKET_SHARE * market + (1 - MARKET_SHARE) * nonmarket
+        else:
+            score = market if market is not None else nonmarket
+        rating = round(100 * score, 1) if score is not None else None
+        out[pid] = {"name": p.get("name"), "pos": p.get("pos"), "rating": rating,
+                    "trade_ktc": to_ktc(score) if score is not None else None,
+                    "components": {k: (round(c, 3) if c is not None else None) for k, c in comps.items()},
+                    "start_used": round(sv, 3) if sv is not None else None}
 
+    # full detail (components etc.) stays local for tuning — gitignored, NOT
+    # published, so the formula isn't inspectable on the site.
     (DATA / "blended_values.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
-    print(f"wrote {DATA/'blended_values.json'}: {len(out)} players, presets {list(PRESETS)}")
 
-    # comparison: how each preset ranks a few reference players (KTC-scale)
-    refs = ["Malik Nabers", "Marvin Harrison", "Ricky Pearsall", "Keon Coleman",
-            "Xavier Legette", "Mack Hollins", "Kenny Pickett"]
-    byname = {r["name"]: pid for pid, r in out.items()}
-    hdr = f"{'player':20}{'pos':4}{'KTC':>6}" + "".join(f"{p[:9]:>10}" for p in PRESETS)
-    print("\n=== blended trade value (KTC-scale) by preset ===")
-    print(hdr)
-    for nm in refs:
-        pid = byname.get(nm)
-        if not pid:
-            continue
-        row = out[pid]
-        ktc = vals.get(pid, {}).get("ktc", "-")
-        cells = "".join(f"{row['blends'][p]['ktc'] if row['blends'][p]['ktc'] is not None else '-':>10}"
-                        for p in PRESETS)
-        print(f"{nm[:19]:20}{row['pos']:4}{ktc:>6}{cells}")
+    # site-facing DVI: value + rank only, no component breakdown.
+    ranked = sorted((pid for pid in out if out[pid]["rating"] is not None),
+                    key=lambda pid: -out[pid]["rating"])
+    dvi = {}
+    for i, pid in enumerate(ranked, 1):
+        r = out[pid]
+        dvi[pid] = {"name": r["name"], "pos": r["pos"], "dvi": r["rating"], "rank": i}
+    (DATA / "dvi.json").write_text(json.dumps(
+        {"generated": __import__("datetime").date.today().isoformat(),
+         "players": dvi}, separators=(",", ":")), encoding="utf-8")
+    print(f"wrote data/dvi.json: {len(dvi)} players, week={week}, "
+          f"start snap-weight={snap_weight(week)}")
+    ranked = [out[pid] for pid in ranked]
+    print("\n=== top 10 ===")
+    for r in ranked[:10]:
+        print(f"  {r['name'][:22]:23}{r['pos']:4}{r['rating']:>6}  (trade-KTC {r['trade_ktc']})")
+    print("\n=== reference / dart-throws ===")
+    byname = {r["name"]: r for r in out.values()}
+    for nm in ["Malik Nabers", "Ricky Pearsall", "Keon Coleman", "Xavier Legette",
+               "Jonathon Brooks", "Mack Hollins"]:
+        r = byname.get(nm)
+        if r:
+            print(f"  {nm:20} rating={r['rating']} start_used={r['start_used']} "
+                  f"(KTC-scale {r['trade_ktc']})")
 
 
 if __name__ == "__main__":

@@ -51,6 +51,8 @@ jobs:
         run: python scripts/shard_players.py --out data
       - name: Bridge B (market value -> WAR, refit on fresh projections)
         run: python scripts/value_bridge.py
+      - name: DVI (ensemble trade value -> data/dvi.json)
+        run: python scripts/blend_values.py
       - name: Validate built data before committing
         run: python scripts/validate_data.py
       - name: Commit updated data

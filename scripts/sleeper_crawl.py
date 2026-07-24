@@ -166,6 +166,19 @@ def load_player_exp(state_dir, cache_hours=20):
     return exp
 
 
+def load_player_teams(state_dir, cache_hours=20):
+    """{pid: nfl_team} for bye detection, refreshed from /players/nfl ~daily."""
+    f = Path(state_dir) / "player_teams.json"
+    cached = jload(f, {})
+    if cached.get("ts") and (time.time() - cached["ts"]) < cache_hours * 3600:
+        return cached.get("team", {})
+    pmap = get("/players/nfl") or {}
+    team = {pid: p.get("team") for pid, p in pmap.items()
+            if isinstance(p, dict) and p.get("team")}
+    jdump(f, {"ts": time.time(), "team": team})
+    return team
+
+
 def make_heartbeat(t0, counters):
     def hb(tag="crawling"):
         el = int(time.time() - t0)
@@ -182,6 +195,21 @@ def mode_signals(args, t0):
     registry = jload(sd / "registry.json", {})     # lid -> {counts, last_signals}
     frontier = deque(jload(sd / "frontier.json", []) or args.seeds or DEFAULT_SEEDS)
     snapshots = jload(sd / "snapshots.json", {})   # lid -> {ts, players, starters, taxi}
+    # season-long start% accumulator: usage = started-weeks / rostered-weeks.
+    # Each weekly re-crawl of a league adds one observation, so a single injured
+    # week barely moves it (and a half-season absence rightly lowers it). Unlike
+    # roster%/taxi% (windowed to "now"), this accumulates all season, reset at
+    # rollover.
+    acc_raw = jload(sd / "start_acc.json", {})
+    if acc_raw.get("season") != args.season:
+        acc_raw = {"season": args.season, "acc": {}}
+    start_acc = acc_raw["acc"]                      # pid -> [started_obs, rostered_obs]
+    # bye handling: a player on bye can't start, so that week isn't a fair usage
+    # observation — skip it. Only needed in-season.
+    pid_team, byes = {}, {}
+    if args.season_type == "regular":
+        pid_team = load_player_teams(sd)
+        byes = jload(ROOT / "data" / str(args.season) / "byes.json", {})   # {team: week}
     seen_users = {}                                # transient per run
     require_sf = not args.any_qb
     # re-enqueue counted leagues whose snapshots have gone stale, for refresh
@@ -200,18 +228,25 @@ def mode_signals(args, t0):
         live = {lid: s for lid, s in snapshots.items() if s.get("ts", 0) >= cutoff}
         snapshots.clear(); snapshots.update(live)
         n = len(live)
-        rostered, started, taxied = defaultdict(int), defaultdict(int), defaultdict(int)
+        rostered, taxied, started_now = defaultdict(int), defaultdict(int), defaultdict(int)
         for s in live.values():
             for pid in set(s.get("players") or []): rostered[pid] += 1
-            for pid in set(s.get("starters") or []): started[pid] += 1
+            for pid in set(s.get("starters") or []): started_now[pid] += 1
             for pid in set(s.get("taxi") or []): taxied[pid] += 1
-        players = {pid: {"roster_rate": round(rostered[pid] / n, 4),
-                         "start_rate": round(started[pid] / n, 4),
-                         "taxi_rate": round(taxied[pid] / n, 4)}
-                   for pid in rostered} if n else {}
+        players = {}
+        for pid in rostered:
+            sa = start_acc.get(pid, [0, 0])           # season usage, not this week
+            players[pid] = {
+                "roster_rate": round(rostered[pid] / n, 4),
+                "start_rate": round(sa[0] / sa[1], 4) if sa[1] else 0.0,  # season avg (primary)
+                "start_obs": sa[1],                                       # weeks backing it
+                "start_rate_now": round(started_now[pid] / rostered[pid], 4),  # current snapshot fallback
+                "taxi_rate": round(taxied[pid] / n, 4)}
+        jdump(sd / "start_acc.json", {"season": args.season, "acc": start_acc})
         jdump(ROOT / args.signals_out,
               {"generated": datetime.date.today().isoformat(), "season": args.season,
-               "leagues": n, "format": {"teams": args.teams or "any", "superflex_only": require_sf},
+               "season_type": args.season_type, "week": args.week, "leagues": n,
+               "format": {"teams": args.teams or "any", "superflex_only": require_sf},
                "players": players})
         counted_ids = [lid for lid, m in registry.items() if m.get("counts")]
         jdump(ROOT / args.leagues_out,
@@ -264,6 +299,18 @@ def mode_signals(args, t0):
                 n_counted += 1
                 snapshots[lid] = {"ts": time.time(), "players": list(here_p),
                                   "starters": list(here_s), "taxi": list(here_t)}
+                # one weekly usage observation per rostered player — regular
+                # season only, and skipping anyone on BYE this week (a bye isn't
+                # a fair "chose not to start him" observation)
+                if args.season_type == "regular":
+                    for pid in here_p:
+                        tm = pid_team.get(pid)
+                        if tm and byes.get(tm) == args.week:
+                            continue
+                        a = start_acc.setdefault(pid, [0, 0])
+                        a[1] += 1                    # rostered, available
+                        if pid in here_s:
+                            a[0] += 1                # started
                 if n_counted % CHECKPOINT_EVERY == 0:
                     flush()
                 if args.commit_every and n_counted % args.commit_every == 0:
@@ -446,7 +493,10 @@ def main():
     ap.add_argument("--trades-out", default="data/trade_corpus.json")
     ap.add_argument("--drafts-out", default="data/draft_signals.json")
     args = ap.parse_args()
-    args.season = args.season or (get("/state/nfl") or {}).get("season")
+    state = get("/state/nfl") or {}
+    args.season = args.season or state.get("season")
+    args.season_type = state.get("season_type")     # only "regular" feeds start%
+    args.week = (state.get("week") if args.season_type == "regular" else 0) or 0
     if not args.season:
         sys.exit("could not resolve season; pass --season")
     t0 = time.time()

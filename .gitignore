@@ -8,3 +8,4 @@ vite.config.*.timestamp-*.mjs
 # raw trade corpus can be tens of MB at scale — kept as a CI artifact, not committed
 data/trade_corpus.json
 data/trade_corpus_*.json
+data/blended_values.json
