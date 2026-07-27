@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DraftPick, Drafts, Franchises, SummaryRow } from "../lib/types";
-import { j } from "../lib/data";
+import type { DraftPick, Drafts, Franchises, PickValues } from "../lib/types";
+import { j, jDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
-import { useLeague } from "../lib/context";
 import { boxStats } from "../components/BoxMarks";
 
 const POS: Record<string, string> = { QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)" };
 const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const ROUNDS = [1, 2, 3, 4];
+const SLOTS = ROUNDS.flatMap(rd => Array.from({ length: 12 }, (_, i) => `${rd}.${String(i + 1).padStart(2, "0")}`));
 
 /** median of the values present; null when there are none */
 function med(a: (number | null)[]): number | null {
@@ -31,14 +31,26 @@ function lum(hex: string): number {
   return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
 }
 
-/** a rookie pick, deduped, with the franchise that actually made the selection */
+/** a rookie pick from THIS league, deduped, with the franchise that drafted it */
 interface Pick extends DraftPick { drafter: string; per: number }
 
+/**
+ * Two sources, deliberately separated:
+ *
+ *  - "What is a pick at this slot worth?" (box plots, heat map, career-year
+ *    table) reads `pick_values.json` — 1,065 rookie picks across five 12-team
+ *    superflex leagues, 2019-2025, every observation already calibrated to this
+ *    league's WAR scale. Big Dog alone has three graded classes, which puts
+ *    exactly ONE pick behind each slot at career year 3; 14 of 48 slots came
+ *    back empty and the rest were a median of one.
+ *
+ *  - "What did WE do with our picks?" (slot by class, best/worst value) reads
+ *    `drafts.json`, because those tables name our players and our franchises.
+ */
 export default function Draft() {
-  const { meta } = useLeague();
   const [drafts, setDrafts] = useState<Drafts | null>(null);
   const [fr, setFr] = useState<Franchises | null>(null);
-  const [warBySeason, setWarBySeason] = useState<Record<string, Record<string, number>> | null>(null);
+  const [pv, setPv] = useState<PickValues | null>(null);
   const [err, setErr] = useState(false);
   const [openAge, setOpenAge] = useState<Record<number, boolean>>({ 1: true });
   const [openClass, setOpenClass] = useState<Record<number, boolean>>({ 1: true });
@@ -46,22 +58,58 @@ export default function Draft() {
   useEffect(() => {
     j<Drafts>("data/drafts.json").then(setDrafts).catch(() => setErr(true));
     j<Franchises>("data/franchises.json").then(setFr).catch(() => setFr({}));
-    Promise.all(meta.seasons.map(s =>
-      j<SummaryRow[]>(`data/${s}/summary.json`).catch(() => [] as SummaryRow[])))
-      .then(all => {
-        const by: Record<string, Record<string, number>> = {};
-        meta.seasons.forEach((s, i) => {
-          const m: Record<string, number> = {};
-          for (const r of all[i]) m[r[0]] = r[6];
-          by[s] = m;
-        });
-        setWarBySeason(by);
-      })
-      .catch(() => setWarBySeason({}));
-  }, [meta]);
+    jDaily<PickValues>("data/pick_values.json").then(setPv).catch(() => setPv(null));
+  }, []);
 
-  const model = useMemo(() => {
-    if (!drafts || !warBySeason) return null;
+  /** slot-value blocks, from the multi-league corpus */
+  const corpus = useMemo(() => {
+    if (!pv?.picks?.length) return null;
+    const years = pv.meta.years_published.map(String);
+    const bySlot = new Map(pv.picks.map(b => [b.bucket, b]));
+    /** every per-season observation for a slot, pooled across career years */
+    const pool = (slot: string): number[] => {
+      const b = bySlot.get(slot);
+      return b ? years.flatMap(y => b.dist[y] ?? []) : [];
+    };
+    const slotMed: Record<string, number | null> = {};
+    for (const s of SLOTS) slotMed[s] = med(pool(s));
+
+    const byRound = ROUNDS.map(rd => {
+      const d = SLOTS.filter(s => s.startsWith(`${rd}.`)).flatMap(pool);
+      return { round: rd, n: d.length, s: d.length >= 2 ? boxStats(d) : null };
+    });
+
+    // career-year cells: median of that year's samples, for the slot / the round
+    const cellAt = (slots: string[], y: string) => {
+      const vals = slots.flatMap(s => bySlot.get(s)?.dist[y] ?? []);
+      return { med: med(vals), n: vals.length, pending: false };
+    };
+    const ages = years.map(Number);
+    const pendingAges = [Math.max(...ages) + 1];
+    const blank = pendingAges.map(a => ({ age: a, med: null, n: 0, pending: true }));
+    const ageRows = SLOTS.map(slot => ({
+      slot, round: +slot[0],
+      cells: [...years.map(y => ({ age: +y, ...cellAt([slot], y) })), ...blank],
+    })).filter(r => r.cells.some(c => c.n > 0));
+    const ageByRound = ROUNDS.map(rd => {
+      const slots = SLOTS.filter(s => s.startsWith(`${rd}.`));
+      return { round: rd, cells: [...years.map(y => ({ age: +y, ...cellAt(slots, y) })), ...blank] };
+    });
+
+    const ns = SLOTS.map(s => pool(s).length).filter(n => n > 0);
+    return {
+      slotMed, byRound, ages, pendingAges, ageRows, ageByRound,
+      absMax: Math.max(0, ...SLOTS.flatMap(pool).map(Math.abs)),
+      cellN: ns.length ? (Math.min(...ns) === Math.max(...ns)
+        ? `n=${ns[0]} per cell` : `n=${Math.min(...ns)}–${Math.max(...ns)} per cell`) : "",
+      picks: pv.meta.picks_analyzed ?? pv.meta.picks_used,
+      classes: pv.meta.classes,
+    };
+  }, [pv]);
+
+  /** our own draft record, for the two tables that name names */
+  const league = useMemo(() => {
+    if (!drafts) return null;
     const nameOf = (rid: string): string => {
       const f = fr?.[rid];
       return f?.seasons.length ? f.seasons[f.seasons.length - 1].name : `Roster ${rid}`;
@@ -80,62 +128,12 @@ export default function Draft() {
     const all: Pick[] = [...uniq.values()].map(({ p, rid }) => ({
       ...p, drafter: nameOf(rid), per: p.years > 0 ? p.war / p.years : 0,
     }));
-    // graded = has played at least one season. Everything below is WAR PER
-    // SEASON, never career WAR — otherwise the oldest class wins by construction.
     const graded = all.filter(p => p.years > 0);
     const classes = [...new Set(all.map(p => p.season))].sort();
     const gradedClasses = [...new Set(graded.map(p => p.season))].sort();
     const pendingClasses = classes.filter(s => !gradedClasses.includes(s));
 
-    // (a) per-round distributions
-    const byRound = ROUNDS.map(rd => {
-      const d = graded.filter(p => p.round === rd).map(p => p.per);
-      return { round: rd, n: d.length, s: d.length >= 2 ? boxStats(d) : null };
-    });
-
-    // (b) median per-season WAR by exact slot
-    const slotMed: Record<string, number | null> = {};
-    for (const rd of ROUNDS)
-      for (let i = 1; i <= 12; i++) {
-        const slot = `${rd}.${String(i).padStart(2, "0")}`;
-        slotMed[slot] = med(graded.filter(p => p.slot === slot).map(p => p.per));
-      }
-
-    // (c) WAR by career year — year N of a pick is the season (draft + N − 1)
-    const warAt = (p: Pick, age: number): number | null => {
-      const s = String(+p.season + age - 1);
-      const v = warBySeason[s]?.[p.pid];
-      return v == null ? null : v;
-    };
-    const maxYears = Math.max(1, ...graded.map(p => p.years));
-    const ages = Array.from({ length: maxYears }, (_, i) => i + 1);
-    const pendingAges = [maxYears + 1];
-    const ageCell = (list: Pick[], age: number) => {
-      const vals = list.filter(p => p.years >= age).map(p => warAt(p, age));
-      const m = med(vals);
-      return { age, med: m, n: vals.filter(v => v != null).length, pending: false };
-    };
-    const ageRows = Object.keys(slotMed).map(slot => {
-      const list = graded.filter(p => p.slot === slot);
-      const cells = [
-        ...ages.map(a => ageCell(list, a)),
-        ...pendingAges.map(a => ({ age: a, med: null, n: 0, pending: true })),
-      ];
-      return { slot, round: +slot[0], cells };
-    }).filter(r => r.cells.some(c => c.n > 0));
-    const ageByRound = ROUNDS.map(rd => {
-      const list = graded.filter(p => p.round === rd);
-      return {
-        round: rd,
-        cells: [
-          ...ages.map(a => ageCell(list, a)),
-          ...pendingAges.map(a => ({ age: a, med: null, n: 0, pending: true })),
-        ],
-      };
-    });
-
-    // (d) slot by class — one column per class, the pick that filled the slot
-    const classRows = Object.keys(slotMed).map(slot => {
+    const classRows = SLOTS.map(slot => {
       const cells = [...gradedClasses, ...pendingClasses].map(season => {
         const p = all.find(x => x.slot === slot && x.season === season);
         const pending = pendingClasses.includes(season);
@@ -146,38 +144,25 @@ export default function Draft() {
         };
       });
       return { slot, round: +slot[0], cells, med: med(cells.map(c => c.per)) };
-    });
+    }).filter(r => r.cells.some(c => c.per != null || c.name));
 
-    // (e) value over slot — ranked by war − expected, NOT raw WAR
+    // ranked by war − expected, NOT raw WAR
     const withDiff = graded.filter(p => p.expected != null && p.diff != null)
       .sort((a, b) => (b.diff ?? 0) - (a.diff ?? 0));
-
     return {
-      n: graded.length, gradedClasses, pendingClasses, byRound, slotMed,
-      ages, pendingAges, ageRows, ageByRound, classRows,
+      n: graded.length, gradedClasses, pendingClasses, classRows,
       best: withDiff.slice(0, 8), worst: withDiff.slice(-8).reverse(),
-      // widest per-season return on record — drives the box-plot domain
-      absMax: Math.max(0, ...graded.map(p => Math.abs(p.per))),
-      // how many picks sit behind each heat cell (varies as classes are added)
-      cellN: (() => {
-        const ns = Object.keys(slotMed).map(s => graded.filter(p => p.slot === s).length);
-        const lo = Math.min(...ns), hi = Math.max(...ns);
-        return lo === hi ? `n=${hi} per cell` : `n=${lo}–${hi} per cell`;
-      })(),
     };
-  }, [drafts, fr, warBySeason]);
+  }, [drafts, fr]);
 
   if (err) return <div className="empty">No draft data yet.</div>;
-  if (!model) return <div className="empty">Loading draft data…</div>;
+  if (!league) return <div className="empty">Loading draft data…</div>;
 
   // ---- (a) geometry: WAR per season ----
-  // The design specifies a ±1.4 domain, which is what this league's data spans
-  // today. Treat that as a FLOOR, not a constant: the axis grows if a future
-  // class returns more than ±1.4, because the scale clamps and a pinned bar
-  // would otherwise read as exactly 1.4. Ticks follow the domain.
+  // Domain follows the data. The design's ±1.4 fitted three Big Dog classes;
+  // the corpus reaches wider, and a clamped bar would silently read as the edge.
   const W = 800;
-  // .toFixed guards the float dust in ceil(x/0.2)*0.2 — it yields 1.4000000000000001
-  const HI = Math.max(1.4, +(Math.ceil((model.absMax * 1.05) / 0.2) * 0.2).toFixed(2));
+  const HI = Math.max(1.4, +(Math.ceil(((corpus?.absMax ?? 0) * 1.05) / 0.2) * 0.2).toFixed(2));
   const LO = -HI;
   const sx = (v: number) => Math.max(0, Math.min(W, ((v - LO) / (HI - LO)) * W));
   const pctX = (v: number) => ((v - LO) / (HI - LO) * 100).toFixed(2) + "%";
@@ -187,13 +172,12 @@ export default function Draft() {
     TICKS.push(+t.toFixed(2));
 
   // ---- (b) diverging ramp: green for gains, rose for losses ----
-  const medAll = Object.values(model.slotMed).filter((v): v is number => v != null);
+  const medAll = Object.values(corpus?.slotMed ?? {}).filter((v): v is number => v != null);
   const hiPos = Math.max(0.01, ...medAll.filter(v => v > 0));
   const hiNeg = Math.max(0.01, ...medAll.filter(v => v < 0).map(Math.abs));
-  const posLo = "#2e8f56", posHi = "#43d783", negLo = "#241419", negHi = "#a8474f";
   const heatBg = (m: number | null) => m == null ? "#0f1318" : Math.abs(m) < 0.005 ? "#151a21"
-    : m > 0 ? mix(posLo, posHi, Math.sqrt(m / hiPos))
-      : mix(negLo, negHi, Math.sqrt(Math.abs(m) / hiNeg));
+    : m > 0 ? mix("#2e8f56", "#43d783", Math.sqrt(m / hiPos))
+      : mix("#241419", "#a8474f", Math.sqrt(Math.abs(m) / hiNeg));
   const heatFg = (m: number | null) => m == null ? "#3d4650" : Math.abs(m) < 0.005 ? "#7b8794"
     : lum(heatBg(m)) > 0.173 ? "#08170e" : "#fdeee0";
   const bestSlot = medAll.length ? Math.max(...medAll) : 0;
@@ -203,15 +187,13 @@ export default function Draft() {
 
   const ink = (v: number | null) => v == null ? "var(--dim3)"
     : v > 0.02 ? "#43d783" : v < -0.02 ? "#e8757f" : "var(--dim)";
-  /** that round's median per-season return, for the footnote — derived, so the
-   *  sentence can't drift away from the chart above it */
-  const roundMed = (rd: number) => model.byRound.find(b => b.round === rd)?.s?.md ?? null;
+  const roundMed = (rd: number) => corpus?.byRound.find(b => b.round === rd)?.s?.md ?? null;
 
   // both draft tables share one width set so they line up column-for-column
-  const ageCols = [...model.ages.map(a => ({ label: `Yr ${a}`, pending: false })),
-    ...model.pendingAges.map(a => ({ label: `Yr ${a}*`, pending: true }))];
-  const classCols = [...model.gradedClasses.map(s => ({ label: s, pending: false })),
-    ...model.pendingClasses.map(s => ({ label: `${s}*`, pending: true }))];
+  const ageCols = corpus ? [...corpus.ages.map(a => ({ label: `Yr ${a}`, pending: false })),
+    ...corpus.pendingAges.map(a => ({ label: `Yr ${a}*`, pending: true }))] : [];
+  const classCols = [...league.gradedClasses.map(s => ({ label: s, pending: false })),
+    ...league.pendingClasses.map(s => ({ label: `${s}*`, pending: true }))];
   const colW = (n: number) => (68 / Math.max(1, n)).toFixed(2) + "%";
 
   return (
@@ -219,141 +201,146 @@ export default function Draft() {
       <div className="screen-head">
         <span className="screen-title">Rookie draft returns</span>
         <span className="screen-note">
-          <b>{model.n}</b> graded picks · {model.gradedClasses.join(" · ")} classes
-          {model.pendingClasses.length ? ` · ${model.pendingClasses.join(", ")} class not yet scored` : ""}
+          {corpus && <><b>{corpus.picks.toLocaleString()}</b> picks, {corpus.classes} · </>}
+          <b>{league.n}</b> of ours graded
+          {league.pendingClasses.length ? ` · ${league.pendingClasses.join(", ")} not yet scored` : ""}
         </span>
       </div>
 
-      {/* (a) WAR per season by round */}
-      <div style={{ padding: "0 var(--pad) 20px" }}>
-        <div className="panel" style={{ margin: 0 }}>
-          <div className="chart-label">
-            WAR per season since drafted — box is the middle 50%, <span style={{ color: "var(--acc)" }}>line is the median</span>
-          </div>
-          <div className="box-rows">
-            {model.byRound.map(b => (
-              <div key={b.round} className="box-row">
-                <div className="lbl">RD {b.round}</div>
-                <svg viewBox="0 0 800 30" preserveAspectRatio="none">
-                  {TICKS.map(t => (
-                    <line key={t} x1={sx(t)} y1={0} x2={sx(t)} y2={30}
-                      stroke={t === 0 ? "#4e5d6c" : "var(--rule)"} strokeWidth={1} />
-                  ))}
-                  {b.s && <>
-                    <line x1={sx(b.s.mn)} y1={15} x2={sx(b.s.mx)} y2={15} stroke="#4e5d6c" strokeWidth={1.5} />
-                    <rect x={sx(b.s.q1)} y={3} width={Math.max(1, sx(b.s.q3) - sx(b.s.q1))} height={24}
-                      fill="#1e262f" stroke="#54636f" strokeWidth={1.5} />
-                    <line x1={sx(b.s.md)} y1={1} x2={sx(b.s.md)} y2={29} stroke="var(--acc)" strokeWidth={3} />
-                  </>}
-                </svg>
-                <div className="meta">
-                  {b.s ? `n=${b.n}  ·  median ${sgn(b.s.md)}/yr  ·  best ${sgn(b.s.mx)}` : "not enough matured picks"}
-                </div>
-              </div>
-            ))}
-          </div>
-          <div className="axis">
-            <div className="pad" />
-            <div className="scale">
-              {TICKS.map(t => <span key={t} style={{ left: pctX(t) }}>{sgn(t, 1)}</span>)}
+      {corpus && <>
+        {/* (a) WAR per season by round */}
+        <div style={{ padding: "0 var(--pad) 20px" }}>
+          <div className="panel" style={{ margin: 0 }}>
+            <div className="chart-label">
+              WAR per season since drafted — box is the middle 50%, <span style={{ color: "var(--acc)" }}>line is the median</span>
             </div>
-            <div className="tail" />
-          </div>
-        </div>
-      </div>
-
-      {/* (b) heat map */}
-      <div style={{ padding: "0 var(--pad) 0" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 11, flexWrap: "wrap" }}>
-          <div className="chart-label" style={{ marginBottom: 0 }}>Median WAR per season by exact slot · {model.cellN}</div>
-          <div className="heat-legend">
-            <span>{fmt(worstSlot)}</span>
-            <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
-            <span>{sgn(bestSlot)}</span>
-          </div>
-        </div>
-      </div>
-      <div className="heat-head" style={{ padding: "0 var(--pad)" }}>
-        <div className="pad" />
-        {Array.from({ length: 12 }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
-      </div>
-      <div className="heat2">
-        {ROUNDS.map(rd => (
-          <div key={rd} className="heat-row">
-            <div className="lbl">RD {rd}</div>
-            {Array.from({ length: 12 }, (_, j) => {
-              const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
-              const m = model.slotMed[slot];
-              const ring = m != null && m === bestSlot ? "inset 0 0 0 2px rgba(255,255,255,.9)"
-                : m != null && m === worstSlot ? "inset 0 0 0 2px #ffc9c9" : "none";
-              return (
-                <div key={slot} className="cell"
-                  style={{ background: heatBg(m), color: heatFg(m), boxShadow: ring }}>
-                  {m == null ? "—" : sgn(m)}
+            <div className="box-rows">
+              {corpus.byRound.map(b => (
+                <div key={b.round} className="box-row">
+                  <div className="lbl">RD {b.round}</div>
+                  <svg viewBox="0 0 800 30" preserveAspectRatio="none">
+                    {TICKS.map(t => (
+                      <line key={t} x1={sx(t)} y1={0} x2={sx(t)} y2={30}
+                        stroke={t === 0 ? "#4e5d6c" : "var(--rule)"} strokeWidth={1} />
+                    ))}
+                    {b.s && <>
+                      <line x1={sx(b.s.mn)} y1={15} x2={sx(b.s.mx)} y2={15} stroke="#4e5d6c" strokeWidth={1.5} />
+                      <rect x={sx(b.s.q1)} y={3} width={Math.max(1, sx(b.s.q3) - sx(b.s.q1))} height={24}
+                        fill="#1e262f" stroke="#54636f" strokeWidth={1.5} />
+                      <line x1={sx(b.s.md)} y1={1} x2={sx(b.s.md)} y2={29} stroke="var(--acc)" strokeWidth={3} />
+                    </>}
+                  </svg>
+                  <div className="meta">
+                    {b.s ? `n=${b.n}  ·  median ${sgn(b.s.md)}/yr  ·  best ${sgn(b.s.mx)}` : "not enough matured picks"}
+                  </div>
                 </div>
-              );
-            })}
-          </div>
-        ))}
-      </div>
-      <div className="heat-note">
-        <span>Rows are draft rounds, columns are the pick within the round — so column 01 is every team's first-up selection.</span>
-        <span className="end">Ringed cells: best and worst slot on record.</span>
-      </div>
-
-      {/* (c) WAR by career year */}
-      <div className="dwrap" style={{ paddingTop: 22 }}>
-        <div className="dhead">
-          <div className="chart-label" style={{ marginBottom: 0 }}>WAR by career year</div>
-          <div className="note">
-            Median WAR a slot returned in its player's first season, second season, third. A year column
-            opens once any class has played it — * marks one not yet played. Click a round to open its slots.
+              ))}
+            </div>
+            <div className="axis">
+              <div className="pad" />
+              <div className="scale">
+                {TICKS.map(t => <span key={t} style={{ left: pctX(t) }}>{sgn(t, 1)}</span>)}
+              </div>
+              <div className="tail" />
+            </div>
           </div>
         </div>
-        <div className="dscroll">
-          <table className="dtbl">
-            <colgroup>
-              <col style={{ width: "15%" }} />
-              {ageCols.map((_, i) => <col key={i} style={{ width: colW(ageCols.length) }} />)}
-              <col style={{ width: "17%" }} />
-            </colgroup>
-            <thead>
-              <tr>
-                <th className="t">Slot</th>
-                {ageCols.map(c => (
-                  <th key={c.label} className="n" style={{ color: c.pending ? "var(--dim3)" : undefined }}>{c.label}</th>
-                ))}
-                <th className="n med">Median</th>
-              </tr>
-            </thead>
-            <tbody>
-              {model.ageByRound.map(g => {
-                const open = !!openAge[g.round];
-                const gm = med(g.cells.map(c => c.pending ? null : c.med));
+
+        {/* (b) heat map */}
+        <div style={{ padding: "0 var(--pad) 0" }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 11, flexWrap: "wrap" }}>
+            <div className="chart-label" style={{ marginBottom: 0 }}>
+              Median WAR per season by exact slot · {corpus.cellN}
+            </div>
+            <div className="heat-legend">
+              <span>{fmt(worstSlot)}</span>
+              <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
+              <span>{sgn(bestSlot)}</span>
+            </div>
+          </div>
+        </div>
+        <div className="heat-head" style={{ padding: "0 var(--pad)" }}>
+          <div className="pad" />
+          {Array.from({ length: 12 }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
+        </div>
+        <div className="heat2">
+          {ROUNDS.map(rd => (
+            <div key={rd} className="heat-row">
+              <div className="lbl">RD {rd}</div>
+              {Array.from({ length: 12 }, (_, j) => {
+                const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
+                const m = corpus.slotMed[slot];
+                const ring = m != null && m === bestSlot ? "inset 0 0 0 2px rgba(255,255,255,.9)"
+                  : m != null && m === worstSlot ? "inset 0 0 0 2px #ffc9c9" : "none";
                 return (
-                  <RoundGroup key={g.round} round={g.round} open={open}
-                    onToggle={() => setOpenAge(s => ({ ...s, [g.round]: !open }))}
-                    cells={g.cells.map(c => ({ v: c.pending ? null : c.med, pending: c.pending }))}
-                    rowMed={gm} ink={ink}
-                    rows={!open ? [] : model.ageRows.filter(r => r.round === g.round).map(r => ({
-                      slot: r.slot,
-                      cells: r.cells.map(c => ({ v: c.pending ? null : c.med, pending: c.pending })),
-                      med: med(r.cells.map(c => c.pending ? null : c.med)),
-                    }))} />
+                  <div key={slot} className="cell"
+                    style={{ background: heatBg(m), color: heatFg(m), boxShadow: ring }}>
+                    {m == null ? "—" : sgn(m)}
+                  </div>
                 );
               })}
-            </tbody>
-          </table>
+            </div>
+          ))}
         </div>
-      </div>
+        <div className="heat-note">
+          <span>Rows are draft rounds, columns are the pick within the round — so column 01 is every team's first-up selection.</span>
+          <span className="end">Ringed cells: best and worst slot on record.</span>
+        </div>
 
-      {/* (d) slot by class */}
+        {/* (c) WAR by career year */}
+        <div className="dwrap" style={{ paddingTop: 22 }}>
+          <div className="dhead">
+            <div className="chart-label" style={{ marginBottom: 0 }}>WAR by career year</div>
+            <div className="note">
+              Median WAR a slot returned in its player's first season, second season, third. A year column
+              opens once the corpus has scored it — * marks one not yet played. Click a round to open its slots.
+            </div>
+          </div>
+          <div className="dscroll">
+            <table className="dtbl">
+              <colgroup>
+                <col style={{ width: "15%" }} />
+                {ageCols.map((_, i) => <col key={i} style={{ width: colW(ageCols.length) }} />)}
+                <col style={{ width: "17%" }} />
+              </colgroup>
+              <thead>
+                <tr>
+                  <th className="t">Slot</th>
+                  {ageCols.map(c => (
+                    <th key={c.label} className="n" style={{ color: c.pending ? "var(--dim3)" : undefined }}>{c.label}</th>
+                  ))}
+                  <th className="n med">Median</th>
+                </tr>
+              </thead>
+              <tbody>
+                {corpus.ageByRound.map(g => {
+                  const open = !!openAge[g.round];
+                  const gm = med(g.cells.map(c => c.pending ? null : c.med));
+                  return (
+                    <RoundGroup key={g.round} round={g.round} open={open}
+                      onToggle={() => setOpenAge(s => ({ ...s, [g.round]: !open }))}
+                      cells={g.cells.map(c => ({ v: c.pending ? null : c.med, pending: c.pending }))}
+                      rowMed={gm} ink={ink}
+                      rows={!open ? [] : corpus.ageRows.filter(r => r.round === g.round).map(r => ({
+                        slot: r.slot,
+                        cells: r.cells.map(c => ({ v: c.pending ? null : c.med, pending: c.pending })),
+                        med: med(r.cells.map(c => c.pending ? null : c.med)),
+                      }))} />
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </>}
+
+      {/* (d) slot by class — our drafts */}
       <div className="dwrap">
         <div className="dhead">
           <div className="chart-label" style={{ marginBottom: 0 }}>Slot by class · WAR per season</div>
           <div className="note">
-            A class joins the table once it has one completed season;{" "}
-            {model.pendingClasses.join(", ") || "the next class"} (*) sits reserved until then. Click a round to open its slots.
+            Our own picks. A class joins the table once it has one completed season;{" "}
+            {league.pendingClasses.join(", ") || "the next class"} (*) sits reserved until then. Click a round to open its slots.
           </div>
         </div>
         <div className="dscroll">
@@ -375,7 +362,8 @@ export default function Draft() {
             <tbody>
               {ROUNDS.map(rd => {
                 const open = !!openClass[rd];
-                const mine = model.classRows.filter(r => r.round === rd);
+                const mine = league.classRows.filter(r => r.round === rd);
+                if (!mine.length) return null;
                 // round row = median of the values printed on that row — the same
                 // rule the slot rows follow, so the summary can't contradict them
                 const colMed = (i: number) => med(mine.map(r => r.cells[i].per));
@@ -396,9 +384,9 @@ export default function Draft() {
         </div>
       </div>
 
-      {/* (e) best / worst value over slot */}
+      {/* (e) best / worst value over slot — our picks */}
       <div className="pick-tables">
-        {([["Best value over slot", "best", model.best], ["Worst value over slot", "worst", model.worst]] as const).map(([title, cls, rows]) => (
+        {([["Best value over slot", "best", league.best], ["Worst value over slot", "worst", league.worst]] as const).map(([title, cls, rows]) => (
           <div key={cls}>
             <div className={`pick-title ${cls}`}>{title}</div>
             <table>
@@ -434,14 +422,14 @@ export default function Draft() {
       </div>
 
       <div className="footnote">
-        Every pick is divided by the seasons it has actually had, so a {model.gradedClasses[model.gradedClasses.length - 1]} rookie
-        is compared fairly against a {model.gradedClasses[0]} one
-        {roundMed(1) != null && roundMed(3) != null && <>
-          {" "}· a first-round pick has returned a median {sgn(roundMed(1) as number)} WAR per season,
-          a third-rounder {sgn(roundMed(3) as number)}
+        {corpus && <>
+          Slot value — the box plots, the heat map and the career-year table — pools {corpus.picks.toLocaleString()} rookie
+          picks from five 12-team superflex leagues ({corpus.classes}), every season calibrated to this league's WAR
+          scale · a first-round pick has returned a median {roundMed(1) != null ? sgn(roundMed(1) as number) : "—"} WAR
+          per season, a third-rounder {roundMed(3) != null ? sgn(roundMed(3) as number) : "—"} ·{" "}
         </>}
-        {" "}· the value tables rank by WAR over the slot's expectation, not raw WAR — so a pick that returned
-        less than its slot was expected to counts as a miss (Bridge A)
+        Slot by class and the value tables are our own {league.gradedClasses.join("–")} picks only · every pick is divided
+        by the seasons it has actually had, and the value tables rank by WAR over the slot's expectation, not raw WAR (Bridge A)
       </div>
     </>
   );
