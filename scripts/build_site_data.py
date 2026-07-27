@@ -12,10 +12,20 @@ Outputs:
   data/<season>/teams.json      fantasy teams: manager, record, roster
   data/<season>/weekly.json     player_id -> [[week, pts, pAA, pAR, WAA, WAR], ...]
 """
-import argparse, csv, json, statistics, time
+import argparse, csv, json, re, statistics, time
 from pathlib import Path
 
 ALLOW_EMPTY = False   # set by --allow-empty
+
+# Hand-assigned URL aliases, keyed by founding league_id. Set one here to
+# override the name-derived default; leave a league out and it gets
+# "<slugified-name>-<last 4 of key>".
+ALIASES = {
+    "814608002207334400": "big-dog",     # Big Dog Dynasty
+}
+
+def slugify(s):
+    return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", (s or "").lower())).strip("-") or "league"
 
 def load(p):
     return json.loads(Path(p).read_text(encoding="utf-8"))
@@ -55,6 +65,9 @@ def main():
     used_ids, seasons, league_name = set(), [], "League"
     roster_positions, taxi_slots = [], 0
     latest_with_data = None
+    chain = {}            # season -> league_id
+    prev_of = {}          # league_id -> previous_league_id (None at the founder)
+    commissioners = []    # [{user_id, name}] from the newest season
     pts_min, pts_max = 0.0, 0.0   # league-wide extremes of any single weekly score
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
     # (season, roster_id) whose Sleeper owner had no team/display name that year
@@ -91,7 +104,16 @@ def main():
 
         # --- teams ---
         rosters = load(sdir / "rosters.json") or []
-        users = {u["user_id"]: u for u in (load(sdir / "users.json") or [])}
+        user_list = load(sdir / "users.json") or []
+        users = {u["user_id"]: u for u in user_list}
+        # league identity: Sleeper mints a NEW league_id every season and chains
+        # them backward, so the chain is what identifies a league over time. The
+        # founder (previous_league_id == null) is the one id that never changes.
+        chain[season] = league["league_id"]
+        prev_of[league["league_id"]] = league.get("previous_league_id")
+        commissioners = [{"user_id": u["user_id"],
+                          "name": u.get("display_name") or "?"}
+                         for u in user_list if u.get("is_owner")] or commissioners
         teams = []
         for r in rosters:
             u = users.get(r.get("owner_id") or "", {})
@@ -396,6 +418,38 @@ def main():
         guard_write(out / "picks_owned.json",
                     {"meta": {"seasons": fut, "as_of": newest}, "owned": owned},
                     content=owned)
+    # --- league registry -----------------------------------------------------
+    # A league is keyed by its FOUNDING league_id, permanently. Sleeper issues a
+    # new id every season, so keying on the current one would move every data
+    # path and URL annually; the founder is the only id that never changes.
+    #
+    # The alias is data, not a derived value read at request time. If two
+    # leagues would claim the same alias, the second simply doesn't get one and
+    # falls back to its id — a visible condition in this file rather than an
+    # algorithm that silently reassigns URLs. Full ids always resolve, so an
+    # alias is never load-bearing.
+    if seasons:
+        founder = next((lid for lid, prev in prev_of.items() if not prev),
+                       chain[min(seasons)])
+        alias = ALIASES.get(founder) or f"{slugify(league_name)}-{founder[-4:]}"
+        guard_write(out / "leagues.json", {
+            "default": founder,
+            "leagues": [{
+                "key": founder,
+                "alias": alias,
+                "name": league_name,
+                "seasons": seasons,
+                # `latest` is the newest season with games played; `rosterSeason`
+                # is whose rosters are live. They differ all offseason, and
+                # conflating them is what showed the rookie class as unowned.
+                "latest": latest_with_data,
+                "rosterSeason": max(seasons),
+                "currentLeagueId": chain[max(seasons)],
+                "chain": chain,
+                "commissioners": commissioners,
+            }],
+        }, content=founder)
+
     # gauge meta on `latest`: regressing it to null means no season produced
     # summary data, which for this league is always a broken run
     #
