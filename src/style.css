@@ -452,8 +452,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   font: 700 16px/1 var(--cond);
   letter-spacing: .1em;
 }
-.box-row svg { flex: 0 0 800px; overflow: visible; }
-.box-row .meta { font: 400 11.5px/1.4 var(--sans); color: var(--dim); white-space: nowrap; }
 /* axis tick labels are HTML, absolutely positioned — SVG <text> is avoided
    so the labels stay selectable and inherit the type stack */
 .axis { display: flex; gap: 12px; margin-top: 6px; }
@@ -582,7 +580,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 
 @media (max-width: 900px) {
   .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-  .box-row svg, .axis .scale { flex-basis: 640px; }
 }
 
 @media (max-width: 640px) {
@@ -617,11 +614,30 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 :root { --war-pos: #43d783; --war-neg: #e8757f; }
 
 /* ---- draft: box-plot rows (fluid svg between fixed rails) ---------------- */
-.box-row .lbl { flex: 0 0 56px; }
-.box-row svg { flex: 1 1 auto; min-width: 0; width: 100%; height: 30px; }
-.box-row .meta { flex: 0 0 210px; width: 210px; text-align: right; font-variant-numeric: tabular-nums; }
+.box-row { align-items: stretch; }
+.box-row .lbl {
+  flex: 0 0 56px;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
+}
+.box-row .lbl .n {
+  font: 400 10.5px/1 var(--sans); letter-spacing: 0; color: var(--dim3);
+  font-variant-numeric: tabular-nums;
+}
+/* the plot is a positioning context: the figures sit on the chart as HTML,
+   because the svg is stretched (preserveAspectRatio="none") and any <text>
+   inside it would stretch with it */
+.box-row .plot { position: relative; flex: 1 1 auto; min-width: 0; }
+.box-row .plot svg { display: block; width: 100%; height: 46px; overflow: visible; }
+.box-row .plot .lab {
+  position: absolute; white-space: nowrap; pointer-events: none;
+  font-variant-numeric: tabular-nums;
+}
+/* every figure sits in the band above the chart, so none of them crosses a
+   whisker, a cap or the box */
+.box-row .plot .lab { top: 0; }
+.box-row .plot .lab.med { font: 700 13px/1 var(--cond); color: var(--acc); }
+.box-row .plot .lab.end { font: 400 11px/1 var(--sans); color: var(--dim); }
 .axis .scale { flex: 1 1 auto; min-width: 0; }
-.axis .tail { flex: 0 0 210px; width: 210px; }
 
 /* ---- draft: slot heat map ------------------------------------------------ */
 .heat-head { display: flex; gap: 2px; margin-bottom: 3px; }
@@ -640,6 +656,9 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   flex: 1; min-width: 48px; height: 38px;
   display: flex; align-items: center; justify-content: center;
   font: 700 18px/1 var(--cond); font-variant-numeric: tabular-nums;
+  /* Ink is set per cell from that cell's own luminance (see Draft.tsx):
+     dark on the light greens, cream on the dark roses. Every cell clears
+     4.5:1 that way; a single flat ink does not. */
 }
 .heat-legend { display: flex; align-items: center; gap: 9px; }
 .heat-legend .sw { display: flex; gap: 1px; }
@@ -655,20 +674,44 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 .dwrap { padding: 6px var(--pad) 22px; }
 .dhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
 .dhead .note { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
+/* caption under the table — sits after the figure, out of the gap between the
+   title and the first row. Matches .heat-note, the caption under the heat map. */
+.tnote { margin-top: 9px; font: 400 11.5px/1.5 var(--sans); color: var(--dim3); }
 .dscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 .dtbl thead th { padding: 7px 10px; font-size: 12px; letter-spacing: .14em; color: var(--dim2); }
 .dtbl thead th.med { color: var(--dim2); border-left: 1px solid var(--rule); padding-right: 14px; }
-.dtbl tr.rd { background: #0d1218; border-top: 2px solid var(--rule); cursor: pointer; }
-.dtbl tr.rd:hover { background: #151c24; }
-.dtbl tr.rd td { border-bottom: 1px solid var(--bg); }
+/* Three depths in one table: round, Early/Mid/Late tier, exact pick. Depth is
+   carried by indent + label weight rather than by colour alone, so it survives
+   the horizontal scroll on mobile where the first column is what stays put. */
+.dtbl tr.lvl0 { background: #0d1218; border-top: 2px solid var(--rule); }
+.dtbl tr.lvl1 { background: #111820; }
+.dtbl tr.lvl2 { background: var(--band); }
+.dtbl tr.tap { cursor: pointer; }
+.dtbl tr.tap:hover { background: #1a222b; }
+.dtbl tr.lvl0 td { border-bottom: 1px solid var(--bg); }
 .dtbl td { padding: 6px 10px; border-bottom: 1px solid var(--bg); }
 .dtbl td.lbl { font: 700 15px/1.3 var(--cond); letter-spacing: .1em; color: var(--txt); white-space: nowrap; }
 .dtbl td.lbl .caret { display: inline-block; width: 14px; font-size: 11px; }
+.dtbl tr.lvl1 td.lbl { padding-left: 26px; font-weight: 600; font-size: 14px; color: var(--txt2); }
+.dtbl tr.lvl2 td.lbl { padding-left: 46px; font-weight: 600; font-size: 15px; letter-spacing: .06em; color: #8b96a5; }
+/* leaf caret is a spacer, so every label at a depth starts on the same x */
+.dtbl tr.lvl2 td.lbl .caret { color: transparent; }
+.dtoggle {
+  margin-left: auto; padding: 4px 11px; background: transparent;
+  border: 1px solid var(--rule); border-radius: 3px; cursor: pointer;
+  font: 600 11px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.dtoggle:hover { border-color: var(--dim2); color: var(--txt2); }
 .dtbl td.slot { padding-left: 34px; font: 600 16px/1.3 var(--cond); letter-spacing: .06em; }
 .dtbl td .v { font: 700 16px/1.3 var(--cond); font-variant-numeric: tabular-nums; }
 .dtbl td.med { border-left: 1px solid var(--rule); padding-right: 14px; }
 .dtbl td.med .v { font-size: 18px; }
+/* Hit % is a share, not a signed WAR figure — neutral so it can't be mistaken
+   for one of the green/red value columns beside it */
+.dtbl td .v.hit { color: var(--txt2); }
+.dtbl td.slot .who { padding-top: 2px; letter-spacing: 0; }
 .dtbl td .who {
   font: 400 11.5px/1.4 var(--sans); color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -795,7 +838,6 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
   .ppanel { min-width: 100%; }
   .ppanel.career { flex: 1 1 100%; }
   .prow .rng { display: none; }
-  .box-row .meta, .axis .tail { flex-basis: 120px; width: 120px; }
   .heat2 .cell, .heat-head span { min-width: 40px; }
 }
 

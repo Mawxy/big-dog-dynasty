@@ -1,6 +1,9 @@
 name: Crawl - drafts (startup/rookie ADP)
-# Reads data/crawl_leagues.json and pulls draft boards for ADP. Light (a few
-# calls per league), so a single unsharded job on its own runner is plenty.
+# Reads data/crawl_leagues.json and pulls draft boards for ADP, following
+# previous_league_id back to FIRST_CLASS so the rookie corpus gets historical
+# classes and not just the current one. That chain walk costs ~2 extra calls per
+# predecessor, but only once per league_id ever (state file seen_leagues.json),
+# so the first passes after it lands are slow and later ones return to normal.
 # Commits data/draft_signals.json; state persists via cache with a 7-day window.
 on:
   schedule:

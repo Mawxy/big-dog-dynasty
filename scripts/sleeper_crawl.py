@@ -33,6 +33,12 @@ RETRIES = 3
 RATE_LIMIT_TRIES = 10
 STARTUP_MIN_ROUNDS = 10
 CHECKPOINT_EVERY = 250
+# Rookie-corpus chain walk. Sleeper's /league/<id>/drafts is per league_id, and
+# a league_id is ONE SEASON — so a crawl seeded from current-season leagues can
+# only ever see the current rookie class. Follow previous_league_id back to
+# reach older classes; stop at FIRST_CLASS, the oldest class Bridge A prices.
+FIRST_CLASS = 2019
+MAX_CHAIN = 10
 DEFAULT_SEEDS = ["1312221243742621696", "1180090288907112448",
                  "1048300464669937664", "916360462835634176",
                  "814608002207334400"]
@@ -396,18 +402,50 @@ def mode_drafts(args, t0):
     # rookie-pick corpus for Bridge A: "season|pick|pid" -> # drafts. Persistent
     # and NOT windowed — a completed rookie draft is a permanent historical fact.
     rookie_corpus = jload(sd / "rookie_corpus.json", {})
+    # league_ids whose chain has already been walked. A predecessor reached once
+    # never needs re-fetching: its own history was walked in the same pass, and
+    # completed drafts don't change. Keeps the backfill a one-time cost and lets
+    # next season's league_id stop as soon as it reaches this season's.
+    seen_leagues = set(jload(sd / "seen_leagues.json", []))
     league_list = jload(ROOT / args.leagues_out, {}).get("leagues", [])
     mine = [lid for lid in league_list if not fresh(progress.get(lid), args.cooldown_days)]
     pmeta = load_player_meta(sd)                   # {pid: {exp, name, pos}}
     cur = int(args.season)
 
     def is_rookie_of(pid, dseason):
-        """True iff the player's draft class == this draft's season."""
+        """True iff the player's draft class == this draft's season.
+
+        `exp` is years-of-experience as of `cur`, so this reads a historical
+        class correctly for anyone still in the league. Players who have since
+        retired lose their exp and drop out, which biases old classes toward
+        survivors — accepted: the window is clamped to a career's first years
+        and volume swamps it.
+        """
         ye = (pmeta.get(pid) or {}).get("exp")
         return ye is not None and dseason and (cur - ye) == int(dseason)
 
+    def chain_of(lid):
+        """This league and its predecessors, newest first — one league_id per
+        season. Without this the rookie corpus is only ever the current class."""
+        out, guard = [], set()
+        node = lid
+        while node and node not in guard and len(out) < MAX_CHAIN:
+            guard.add(node)
+            out.append(node)
+            if node in seen_leagues:
+                break                       # history already harvested
+            lg = get(f"/league/{node}")
+            if not lg:
+                break
+            if int(lg.get("season") or 0) <= FIRST_CLASS:
+                break                       # older than any class Bridge A prices
+            node = lg.get("previous_league_id")
+        return out
+
     n_done = 0
-    counters = lambda: {"todo": len(mine) - n_done, "done": n_done, "leagues": len(contrib)}
+    counters = lambda: {"todo": len(mine) - n_done, "done": n_done,
+                        "leagues": len(contrib), "walked": len(seen_leagues),
+                        "classes": len({k.split("|")[0] for k in rookie_corpus})}
     hb = make_heartbeat(t0, counters)
     print(f"[drafts] {len(mine)} leagues due of {len(league_list)}", file=sys.stderr, flush=True)
 
@@ -434,9 +472,10 @@ def mode_drafts(args, t0):
             season, pno, pid = key.split("|")
             m = pmeta.get(pid) or {}
             corpus.append([int(season), int(pno), pid, m.get("name"), m.get("pos"), cnt])
-        jdump(ROOT / "data/rookie_pick_corpus.json",
+        jdump(ROOT / args.rookie_out,
               {"generated": datetime.date.today().isoformat(), "picks": corpus})
         jdump(sd / "rookie_corpus.json", rookie_corpus)
+        jdump(sd / "seen_leagues.json", sorted(seen_leagues))
         jdump(sd / "progress.json", progress)
         jdump(sd / "contrib.json", contrib)
         jdump(sd / "seen_drafts.json", list(seen_drafts))
@@ -449,24 +488,27 @@ def mode_drafts(args, t0):
             break
         try:
             su, rk = defaultdict(list), defaultdict(list)
-            for d in (get(f"/league/{lid}/drafts") or []):
-                did = d.get("draft_id")
-                if not did or did in seen_drafts or d.get("status") != "complete":
-                    continue
-                seen_drafts.add(did)
-                rounds = (d.get("settings") or {}).get("rounds") or 0
-                startup = rounds >= STARTUP_MIN_ROUNDS
-                dseason = d.get("season")
-                for pk in (get(f"/draft/{did}/picks") or []):
-                    pid, pno = pk.get("player_id"), pk.get("pick_no")
-                    if not (pid and pno):
+            chain = chain_of(lid)
+            for clid in chain:
+                for d in (get(f"/league/{clid}/drafts") or []):
+                    did = d.get("draft_id")
+                    if not did or did in seen_drafts or d.get("status") != "complete":
                         continue
-                    if startup:
-                        su[pid].append(pno)          # startups: everyone counts
-                    elif is_rookie_of(pid, dseason):
-                        rk[pid].append(pno)          # rookie bucket: matching class only
-                        key = f"{dseason}|{pno}|{pid}"
-                        rookie_corpus[key] = rookie_corpus.get(key, 0) + 1
+                    seen_drafts.add(did)
+                    rounds = (d.get("settings") or {}).get("rounds") or 0
+                    startup = rounds >= STARTUP_MIN_ROUNDS
+                    dseason = d.get("season")
+                    for pk in (get(f"/draft/{did}/picks") or []):
+                        pid, pno = pk.get("player_id"), pk.get("pick_no")
+                        if not (pid and pno):
+                            continue
+                        if startup:
+                            su[pid].append(pno)      # startups: everyone counts
+                        elif is_rookie_of(pid, dseason):
+                            rk[pid].append(pno)      # rookie bucket: matching class only
+                            key = f"{dseason}|{pno}|{pid}"
+                            rookie_corpus[key] = rookie_corpus.get(key, 0) + 1
+            seen_leagues.update(chain)
             contrib[lid] = {"ts": time.time(), "startup": dict(su), "rookie": dict(rk)}
             progress[lid] = time.time()
             n_done += 1
@@ -508,6 +550,9 @@ def main():
     ap.add_argument("--leagues-out", default="data/crawl_leagues.json")
     ap.add_argument("--trades-out", default="data/trade_corpus.json")
     ap.add_argument("--drafts-out", default="data/draft_signals.json")
+    # separate flag so a bounded trial run can write somewhere harmless instead
+    # of overwriting the committed corpus with a partial sample
+    ap.add_argument("--rookie-out", default="data/rookie_pick_corpus.json")
     args = ap.parse_args()
     state = get("/state/nfl") or {}
     args.season = args.season or state.get("season")
