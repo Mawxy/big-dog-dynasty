@@ -50,7 +50,7 @@ export function legacyRegistry(meta: Meta): Leagues {
     key: "", alias: "", name: meta.league, seasons,
     latest: meta.latest ?? null,
     rosterSeason: meta.rosterSeason || seasons[seasons.length - 1],
-    currentLeagueId: "", chain: {}, commissioners: [],
+    currentLeagueId: "", chain: {}, commissioners: [], members: [],
   };
   return { default: "", leagues: [entry] };
 }

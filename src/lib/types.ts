@@ -26,6 +26,8 @@ export interface LeagueEntry {
   /** season -> that season's league_id */
   chain: Record<string, string>;
   commissioners: { user_id: string; name: string }[];
+  /** every member's user_id — the anchors rollover discovery uses */
+  members: string[];
 }
 export interface Leagues { default: string; leagues: LeagueEntry[] }
 

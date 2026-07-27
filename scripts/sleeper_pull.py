@@ -89,6 +89,46 @@ def week_complete(season, wk, state):
     return wk < int(state.get("week") or 0)          # in-season: only weeks before the live one
 
 
+def newest_of(league_id: str) -> str:
+    """Follow the chain FORWARD to the newest season of this league.
+
+    Sleeper hands out a new league_id every time the commissioner rolls the
+    league over — whenever they choose, not on a schedule — and the new league
+    points backward via `previous_league_id`. There is no `next_league_id`, so
+    the only way to notice a rollover is to enumerate leagues, and the only
+    endpoint that enumerates is per-user.
+
+    Anchored on EVERY member, not the commissioner: any member's league list
+    contains the new league, and using all of them means the walk survives the
+    commissioner handing over, leaving, or not having joined yet. It stops at
+    the first member who can see the successor, so the usual cost is one call.
+
+    Nothing found is the normal case — it means no rollover has happened — and
+    costs one request per member of the head league.
+    """
+    while True:
+        league = get(f"/league/{league_id}")
+        if not league:
+            return league_id
+        season = int(league.get("season") or 0)
+        if not season:
+            return league_id
+        members = [u["user_id"] for u in (get(f"/league/{league_id}/users") or [])
+                   if u.get("user_id")]
+        nxt = None
+        for uid in members:
+            for lg in (get(f"/user/{uid}/leagues/nfl/{season + 1}") or []):
+                if lg.get("previous_league_id") == league_id:
+                    nxt = lg["league_id"]
+                    break
+            if nxt:
+                break
+        if not nxt:
+            return league_id
+        print(f"  -> rolled over: {season} ({league_id}) -> {season + 1} ({nxt})")
+        league_id = nxt
+
+
 def dump_league(league_id: str, root: Path, state=None):
     """Dump one season's league and return its previous_league_id (or None)."""
     league = get(f"/league/{league_id}")
@@ -237,6 +277,7 @@ def main():
     ap.add_argument("--out", default="sleeper_data", help="Output folder (default: sleeper_data)")
     ap.add_argument("--players", action="store_true", help="Also download the full player-ID map (~5MB; Sleeper asks max once/day)")
     ap.add_argument("--no-history", action="store_true", help="Only the given league, don't walk previous seasons")
+    ap.add_argument("--no-forward", action="store_true", help="Don't follow the chain forward to newer seasons — pull exactly the id given")
     args = ap.parse_args()
 
     root = Path(args.out)
@@ -263,6 +304,9 @@ def main():
     if args.players:
         print("Downloading full player map (~5MB)...")
         save(get("/players/nfl"), root / "players.json")
+
+    if not args.no_forward:
+        league_id = newest_of(league_id)
 
     seen = set()
     while league_id and league_id not in seen:

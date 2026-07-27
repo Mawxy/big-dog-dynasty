@@ -74,6 +74,7 @@ def main():
     chain = {}            # season -> league_id
     prev_of = {}          # league_id -> previous_league_id (None at the founder)
     commissioners = []    # [{user_id, name}] from the newest season
+    members = []          # every user_id in the newest season
     pts_min, pts_max = 0.0, 0.0   # league-wide extremes of any single weekly score
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
     # (season, roster_id) whose Sleeper owner had no team/display name that year
@@ -128,6 +129,11 @@ def main():
         commissioners = [{"user_id": u["user_id"],
                           "name": u.get("display_name") or "?"}
                          for u in user_list if u.get("is_owner")] or commissioners
+        # every member, not just commissioners: these are the anchors
+        # sleeper_pull uses to notice a rollover, and any one of them can see
+        # the new league. Keeping all twelve means the walk survives the
+        # commissioner handing over or leaving.
+        members = [u["user_id"] for u in user_list if u.get("user_id")] or members
         teams = []
         for r in rosters:
             u = users.get(r.get("owner_id") or "", {})
@@ -459,6 +465,7 @@ def main():
                 "currentLeagueId": chain[max(seasons)],
                 "chain": chain,
                 "commissioners": commissioners,
+                "members": members,
             }],
         }, content=founder)
 
