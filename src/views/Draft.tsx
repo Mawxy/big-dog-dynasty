@@ -156,17 +156,35 @@ export default function Draft() {
       n: graded.length, gradedClasses, pendingClasses, byRound, slotMed,
       ages, pendingAges, ageRows, ageByRound, classRows,
       best: withDiff.slice(0, 8), worst: withDiff.slice(-8).reverse(),
+      // widest per-season return on record — drives the box-plot domain
+      absMax: Math.max(0, ...graded.map(p => Math.abs(p.per))),
+      // how many picks sit behind each heat cell (varies as classes are added)
+      cellN: (() => {
+        const ns = Object.keys(slotMed).map(s => graded.filter(p => p.slot === s).length);
+        const lo = Math.min(...ns), hi = Math.max(...ns);
+        return lo === hi ? `n=${hi} per cell` : `n=${lo}–${hi} per cell`;
+      })(),
     };
   }, [drafts, fr, warBySeason]);
 
   if (err) return <div className="empty">No draft data yet.</div>;
   if (!model) return <div className="empty">Loading draft data…</div>;
 
-  // ---- (a) geometry: WAR per season, fixed domain ----
-  const LO = -1.4, HI = 1.4, W = 800;
+  // ---- (a) geometry: WAR per season ----
+  // The design specifies a ±1.4 domain, which is what this league's data spans
+  // today. Treat that as a FLOOR, not a constant: the axis grows if a future
+  // class returns more than ±1.4, because the scale clamps and a pinned bar
+  // would otherwise read as exactly 1.4. Ticks follow the domain.
+  const W = 800;
+  // .toFixed guards the float dust in ceil(x/0.2)*0.2 — it yields 1.4000000000000001
+  const HI = Math.max(1.4, +(Math.ceil((model.absMax * 1.05) / 0.2) * 0.2).toFixed(2));
+  const LO = -HI;
   const sx = (v: number) => Math.max(0, Math.min(W, ((v - LO) / (HI - LO)) * W));
   const pctX = (v: number) => ((v - LO) / (HI - LO) * 100).toFixed(2) + "%";
-  const TICKS = [-1.2, -0.8, -0.4, 0, 0.4, 0.8, 1.2];
+  const step = HI <= 1.6 ? 0.4 : HI <= 3 ? 0.5 : 1;
+  const TICKS: number[] = [];
+  for (let t = -Math.floor((HI - 1e-9) / step) * step; t < HI - 1e-9; t += step)
+    TICKS.push(+t.toFixed(2));
 
   // ---- (b) diverging ramp: green for gains, rose for losses ----
   const medAll = Object.values(model.slotMed).filter((v): v is number => v != null);
@@ -185,6 +203,9 @@ export default function Draft() {
 
   const ink = (v: number | null) => v == null ? "var(--dim3)"
     : v > 0.02 ? "#43d783" : v < -0.02 ? "#e8757f" : "var(--dim)";
+  /** that round's median per-season return, for the footnote — derived, so the
+   *  sentence can't drift away from the chart above it */
+  const roundMed = (rd: number) => model.byRound.find(b => b.round === rd)?.s?.md ?? null;
 
   // both draft tables share one width set so they line up column-for-column
   const ageCols = [...model.ages.map(a => ({ label: `Yr ${a}`, pending: false })),
@@ -244,7 +265,7 @@ export default function Draft() {
       {/* (b) heat map */}
       <div style={{ padding: "0 var(--pad) 0" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 11, flexWrap: "wrap" }}>
-          <div className="chart-label" style={{ marginBottom: 0 }}>Median WAR per season by exact slot</div>
+          <div className="chart-label" style={{ marginBottom: 0 }}>Median WAR per season by exact slot · {model.cellN}</div>
           <div className="heat-legend">
             <span>{fmt(worstSlot)}</span>
             <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
@@ -414,8 +435,13 @@ export default function Draft() {
 
       <div className="footnote">
         Every pick is divided by the seasons it has actually had, so a {model.gradedClasses[model.gradedClasses.length - 1]} rookie
-        is compared fairly against a {model.gradedClasses[0]} one · the value tables rank by WAR over the slot's expectation,
-        not raw WAR — so a pick that returned less than its slot was expected to counts as a miss (Bridge A)
+        is compared fairly against a {model.gradedClasses[0]} one
+        {roundMed(1) != null && roundMed(3) != null && <>
+          {" "}· a first-round pick has returned a median {sgn(roundMed(1) as number)} WAR per season,
+          a third-rounder {sgn(roundMed(3) as number)}
+        </>}
+        {" "}· the value tables rank by WAR over the slot's expectation, not raw WAR — so a pick that returned
+        less than its slot was expected to counts as a miss (Bridge A)
       </div>
     </>
   );
