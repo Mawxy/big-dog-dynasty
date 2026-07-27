@@ -19,9 +19,11 @@ Output: data/blended_values.json.  Usage: python scripts/blend_values.py
 """
 import json
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+DATA = DataDir(ROOT / "data")
 
 # ---- knobs -----------------------------------------------------------------
 # KTC and FC are the SAME market, so they're merged into one "market" opinion

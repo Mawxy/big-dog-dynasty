@@ -38,8 +38,11 @@ Usage: python scripts/pick_value.py [--last-season 2025]
 import argparse, csv, json, re, statistics
 from collections import defaultdict
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 ROOT = Path(__file__).resolve().parent.parent
+DATA = DataDir(ROOT / "data")
 FIRST_CLASS = 2019
 # A year-since-draft column is published once every slot has enough real
 # observations behind it — NOT after a fixed number of calendar years. Add
@@ -120,7 +123,7 @@ def load_sources(last_season):
                 hist[r['player_id']][yr] = float(r['WAR'])
 
     real = defaultdict(dict)                       # sleeper_id -> {season: war}
-    for d in sorted((ROOT / 'data').iterdir()):
+    for d in sorted((DATA).iterdir()):
         if d.is_dir() and d.name.isdigit() and int(d.name) <= last_season:
             f = d / 'summary.json'
             if f.exists():
@@ -244,7 +247,7 @@ def main():
     #     across the players taken there, weighted by how many leagues took each,
     #     so the modal pick dominates without swamping memory. Blends with the
     #     curated CSV above. Absent (before the crawl) => no-op.
-    corpus_f = ROOT / 'data' / 'rookie_pick_corpus.json'
+    corpus_f = DATA / 'rookie_pick_corpus.json'
     raw_crawl = 0                      # actual rookie picks analyzed (all leagues)
     if corpus_f.exists():
         by_slot = defaultdict(list)
@@ -329,7 +332,7 @@ def main():
                            labels=(band_label, band_slots)),
     }
 
-    dest = ROOT / 'data' / 'pick_values.json'
+    dest = DATA / 'pick_values.json'
     dest.write_text(json.dumps(out, indent=1), encoding='utf-8')
 
     print(f"picks {len(picks)}  vets excluded {vets}  unmatched {len(unmatched)}")

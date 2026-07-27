@@ -13,9 +13,11 @@ proj_sleeper 3103, values 550, trades 144, shards 812).
 """
 import argparse, json, sys
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+DATA = DataDir(ROOT / "data")
 
 FLOORS = {
     "players_min": 400,

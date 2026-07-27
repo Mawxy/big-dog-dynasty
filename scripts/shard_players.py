@@ -26,6 +26,8 @@ same behaviour as before sharding.
 import argparse, json, shutil, sys
 from pathlib import Path
 
+from leaguepaths import DataDir
+
 def load(p):
     try:
         return json.loads(Path(p).read_text(encoding="utf-8"))
@@ -36,7 +38,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="data")
     args = ap.parse_args()
-    out = Path(args.out)
+    # --out is the data ROOT; the shards belong to the league inside it
+    out = DataDir(Path(args.out))
 
     projf = load(out / "projections.json") or {}
     sprojf = load(out / "proj_sleeper.json") or {}

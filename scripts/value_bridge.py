@@ -35,8 +35,11 @@ Usage: python scripts/value_bridge.py [--seed-season 2025]
 import argparse
 import json
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 ROOT = Path(__file__).resolve().parent.parent
+DATA = DataDir(ROOT / "data")
 
 
 # ---------------------------------------------------------------- fitting --
@@ -97,11 +100,11 @@ def main():
                     help="season whose summary.json is the realized-WAR sanity fit")
     args = ap.parse_args()
 
-    values = json.loads((ROOT / "data" / "values.json").read_text())
+    values = json.loads((DATA / "values.json").read_text())
     proj = {d["pid"]: d for d in
-            json.loads((ROOT / "data" / "projections.json").read_text())["players"]}
+            json.loads((DATA / "projections.json").read_text())["players"]}
     summary = json.loads(
-        (ROOT / "data" / str(args.seed_season) / "summary.json").read_text())
+        (DATA / str(args.seed_season) / "summary.json").read_text())
     war_real = {r[0]: (r[1], r[6]) for r in summary}  # pid -> (pos, war)
 
     out = {"meta": {"values_fetched": values.get("fetched"),
@@ -151,7 +154,7 @@ def main():
               f"war25 n={len(rl)} rho={diag['spearman_war25']}  "
               f"knots total={len(proj_fit['total'])}")
 
-    dest = ROOT / "data" / "value_bridge.json"
+    dest = DATA / "value_bridge.json"
     dest.write_text(json.dumps(out, separators=(",", ":")) + "\n")
     print(f"wrote {dest.relative_to(ROOT)}")
 
@@ -173,7 +176,7 @@ def main():
             n_imp += 1
         if pid in proj:
             d["modelWar"] = proj[pid]["total_comp"]
-    vdest = ROOT / "data" / "values.json"
+    vdest = DATA / "values.json"
     vdest.write_text(json.dumps(values, separators=(",", ":")) + "\n")
     print(f"augmented {vdest.relative_to(ROOT)}: impWar for {n_imp} players")
 

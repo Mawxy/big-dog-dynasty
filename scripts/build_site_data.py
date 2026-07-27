@@ -15,6 +15,8 @@ Outputs:
 import argparse, csv, json, re, statistics, time
 from pathlib import Path
 
+from leaguepaths import DataDir
+
 ALLOW_EMPTY = False   # set by --allow-empty
 
 # Hand-assigned URL aliases, keyed by founding league_id. Set one here to
@@ -58,8 +60,12 @@ def main():
                          "(deliberate resets only)")
     args = ap.parse_args()
     ALLOW_EMPTY = args.allow_empty
-    root, out = Path(args.data), Path(args.out)
-    out.mkdir(parents=True, exist_ok=True)
+    root, root_out = Path(args.data), Path(args.out)
+    root_out.mkdir(parents=True, exist_ok=True)
+    # `out` is the LEAGUE directory. The founding id isn't known until the
+    # seasons are walked, so it starts flat and is repointed below, before
+    # anything is written.
+    out = root_out
 
     players = load(root / "players.json")
     used_ids, seasons, league_name = set(), [], "League"
@@ -91,6 +97,19 @@ def main():
                     f"waa_war_{sn}.csv is missing — run sleeper_war.py first "
                     "(--allow-empty to override)")
 
+    # League identity, resolved before ANY write. Sleeper mints a new league_id
+    # each season and chains them backward; the founder (previous_league_id is
+    # null) is the only id that never moves, so it keys the directory.
+    for sdir in season_dirs:
+        lg = load(sdir / "league.json")
+        chain[lg["season"]] = lg["league_id"]
+        prev_of[lg["league_id"]] = lg.get("previous_league_id")
+    founder = next((lid for lid, prev in prev_of.items() if not prev),
+                   chain[min(chain)] if chain else "")
+    if founder:
+        out = root_out / "leagues" / founder
+        out.mkdir(parents=True, exist_ok=True)
+
     for sdir in season_dirs:
         league = load(sdir / "league.json")
         season = league["season"]
@@ -106,11 +125,6 @@ def main():
         rosters = load(sdir / "rosters.json") or []
         user_list = load(sdir / "users.json") or []
         users = {u["user_id"]: u for u in user_list}
-        # league identity: Sleeper mints a NEW league_id every season and chains
-        # them backward, so the chain is what identifies a league over time. The
-        # founder (previous_league_id == null) is the one id that never changes.
-        chain[season] = league["league_id"]
-        prev_of[league["league_id"]] = league.get("previous_league_id")
         commissioners = [{"user_id": u["user_id"],
                           "name": u.get("display_name") or "?"}
                          for u in user_list if u.get("is_owner")] or commissioners
@@ -428,11 +442,9 @@ def main():
     # falls back to its id — a visible condition in this file rather than an
     # algorithm that silently reassigns URLs. Full ids always resolve, so an
     # alias is never load-bearing.
-    if seasons:
-        founder = next((lid for lid, prev in prev_of.items() if not prev),
-                       chain[min(seasons)])
+    if seasons and founder:
         alias = ALIASES.get(founder) or f"{slugify(league_name)}-{founder[-4:]}"
-        guard_write(out / "leagues.json", {
+        guard_write(root_out / "leagues.json", {
             "default": founder,
             "leagues": [{
                 "key": founder,

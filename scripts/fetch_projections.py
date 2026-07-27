@@ -25,8 +25,11 @@ Usage: python scripts/fetch_projections.py [--season 2026] [--league-id ...]
 """
 import argparse, json, sys, time, urllib.request, urllib.error
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 ROOT = Path(__file__).resolve().parent.parent
+DATA = DataDir(ROOT / "data")
 LEAGUE_ID = "1312221243742621696"          # Big Dog Dynasty
 V1 = "https://api.sleeper.app/v1"
 PROJ_HOST = "https://api.sleeper.app"       # projections live off /v1
@@ -106,7 +109,7 @@ def main():
         print(f"  {pos}: {sum(1 for v in out.values() if v['pos'] == pos)} players")
         time.sleep(0.3)
 
-    dest = ROOT / "data" / "proj_sleeper.json"
+    dest = DATA / "proj_sleeper.json"
     # Every spring /state/nfl rolls to the new season before Sleeper publishes
     # projections for it — the endpoint then returns [] with HTTP 200. Writing
     # that would gut the committed file; exit non-zero and keep the old one

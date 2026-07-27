@@ -22,11 +22,13 @@ Usage: python scripts/draft_analysis.py
 """
 import json, sys
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 from draft_slots import build_slot_maps
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+DATA = DataDir(ROOT / "data")
 RAW = ROOT / "sleeper_data"
 TOP_ALTS = 3          # how many "could have had" names to keep
 EXP_YEARS_FALLBACK = 3   # only used if pick_values.json omits years_published

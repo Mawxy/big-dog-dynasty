@@ -21,11 +21,13 @@ Usage: python scripts/trade_analysis.py
 """
 import argparse, json, sys
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 from draft_slots import SLOT_FIX, build_slot_maps  # noqa: F401  (SLOT_FIX re-exported)
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA, RAW = ROOT / "data", ROOT / "sleeper_data"
+DATA, RAW = DataDir(ROOT / "data"), ROOT / "sleeper_data"
 ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
 
 # Per-team discount that collapses a multi-year WAR stream to one number.

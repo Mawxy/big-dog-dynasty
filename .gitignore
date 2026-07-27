@@ -8,7 +8,7 @@ vite.config.*.timestamp-*.mjs
 # raw trade corpus can be tens of MB at scale — kept as a CI artifact, not committed
 data/trade_corpus.json
 data/trade_corpus_*.json
-data/blended_values.json
+data/leagues/*/blended_values.json
 
 # crawler state — progress/contrib/seen_drafts/seen_leagues + the rookie corpus
 # accumulator. Persisted between CI runs by actions/cache, never by git; grows

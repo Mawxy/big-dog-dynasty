@@ -27,8 +27,11 @@ Output: data/projections.json + diagnostics.
 import argparse, csv, datetime, json, math, re, statistics
 from collections import defaultdict
 from pathlib import Path
+from leaguepaths import DataDir
+
 
 ROOT = Path(__file__).resolve().parent.parent
+DATA = DataDir(ROOT / "data")
 RECENCY = [0.5, 0.4, 0.1]            # recency weights (rate over volume; not games-weighted)
 BLEND_W = [0.8, 0.5, 0.2]            # composite: projected weight by year (math = 1 - this)
 ELITE_WAR = 1.2                      # a season at/above this counts toward durability
@@ -161,7 +164,7 @@ def main():
     args = ap.parse_args()
     H = args.horizon
 
-    meta = json.load(open(ROOT / 'data' / 'meta.json', encoding='utf-8'))
+    meta = json.load(open(DATA / 'meta.json', encoding='utf-8'))
     seasons = sorted(int(s) for s in meta['seasons'])
     seed = int(meta.get('latest') or seasons[-2])
     roster_season = seasons[-1]
@@ -169,7 +172,7 @@ def main():
     # per-13 rate + gp per player for seed-2..seed
     rate_s, gp_s, pos_s, war_s = defaultdict(dict), defaultdict(dict), {}, defaultdict(dict)
     for yr in (seed - 2, seed - 1, seed):
-        f = ROOT / 'data' / f'{yr}' / 'summary.json'
+        f = DATA / f'{yr}' / 'summary.json'
         if not f.exists():
             continue
         for row in json.load(open(f, encoding='utf-8')):
@@ -180,11 +183,11 @@ def main():
             if yr == seed:
                 pos_s[pid] = row[1]
 
-    teams = json.load(open(ROOT / 'data' / f'{roster_season}' / 'teams.json', encoding='utf-8'))
+    teams = json.load(open(DATA / f'{roster_season}' / 'teams.json', encoding='utf-8'))
     owner = {pid: t['team'] for t in teams for pid in t['players']}
-    names = json.load(open(ROOT / 'data' / 'players_min.json', encoding='utf-8'))
+    names = json.load(open(DATA / 'players_min.json', encoding='utf-8'))
     # NFL bye weeks for the roster season (team -> week), when published
-    byes_f = ROOT / 'data' / f'{roster_season}' / 'byes.json'
+    byes_f = DATA / f'{roster_season}' / 'byes.json'
     byes = json.load(open(byes_f, encoding='utf-8')) if byes_f.exists() else {}
 
     # ---- fantasy rookie-draft capital ------------------------------------
@@ -194,13 +197,13 @@ def main():
     # in realized WAR — so that's the seed. Sleeper's projection then carries
     # year 1 through the existing composite blend.
     fslot, slot_exp = {}, {}
-    dfile = ROOT / 'data' / 'drafts.json'
+    dfile = DATA / 'drafts.json'
     if dfile.exists():
         for picks in json.load(open(dfile, encoding='utf-8')).values():
             for p in picks:
                 if p.get('kind') == 'rookie' and p.get('pid') and not p.get('traded'):
                     fslot[p['pid']] = (int(p['season']), p['slot'])
-    pvfile = ROOT / 'data' / 'pick_values.json'
+    pvfile = DATA / 'pick_values.json'
     if pvfile.exists():
         pv = json.load(open(pvfile, encoding='utf-8'))
         yrs = sorted(int(y) for y in (pv.get('meta') or {}).get('years_published') or [])
@@ -210,7 +213,7 @@ def main():
     curves, avail, priors = model['curves'], model['availability'], model['capital_priors']
     UDFA_PICK = model['meta'].get('udfa_pick', 260)
     ptw = model.get('pts_to_war', {})
-    sfile = ROOT / 'data' / 'proj_sleeper.json'
+    sfile = DATA / 'proj_sleeper.json'
     sproj = json.load(open(sfile, encoding='utf-8'))['players'] if sfile.exists() else {}
     idx = build_meta_index()
 
@@ -220,7 +223,7 @@ def main():
     for yr in seasons:
         if yr > seed:
             continue
-        f = ROOT / 'data' / f'{yr}' / 'summary.json'
+        f = DATA / f'{yr}' / 'summary.json'
         if f.exists():
             for row in json.load(open(f, encoding='utf-8')):
                 realwar[row[0]][yr] = float(row[6])
@@ -410,7 +413,7 @@ def main():
                  'natural(if healthy) / composite(natural blended with Sleeper '
                  'projection, 80/50/20 by year) / expected(natural x availability)',
     }, 'players': rows}
-    (ROOT / 'data' / 'projections.json').write_text(json.dumps(out, indent=1), encoding='utf-8')
+    (DATA / 'projections.json').write_text(json.dumps(out, indent=1), encoding='utf-8')
 
     print(f"seed {seed}  rosters {roster_season}  projected {len(rows)}  "
           f"skipped no-history {skipped}  age-default {age_def}  "
