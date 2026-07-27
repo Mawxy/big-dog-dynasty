@@ -185,8 +185,9 @@ export default function Draft() {
   const legend = [-1, -0.66, -0.33, -0.08, 0, 0.12, 0.3, 0.5, 0.72, 0.88, 1]
     .map(u => heatBg(u * (u < 0 ? hiNeg : hiPos)));
 
+  /** every signed WAR figure on this screen resolves to the same pair */
   const ink = (v: number | null) => v == null ? "var(--dim3)"
-    : v > 0.02 ? "#43d783" : v < -0.02 ? "#e8757f" : "var(--dim)";
+    : v > 0.02 ? "var(--war-pos)" : v < -0.02 ? "var(--war-neg)" : "var(--dim)";
   const roundMed = (rd: number) => corpus?.byRound.find(b => b.round === rd)?.s?.md ?? null;
 
   // both draft tables share one width set so they line up column-for-column
@@ -412,7 +413,7 @@ export default function Draft() {
                     </td>
                     <td className="n sub">{r.expected == null ? "—" : sgn(r.expected)}</td>
                     <td className="n raw">{sgn(r.war)}</td>
-                    <td className="n vs" style={{ color: (r.diff ?? 0) > 0 ? "var(--acc)" : "var(--bad)" }}>{sgn(r.diff ?? 0)}</td>
+                    <td className="n vs" style={{ color: ink(r.diff ?? 0) }}>{sgn(r.diff ?? 0)}</td>
                   </tr>
                 ))}
               </tbody>

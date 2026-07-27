@@ -9,3 +9,9 @@ vite.config.*.timestamp-*.mjs
 data/trade_corpus.json
 data/trade_corpus_*.json
 data/blended_values.json
+
+# scratch/ — throwaway local artifacts: design previews, one-off reports,
+# screenshots, anything generated to look at rather than to ship. Never committed.
+scratch/
+# same, if one lands outside scratch/ by accident
+*-preview.html
