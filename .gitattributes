@@ -1,0 +1,28 @@
+# Line endings are LF everywhere — in the repo AND in the working copy.
+#
+# Without this file Git falls back to the machine's core.autocrlf, which on
+# Git for Windows defaults to true: check out CRLF, commit LF. Editors and
+# tooling then rewrite files as LF, so the working copy drifts into a mix
+# (this repo had 9 CRLF files against 391 LF) and Git reports dozens of files
+# as modified when nothing changed — `git diff --ignore-all-space` on them is
+# empty. It also prints "LF will be replaced by CRLF" on every commit.
+#
+# `eol=lf` pins the working copy too, so the setting no longer depends on who
+# cloned it or how their global config is set. CI, the deploy and every script
+# run on Linux, so LF is what everything downstream expects anyway.
+* text=auto eol=lf
+
+# Binaries: never touch these.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.xlsx binary
+*.zip binary
+*.mdb binary
