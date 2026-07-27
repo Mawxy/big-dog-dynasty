@@ -163,5 +163,5 @@ function PlayerRoute() {
   // key={pid} forces a fresh mount per player: without it, QuickJump reuses the
   // component and a shard that 404s leaves the previous player's projection on
   // screen (state is never reset on fetch failure).
-  return <div className="legacy"><PlayerPage key={pid} pid={pid} players={players} meta={meta} back={() => nav(-1)} /></div>;
+  return <PlayerPage key={pid} pid={pid} players={players} meta={meta} back={() => nav(-1)} />;
 }

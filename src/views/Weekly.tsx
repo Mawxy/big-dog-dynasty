@@ -149,7 +149,8 @@ export default function Weekly({ data, season, players, week }: Props) {
       {openW != null && <WeekDrawer wk={openW} arr={byWeek[openW]} players={players} />}
 
       <div className="footnote">
-        A fixed margin is worth more wins in a low-scoring week — each week's conversion uses that week's own σ of the twelve team scores
+        A fixed margin is worth more wins in a low-scoring week — each week's conversion uses that week's
+        own <span className="sigma">σ</span> of the twelve team scores
       </div>
     </>
   );

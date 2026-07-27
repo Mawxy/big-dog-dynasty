@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Drafts, Franchises, PickValues } from "../lib/types";
-import { j, jDaily } from "../lib/data";
+import type { DraftPick, Drafts, Franchises, SummaryRow } from "../lib/types";
+import { j } from "../lib/data";
 import { fmt } from "../lib/stats";
+import { useLeague } from "../lib/context";
 import { boxStats } from "../components/BoxMarks";
 
 const POS: Record<string, string> = { QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)" };
-const sgn2 = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), 2);
-const sgn1 = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + Math.abs(v).toFixed(1);
+const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
+const ROUNDS = [1, 2, 3, 4];
 
-/** linear hex blend, matching the prototype's mix(a, b, t). */
+/** median of the values present; null when there are none */
+function med(a: (number | null)[]): number | null {
+  const s = a.filter((v): v is number => v != null).sort((x, y) => x - y);
+  if (!s.length) return null;
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
 function mix(a: string, b: string, t: number): string {
   t = Math.max(0, Math.min(1, t));
   const p = (h: string) => [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16));
@@ -16,179 +24,450 @@ function mix(a: string, b: string, t: number): string {
   const h = (v: number) => Math.round(v).toString(16).padStart(2, "0");
   return "#" + h(r1 + (r2 - r1) * t) + h(g1 + (g2 - g1) * t) + h(b1 + (b2 - b1) * t);
 }
+/** relative luminance, for picking ink off the cell's own colour */
+function lum(hex: string): number {
+  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+    .map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
+  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+}
 
-interface Pick { slot: string; season: string; name: string; pos: string; drafter: string; expected: number | null; war: number }
+/** a rookie pick, deduped, with the franchise that actually made the selection */
+interface Pick extends DraftPick { drafter: string; per: number }
 
 export default function Draft() {
-  const [pv, setPv] = useState<PickValues | null>(null);
+  const { meta } = useLeague();
   const [drafts, setDrafts] = useState<Drafts | null>(null);
   const [fr, setFr] = useState<Franchises | null>(null);
+  const [warBySeason, setWarBySeason] = useState<Record<string, Record<string, number>> | null>(null);
   const [err, setErr] = useState(false);
+  const [openAge, setOpenAge] = useState<Record<number, boolean>>({ 1: true });
+  const [openClass, setOpenClass] = useState<Record<number, boolean>>({ 1: true });
 
   useEffect(() => {
-    jDaily<PickValues>("data/pick_values.json").then(setPv).catch(() => setErr(true));
-    j<Drafts>("data/drafts.json").then(setDrafts).catch(() => setDrafts({}));
+    j<Drafts>("data/drafts.json").then(setDrafts).catch(() => setErr(true));
     j<Franchises>("data/franchises.json").then(setFr).catch(() => setFr({}));
-  }, []);
+    Promise.all(meta.seasons.map(s =>
+      j<SummaryRow[]>(`data/${s}/summary.json`).catch(() => [] as SummaryRow[])))
+      .then(all => {
+        const by: Record<string, Record<string, number>> = {};
+        meta.seasons.forEach((s, i) => {
+          const m: Record<string, number> = {};
+          for (const r of all[i]) m[r[0]] = r[6];
+          by[s] = m;
+        });
+        setWarBySeason(by);
+      })
+      .catch(() => setWarBySeason({}));
+  }, [meta]);
 
   const model = useMemo(() => {
-    if (!pv?.bands || !pv.picks) return null;
-    // round distributions from the corpus (E/M/L tiers merged per round)
-    const byRound = [1, 2, 3, 4].map(rd => {
-      const dist = pv.bands.filter(b => b.bucket[0] === String(rd)).flatMap(b => b.dist3 ?? []);
-      return { round: rd, dist, n: dist.length, s: dist.length >= 2 ? boxStats(dist) : null };
-    });
-    // median career WAR per exact slot
-    const slotMed: Record<string, number | null> = {};
-    for (const p of pv.picks) {
-      const d = p.dist3 ?? [];
-      slotMed[p.bucket] = d.length >= 1 ? boxStats(d).md : null;
-    }
-    return { byRound, slotMed };
-  }, [pv]);
-
-  const returns = useMemo(() => {
-    if (!drafts) return null;
-    const nameOf = (rid: number): string => {
-      const f = fr?.[String(rid)];
+    if (!drafts || !warBySeason) return null;
+    const nameOf = (rid: string): string => {
+      const f = fr?.[rid];
       return f?.seasons.length ? f.seasons[f.seasons.length - 1].name : `Roster ${rid}`;
     };
-    const graded: Pick[] = [];
+    // drafts.json lists a traded pick under BOTH franchises — dedupe on
+    // season|slot|pid and keep the `traded: false` entry, whose key is the
+    // franchise that actually made the selection.
+    const uniq = new Map<string, { p: DraftPick; rid: string }>();
     for (const [rid, picks] of Object.entries(drafts))
       for (const p of picks) {
-        if (p.traded || p.expected == null || p.years <= 0) continue;
-        graded.push({
-          slot: p.slot, season: p.season, name: p.name, pos: p.pos,
-          drafter: nameOf(p.drafted_by ?? +rid), expected: p.expected, war: p.war,
-        });
+        if (p.kind !== "rookie") continue;
+        const k = `${p.season}|${p.slot}|${p.pid}`;
+        const cur = uniq.get(k);
+        if (!cur || (cur.p.traded && !p.traded)) uniq.set(k, { p, rid });
       }
-    const byWar = graded.slice().sort((a, b) => b.war - a.war);
-    return { n: graded.length, best: byWar.slice(0, 8), worst: byWar.slice(-8).reverse() };
-  }, [drafts, fr]);
+    const all: Pick[] = [...uniq.values()].map(({ p, rid }) => ({
+      ...p, drafter: nameOf(rid), per: p.years > 0 ? p.war / p.years : 0,
+    }));
+    // graded = has played at least one season. Everything below is WAR PER
+    // SEASON, never career WAR — otherwise the oldest class wins by construction.
+    const graded = all.filter(p => p.years > 0);
+    const classes = [...new Set(all.map(p => p.season))].sort();
+    const gradedClasses = [...new Set(graded.map(p => p.season))].sort();
+    const pendingClasses = classes.filter(s => !gradedClasses.includes(s));
 
-  if (err) return <div className="empty">No draft data yet — run scripts/pick_value.py.</div>;
-  if (!pv || !model) return <div className="empty">Loading draft data…</div>;
+    // (a) per-round distributions
+    const byRound = ROUNDS.map(rd => {
+      const d = graded.filter(p => p.round === rd).map(p => p.per);
+      return { round: rd, n: d.length, s: d.length >= 2 ? boxStats(d) : null };
+    });
 
-  const years = pv.meta.years_published;
-  const classes = pv.meta.classes;
+    // (b) median per-season WAR by exact slot
+    const slotMed: Record<string, number | null> = {};
+    for (const rd of ROUNDS)
+      for (let i = 1; i <= 12; i++) {
+        const slot = `${rd}.${String(i).padStart(2, "0")}`;
+        slotMed[slot] = med(graded.filter(p => p.slot === slot).map(p => p.per));
+      }
 
-  // fixed WAR axis, per the handoff
-  const LO = -2.6, HI = 3.8, W = 800;
+    // (c) WAR by career year — year N of a pick is the season (draft + N − 1)
+    const warAt = (p: Pick, age: number): number | null => {
+      const s = String(+p.season + age - 1);
+      const v = warBySeason[s]?.[p.pid];
+      return v == null ? null : v;
+    };
+    const maxYears = Math.max(1, ...graded.map(p => p.years));
+    const ages = Array.from({ length: maxYears }, (_, i) => i + 1);
+    const pendingAges = [maxYears + 1];
+    const ageCell = (list: Pick[], age: number) => {
+      const vals = list.filter(p => p.years >= age).map(p => warAt(p, age));
+      const m = med(vals);
+      return { age, med: m, n: vals.filter(v => v != null).length, pending: false };
+    };
+    const ageRows = Object.keys(slotMed).map(slot => {
+      const list = graded.filter(p => p.slot === slot);
+      const cells = [
+        ...ages.map(a => ageCell(list, a)),
+        ...pendingAges.map(a => ({ age: a, med: null, n: 0, pending: true })),
+      ];
+      return { slot, round: +slot[0], cells };
+    }).filter(r => r.cells.some(c => c.n > 0));
+    const ageByRound = ROUNDS.map(rd => {
+      const list = graded.filter(p => p.round === rd);
+      return {
+        round: rd,
+        cells: [
+          ...ages.map(a => ageCell(list, a)),
+          ...pendingAges.map(a => ({ age: a, med: null, n: 0, pending: true })),
+        ],
+      };
+    });
+
+    // (d) slot by class — one column per class, the pick that filled the slot
+    const classRows = Object.keys(slotMed).map(slot => {
+      const cells = [...gradedClasses, ...pendingClasses].map(season => {
+        const p = all.find(x => x.slot === slot && x.season === season);
+        const pending = pendingClasses.includes(season);
+        return {
+          season, pending,
+          per: !p || pending || p.years <= 0 ? null : p.per,
+          name: p?.name ?? "",
+        };
+      });
+      return { slot, round: +slot[0], cells, med: med(cells.map(c => c.per)) };
+    });
+
+    // (e) value over slot — ranked by war − expected, NOT raw WAR
+    const withDiff = graded.filter(p => p.expected != null && p.diff != null)
+      .sort((a, b) => (b.diff ?? 0) - (a.diff ?? 0));
+
+    return {
+      n: graded.length, gradedClasses, pendingClasses, byRound, slotMed,
+      ages, pendingAges, ageRows, ageByRound, classRows,
+      best: withDiff.slice(0, 8), worst: withDiff.slice(-8).reverse(),
+    };
+  }, [drafts, fr, warBySeason]);
+
+  if (err) return <div className="empty">No draft data yet.</div>;
+  if (!model) return <div className="empty">Loading draft data…</div>;
+
+  // ---- (a) geometry: WAR per season, fixed domain ----
+  const LO = -1.4, HI = 1.4, W = 800;
   const sx = (v: number) => Math.max(0, Math.min(W, ((v - LO) / (HI - LO)) * W));
-  const grid = [-2, -1, 0, 1, 2, 3];
+  const pctX = (v: number) => ((v - LO) / (HI - LO) * 100).toFixed(2) + "%";
+  const TICKS = [-1.2, -0.8, -0.4, 0, 0.4, 0.8, 1.2];
+
+  // ---- (b) diverging ramp: green for gains, rose for losses ----
+  const medAll = Object.values(model.slotMed).filter((v): v is number => v != null);
+  const hiPos = Math.max(0.01, ...medAll.filter(v => v > 0));
+  const hiNeg = Math.max(0.01, ...medAll.filter(v => v < 0).map(Math.abs));
+  const posLo = "#2e8f56", posHi = "#43d783", negLo = "#241419", negHi = "#a8474f";
+  const heatBg = (m: number | null) => m == null ? "#0f1318" : Math.abs(m) < 0.005 ? "#151a21"
+    : m > 0 ? mix(posLo, posHi, Math.sqrt(m / hiPos))
+      : mix(negLo, negHi, Math.sqrt(Math.abs(m) / hiNeg));
+  const heatFg = (m: number | null) => m == null ? "#3d4650" : Math.abs(m) < 0.005 ? "#7b8794"
+    : lum(heatBg(m)) > 0.173 ? "#08170e" : "#fdeee0";
+  const bestSlot = medAll.length ? Math.max(...medAll) : 0;
+  const worstSlot = medAll.length ? Math.min(...medAll) : 0;
+  const legend = [-1, -0.66, -0.33, -0.08, 0, 0.12, 0.3, 0.5, 0.72, 0.88, 1]
+    .map(u => heatBg(u * (u < 0 ? hiNeg : hiPos)));
+
+  const ink = (v: number | null) => v == null ? "var(--dim3)"
+    : v > 0.02 ? "#43d783" : v < -0.02 ? "#e8757f" : "var(--dim)";
+
+  // both draft tables share one width set so they line up column-for-column
+  const ageCols = [...model.ages.map(a => ({ label: `Yr ${a}`, pending: false })),
+    ...model.pendingAges.map(a => ({ label: `Yr ${a}*`, pending: true }))];
+  const classCols = [...model.gradedClasses.map(s => ({ label: s, pending: false })),
+    ...model.pendingClasses.map(s => ({ label: `${s}*`, pending: true }))];
+  const colW = (n: number) => (68 / Math.max(1, n)).toFixed(2) + "%";
 
   return (
     <>
       <div className="screen-head">
         <span className="screen-title">Rookie draft returns</span>
-        <span className="screen-note">{returns ? <><b>{returns.n}</b> graded picks · </> : null}{classes} classes</span>
+        <span className="screen-note">
+          <b>{model.n}</b> graded picks · {model.gradedClasses.join(" · ")} classes
+          {model.pendingClasses.length ? ` · ${model.pendingClasses.join(", ")} class not yet scored` : ""}
+        </span>
       </div>
 
-      {/* (a) career WAR by round */}
-      <div className="panel">
-        <div className="chart-label">Career WAR by round — box is the middle 50%, line is the median</div>
-        <div className="box-rows">
-          {model.byRound.map((b, i) => (
-            <div key={b.round} className="box-row">
-              <div className="lbl">RD {b.round}</div>
-              <svg width={W} height={30} viewBox={`0 0 ${W} 30`}>
-                {grid.map(t => (
-                  <line key={t} x1={sx(t)} y1={0} x2={sx(t)} y2={30}
-                    stroke={t === 0 ? "#4e5d6c" : "var(--rule)"} strokeWidth={1} />
-                ))}
-                {b.s && <>
-                  <line x1={sx(b.s.mn)} y1={15} x2={sx(b.s.mx)} y2={15} stroke="#4e5d6c" strokeWidth={1.5} />
-                  <rect x={sx(b.s.q1)} y={3} width={Math.max(1, sx(b.s.q3) - sx(b.s.q1))} height={24}
-                    fill={mix("#0c0f13", accent(), 0.16 * (4 - i))} stroke={mix("#4e5d6c", accent(), 0.3 * (4 - i) / 4)} strokeWidth={1.5} />
-                  <line x1={sx(b.s.md)} y1={3} x2={sx(b.s.md)} y2={27} stroke="var(--txt)" strokeWidth={2.5} />
-                </>}
-              </svg>
-              <div className="meta">{b.s ? `n=${b.n}  ·  median ${fmt(b.s.md, 2)}  ·  best ${fmt(b.s.mx, 2)}` : "not enough matured picks"}</div>
-            </div>
-          ))}
-        </div>
-        <div className="axis">
-          <div className="pad" />
-          <div className="scale">
-            {grid.map(t => (
-              <span key={t} style={{ left: sx(t) + "px" }}>{sgn1(t)}</span>
+      {/* (a) WAR per season by round */}
+      <div style={{ padding: "0 var(--pad) 20px" }}>
+        <div className="panel" style={{ margin: 0 }}>
+          <div className="chart-label">
+            WAR per season since drafted — box is the middle 50%, <span style={{ color: "var(--acc)" }}>line is the median</span>
+          </div>
+          <div className="box-rows">
+            {model.byRound.map(b => (
+              <div key={b.round} className="box-row">
+                <div className="lbl">RD {b.round}</div>
+                <svg viewBox="0 0 800 30" preserveAspectRatio="none">
+                  {TICKS.map(t => (
+                    <line key={t} x1={sx(t)} y1={0} x2={sx(t)} y2={30}
+                      stroke={t === 0 ? "#4e5d6c" : "var(--rule)"} strokeWidth={1} />
+                  ))}
+                  {b.s && <>
+                    <line x1={sx(b.s.mn)} y1={15} x2={sx(b.s.mx)} y2={15} stroke="#4e5d6c" strokeWidth={1.5} />
+                    <rect x={sx(b.s.q1)} y={3} width={Math.max(1, sx(b.s.q3) - sx(b.s.q1))} height={24}
+                      fill="#1e262f" stroke="#54636f" strokeWidth={1.5} />
+                    <line x1={sx(b.s.md)} y1={1} x2={sx(b.s.md)} y2={29} stroke="var(--acc)" strokeWidth={3} />
+                  </>}
+                </svg>
+                <div className="meta">
+                  {b.s ? `n=${b.n}  ·  median ${sgn(b.s.md)}/yr  ·  best ${sgn(b.s.mx)}` : "not enough matured picks"}
+                </div>
+              </div>
             ))}
+          </div>
+          <div className="axis">
+            <div className="pad" />
+            <div className="scale">
+              {TICKS.map(t => <span key={t} style={{ left: pctX(t) }}>{sgn(t, 1)}</span>)}
+            </div>
+            <div className="tail" />
           </div>
         </div>
       </div>
 
-      {/* (b) median career WAR by exact slot */}
-      <div style={{ padding: "0 var(--pad)" }}>
-        <div className="chart-label">Median career WAR by exact slot</div>
+      {/* (b) heat map */}
+      <div style={{ padding: "0 var(--pad) 0" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 11, flexWrap: "wrap" }}>
+          <div className="chart-label" style={{ marginBottom: 0 }}>Median WAR per season by exact slot</div>
+          <div className="heat-legend">
+            <span>{fmt(worstSlot)}</span>
+            <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
+            <span>{sgn(bestSlot)}</span>
+          </div>
+        </div>
       </div>
-      <div className="heat">
-        {[1, 2, 3, 4].map(rd => (
+      <div className="heat-head" style={{ padding: "0 var(--pad)" }}>
+        <div className="pad" />
+        {Array.from({ length: 12 }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
+      </div>
+      <div className="heat2">
+        {ROUNDS.map(rd => (
           <div key={rd} className="heat-row">
             <div className="lbl">RD {rd}</div>
             {Array.from({ length: 12 }, (_, j) => {
-              const slot = rd + "." + String(j + 1).padStart(2, "0");
-              const m = model.slotMed[slot] ?? null;
-              const t = m == null ? 0 : Math.max(0, Math.min(1, (m + 1.6) / 3.4));
-              const light = t > 0.55;
+              const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
+              const m = model.slotMed[slot];
+              const ring = m != null && m === bestSlot ? "inset 0 0 0 2px rgba(255,255,255,.9)"
+                : m != null && m === worstSlot ? "inset 0 0 0 2px #ffc9c9" : "none";
               return (
-                <div key={slot} className="heat-cell"
-                  style={{ background: m == null ? "var(--zebra)" : mix("#141a21", accent(), t * t) }}>
-                  <div className="slot" style={{ color: light ? "rgba(5,7,10,.65)" : "var(--dim2)" }}>{slot}</div>
-                  <div className="val" style={{ color: light ? "var(--acc-ink)" : "var(--txt)" }}>{m == null ? "—" : fmt(m, 2)}</div>
+                <div key={slot} className="cell"
+                  style={{ background: heatBg(m), color: heatFg(m), boxShadow: ring }}>
+                  {m == null ? "—" : sgn(m)}
                 </div>
               );
             })}
           </div>
         ))}
       </div>
+      <div className="heat-note">
+        <span>Rows are draft rounds, columns are the pick within the round — so column 01 is every team's first-up selection.</span>
+        <span className="end">Ringed cells: best and worst slot on record.</span>
+      </div>
 
-      {/* (c) best / worst returns */}
-      {returns && (
-        <div className="pick-tables">
-          {([["Best returns", "best", returns.best], ["Worst returns", "worst", returns.worst]] as const).map(([title, cls, rows]) => (
-            <div key={cls}>
-              <div className={`pick-title ${cls}`}>{title}</div>
-              <table>
-                <thead><tr>
-                  <th className="t" style={{ width: 60 }}>Slot</th>
-                  <th className="t" style={{ width: 56 }}>Yr</th>
-                  <th className="t">Player</th>
-                  <th className="t">Drafted by</th>
-                  <th className="n" style={{ width: 70 }}>Exp</th>
-                  <th className="n key" style={{ width: 74 }}>WAR</th>
-                </tr></thead>
-                <tbody>
-                  {rows.map((r, k) => (
-                    <tr key={k}>
-                      <td className="t" style={{ font: "600 15px/1 var(--cond)", color: "var(--txt2)" }}>{r.slot}</td>
-                      <td className="t sub">{r.season}</td>
-                      <td className="t" style={{ font: "600 13.5px/1 var(--sans)", whiteSpace: "nowrap" }}>
-                        <span className="pos" style={{ width: "auto", minWidth: 26, padding: "1px 4px", fontSize: 11, marginRight: 7, background: POS[r.pos] || "var(--rule)" }}>{r.pos}</span>{r.name}
-                      </td>
-                      <td className="t sub" style={{ maxWidth: 150, overflow: "hidden", textOverflow: "ellipsis" }}>{r.drafter}</td>
-                      <td className="n sub">{r.expected == null ? "—" : sgn2(r.expected)}</td>
-                      <td className="n" style={{ font: "700 20px/1 var(--cond)", color: r.war > 0 ? "var(--acc)" : "var(--bad)" }}>{fmt(r.war, 2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
+      {/* (c) WAR by career year */}
+      <div className="dwrap" style={{ paddingTop: 22 }}>
+        <div className="dhead">
+          <div className="chart-label" style={{ marginBottom: 0 }}>WAR by career year</div>
+          <div className="note">
+            Median WAR a slot returned in its player's first season, second season, third. A year column
+            opens once any class has played it — * marks one not yet played. Click a round to open its slots.
+          </div>
         </div>
-      )}
+        <div className="dscroll">
+          <table className="dtbl">
+            <colgroup>
+              <col style={{ width: "15%" }} />
+              {ageCols.map((_, i) => <col key={i} style={{ width: colW(ageCols.length) }} />)}
+              <col style={{ width: "17%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="t">Slot</th>
+                {ageCols.map(c => (
+                  <th key={c.label} className="n" style={{ color: c.pending ? "var(--dim3)" : undefined }}>{c.label}</th>
+                ))}
+                <th className="n med">Median</th>
+              </tr>
+            </thead>
+            <tbody>
+              {model.ageByRound.map(g => {
+                const open = !!openAge[g.round];
+                const gm = med(g.cells.map(c => c.pending ? null : c.med));
+                return (
+                  <RoundGroup key={g.round} round={g.round} open={open}
+                    onToggle={() => setOpenAge(s => ({ ...s, [g.round]: !open }))}
+                    cells={g.cells.map(c => ({ v: c.pending ? null : c.med, pending: c.pending }))}
+                    rowMed={gm} ink={ink}
+                    rows={!open ? [] : model.ageRows.filter(r => r.round === g.round).map(r => ({
+                      slot: r.slot,
+                      cells: r.cells.map(c => ({ v: c.pending ? null : c.med, pending: c.pending })),
+                      med: med(r.cells.map(c => c.pending ? null : c.med)),
+                    }))} />
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* (d) slot by class */}
+      <div className="dwrap">
+        <div className="dhead">
+          <div className="chart-label" style={{ marginBottom: 0 }}>Slot by class · WAR per season</div>
+          <div className="note">
+            A class joins the table once it has one completed season;{" "}
+            {model.pendingClasses.join(", ") || "the next class"} (*) sits reserved until then. Click a round to open its slots.
+          </div>
+        </div>
+        <div className="dscroll">
+          <table className="dtbl">
+            <colgroup>
+              <col style={{ width: "15%" }} />
+              {classCols.map((_, i) => <col key={i} style={{ width: colW(classCols.length) }} />)}
+              <col style={{ width: "17%" }} />
+            </colgroup>
+            <thead>
+              <tr>
+                <th className="t">Slot</th>
+                {classCols.map(c => (
+                  <th key={c.label} className="n" style={{ color: c.pending ? "#48545f" : undefined }}>{c.label}</th>
+                ))}
+                <th className="n med">Median</th>
+              </tr>
+            </thead>
+            <tbody>
+              {ROUNDS.map(rd => {
+                const open = !!openClass[rd];
+                const mine = model.classRows.filter(r => r.round === rd);
+                // round row = median of the values printed on that row — the same
+                // rule the slot rows follow, so the summary can't contradict them
+                const colMed = (i: number) => med(mine.map(r => r.cells[i].per));
+                const gCells = classCols.map((c, i) => ({ v: c.pending ? null : colMed(i), pending: c.pending }));
+                return (
+                  <RoundGroup key={rd} round={rd} open={open}
+                    onToggle={() => setOpenClass(s => ({ ...s, [rd]: !open }))}
+                    cells={gCells} rowMed={med(gCells.map(c => c.v))} ink={ink}
+                    rows={!open ? [] : mine.map(r => ({
+                      slot: r.slot,
+                      cells: r.cells.map(c => ({ v: c.pending ? null : c.per, pending: c.pending, name: c.name })),
+                      med: r.med,
+                    }))} />
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* (e) best / worst value over slot */}
+      <div className="pick-tables">
+        {([["Best value over slot", "best", model.best], ["Worst value over slot", "worst", model.worst]] as const).map(([title, cls, rows]) => (
+          <div key={cls}>
+            <div className={`pick-title ${cls}`}>{title}</div>
+            <table>
+              <colgroup>
+                <col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "36%" }} />
+                <col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "18%" }} />
+              </colgroup>
+              <thead><tr>
+                <th className="t">Slot</th><th className="t">Yr</th><th className="t">Player</th>
+                <th className="n">Exp</th><th className="n">WAR</th><th className="n key">Vs exp</th>
+              </tr></thead>
+              <tbody>
+                {rows.map(r => (
+                  <tr key={`${r.season}|${r.slot}|${r.pid}`}>
+                    <td className="t" style={{ font: "600 15px/1 var(--cond)", color: "var(--txt2)" }}>{r.slot}</td>
+                    <td className="t sub">{r.season}</td>
+                    <td className="who">
+                      <div className="line">
+                        <span className="pos mini" style={{ background: POS[r.pos] || "var(--rule)" }}>{r.pos}</span>
+                        <span className="nm">{r.name}</span>
+                      </div>
+                      <div className="by">{r.drafter}</div>
+                    </td>
+                    <td className="n sub">{r.expected == null ? "—" : sgn(r.expected)}</td>
+                    <td className="n raw">{sgn(r.war)}</td>
+                    <td className="n vs" style={{ color: (r.diff ?? 0) > 0 ? "var(--acc)" : "var(--bad)" }}>{sgn(r.diff ?? 0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ))}
+      </div>
 
       <div className="footnote">
-        Exp = the slot's empirically expected WAR (Bridge A) · distributions pool matured rookie picks from five
-        12-team superflex leagues ({classes}); real Big Dog WAR where we have it, calibrated history otherwise
-        {years.length ? ` · ${years.length}-year window` : ""}
+        Every pick is divided by the seasons it has actually had, so a {model.gradedClasses[model.gradedClasses.length - 1]} rookie
+        is compared fairly against a {model.gradedClasses[0]} one · the value tables rank by WAR over the slot's expectation,
+        not raw WAR — so a pick that returned less than its slot was expected to counts as a miss (Bridge A)
       </div>
     </>
   );
 }
 
-/** read the themed accent as a hex string for canvas-style colour mixing */
-function accent(): string {
-  if (typeof window === "undefined") return "#f5c518";
-  const v = getComputedStyle(document.documentElement).getPropertyValue("--acc").trim();
-  return /^#[0-9a-f]{6}$/i.test(v) ? v : "#f5c518";
+interface Cell { v: number | null; pending: boolean; name?: string }
+
+/** A collapsible round: the round row carries its own medians, its slot rows
+ *  zebra within the group. Used by both draft tables so their geometry matches. */
+function RoundGroup({ round, open, onToggle, cells, rowMed, rows, ink }: {
+  round: number; open: boolean; onToggle: () => void;
+  cells: Cell[]; rowMed: number | null; ink: (v: number | null) => string;
+  rows: { slot: string; cells: Cell[]; med: number | null }[];
+}) {
+  return (
+    <>
+      <tr className="rd" onClick={onToggle}>
+        <td className="lbl">
+          <span className="caret" style={{ color: open ? "var(--acc)" : "var(--dim)" }}>{open ? "▾" : "▸"}</span>
+          RD {round}
+        </td>
+        {cells.map((c, i) => (
+          <td key={i} className="n">
+            <span className="v" style={{ color: c.pending || c.v == null ? "var(--dim3)" : ink(c.v) }}>
+              {c.v == null ? "—" : sgn(c.v)}
+            </span>
+          </td>
+        ))}
+        <td className="n med">
+          <span className="v" style={{ color: rowMed == null ? "var(--dim3)" : ink(rowMed) }}>
+            {rowMed == null ? "—" : sgn(rowMed)}
+          </span>
+        </td>
+      </tr>
+      {rows.map((r, i) => (
+        <tr key={r.slot} style={{ background: i % 2 ? "#0f141a" : "var(--band)" }}>
+          <td className="slot" style={{ color: round === 1 ? "var(--txt)" : "#8b96a5" }}>{r.slot}</td>
+          {r.cells.map((c, k) => (
+            <td key={k} className="n">
+              <span className="v" style={{ color: c.pending || c.v == null ? "var(--dim3)" : ink(c.v) }}>
+                {c.v == null ? "—" : sgn(c.v)}
+              </span>
+              {c.name != null && <div className="who">{c.name || "—"}</div>}
+            </td>
+          ))}
+          <td className="n med">
+            <span className="v" style={{ color: r.med == null ? "var(--dim3)" : ink(r.med) }}>
+              {r.med == null ? "—" : sgn(r.med)}
+            </span>
+          </td>
+        </tr>
+      ))}
+    </>
+  );
 }

@@ -222,7 +222,8 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
 
       <div className="footnote">
         WAR = wins over the best player left out of the league's 108 startable slots · the consistency bar
-        is longer for a steadier player — the figure beside it is the weekly σ of fantasy points, so a low σ earns a long bar
+        is longer for a steadier player — the figure beside it is the weekly <span className="sigma">σ</span> of
+        fantasy points, so a low <span className="sigma">σ</span> earns a long bar
       </div>
     </>
   );
@@ -263,7 +264,9 @@ function PlayerDrawer({ r, gMax }: { r: Row; gMax: number }) {
       <div className="drawer-head">
         <span className="drawer-title">{r.nm}</span>
         <span className="pos" style={{ width: 46, background: POS[r.pos] || "var(--rule)" }}>{r.pos}{r.posRank}</span>
-        <span className="drawer-sub">{r.team} · {r.gp} games · {fmt(r.ppg, 1)} ppg · σ {fmt(r.sdv, 1)}</span>
+        <span className="drawer-sub">
+          {r.team} · {r.gp} games · {fmt(r.ppg, 1)} ppg · <span className="sigma">σ</span> {fmt(r.sdv, 1)}
+        </span>
       </div>
       <div className="drawer-body">
         <div>

@@ -599,6 +599,194 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 }
 
 /* ==========================================================================
+   v3 additions — Draft screen blocks (c)(d)(e) and the player page.
+   The drop-in stylesheet above is unchanged; these are the surfaces the v3
+   prototype styles inline. Same tokens, same rules: fixed table layout,
+   percentage widths, tabular numerals, zero radius.
+   ========================================================================== */
+
+/* A Greek letter inside an uppercased label must opt out of the transform:
+   `text-transform: uppercase` turns σ into Σ, which means something else.
+   This is why the Teams column is called "Volatility" and not "σ". */
+.sigma { text-transform: none; }
+
+/* ---- draft: box-plot rows (fluid svg between fixed rails) ---------------- */
+.box-row .lbl { flex: 0 0 56px; }
+.box-row svg { flex: 1 1 auto; min-width: 0; width: 100%; height: 30px; }
+.box-row .meta { flex: 0 0 210px; width: 210px; text-align: right; font-variant-numeric: tabular-nums; }
+.axis .scale { flex: 1 1 auto; min-width: 0; }
+.axis .tail { flex: 0 0 210px; width: 210px; }
+
+/* ---- draft: slot heat map ------------------------------------------------ */
+.heat-head { display: flex; gap: 2px; margin-bottom: 3px; }
+.heat-head .pad { flex: 0 0 58px; width: 58px; }
+.heat-head span {
+  flex: 1; min-width: 48px; text-align: center;
+  font: 400 12px/1 var(--cond); letter-spacing: .14em; color: var(--dim3);
+}
+.heat2 { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--pad) 0; }
+.heat2 .heat-row { display: flex; gap: 2px; align-items: stretch; }
+.heat2 .heat-row .lbl {
+  flex: 0 0 58px; width: 58px; display: flex; align-items: center;
+  font: 700 15px/1 var(--cond); letter-spacing: .1em; color: var(--dim);
+}
+.heat2 .cell {
+  flex: 1; min-width: 48px; height: 38px;
+  display: flex; align-items: center; justify-content: center;
+  font: 700 18px/1 var(--cond); font-variant-numeric: tabular-nums;
+}
+.heat-legend { display: flex; align-items: center; gap: 9px; }
+.heat-legend .sw { display: flex; gap: 1px; }
+.heat-legend .sw i { width: 17px; height: 11px; display: block; }
+.heat-legend span {
+  font: 400 13px/1 var(--cond); letter-spacing: .1em; color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.heat-note { display: flex; gap: 16px; padding: 9px var(--pad) 0; font: 400 11.5px/1.5 var(--sans); color: var(--dim3); }
+.heat-note .end { margin-left: auto; white-space: nowrap; color: var(--dim); }
+
+/* ---- draft: the two collapsible round tables ---------------------------- */
+.dwrap { padding: 6px var(--pad) 22px; }
+.dhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.dhead .note { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
+.dscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
+.dtbl thead th { padding: 7px 10px; font-size: 12px; letter-spacing: .14em; color: var(--dim2); }
+.dtbl thead th.med { color: var(--acc); border-left: 1px solid var(--rule); padding-right: 14px; }
+.dtbl tr.rd { background: #0d1218; border-top: 2px solid var(--rule); cursor: pointer; }
+.dtbl tr.rd:hover { background: #151c24; }
+.dtbl tr.rd td { border-bottom: 1px solid var(--bg); }
+.dtbl td { padding: 6px 10px; border-bottom: 1px solid var(--bg); }
+.dtbl td.lbl { font: 700 15px/1.3 var(--cond); letter-spacing: .1em; color: var(--txt); white-space: nowrap; }
+.dtbl td.lbl .caret { display: inline-block; width: 14px; font-size: 11px; }
+.dtbl td.slot { padding-left: 34px; font: 600 16px/1.3 var(--cond); letter-spacing: .06em; }
+.dtbl td .v { font: 700 16px/1.3 var(--cond); font-variant-numeric: tabular-nums; }
+.dtbl td.med { border-left: 1px solid var(--rule); padding-right: 14px; }
+.dtbl td.med .v { font-size: 18px; }
+.dtbl td .who {
+  font: 400 11.5px/1.4 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---- draft: best / worst value over slot -------------------------------- */
+.pick-tables table { table-layout: fixed; }
+.pick-tables td.who { padding: 7px 10px; overflow: hidden; }
+.pick-tables td.who .line { display: flex; align-items: center; gap: 7px; min-width: 0; }
+.pick-tables td.who .line .nm {
+  flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font: 600 13.5px/1.35 var(--sans);
+}
+.pick-tables td.who .by {
+  padding-left: 33px; font: 400 11.5px/1.45 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pick-tables .pos.mini { width: auto; min-width: 26px; padding: 1px 4px; font-size: 11px; flex: 0 0 auto; }
+.pick-tables td.vs { border-left: 1px solid var(--rule); font: 700 20px/1 var(--cond); }
+.pick-tables td.raw { font: 600 16px/1 var(--cond); color: var(--txt2); }
+
+/* ==========================================================================
+   Player page
+   ========================================================================== */
+
+.php { background: var(--deep); padding: 18px var(--pad) 22px; }
+.php-top { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+.php-back {
+  font: 400 14px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim); cursor: pointer;
+}
+.php-back:hover { color: var(--txt); }
+.php-id { display: flex; align-items: flex-end; justify-content: space-between; gap: 32px; flex-wrap: wrap; }
+.php-name { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.php-name .pos { width: 58px; font-size: 16px; padding: 4px 0; }
+.php-name h1 {
+  font: 700 44px/1 var(--cond); letter-spacing: .02em; text-transform: uppercase; margin: 0;
+}
+.php-nfl { font: 400 19px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+.php-sub {
+  font: 400 16px/1.3 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim); margin-top: 9px;
+}
+.php-stats { display: flex; align-items: stretch; flex-wrap: wrap; }
+.php-stat { padding: 2px 22px; border-left: 1px solid var(--rule); }
+.php-stat:first-child { border-left: 0; }
+.php-stat .k { font: 400 12px/1.4 var(--cond); letter-spacing: .2em; text-transform: uppercase; color: var(--dim2); margin-bottom: 3px; }
+.php-stat .v { font: 700 36px/1.2 var(--cond); }
+.php-stat .s { font: 400 13px/1.4 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim3); margin-top: 3px; }
+.php-verdict { margin-top: 18px; display: inline-flex; align-items: baseline; gap: 10px; padding: 7px 14px; }
+.php-verdict .k { font: 400 13px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase; }
+.php-verdict .v { font: 700 17px/1 var(--cond); letter-spacing: .04em; text-transform: uppercase; }
+
+.psec { padding: 20px var(--pad) 0; }
+.psec > .chart-label { margin-bottom: 10px; }
+.psec table { background: var(--band); table-layout: fixed; }
+.pnote { font: 400 13.5px/1.5 var(--cond); letter-spacing: .08em; text-transform: uppercase; color: var(--dim3); padding: 8px 0 0; }
+
+/* market table */
+.mkt td { padding: 10px; }
+.mkt td.src { font: 600 14.5px/1.3 var(--sans); }
+.mkt td.val { font: 700 26px/1 var(--cond); }
+.mkt td.mv { font: 600 13.5px/1.3 var(--sans); }
+.mkt td.imp { font: 700 22px/1 var(--cond); color: var(--acc); padding-right: 22px; }
+.mkt td.edge, .mkt th.edge { border-left: 1px solid var(--bg); }
+
+/* ownership cards */
+.own-cards { display: flex; gap: 12px; flex-wrap: wrap; }
+.own-card {
+  flex: 1 1 300px; max-width: 520px; background: var(--band);
+  border-left: 3px solid var(--acc); padding: 10px 14px 12px;
+}
+.own-card .when {
+  font: 700 15px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--acc); margin-bottom: 3px;
+}
+.own-card .what { font: 400 12.5px/1.55 var(--sans); color: var(--txt2); }
+
+/* projection + career panels */
+.ppanels { display: flex; gap: 20px; padding: 22px var(--pad) 0; flex-wrap: wrap; align-items: stretch; }
+.ppanel { flex: 1; min-width: 420px; background: var(--band); border-top: 3px solid var(--acc); padding: 14px 18px 18px; }
+.ppanel.career { flex: 0 0 300px; min-width: 0; border-top-color: #2b3642; }
+.prow { display: flex; align-items: center; gap: 14px; }
+.prow .yr { flex: 0 0 52px; font: 700 17px/1 var(--cond); letter-spacing: .06em; }
+.prow svg { flex: 1 1 auto; min-width: 0; width: 100%; height: 26px; }
+.prow .mid { font: 700 22px/1 var(--cond); min-width: 62px; text-align: right; color: var(--acc); font-variant-numeric: tabular-nums; }
+.prow .rng { flex: 0 0 150px; font: 400 11.5px/1.4 var(--sans); color: var(--dim); white-space: nowrap; }
+.paxis { display: flex; gap: 14px; margin-top: 8px; }
+.paxis .pad { flex: 0 0 52px; }
+.paxis .scale { position: relative; flex: 1 1 auto; min-width: 0; height: 18px; }
+.paxis .tail { flex: 0 0 212px; }
+.paxis .scale span {
+  position: absolute; transform: translateX(-50%);
+  font: 400 11.5px/1 var(--sans); font-variant-numeric: tabular-nums; color: var(--dim3);
+}
+.career-grid { display: flex; flex-wrap: wrap; gap: 18px 26px; }
+.career-grid > div { min-width: 74px; }
+.career-grid .k { font: 400 12px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase; color: var(--dim2); }
+.career-grid .v { font: 700 26px/1.15 var(--cond); }
+
+/* season-by-season + weeks */
+.pseason td { padding: 10px; }
+.pseason td.yr { font: 700 22px/1 var(--cond); }
+.pseason td.team { font: 400 13.5px/1.4 var(--sans); overflow: hidden; text-overflow: ellipsis; }
+.pweeks td { padding: 7px 10px; }
+.pweeks td.wk { font: 600 16px/1 var(--cond); color: var(--txt2); }
+.pweeks td.war { font: 700 20px/1 var(--cond); padding-right: 22px; }
+.pweeks td.out {
+  text-align: left; font: 400 14px/1 var(--cond); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--dim3);
+}
+
+@media (max-width: 640px) {
+  .php-name h1 { font-size: 30px; }
+  .php-stat { padding: 2px 12px; }
+  .php-stat .v { font-size: 26px; }
+  .ppanel { min-width: 100%; }
+  .ppanel.career { flex: 1 1 100%; }
+  .prow .rng { display: none; }
+  .box-row .meta, .axis .tail { flex-basis: 120px; width: 120px; }
+  .heat2 .cell, .heat-head span { min-width: 40px; }
+}
+
+/* ==========================================================================
    Compatibility layer (v1)
    The redesign above covers the shell and the six main list views. Secondary
    routes — player page, franchise page, weekly-week detail, the trade
