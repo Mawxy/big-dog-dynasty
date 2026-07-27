@@ -10,6 +10,11 @@ data/trade_corpus.json
 data/trade_corpus_*.json
 data/blended_values.json
 
+# crawler state — progress/contrib/seen_drafts/seen_leagues + the rookie corpus
+# accumulator. Persisted between CI runs by actions/cache, never by git; grows
+# to a row per draft across every crawled league chain.
+.crawl-state/
+
 # scratch/ — throwaway local artifacts: design previews, one-off reports,
 # screenshots, anything generated to look at rather than to ship. Never committed.
 scratch/

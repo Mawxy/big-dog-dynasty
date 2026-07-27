@@ -398,8 +398,16 @@ def main():
                     content=owned)
     # gauge meta on `latest`: regressing it to null means no season produced
     # summary data, which for this league is always a broken run
+    #
+    # `latest` and `rosterSeason` answer different questions and drift apart
+    # every offseason. `latest` is the newest season with games played, and is
+    # what the stats views default to. `rosterSeason` is whose rosters are live
+    # right now. In July 2026 those are 2025 and 2026 — reading `latest` for
+    # ownership showed all 68 players added since the 2025 rosters closed, the
+    # whole rookie class included, as free agents.
     guard_write(out / "meta.json", {
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
+        "rosterSeason": max(seasons) if seasons else None,
         "rosterPositions": roster_positions, "taxiSlots": taxi_slots,
         "ptsRange": [round(pts_min, 1), round(pts_max, 1)],
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),

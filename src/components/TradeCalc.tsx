@@ -3,7 +3,7 @@ import type { BridgeKnots, PicksOwned, PickValues, ProjectionsFile, Team, ValueB
 import { j, jDaily } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { optimalLineup } from "../lib/league";
-import { computePostures, NEUTRAL as NEUTRAL_W, pickLabel, pickStream, type Posture } from "../lib/tradeModel";
+import { computePostures, NEUTRAL as NEUTRAL_W, pickLabel, pickStream, type Posture } from "../lib/rosterModel";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 
@@ -111,7 +111,7 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
       const cur = pv.meta.generated_for_season + 1;   // current rookie class
       const ktcMap = new Map(vals?.picks?.ktc ?? []);
       const fcMap = new Map(vals?.picks?.fc ?? []);
-      // net option value, same as tradeModel.pickStream: outcomes clamp at 0
+      // net option value, same as rosterModel.pickStream: outcomes clamp at 0
       // (busts get cut) and the free waiver dart (Late 4th band) is netted out
       const base = pickStream(pv, "Late", 4).map((x, i) => {
         const b4 = pv.bands.find(b => b.label === "Late 4th");

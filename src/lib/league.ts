@@ -3,6 +3,14 @@ import type { PlayersMin, Team, Weekly } from "./types";
 export const pInfo = (players: PlayersMin, pid: string): [string, string, string] =>
   players[pid] ?? [`#${pid}`, "?", ""];
 
+/** Whose rosters to read for "who owns this player". Current rosters unless a
+ *  past season is being viewed — never `meta.latest`, which lags a full year
+ *  behind through the offseason. */
+export const rosterSeasonOf = (meta: { seasons: string[]; rosterSeason?: string }) =>
+  meta.rosterSeason && meta.seasons.includes(meta.rosterSeason)
+    ? meta.rosterSeason
+    : meta.seasons[meta.seasons.length - 1];
+
 export function ownerOf(teams: Team[]): Record<string, string> {
   const m: Record<string, string> = {};
   for (const t of teams) for (const p of t.players) m[p] = t.team;
@@ -22,7 +30,7 @@ export const seasonSeg = (s: string) => s === "ALL" ? "all" : s;
 
 /** Multi-position slots -> what they accept. Mirrors FLEX_SLOTS in
  *  scripts/sleeper_war.py; keep the two in step. */
-const FLEX_SLOTS: Record<string, string[]> = {
+export const FLEX_SLOTS: Record<string, string[]> = {
   WRRB_FLEX: ["RB", "WR"],
   REC_FLEX: ["WR", "TE"],
   FLEX: ["RB", "WR", "TE"],

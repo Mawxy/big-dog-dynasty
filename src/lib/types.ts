@@ -5,7 +5,13 @@
 export type SummaryRow = [string, string, number, number, number, number, number, number?, (number | null)?];
 
 export interface Meta {
-  league: string; seasons: string[]; updated: string; latest?: string;
+  league: string; seasons: string[]; updated: string;
+  /** newest season with games played — what the stats views default to */
+  latest?: string;
+  /** whose rosters are live right now. Differs from `latest` all offseason:
+   *  use this for anything about who owns whom, `latest` for anything about
+   *  what happened. Absent in site data built before this field existed. */
+  rosterSeason?: string;
   /** starting-lineup shape, e.g. ["QB","RB","RB",...,"FLEX","SUPER_FLEX"].
    *  Absent in site data built before this field existed. */
   rosterPositions?: string[];
@@ -150,6 +156,10 @@ export interface Insights {
   meta: { generated: string; season: number; note: string };
   teams: Record<string, { head: string; text: string }>;
 }
+
+/** data/dvi.json — Dynasty Value Index, one 0-100 figure per player */
+export interface DviRow { name: string; pos: string; dvi: number; rank: number; pos_rank: number }
+export interface DviFile { generated: string; players: Record<string, DviRow> }
 
 /** data/picks_owned.json — who holds which future draft picks right now */
 export interface PicksOwned {

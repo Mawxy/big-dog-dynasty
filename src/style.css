@@ -717,6 +717,72 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* ---- team page: slot rank grid ------------------------------------------ */
+/* No new palette here on purpose. Rank reads as a condensed figure over a
+   value-as-bar meter — the same two idioms the Teams and Weekly screens
+   already use — so the only colour is --acc on the fill. A green/amber/red
+   pill set would have been a third signed-colour vocabulary on a board that
+   already carries two (--good/--bad and --war-pos/--war-neg). */
+/* Every selector here is `table.rankgrid ...` (specificity 0,1,2) rather than
+   `.rankgrid ...` (0,1,1). The franchise page renders inside `.legacy`, whose
+   `.legacy th, .legacy td` block is 0,1,1 AND sits later in this file — so a
+   plain `.rankgrid td` loses the tie and the grid inherits legacy's right
+   alignment, 8px/12px padding and per-column overrides. It looked shattered. */
+.rankwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+/* width:auto, not 100% — stretched across a full-width card the columns ran
+   ~130px each and the grid read as scattered numerals. Sized to content it is
+   a compact block that scans left to right in one pass. */
+table.rankgrid {
+  width: auto; table-layout: auto;
+  border-collapse: collapse; background: none; border-radius: 0;
+}
+/* `:nth-child(n)` matches everything but lifts these to specificity (0,2,2).
+   `.legacy th:nth-child(2)` is (0,2,1) and beat a plain `table.rankgrid th`
+   (0,1,2) — which is why the QB column alone came out left-aligned while the
+   rest centred. Do not drop the `:nth-child(n)`; it is load-bearing. */
+table.rankgrid th:nth-child(n) {
+  padding: 0 10px 7px; border: 0; font: 600 11px/1 var(--sans); letter-spacing: .1em;
+  text-transform: uppercase; color: var(--dim2); text-align: center;
+  cursor: default; position: static; background: none;
+}
+table.rankgrid td:nth-child(n) {
+  padding: 7px 10px; border: 0; border-top: 1px solid var(--hair);
+  text-align: center; white-space: nowrap;
+}
+table.rankgrid th.t:nth-child(n), table.rankgrid td.t:nth-child(n) {
+  text-align: left; padding-left: 0; padding-right: 18px;
+}
+/* figure and meter share one fixed-width column so they stay registered to
+   each other no matter how wide the cell ends up */
+table.rankgrid .cell {
+  display: inline-flex; flex-direction: column; align-items: center; width: 62px;
+}
+table.rankgrid .who {
+  display: block; width: 100%; margin-top: 4px; text-align: center;
+  font: 400 10.5px/1.3 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+table.rankgrid td.t b {
+  display: block; font: 700 14px/1.2 var(--cond); letter-spacing: .1em; color: var(--txt);
+}
+table.rankgrid td.t span { display: block; font: 400 11px/1.4 var(--sans); color: var(--dim); }
+table.rankgrid tbody tr:hover { background: none; cursor: default; }
+table.rankgrid .fig {
+  display: block; font: 600 17px/1 var(--cond); color: var(--txt2);
+  font-variant-numeric: tabular-nums;
+}
+table.rankgrid .fig.top { color: var(--acc); }
+table.rankgrid .track {
+  display: block; width: 100%; height: 4px; margin: 5px 0 0;
+  background: var(--bar-track); border-radius: 2px; overflow: hidden;
+}
+table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
+.rankcap {
+  margin: 14px 0 2px; font: 600 13px/1.3 var(--sans); color: var(--txt);
+}
+.rankcap:first-of-type { margin-top: 8px; }
+.rankcap span { font-weight: 400; font-size: 12px; color: var(--dim); }
+
 /* ---- draft: best / worst value over slot -------------------------------- */
 .pick-tables table { table-layout: fixed; }
 .pick-tables td.who { padding: 7px 10px; overflow: hidden; }

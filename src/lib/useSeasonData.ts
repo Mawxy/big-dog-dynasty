@@ -3,6 +3,7 @@ import type { SeasonData, SummaryRow, Team, Weekly } from "./types";
 import { j } from "./data";
 import { sd } from "./stats";
 import { useLeague } from "./context";
+import { rosterSeasonOf } from "./league";
 
 export function useSeasonData(season: string): SeasonData | null {
   const { meta } = useLeague();
@@ -29,7 +30,9 @@ export function useSeasonData(season: string): SeasonData | null {
           pid, a.pos, a.gp, +a.pts.toFixed(1), +(a.pts / a.gp).toFixed(2),
           +a.waa.toFixed(3), +a.war.toFixed(3), +sd(a.wpts).toFixed(2),
         ]);
-        const teams = await j<Team[]>(`data/${seasons[seasons.length - 1]}/teams.json`);
+        // all-time: ownership is CURRENT ownership, not ownership in the last
+        // season that happened to be played
+        const teams = await j<Team[]>(`data/${rosterSeasonOf(meta)}/teams.json`);
         if (live) setD({ summary, teams, allData });
       } else {
         const [summary, teams] = await Promise.all([

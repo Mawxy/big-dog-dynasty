@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Team } from "../lib/types";
 import { j, jDaily } from "../lib/data";
-import { ownerOf } from "../lib/league";
+import { ownerOf, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { PlayerLink } from "../components/PlayerLink";
 
@@ -21,8 +21,7 @@ export default function Dvi() {
 
   useEffect(() => {
     jDaily<DviFile>("data/dvi.json").then(setData).catch(() => setErr(true));
-    const latest = meta.latest && meta.seasons.includes(meta.latest) ? meta.latest : meta.seasons[meta.seasons.length - 1];
-    j<Team[]>(`data/${latest}/teams.json`).then(t => setOwners(ownerOf(t))).catch(() => setOwners({}));
+    j<Team[]>(`data/${rosterSeasonOf(meta)}/teams.json`).then(t => setOwners(ownerOf(t))).catch(() => setOwners({}));
   }, [meta]);
 
   const rows = useMemo(() => {

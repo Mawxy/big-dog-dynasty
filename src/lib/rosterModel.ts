@@ -1,9 +1,18 @@
 import type { PicksOwned, PickValues, Projection, Team, Values } from "./types";
-import { optimalLineup } from "./league";
+import { DEFAULT_LINEUP, optimalLineup } from "./league";
 
-/** Shared trade-valuation model: franchise postures (per-year window weights),
- *  pick labels/streams, and the trade-suggestion search. Used by the Trade
- *  Calculator (team mode) and the franchise pages' "Suggested trades" card. */
+/**
+ * Roster-level valuation shared across the board.
+ *
+ *  - `rosterShapes` — a franchise's optimal lineup and bench, ranked slot by
+ *    slot against the league, in each of the two currencies (WAR and DVI).
+ *    Consumed by the franchise page's strengths panel.
+ *  - `computePostures` / `pickLabel` / `pickStream` — per-year window weights
+ *    and rookie-pick streams. Consumed by the Trade Calculator.
+ *  - `suggestTrades` — marginal-lineup trade search. Currently unused; the
+ *    franchise page's "Suggested trades" card was removed in favour of the
+ *    strengths panel.
+ */
 
 export const NEUTRAL: number[] = [1, 0.9, 0.81];   // no team context: pure decay
 export const ORD = ["1st", "2nd", "3rd", "4th"];
@@ -160,6 +169,201 @@ export function computePostures(players: Projection[], teams: Team[],
       age: lineupAge(b.pool),
     };
   }).sort((a, b) => a.name.localeCompare(b.name));
+}
+
+const STRENGTH_POS = ["QB", "RB", "WR", "TE"];
+
+/**
+ * The seats these grids rank — dedicated positions only, no flex.
+ *
+ * WAR is measured against a per-position replacement baseline, so comparing
+ * WAR across positions is comparing distances from two different origins. In a
+ * dedicated seat the baselines cancel and "your RB2 vs their RB2" is a fair
+ * question. In a flex seat they do not: a 0.40 TE and a 0.10 WR are not
+ * rankable that way, and the manager filling the slot is going by points
+ * anyway, so the WR may well be the real starter.
+ *
+ * SUPER_FLEX becomes a second QB rather than being dropped. In this league
+ * that is not an assumption — the optimiser independently seats exactly 24 QBs
+ * across 12 rosters, in both currencies. FLEX has no such stable answer (it
+ * splits roughly 6 RB / 5 WR / 1 TE) and is dropped: one unranked seat is
+ * better than a column that means something different on every roster.
+ */
+export function rankingLineup(lineup: string[]): string[] {
+  const out: string[] = [];
+  for (const s of lineup) {
+    if (STRENGTH_POS.includes(s)) out.push(s);
+    else if (s === "SUPER_FLEX") out.push("QB");
+  }
+  // dedicated seats first, grouped, so labels come out QB1 QB2 RB1 RB2 …
+  return STRENGTH_POS.flatMap(P => out.filter(s => s === P));
+}
+
+/** one seat in an optimised lineup and whoever holds it */
+export interface SlotRow {
+  slot: string; label: string;
+  pid: string | null; name: string; pos: string;
+  war: number; dvi: number;
+}
+
+/** one currency's league ranks, seat by seat: QB1, RB1, RB2, … FLX, SFLX */
+export interface RankCell {
+  label: string; value: number; rank: number;
+  pid: string | null; name: string; pos: string;
+}
+export interface RankRow {
+  key: "war" | "dvi";
+  label: string; note: string;
+  cells: RankCell[];
+}
+
+export interface RosterShape {
+  /** the starting eight, one row per currency */
+  ranks: RankRow[];
+  /** the same seats refilled from everyone who missed the first cut */
+  benchRanks: RankRow[];
+}
+
+/**
+ * A franchise's shape: its optimal starting lineup slot by slot, and the
+ * second string behind it.
+ *
+ * STARTERS are shown as league-wide positional ranks, by both currencies —
+ * WAR (production this season) and DVI (dynasty asset value) — because the two
+ * disagree in the interesting cases. A 33-year-old WR1 by WAR who is WR20 by
+ * DVI is a very different roster spot from a 23-year-old who is both.
+ *
+ * DEPTH is a SECOND-STRING LINEUP rather than a scored pile. Everyone who
+ * misses the first eleven is run through the same optimiser again, filling the
+ * same nine seats, and each of those seats is ranked against the same seat on
+ * every other roster. So "your backup RB1 is 3rd in the league" is a plain
+ * statement about one player, in the same shape as the starters grid.
+ *
+ * This replaced a weighted bench score — surplus over a replacement bar,
+ * softened by a per-position tau and discounted per body. That machinery is
+ * gone: it collapsed a whole bench into one number that could not be checked
+ * by eye, and its answer swung hard on where the bar sat. A second lineup says
+ * the same thing without a free parameter.
+ */
+export function rosterShapes(
+  players: Projection[], teams: Team[],
+  dvi: Record<string, number>, rosterPositions: string[] = DEFAULT_LINEUP,
+): Map<number, RosterShape> {
+  const lineup = rankingLineup(rosterPositions);
+  const byPid = new Map(players.map(p => [p.pid, p]));
+  const dviOf = (id: string) => dvi[id] ?? 0;
+  /**
+   * RAW composite, deliberately NOT clamped at zero.
+   *
+   * `lwY` clamps because it sums a lineup's value and no rational manager
+   * starts a negative player when free agency offers ~0-WAR bodies. That floor
+   * is correct for a total and ruinous for an ordering: 73% of rostered RBs and
+   * 71% of WRs project at or below zero, so clamping made them all exactly 0.00
+   * and the second-string seats became ties broken by roster array order —
+   * twelve-way at RB2, eleven-way at WR3. Phil Mafah projects -1.18, which is a
+   * real statement about him; flattening it to 0.00 threw that away.
+   */
+  const warOf = (p: Projection) => p.composite?.[0] ?? 0;
+
+  /** Optimise every roster in ONE currency and keep the resulting seats and
+   *  bench. Run twice: each row of the grid is that currency's own best nine,
+   *  so the DVI row is the most valuable legal lineup rather than the win-now
+   *  lineup re-priced. A slot can therefore hold different players in the two
+   *  rows — which is the point, and why each cell names who is in it. */
+  const buildLineup = (
+    val: (p: PoolP) => number, poolFor?: Map<number, PoolP[]>,
+    labelFrom: Record<string, number> = {},
+  ) => {
+    const slotsOf = new Map<number, SlotRow[]>();
+    const benchOf = new Map<number, PoolP[]>();
+    for (const t of teams) {
+      const pool = poolFor ? poolFor.get(t.roster_id) ?? [] : poolOf(t, byPid);
+      const { slots, starters } = optimalLineup(
+        // raw, not floored — see warOf: the floor collapses the whole
+        // sub-replacement population into one indistinguishable 0.00
+        pool.map(p => ({ id: p.id, pos: p.pos, war: val(p) })), lineup);
+      // Seats are numbered within their position and the numbering CONTINUES
+      // into the second string — QB3, QB4, RB3, RB4, WR4… — so a column header
+      // names the exact seat on the depth chart. Without the offset the bench
+      // grid repeated QB1/QB2 and an empty cell read as a hole in the starting
+      // lineup rather than as "no fourth quarterback", which is what it is.
+      const seen: Record<string, number> = { ...labelFrom };
+      slotsOf.set(t.roster_id, slots.map(s => {
+        const p = s.player ? byPid.get(s.player.id) : null;
+        seen[s.slot] = (seen[s.slot] ?? 0) + 1;
+        return {
+          slot: s.slot, label: `${s.slot}${seen[s.slot]}`,
+          pid: p?.pid ?? null, name: p?.name ?? "—", pos: p?.pos ?? "",
+          war: p ? warOf(p) : 0, dvi: p ? dviOf(p.pid) : 0,
+        };
+      }));
+      benchOf.set(t.roster_id, pool.filter(p => !starters.has(p.id)));
+    }
+    return { slotsOf, benchOf };
+  };
+  const warVal = (p: PoolP) => p.comp[0] ?? 0;
+  const dviVal = (p: PoolP) => dviOf(p.id);
+  const byWar = buildLineup(warVal);
+  const byDvi = buildLineup(dviVal);
+  // second string: the same seats again, filled from whoever missed the first
+  // cut, labelled onward from where the starters left off
+  const seatsPerPos: Record<string, number> = {};
+  for (const s of lineup) seatsPerPos[s] = (seatsPerPos[s] ?? 0) + 1;
+  const benchWar = buildLineup(warVal, byWar.benchOf, seatsPerPos);
+  const benchDvi = buildLineup(dviVal, byDvi.benchOf, seatsPerPos);
+
+  // ---- the two headline series -------------------------------------------
+  // Same columns twice, in the two currencies, because they answer different
+  // questions and the gap between them IS the read on a franchise: a team 1st
+  // by WAR and 9th by DVI is winning now with assets that are draining.
+  //   WAR = what the optimal lineup produces this season, by the position of
+  //         whoever wins each slot (so flex and superflex land somewhere real).
+  //   DVI = dynasty value of whoever wins the seat.
+  // Slot i is compared against slot i on every other roster, so "RB2 4th" means
+  // the fourth-best second running back in the league, not the fourth-best RB.
+  // optimalLineup fills repeated dedicated slots best-first, so slot order is
+  // consistent across teams. Each row uses its OWN optimised lineup and bench.
+  const series = (
+    key: "war" | "dvi", label: string, note: string,
+    L: { slotsOf: Map<number, SlotRow[]> }, slotVal: (s: SlotRow) => number,
+  ) => {
+    const nSlots = L.slotsOf.get(teams[0].roster_id)!.length;
+    // An EMPTY seat ranks last, not at zero. Owning a fourth quarterback is
+    // strictly better than not owning one, even a bad fourth quarterback —
+    // scoring the gap at 0 let an empty seat outrank a real body with negative
+    // projected WAR, which reads as a reward for having nobody.
+    const seatVal = (s: SlotRow) => s.pid ? slotVal(s) : -Infinity;
+    const cols: number[][] = [];
+    for (let i = 0; i < nSlots; i++)
+      cols.push(teams.map(t => seatVal(L.slotsOf.get(t.roster_id)![i])));
+    // epsilon still applies to real values; -Infinity + 1e-9 is -Infinity, so
+    // empty seats all tie with each other and lose to every real body
+    const rankIn = (vals: number[], v: number) => 1 + vals.filter(x => x > v + 1e-9).length;
+    return (rid: number): RankRow => ({
+      key, label, note,
+      cells: L.slotsOf.get(rid)!.map((s, i) => ({
+        label: s.label, value: slotVal(s), rank: rankIn(cols[i], seatVal(s)),
+        pid: s.pid, name: s.name, pos: s.pos,
+      })),
+    });
+  };
+  const warOfSlot = (s: SlotRow) => s.war;
+  const dviOfSlot = (s: SlotRow) => s.dvi;
+  const starters = [
+    series("war", "WAR", "production this season", byWar, warOfSlot),
+    series("dvi", "DVI", "dynasty value", byDvi, dviOfSlot),
+  ];
+  const second = [
+    series("war", "WAR", "production this season", benchWar, warOfSlot),
+    series("dvi", "DVI", "dynasty value", benchDvi, dviOfSlot),
+  ];
+
+  const out = new Map<number, RosterShape>();
+  for (const t of teams) out.set(t.roster_id, {
+    ranks: starters.map(f => f(t.roster_id)),
+    benchRanks: second.map(f => f(t.roster_id)),
+  });
+  return out;
 }
 
 export interface SuggestedTrade {

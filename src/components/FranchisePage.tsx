@@ -8,7 +8,7 @@ import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 import TradeCard, { readTrades } from "./TradeCard";
 import QuickJump from "./QuickJump";
-import SuggestedTrades from "./SuggestedTrades";
+import TeamStrengths from "./TeamStrengths";
 
 function ord(n: number) {
   const s = ["th", "st", "nd", "rd"], v = n % 100;
@@ -182,7 +182,7 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
             </div>
           </div>
         )}
-        <SuggestedTrades rid={rid} />
+        <TeamStrengths rid={rid} />
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, margin: "18px 0 8px" }}>
           <h3 style={{ margin: 0 }}>Roster</h3>
           <select value={rosterSeason ?? ""} onChange={e => setRosterSeason(e.target.value)} style={selStyle}>
