@@ -5,6 +5,7 @@ import { j, jl, probeLeagueBase, setVersion } from "./lib/data";
 import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
 import { seasonSeg } from "./lib/league";
+import Home from "./views/Home";
 import Players from "./views/Players";
 import Teams from "./views/Teams";
 import WeeklyView from "./views/Weekly";
@@ -14,10 +15,10 @@ import Dvi from "./views/Dvi";
 import PlayerPage from "./components/PlayerPage";
 import SiteFooter from "./components/SiteFooter";
 
-const VIEWS = ["players", "teams", "weekly", "draft", "trades", "dvi"] as const;
+const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades", "dvi"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
-const GLOBAL_VIEWS = ["draft", "trades", "dvi"];
-const LABEL = (v: string) => (v === "dvi" ? "DVI" : v[0].toUpperCase() + v.slice(1));
+const GLOBAL_VIEWS = ["home", "draft", "trades", "dvi"];
+const LABEL = (v: string) => (v === "dvi" ? "DVI" : v === "home" ? "League" : v[0].toUpperCase() + v.slice(1));
 
 /** newest season that actually has WAR data (falls back to newest listed) */
 function defaultSeason(meta: Meta): string {
@@ -101,7 +102,7 @@ function Shell() {
   const base = `/${leagueSeg(league)}`;
   const parts = loc.pathname.split("/");
   const onView = (VIEWS as readonly string[]).includes(parts[2]);
-  const curView = onView ? parts[2] : "players";
+  const curView = onView ? parts[2] : "home";
   const curSeasonSeg = onView && parts[3] ? parts[3] : seasonSeg(latest);
   const showSeason = onView && !GLOBAL_VIEWS.includes(parts[2]);
   return (
@@ -139,6 +140,8 @@ function Shell() {
         <Routes>
           {/* league-first. A static first segment outranks the dynamic
               :league, so the legacy block below can never be shadowed. */}
+          <Route path="/:league" element={<Home />} />
+          <Route path="/:league/home" element={<Home />} />
           <Route path="/:league/players/:season" element={<PlayersRoute />} />
           <Route path="/:league/teams/:season" element={<TeamsRoute />} />
           <Route path="/:league/teams/:season/:rid" element={<TeamsRoute />} />
@@ -159,8 +162,7 @@ function Shell() {
           <Route path="/dvi" element={<LegacyRedirect />} />
           <Route path="/player/*" element={<LegacyRedirect />} />
 
-          <Route path="*" element={
-            <Navigate to={`${base}/players/${seasonSeg(latest)}`} replace />} />
+          <Route path="*" element={<Navigate to={base} replace />} />
         </Routes>
       </main>
       <SiteFooter />

@@ -1018,3 +1018,21 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
   .legacy .seasongrid { grid-template-columns: 1fr; }
   .legacy .tradesides { grid-template-columns: 1fr; }
 }
+
+/* ---- league home: the franchise board -------------------------------- */
+/* Scoped with `table.homeboard` (0,1,2) so it wins against the `.legacy`
+   th/td block the way the rank grid has to — see the note there. */
+table.homeboard { background: var(--band); }
+table.homeboard td:nth-child(n) { padding: 8px 10px; border-bottom: 1px solid var(--hair); }
+table.homeboard tbody tr:hover { background: var(--sel); }
+table.homeboard .nm { font: 600 14.5px/1.3 var(--sans); color: var(--txt); }
+table.homeboard .by { font: 400 11.5px/1.4 var(--sans); color: var(--dim); }
+table.homeboard td.sub { color: var(--dim); }
+table.homeboard td b { font: 700 16px/1 var(--cond); font-variant-numeric: tabular-nums; }
+table.homeboard .fin { font: 700 15px/1 var(--cond); color: var(--txt2); }
+table.homeboard .fin.champ { font-size: 15px; }
+/* window colours read as a spectrum, not a verdict: contenders warm, rebuilds cool */
+table.homeboard .win-contender { color: var(--acc); }
+table.homeboard .win-middling { color: var(--dim); }
+table.homeboard .win-rebuilding { color: var(--wr); }
+table.homeboard td.t.hm { text-transform: uppercase; font: 600 12px/1 var(--cond); letter-spacing: .1em; }
