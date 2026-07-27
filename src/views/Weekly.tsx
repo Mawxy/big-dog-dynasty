@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useLeaguePath } from "../lib/context";
 import type { Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
-import { j } from "../lib/data";
+import { jl } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo, ownerOf, weekIndex, seasonSeg } from "../lib/league";
 import PosBadge from "../components/PosBadge";
@@ -20,14 +21,15 @@ export default function Weekly({ data, season, players, week }: Props) {
   const [err, setErr] = useState(false);
   const [reload, setReload] = useState(0);
   const nav = useNavigate();
+  const lp = useLeaguePath();
 
   useEffect(() => {
     if (season === "ALL") return;
     let live = true;
     setErr(false);
     Promise.all([
-      j<WeeklyT>(`data/${season}/weekly.json`),
-      j<Matchups>(`data/${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
+      jl<WeeklyT>(`${season}/weekly.json`),
+      jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
     ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } })
       .catch(() => { if (live) setErr(true); });
     return () => { live = false; };
@@ -70,7 +72,7 @@ export default function Weekly({ data, season, players, week }: Props) {
   const wks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
   if (!wks.length) return <div className="empty">No scored weeks yet for this season.</div>;
   if (week !== null)
-    return <div className="legacy"><WeekDetail wk={week} season={season} data={data} weekly={weekly} mw={mw} players={players} back={() => nav(`/weekly/${seasonSeg(season)}`)} /></div>;
+    return <div className="legacy"><WeekDetail wk={week} season={season} data={data} weekly={weekly} mw={mw} players={players} back={() => nav(lp(`/weekly/${seasonSeg(season)}`))} /></div>;
 
   const ps = mw.playoff_start || 15;
   const owners = ownerOf(data.teams);
@@ -118,7 +120,7 @@ export default function Weekly({ data, season, players, week }: Props) {
                 onClick={() => setExpWeek(openW === w ? null : w)}>
                 <td className="t">
                   <span className="tlink" style={{ font: "700 21px/1 var(--cond)", letterSpacing: ".02em" }}
-                    onClick={e => { e.stopPropagation(); nav(`/weekly/${seasonSeg(season)}/${w}`); }}>W{w}</span>
+                    onClick={e => { e.stopPropagation(); nav(lp(`/weekly/${seasonSeg(season)}/${w}`)); }}>W{w}</span>
                   {w >= ps && <span className="tag">PO</span>}
                 </td>
                 <td className="fig strong n">{sc ? fmt(sc.high, 1) : "—"}</td>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Matchups, PlayersMin, ProjectionsFile, SeasonData, Weekly } from "../lib/types";
-import { j } from "../lib/data";
+import { jl } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { pInfo, ownerOf } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
@@ -53,8 +53,8 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
     if (season === "ALL" || !data.summary.length) { setWkWarMap({}); return; }
     let live = true;
     Promise.all([
-      j<Weekly>(`data/${season}/weekly.json`),
-      j<Matchups>(`data/${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
+      jl<Weekly>(`${season}/weekly.json`),
+      jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
     ]).then(([w, m]) => {
       if (!live) return;
       const ps = m.playoff_start || 15;
@@ -70,7 +70,7 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
   useEffect(() => {
     if (data.summary.length) return;
     let live = true;
-    j<ProjectionsFile>("data/projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
+    jl<ProjectionsFile>("projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
     return () => { live = false; };
   }, [data]);
   const isProj = !data.summary.length && projs != null && String(projs.meta.roster_season) === season;

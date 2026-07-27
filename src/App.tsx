@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
-import type { Meta, PlayersMin } from "./lib/types";
-import { j, setVersion } from "./lib/data";
-import { LeagueContext, useLeague } from "./lib/context";
+import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./lib/types";
+import { j, jl, probeLeagueBase, setVersion } from "./lib/data";
+import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
 import { seasonSeg } from "./lib/league";
 import Players from "./views/Players";
@@ -32,6 +32,16 @@ function seasonOf(seg: string | undefined, meta: Meta): string {
   return defaultSeason(meta);
 }
 
+/** Old season-first URLs (#/players/2025) keep working: prefix the league and
+ *  replace. Prefixing the whole pathname rather than rebuilding from params
+ *  means every legacy shape — including /teams/:season/:rid/:tab — survives
+ *  without being enumerated. */
+function LegacyRedirect() {
+  const { league } = useLeague();
+  const loc = useLocation();
+  return <Navigate to={`/${leagueSeg(league)}${loc.pathname}${loc.search}`} replace />;
+}
+
 /** a route segment as a non-negative integer, or null for a bogus one (e.g.
  *  /teams/2025/abc) — keeps NaN out of rid/week props */
 function intParam(seg: string | undefined): number | null {
@@ -43,19 +53,33 @@ function intParam(seg: string | undefined): number | null {
 export default function App() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [players, setPlayers] = useState<PlayersMin | null>(null);
+  const [league, setLeague] = useState<LeagueEntry | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
     (async () => {
-      const m = await j<Meta>("data/meta.json");
+      // The registry comes FIRST and is global — it is what tells us where the
+      // rest of this league's data lives. Everything after it is league-scoped
+      // and goes through jl(), which falls back to the flat layout while the
+      // files are still being moved.
+      const reg = await j<Leagues>("data/leagues.json")
+        .catch(() => null as Leagues | null);
+      if (reg) {
+        const l = resolveLeague(reg);
+        await probeLeagueBase(l.key);
+        setLeague(l);
+      }
+      const m = await jl<Meta>("meta.json");
       setVersion(m.updated);
-      setPlayers(await j<PlayersMin>("data/players_min.json"));
+      // data built before the registry existed: synthesise an entry from meta
+      if (!reg) setLeague(resolveLeague(legacyRegistry(m)));
+      setPlayers(await jl<PlayersMin>("players_min.json"));
       setMeta(m);
     })().catch(e => setErr(String(e)));
   }, []);
   if (err) return <div className="empty">Failed to load data: {err}</div>;
-  if (!meta || !players) return <div className="empty">Loading…</div>;
+  if (!meta || !players || !league) return <div className="empty">Loading…</div>;
   return (
-    <LeagueContext.Provider value={{ meta, players }}>
+    <LeagueContext.Provider value={{ meta, players, league }}>
       <HashRouter>
         <Shell />
       </HashRouter>
@@ -64,7 +88,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { meta } = useLeague();
+  const { meta, league } = useLeague();
   const nav = useNavigate();
   const loc = useLocation();
   const navType = useNavigationType();
@@ -73,11 +97,13 @@ function Shell() {
     if (navType === "PUSH") window.scrollTo(0, 0);
   }, [loc.pathname, navType]);
   const latest = defaultSeason(meta);
+  // paths are league-first now: /<league>/<view>[/<season>...]
+  const base = `/${leagueSeg(league)}`;
   const parts = loc.pathname.split("/");
-  const onView = (VIEWS as readonly string[]).includes(parts[1]);
-  const curView = onView ? parts[1] : "players";
-  const curSeasonSeg = onView && parts[2] ? parts[2] : seasonSeg(latest);
-  const showSeason = onView && !GLOBAL_VIEWS.includes(parts[1]);
+  const onView = (VIEWS as readonly string[]).includes(parts[2]);
+  const curView = onView ? parts[2] : "players";
+  const curSeasonSeg = onView && parts[3] ? parts[3] : seasonSeg(latest);
+  const showSeason = onView && !GLOBAL_VIEWS.includes(parts[2]);
   return (
     <div className="app">
       <header className="mast">
@@ -90,7 +116,7 @@ function Shell() {
             <span className="mast-updated">Data refreshes Wed 1:00 AM ET · {meta.updated}</span>
             {showSeason && (
               <select className="season-chip" value={curSeasonSeg}
-                onChange={e => nav(`/${curView}/${e.target.value}`)}>
+                onChange={e => nav(`${base}/${curView}/${e.target.value}`)}>
                 {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
                 <option value="all">All-time</option>
               </select>
@@ -101,8 +127,9 @@ function Shell() {
 
       <nav className="tabs">
         {VIEWS.map(v => (
-          <button key={v} className={parts[1] === v ? "on" : ""}
-            onClick={() => nav(GLOBAL_VIEWS.includes(v) ? `/${v}` : `/${v}/${curSeasonSeg}`)}>
+          <button key={v} className={parts[2] === v ? "on" : ""}
+            onClick={() => nav(GLOBAL_VIEWS.includes(v)
+              ? `${base}/${v}` : `${base}/${v}/${curSeasonSeg}`)}>
             {LABEL(v)}
           </button>
         ))}
@@ -110,17 +137,30 @@ function Shell() {
 
       <main>
         <Routes>
-          <Route path="/players/:season" element={<PlayersRoute />} />
-          <Route path="/teams/:season" element={<TeamsRoute />} />
-          <Route path="/teams/:season/:rid" element={<TeamsRoute />} />
-          <Route path="/teams/:season/:rid/:tab" element={<TeamsRoute />} />
-          <Route path="/weekly/:season" element={<WeeklyRoute />} />
-          <Route path="/weekly/:season/:wk" element={<WeeklyRoute />} />
-          <Route path="/draft" element={<Draft />} />
-          <Route path="/trades" element={<Trades />} />
-          <Route path="/dvi" element={<Dvi />} />
-          <Route path="/player/:pid" element={<PlayerRoute />} />
-          <Route path="*" element={<Navigate to={`/players/${seasonSeg(latest)}`} replace />} />
+          {/* league-first. A static first segment outranks the dynamic
+              :league, so the legacy block below can never be shadowed. */}
+          <Route path="/:league/players/:season" element={<PlayersRoute />} />
+          <Route path="/:league/teams/:season" element={<TeamsRoute />} />
+          <Route path="/:league/teams/:season/:rid" element={<TeamsRoute />} />
+          <Route path="/:league/teams/:season/:rid/:tab" element={<TeamsRoute />} />
+          <Route path="/:league/weekly/:season" element={<WeeklyRoute />} />
+          <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
+          <Route path="/:league/draft" element={<Draft />} />
+          <Route path="/:league/trades" element={<Trades />} />
+          <Route path="/:league/dvi" element={<Dvi />} />
+          <Route path="/:league/player/:pid" element={<PlayerRoute />} />
+
+          {/* pre-restructure URLs — bookmarks, and anything already shared */}
+          <Route path="/players/*" element={<LegacyRedirect />} />
+          <Route path="/teams/*" element={<LegacyRedirect />} />
+          <Route path="/weekly/*" element={<LegacyRedirect />} />
+          <Route path="/draft" element={<LegacyRedirect />} />
+          <Route path="/trades" element={<LegacyRedirect />} />
+          <Route path="/dvi" element={<LegacyRedirect />} />
+          <Route path="/player/*" element={<LegacyRedirect />} />
+
+          <Route path="*" element={
+            <Navigate to={`${base}/players/${seasonSeg(latest)}`} replace />} />
         </Routes>
       </main>
       <SiteFooter />

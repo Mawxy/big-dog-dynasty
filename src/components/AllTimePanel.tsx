@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Ownership, PlayersMin, SeasonData, Team } from "../lib/types";
-import { j } from "../lib/data";
+import { jl } from "../lib/data";
 import { fmt, clsOf, sd, mean } from "../lib/stats";
 import { pInfo, ownerOf } from "../lib/league";
 import PosBadge from "./PosBadge";
@@ -14,7 +14,7 @@ interface Props { pid: string; data: SeasonData; seasons: string[]; teams: Team[
 export default function AllTimePanel({ pid, data, seasons, teams, players }: Props) {
   const [own, setOwn] = useState<Ownership>({});
   useEffect(() => {
-    j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)).then(setOwn);
+    jl<Ownership>("ownership.json").catch(() => ({} as Ownership)).then(setOwn);
   }, []);
   const [nm, pos] = pInfo(players, pid);
   const owner = ownerOf(teams)[pid];

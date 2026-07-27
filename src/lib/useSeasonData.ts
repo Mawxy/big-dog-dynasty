@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import type { SeasonData, SummaryRow, Team, Weekly } from "./types";
-import { j } from "./data";
+import { jl } from "./data";
 import { sd } from "./stats";
 import { useLeague } from "./context";
 import { rosterSeasonOf } from "./league";
 
 export function useSeasonData(season: string): SeasonData | null {
-  const { meta } = useLeague();
+  const { meta, league } = useLeague();
   const [d, setD] = useState<SeasonData | null>(null);
   useEffect(() => {
     let live = true;
@@ -14,8 +14,8 @@ export function useSeasonData(season: string): SeasonData | null {
     (async () => {
       if (season === "ALL") {
         const seasons = meta.seasons;
-        const sums = await Promise.all(seasons.map(s => j<SummaryRow[]>(`data/${s}/summary.json`).catch(() => [] as SummaryRow[])));
-        const weeks = await Promise.all(seasons.map(s => j<Weekly>(`data/${s}/weekly.json`).catch(() => ({} as Weekly))));
+        const sums = await Promise.all(seasons.map(s => jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[])));
+        const weeks = await Promise.all(seasons.map(s => jl<Weekly>(`${s}/weekly.json`).catch(() => ({} as Weekly))));
         const allData: NonNullable<SeasonData["allData"]> = {};
         seasons.forEach((s, i) => { allData[s] = { summary: sums[i], weekly: weeks[i] }; });
         const agg: Record<string, { pos: string; gp: number; pts: number; waa: number; war: number; wpts: number[] }> = {};
@@ -32,17 +32,17 @@ export function useSeasonData(season: string): SeasonData | null {
         ]);
         // all-time: ownership is CURRENT ownership, not ownership in the last
         // season that happened to be played
-        const teams = await j<Team[]>(`data/${rosterSeasonOf(meta)}/teams.json`);
+        const teams = await jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`);
         if (live) setD({ summary, teams, allData });
       } else {
         const [summary, teams] = await Promise.all([
-          j<SummaryRow[]>(`data/${season}/summary.json`),
-          j<Team[]>(`data/${season}/teams.json`),
+          jl<SummaryRow[]>(`${season}/summary.json`),
+          jl<Team[]>(`${season}/teams.json`),
         ]);
         if (live) setD({ summary, teams, allData: null });
       }
     })().catch(() => { if (live) setD({ summary: [], teams: [], allData: null }); });
     return () => { live = false; };
-  }, [season, meta]);
+  }, [season, meta, league]);
   return d;
 }

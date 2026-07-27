@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Team } from "../lib/types";
-import { j, jDaily } from "../lib/data";
+import { jl, jlDaily } from "../lib/data";
 import { ownerOf, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { PlayerLink } from "../components/PlayerLink";
@@ -13,16 +13,16 @@ const CHIPS = ["ALL", "QB", "RB", "WR", "TE"];
 
 /** Dynasty Value Index leaderboard. One 0–100 value per player, no breakdown. */
 export default function Dvi() {
-  const { meta } = useLeague();
+  const { league } = useLeague();
   const [data, setData] = useState<DviFile | null>(null);
   const [owners, setOwners] = useState<Record<string, string>>({});
   const [err, setErr] = useState(false);
   const [pos, setPos] = useState("ALL");
 
   useEffect(() => {
-    jDaily<DviFile>("data/dvi.json").then(setData).catch(() => setErr(true));
-    j<Team[]>(`data/${rosterSeasonOf(meta)}/teams.json`).then(t => setOwners(ownerOf(t))).catch(() => setOwners({}));
-  }, [meta]);
+    jlDaily<DviFile>("dvi.json").then(setData).catch(() => setErr(true));
+    jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`).then(t => setOwners(ownerOf(t))).catch(() => setOwners({}));
+  }, [league]);
 
   const rows = useMemo(() => {
     if (!data) return [];

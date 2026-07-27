@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useLeague } from "../lib/context";
-import { j } from "../lib/data";
+import { useLeague, useLeaguePath } from "../lib/context";
+import { jl } from "../lib/data";
 import { seasonSeg } from "../lib/league";
 import type { Franchises } from "../lib/types";
 import PosBadge from "./PosBadge";
@@ -18,7 +18,8 @@ export default function QuickJump() {
   const [open, setOpen] = useState(false);
   const [frs, setFrs] = useState<Franchises | null>(null);
   const nav = useNavigate();
-  useEffect(() => { j<Franchises>("data/franchises.json").then(setFrs).catch(() => {}); }, []);
+  const lp = useLeaguePath();
+  useEffect(() => { jl<Franchises>("franchises.json").then(setFrs).catch(() => {}); }, []);
   const latest = meta.seasons[meta.seasons.length - 1];
 
   const opts = useMemo<Opt[]>(() => {
@@ -36,12 +37,12 @@ export default function QuickJump() {
       const sc = score(name);
       if (sc >= 0) scored.push([sc, {
         key: `t${rid}`, label: name,
-        to: `/teams/${seasonSeg(latest)}/${rid}`,
+        to: lp(`/teams/${seasonSeg(latest)}/${rid}`),
       }]);
     }
     for (const [pid, [name, pos]] of Object.entries(players)) {
       const sc = score(name);
-      if (sc >= 0) scored.push([sc, { key: pid, label: name, pos, to: `/player/${pid}` }]);
+      if (sc >= 0) scored.push([sc, { key: pid, label: name, pos, to: lp(`/player/${pid}`) }]);
     }
     return scored.sort((a, b) => a[0] - b[0]).slice(0, 8).map(x => x[1]);
   }, [q, players, frs, latest]);

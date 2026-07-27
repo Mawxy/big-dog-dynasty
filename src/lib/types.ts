@@ -4,6 +4,31 @@
  *  full-NFL stats feed existed (pre-2022 / dumps without allstats). */
 export type SummaryRow = [string, string, number, number, number, number, number, number?, (number | null)?];
 
+/** data/leagues.json — the league registry.
+ *
+ *  A league is keyed by its FOUNDING league_id, permanently: Sleeper mints a new
+ *  id every season and chains them backward, so the founder is the only id that
+ *  never moves. `alias` is a hand-assigned URL name and is never load-bearing —
+ *  the key always resolves on its own. */
+export interface LeagueEntry {
+  /** founding league_id — the permanent key */
+  key: string;
+  /** URL alias, e.g. "big-dog". May collide across leagues; the key never does */
+  alias: string;
+  name: string;
+  seasons: string[];
+  /** newest season with games played */
+  latest: string | null;
+  /** whose rosters are live — differs from `latest` all offseason */
+  rosterSeason: string;
+  /** this season's Sleeper league_id (changes annually) */
+  currentLeagueId: string;
+  /** season -> that season's league_id */
+  chain: Record<string, string>;
+  commissioners: { user_id: string; name: string }[];
+}
+export interface Leagues { default: string; leagues: LeagueEntry[] }
+
 export interface Meta {
   league: string; seasons: string[]; updated: string;
   /** newest season with games played — what the stats views default to */

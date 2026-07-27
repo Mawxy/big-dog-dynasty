@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Absences, Meta, Ownership, PlayerShard, PlayersMin, Projection as ProjRec, SummaryRow, Team, Values, Weekly, WeeklyRow } from "../lib/types";
-import { j, jDaily } from "../lib/data";
+import { jDaily, jl, jlDaily } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import QuickJump from "./QuickJump";
@@ -34,18 +34,18 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
     (async () => {
       const seasons = meta.seasons;
       const [sums, weeks, teams, absences, ownership] = await Promise.all([
-        Promise.all(seasons.map(s => j<SummaryRow[]>(`data/${s}/summary.json`).catch(() => [] as SummaryRow[]))),
-        Promise.all(seasons.map(s => j<Weekly>(`data/${s}/weekly.json`).catch(() => ({} as Weekly)))),
-        Promise.all(seasons.map(s => j<Team[]>(`data/${s}/teams.json`).catch(() => [] as Team[]))),
-        Promise.all(seasons.map(s => j<Absences>(`data/${s}/absence.json`).catch(() => ({} as Absences)))),
-        j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
+        Promise.all(seasons.map(s => jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[]))),
+        Promise.all(seasons.map(s => jl<Weekly>(`${s}/weekly.json`).catch(() => ({} as Weekly)))),
+        Promise.all(seasons.map(s => jl<Team[]>(`${s}/teams.json`).catch(() => [] as Team[]))),
+        Promise.all(seasons.map(s => jl<Absences>(`${s}/absence.json`).catch(() => ({} as Absences)))),
+        jl<Ownership>("ownership.json").catch(() => ({} as Ownership)),
       ]);
       jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
-      jDaily<{ players: Record<string, { dvi: number; rank: number; pos: string; pos_rank: number }> }>("data/dvi.json")
+      jlDaily<{ players: Record<string, { dvi: number; rank: number; pos: string; pos_rank: number }> }>("dvi.json")
         .then(d => { if (live) setDvi(d.players[pid] ?? null); }).catch(() => {});
       // one ~2 KB shard instead of all of projections.json; a 404 just means
       // this player has no projection and the panel is skipped
-      j<PlayerShard>(`data/player/${pid}.json`).then(sh => {
+      jl<PlayerShard>(`player/${pid}.json`).then(sh => {
         if (!live) return;
         setProj(sh.proj);
         setProjYears(sh.years);

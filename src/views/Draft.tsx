@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
-import { j, jDaily } from "../lib/data";
+import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { boxStats } from "../components/BoxMarks";
 
@@ -71,9 +71,9 @@ export default function Draft() {
   const [open, setOpen] = useState<Record<string, boolean>>({ "1": true });
 
   useEffect(() => {
-    j<Drafts>("data/drafts.json").then(setDrafts).catch(() => setErr(true));
-    j<Franchises>("data/franchises.json").then(setFr).catch(() => setFr({}));
-    jDaily<PickValues>("data/pick_values.json").then(setPv).catch(() => setPv(null));
+    jl<Drafts>("drafts.json").then(setDrafts).catch(() => setErr(true));
+    jl<Franchises>("franchises.json").then(setFr).catch(() => setFr({}));
+    jlDaily<PickValues>("pick_values.json").then(setPv).catch(() => setPv(null));
   }, []);
 
   /** slot-value blocks, from the multi-league corpus */

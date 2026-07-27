@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Ownership, PlayersMin, Team, Weekly, WeeklyRow } from "../lib/types";
-import { j } from "../lib/data";
+import { jl } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
 import { pInfo, ownerOf } from "../lib/league";
 import PosBadge from "./PosBadge";
@@ -21,8 +21,8 @@ export default function PlayerPanel({ pid, season, teams, players }: Props) {
     (async () => {
       try {
         const [weekly, ownership] = await Promise.all([
-          j<Weekly>(`data/${season}/weekly.json`),
-          j<Ownership>("data/ownership.json").catch(() => ({} as Ownership)),
+          jl<Weekly>(`${season}/weekly.json`),
+          jl<Ownership>("ownership.json").catch(() => ({} as Ownership)),
         ]);
         if (!live) return;
         setWks((weekly[pid] || []).slice().sort((a, b) => a[0] - b[0]));

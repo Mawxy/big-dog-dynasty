@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import type { BridgeKnots, PicksOwned, PickValues, ProjectionsFile, Team, ValueBridge, Values } from "../lib/types";
-import { j, jDaily } from "../lib/data";
+import { jDaily, jl, jlDaily } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { optimalLineup } from "../lib/league";
 import { computePostures, NEUTRAL as NEUTRAL_W, pickLabel, pickStream, type Posture } from "../lib/rosterModel";
@@ -70,14 +70,14 @@ export default function TradeCalc({ teamMode }: { teamMode: boolean }) {
   const [who, setWho] = useState<[string, string]>(["", ""]);
 
   useEffect(() => {
-    j<ProjectionsFile>("data/projections.json").then(p => {
+    jl<ProjectionsFile>("projections.json").then(p => {
       setProj(p);
-      j<Team[]>(`data/${p.meta.roster_season}/teams.json`).then(setTeams).catch(() => {});
+      jl<Team[]>(`${p.meta.roster_season}/teams.json`).then(setTeams).catch(() => {});
     }).catch(() => {});
     jDaily<Values>("data/values.json").then(setVals).catch(() => {});
-    jDaily<ValueBridge>("data/value_bridge.json").then(setBridge).catch(() => {});
-    j<PickValues>("data/pick_values.json").then(setPv).catch(() => {});
-    j<PicksOwned>("data/picks_owned.json").then(setOwned).catch(() => {});
+    jlDaily<ValueBridge>("value_bridge.json").then(setBridge).catch(() => {});
+    jl<PickValues>("pick_values.json").then(setPv).catch(() => {});
+    jl<PicksOwned>("picks_owned.json").then(setOwned).catch(() => {});
   }, []);
 
   const postures = useMemo<TeamPosture[]>(() => {

@@ -4,12 +4,12 @@ export const pInfo = (players: PlayersMin, pid: string): [string, string, string
   players[pid] ?? [`#${pid}`, "?", ""];
 
 /** Whose rosters to read for "who owns this player". Current rosters unless a
- *  past season is being viewed — never `meta.latest`, which lags a full year
- *  behind through the offseason. */
-export const rosterSeasonOf = (meta: { seasons: string[]; rosterSeason?: string }) =>
-  meta.rosterSeason && meta.seasons.includes(meta.rosterSeason)
-    ? meta.rosterSeason
-    : meta.seasons[meta.seasons.length - 1];
+ *  past season is being viewed — never `latest`, which lags a full year behind
+ *  through the offseason. Takes the league registry entry. */
+export const rosterSeasonOf = (l: { seasons: string[]; rosterSeason?: string }) =>
+  l.rosterSeason && l.seasons.includes(l.rosterSeason)
+    ? l.rosterSeason
+    : l.seasons[l.seasons.length - 1];
 
 export function ownerOf(teams: Team[]): Record<string, string> {
   const m: Record<string, string> = {};

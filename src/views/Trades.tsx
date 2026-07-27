@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Trade, TradeSide, TradesPayload } from "../lib/types";
-import { j } from "../lib/data";
+import { jl } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import { useLeague } from "../lib/context";
@@ -32,7 +32,7 @@ function Ledger() {
   const [trades, setTrades] = useState<Trade[] | null>(null);
   const [err, setErr] = useState(false);
   useEffect(() => {
-    j<TradesPayload>("data/trades.json")
+    jl<TradesPayload>("trades.json")
       .then(p => setTrades(Array.isArray(p) ? p : p.trades))
       .catch(() => setErr(true));
   }, []);

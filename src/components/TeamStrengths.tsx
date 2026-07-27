@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { DviFile, ProjectionsFile, Team } from "../lib/types";
-import { j, jDaily } from "../lib/data";
+import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { useLeague } from "../lib/context";
 import { DEFAULT_LINEUP } from "../lib/league";
@@ -78,13 +78,13 @@ export default function TeamStrengths({ rid }: { rid: number }) {
 
   useEffect(() => {
     let live = true;
-    j<ProjectionsFile>("data/projections.json").then(p => {
+    jl<ProjectionsFile>("projections.json").then(p => {
       if (!live) return;
       setProj(p);
-      j<Team[]>(`data/${p.meta.roster_season}/teams.json`)
+      jl<Team[]>(`${p.meta.roster_season}/teams.json`)
         .then(t => { if (live) setTeams(t); }).catch(() => {});
     }).catch(() => {});
-    jDaily<DviFile>("data/dvi.json").then(x => { if (live) setDvi(x); }).catch(() => {});
+    jlDaily<DviFile>("dvi.json").then(x => { if (live) setDvi(x); }).catch(() => {});
     return () => { live = false; };
   }, []);
 

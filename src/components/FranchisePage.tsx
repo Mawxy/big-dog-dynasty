@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useState, type CSSProperties } from "react";
 import type { DraftPick, Drafts, Franchise, Franchises, Insights, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload } from "../lib/types";
-import { j } from "../lib/data";
+import { jl } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, pInfo, posRanks } from "../lib/league";
 import { useLeague } from "../lib/context";
@@ -59,14 +59,14 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
 
   useEffect(() => {
     let live = true;
-    j<Insights>("data/insights.json").then(x => { if (live) setInsights(x); }).catch(() => {});
-    j<Franchises>("data/franchises.json").then(f => {
+    jl<Insights>("insights.json").then(x => { if (live) setInsights(x); }).catch(() => {});
+    jl<Franchises>("franchises.json").then(f => {
       if (!live) return;
       const rec = f[String(rid)] ?? null;
       setFr(rec);
       if (rec?.seasons.length) setRosterSeason(rec.seasons[rec.seasons.length - 1].season);
     }).catch(() => { if (live) setFr(null); });
-    j<Drafts>("data/drafts.json").then(d => {
+    jl<Drafts>("drafts.json").then(d => {
       if (!live) return;
       setPicks(d[String(rid)] || []);
       const all = new Set<string>();
@@ -83,8 +83,8 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
     if (!rosterSeason) return;
     let live = true;
     Promise.all([
-      j<Team[]>(`data/${rosterSeason}/teams.json`),
-      j<SummaryRow[]>(`data/${rosterSeason}/summary.json`).catch(() => [] as SummaryRow[]),
+      jl<Team[]>(`${rosterSeason}/teams.json`),
+      jl<SummaryRow[]>(`${rosterSeason}/summary.json`).catch(() => [] as SummaryRow[]),
     ]).then(([teams, sum]) => {
       if (!live) return;
       const team = teams.find(t => t.roster_id === rid) || null;
@@ -101,7 +101,7 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
   useEffect(() => {
     if (cur !== "trades" || trades) return;
     let live = true;
-    j<TradesPayload>("data/trades.json")
+    jl<TradesPayload>("trades.json")
       .then(p => {
         if (live) setTrades(readTrades(p).trades.filter(t => t.sides.some(s => s.rid === rid)));
       })
@@ -114,8 +114,8 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
     if (cur !== "overview" || proj) return;
     let live = true;
     Promise.all([
-      j<ProjectionsFile>("data/projections.json"),
-      j<SleeperProjFile>("data/proj_sleeper.json").catch(() => ({ players: {} } as SleeperProjFile)),
+      jl<ProjectionsFile>("projections.json"),
+      jl<SleeperProjFile>("proj_sleeper.json").catch(() => ({ players: {} } as SleeperProjFile)),
     ]).then(([p, sp]) => {
       if (!live) return;
       const ext = Object.entries(sp.players ?? {});

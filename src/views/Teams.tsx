@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useLeaguePath } from "../lib/context";
 import type { Matchups, MatchEntry, PlayersMin, ProjectionsFile, SeasonData, Team, Weekly } from "../lib/types";
-import { j } from "../lib/data";
+import { jl } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean, normCdf, normInv } from "../lib/stats";
 import { pInfo, weekIndex, seasonSeg, optimalLineup } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
@@ -35,6 +36,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   const [mw, setMw] = useState<Matchups | null>(null);
   const [openRid, setOpenRid] = useState<number | null>(null);
   const nav = useNavigate();
+  const lp = useLeaguePath();
   const mobile = useMobile();
 
   const [projs, setProjs] = useState<ProjectionsFile | null>(null);
@@ -46,8 +48,8 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
     let live = true;
     setErr(false);
     Promise.all([
-      j<Weekly>(`data/${season}/weekly.json`),
-      j<Matchups>(`data/${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
+      jl<Weekly>(`${season}/weekly.json`),
+      jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
     ]).then(([w, m]) => { if (live) { setWeekly(w); setMw(m); } })
       .catch(() => { if (live) setErr(true); });
     return () => { live = false; };
@@ -56,7 +58,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   useEffect(() => {
     if (data.summary.length) return;
     let live = true;
-    j<ProjectionsFile>("data/projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
+    jl<ProjectionsFile>("projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
     return () => { live = false; };
   }, [data]);
   const isProj = !data.summary.length && projs != null && String(projs.meta.roster_season) === season;
@@ -212,8 +214,8 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
   if (!mw || !weekly) return <div className="empty">Loading…</div>;
   if (detailRid !== null)
     return <div className="legacy"><FranchisePage key={detailRid} rid={detailRid} players={players} tab={tab}
-      onTab={t => nav(`/teams/${seasonSeg(season)}/${detailRid}/${t}`, { replace: true })}
-      back={() => nav(`/teams/${seasonSeg(season)}`)} /></div>;
+      onTab={t => nav(lp(`/teams/${seasonSeg(season)}/${detailRid}/${t}`), { replace: true })}
+      back={() => nav(lp(`/teams/${seasonSeg(season)}`))} /></div>;
 
   const warMax = Math.max(0.01, ...rows.map(r => r.war));
   const tnames: Record<number, string> = {};
@@ -263,7 +265,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
                   <span className="fig">{r.seed}</span>
                 </td>
                 <td className="name">
-                  <span className="tlink" onClick={e => { e.stopPropagation(); nav(`/teams/${seasonSeg(season)}/${r.rid}`); }}>{r.team}</span>
+                  <span className="tlink" onClick={e => { e.stopPropagation(); nav(lp(`/teams/${seasonSeg(season)}/${r.rid}`)); }}>{r.team}</span>
                 </td>
                 <td className="sub hm">{r.manager}</td>
                 <td className="edge n" style={{ font: "600 20px/1 var(--cond)" }}>{r.rec}</td>
