@@ -1031,8 +1031,38 @@ table.homeboard td.sub { color: var(--dim); }
 table.homeboard td b { font: 700 16px/1 var(--cond); font-variant-numeric: tabular-nums; }
 table.homeboard .fin { font: 700 15px/1 var(--cond); color: var(--txt2); }
 table.homeboard .fin.champ { font-size: 15px; }
-/* window colours read as a spectrum, not a verdict: contenders warm, rebuilds cool */
-table.homeboard .win-contender { color: var(--acc); }
-table.homeboard .win-middling { color: var(--dim); }
-table.homeboard .win-rebuilding { color: var(--wr); }
 table.homeboard td.t.hm { text-transform: uppercase; font: 600 12px/1 var(--cond); letter-spacing: .1em; }
+table.homeboard .titles { font-size: 13px; letter-spacing: -2px; }
+table.homeboard .sub { color: var(--dim); }
+
+/* ---- league home: activity + movers feeds ------------------------------ */
+.feeds { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
+/* The band lives on the PANEL, not the table. Grid already stretches the two
+   panels to the same height, but a table is only as tall as its rows — so with
+   the background on the table, a five-row trade feed and a five-row waiver feed
+   ended up visibly different blocks whenever their row heights differed. */
+.feed-panel { display: flex; flex-direction: column; background: var(--band); }
+.feed-panel table.feed { flex: 1 1 auto; }
+table.feed { background: none; }
+table.feed td:nth-child(n) { padding: 7px 10px; border-bottom: 1px solid var(--hair); vertical-align: top; }
+table.feed td.sub, table.feed .by { color: var(--dim); font: 400 11.5px/1.45 var(--sans); }
+table.feed .nm { font: 600 13.5px/1.35 var(--sans); color: var(--txt); }
+table.feed .line { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 1px 0; }
+table.feed .line .nm { flex: 0 0 auto; }
+table.feed .line .by { flex: 1 1 auto; }
+table.feed .line .by { white-space: normal; }
+table.feed .arrow { color: var(--good); font-size: 10px; }
+table.feed .arrow.alt { color: var(--wr); }
+table.feed .add { color: var(--good); }
+table.feed .drop { color: var(--bad); }
+/* group bands inside a feed: left-aligned and coloured by direction, unlike
+   the centred column bands the wide tables use */
+table.feed tr.grp th {
+  padding: 6px 10px 5px; text-align: left; letter-spacing: .16em;
+  border-bottom: 1px solid var(--rule);
+}
+table.feed tr.grp th.best { color: var(--good); }
+table.feed tr.grp th.worst { color: var(--bad); }
+table.feed tbody + tbody tr.grp th { border-top: 1px solid var(--rule); }
+table.feed td.who { padding: 7px 10px; }
+table.feed td.who .line { align-items: center; }
