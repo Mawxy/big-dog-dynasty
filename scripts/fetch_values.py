@@ -20,6 +20,11 @@ Usage:
 import argparse, json, re, urllib.request
 from pathlib import Path
 
+from leaguepaths import DataDir
+
+ROOT = Path(__file__).resolve().parent.parent
+DATA = DataDir(ROOT / "data")
+
 UA = {"User-Agent": "Mozilla/5.0 (BigDogDynasty league site)"}
 FC_URL = "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1"
 KTC_URL = "https://keeptradecut.com/dynasty-rankings"
@@ -124,8 +129,11 @@ def fetch_ktc(out, picks, players):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--players", default="data/players_min.json")
-    ap.add_argument("--out", default="data/values.json")
+    # players_min.json is LEAGUE-scoped (data/leagues/<key>/), values.json is
+    # global — it is a raw market pull and belongs to no league. Both defaults
+    # go through DataDir so neither has to be passed on the command line.
+    ap.add_argument("--players", default=str(DATA / "players_min.json"))
+    ap.add_argument("--out", default=str(DATA / "values.json"))
     args = ap.parse_args()
     players = json.loads(Path(args.players).read_text(encoding="utf-8"))
     out_path = Path(args.out)

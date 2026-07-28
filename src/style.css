@@ -1077,3 +1077,16 @@ table.feed td.who .line { align-items: center; }
 .mside.win .pts { color: var(--acc); }
 .mside .by { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
 .mlineups { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin: 0 var(--pad); }
+
+/* ---- weekly: per-team MVP line ----------------------------------------- */
+.mvp {
+  display: flex; align-items: center; gap: 6px; margin-top: 3px;
+  font: 400 11.5px/1.4 var(--sans); color: var(--dim); white-space: nowrap;
+}
+.mvp .who { color: var(--txt2); }
+.mvp .fig { font-variant-numeric: tabular-nums; }
+.mvp .war { font-variant-numeric: tabular-nums; color: var(--dim2); }
+.mvp .star { color: var(--acc); font-size: 12px; }
+/* the league's best starter that week reads brighter than the rest */
+.mvp.top .who { color: var(--acc); font-weight: 600; }
+.mvp .pos.sm { font-size: 9px; padding: 1px 4px; }
