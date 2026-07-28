@@ -14,6 +14,12 @@ interface Side {
   /** slot label, player, and what he scored (or is projected to) */
   slots: { label: string; pid: string | null; pts: number; war: number | null }[];
   total: number;
+  /** whether this week's entry carried a bench at all */
+  hasBench: boolean;
+  /** what the best legal lineup would have scored from the same roster */
+  max: number;
+  /** highest-scoring players who were NOT started */
+  benched: { pid: string; pts: number }[];
 }
 
 /**
@@ -25,6 +31,9 @@ interface Side {
  * points, which is a forecast of the manager's decision as much as the result.
  * The two are labelled differently for that reason.
  */
+/** how many of the best benched players to name */
+const BENCH_SHOWN = 5;
+
 export default function MatchupDetail({ season, wk, rid, data, weekly, mw, players, back }: {
   season: string; wk: number; rid: number;
   data: SeasonData; weekly: WeeklyT; mw: Matchups; players: PlayersMin;
@@ -83,7 +92,25 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
         pts: wkIdx[pid]?.[0] ?? 0,
         war: wkIdx[pid]?.[1] ?? null,
       }));
-      return { rid: r, name, slots, total: e[1] };
+      // Optimal score from the roster AS IT WAS that week. e[5] is the bench
+      // carried by build_site_data; teams.json can't substitute, being the
+      // end-of-season roster. Absent for data built before it was carried, in
+      // which case there is no bench to show and max collapses to the actual.
+      const bench = e[5] ?? [];
+      const all = [...e[4], ...bench].filter(Boolean);
+      const { slots: bestSlots } = optimalLineup(
+        all.map(pid => ({ id: pid, pos: pInfo(players, pid)[1],
+                          war: wkIdx[pid]?.[0] ?? 0 })), lineup);
+      return {
+        rid: r, name, slots, total: e[1],
+        hasBench: bench.length > 0,
+        max: bestSlots.reduce((a, sl) => a + (sl.player?.war ?? 0), 0),
+        benched: bench
+          .map(pid => ({ pid, pts: wkIdx[pid]?.[0] ?? 0 }))
+          .filter(b => b.pts > 0)
+          .sort((a, b) => b.pts - a.pts)
+          .slice(0, BENCH_SHOWN),
+      };
     }
     // not played: project the best legal lineup by expected points
     const pool = (team?.players ?? [])
@@ -100,6 +127,11 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
         war: null,
       })),
       total: slots.reduce((a, s) => a + (s.player?.war ?? 0), 0),
+      hasBench: true,      // nothing to report, but nothing is missing either
+      // the projected lineup already IS the optimal one, and nothing has been
+      // benched yet, so neither has anything to say
+      max: slots.reduce((a, s) => a + (s.player?.war ?? 0), 0),
+      benched: [],
     };
   };
 
@@ -134,9 +166,13 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
             <div key={s.rid} className={`mside${win ? " win" : ""}`}>
               <div className="nm">{s.name}</div>
               <div className="pts">{fmt(s.total, 1)}</div>
-              {!played && B && (
-                <div className="by">{fmt((i === 0 ? pA : 1 - pA) * 100, 0)}% to win</div>
-              )}
+              {played
+                ? <div className="by">
+                    max {fmt(s.max, 1)}
+                    {s.max > s.total + 0.05 &&
+                      <span className="left"> · left {fmt(s.max - s.total, 1)} on the bench</span>}
+                  </div>
+                : B && <div className="by">{fmt((i === 0 ? pA : 1 - pA) * 100, 0)}% to win</div>}
             </div>
           );
         })}
@@ -165,6 +201,31 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
                   ))}
                 </tbody>
               </table>
+              {played && !s.hasBench && (
+                <div className="tnote" style={{ padding: "8px 10px" }}>
+                  No bench on record for this week — the data predates it.
+                  Re-run <code>build_site_data.py</code>.
+                </div>
+              )}
+              {s.benched.length > 0 && (
+                <table className="feed">
+                  <tbody>
+                    <tr className="grp"><th className="t" colSpan={3}>Best not started</th></tr>
+                    {s.benched.map(b => (
+                      <tr key={b.pid}>
+                        <td className="t sub" style={{ width: 52 }} />
+                        <td className="t">
+                          <span className="line">
+                            <PosBadge pos={pInfo(players, b.pid)[1]} />
+                            <PlayerLink pid={b.pid} name={pInfo(players, b.pid)[0]} />
+                          </span>
+                        </td>
+                        <td className="n"><b>{fmt(b.pts, 1)}</b></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           );
         })}
@@ -172,7 +233,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
 
       <div className="tnote">
         {played
-          ? "Actual starters and what they scored; WAR is that player's contribution in this week."
+          ? "Actual starters and what they scored; WAR is that player's contribution in this week. Max is the best legal lineup from that week's roster — bench included."
           : `Lineups are the best legal eleven by projected points — rosters aren't set yet. Win probability from the projected margin against a league weekly sigma of ${fmt(sigma, 1)}.`}
       </div>
     </>

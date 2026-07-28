@@ -53,6 +53,9 @@ jobs:
         run: python scripts/value_bridge.py
       - name: DVI (ensemble trade value -> data/dvi.json)
         run: python scripts/blend_values.py
+      # after DVI: CVI reads dvi.json to publish the gap between them
+      - name: CVI (one-year contender value -> data/cvi.json)
+        run: python scripts/contender_index.py
       - name: Validate built data before committing
         run: python scripts/validate_data.py
       - name: Commit updated data

@@ -9,6 +9,7 @@ vite.config.*.timestamp-*.mjs
 data/trade_corpus.json
 data/trade_corpus_*.json
 data/leagues/*/blended_values.json
+data/leagues/*/cvi_detail.json
 
 # crawler state — progress/contrib/seen_drafts/seen_leagues + the rookie corpus
 # accumulator. Persisted between CI runs by actions/cache, never by git; grows

@@ -431,7 +431,7 @@ export default function Home() {
               <tbody>
                 {sorted.map((r, i) => (
                   <tr key={r.rid} className={`click ${i % 2 ? "zebra" : ""}`}
-                    onClick={() => nav(lp(`/teams/${league.rosterSeason}/${r.rid}`))}>
+                    onClick={() => nav(lp(`/franchise/${r.rid}`))}>
                     <td className="t">
                       <div className="nm">{r.name}</div>
                       <div className="by">{r.manager}</div>

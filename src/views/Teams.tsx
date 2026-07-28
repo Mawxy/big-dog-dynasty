@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeaguePath } from "../lib/context";
+import SeasonPicker from "../components/SeasonPicker";
 import type { Matchups, MatchEntry, PlayersMin, ProjectionsFile, SeasonData, Team, Weekly } from "../lib/types";
 import { jl } from "../lib/data";
 import { fmt, sgn, clsOf, sd, mean, normCdf, normInv } from "../lib/stats";
 import { pInfo, weekIndex, seasonSeg, optimalLineup } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
 import { PlayerLink } from "../components/PlayerLink";
-import FranchisePage from "../components/FranchisePage";
 import HoverTip from "../components/HoverTip";
 
 type WkIdx = Record<string, Record<number, [number, number]>>;
@@ -28,10 +28,9 @@ interface Row {
 
 interface Props {
   data: SeasonData; season: string; players: PlayersMin;
-  detailRid: number | null; tab?: string;
 }
 
-export default function Teams({ data, season, players, detailRid, tab }: Props) {
+export default function Teams({ data, season, players }: Props) {
   const [weekly, setWeekly] = useState<Weekly | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
   const [openRid, setOpenRid] = useState<number | null>(null);
@@ -208,14 +207,21 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
     return rs;
   }, [data, mw, wkIdx, isProj, projs]);
 
-  if (season === "ALL") return <div className="empty">Teams are a per-season view — pick a year from the dropdown.</div>;
-  if (err) return <div className="empty">Couldn't load team data.{" "}
-    <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></div>;
-  if (!mw || !weekly) return <div className="empty">Loading…</div>;
-  if (detailRid !== null)
-    return <div className="legacy"><FranchisePage key={detailRid} rid={detailRid} players={players} tab={tab}
-      onTab={t => nav(lp(`/teams/${seasonSeg(season)}/${detailRid}/${t}`), { replace: true })}
-      back={() => nav(lp(`/teams/${seasonSeg(season)}`))} /></div>;
+  // keep the header (and its season picker) on every empty state, or a season
+  // with nothing to show leaves no control to pick a different one
+  const shell = (msg: React.ReactNode) => (
+    <>
+      <div className="screen-head">
+        <span className="screen-title">Standings</span>
+        <SeasonPicker />
+      </div>
+      <div className="empty">{msg}</div>
+    </>
+  );
+  if (season === "ALL") return shell("Standings are a per-season view — pick a year.");
+  if (err) return shell(<>Couldn't load team data.{" "}
+    <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></>);
+  if (!mw || !weekly) return shell("Loading…");
 
   const warMax = Math.max(0.01, ...rows.map(r => r.war));
   const tnames: Record<number, string> = {};
@@ -227,6 +233,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
     <>
       <div className="screen-head">
         <span className="screen-title">{isProj ? "Projected standings" : "Final standings"}</span>
+        <SeasonPicker />
         <span className="screen-note">Playoffs from week {ps} · top 6 seeds</span>
       </div>
 
@@ -265,7 +272,7 @@ export default function Teams({ data, season, players, detailRid, tab }: Props) 
                   <span className="fig">{r.seed}</span>
                 </td>
                 <td className="name">
-                  <span className="tlink" onClick={e => { e.stopPropagation(); nav(lp(`/teams/${seasonSeg(season)}/${r.rid}`)); }}>{r.team}</span>
+                  <span className="tlink" onClick={e => { e.stopPropagation(); nav(lp(`/franchise/${r.rid}`)); }}>{r.team}</span>
                 </td>
                 <td className="sub hm">{r.manager}</td>
                 <td className="edge n" style={{ font: "600 20px/1 var(--cond)" }}>{r.rec}</td>

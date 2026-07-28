@@ -20,6 +20,12 @@ jobs:
           python-version: "3.12"
       - name: Fetch market values (FantasyCalc + KeepTradeCut)
         run: python scripts/fetch_values.py
+      # ECR is an independent opinion signal, not load-bearing like the market
+      # pull, and it scrapes an embedded payload that FantasyPros can restyle
+      # without warning. A layout change must not block the values commit.
+      - name: Fetch FantasyPros ECR
+        continue-on-error: true
+        run: python scripts/fetch_ecr.py
       - name: Bridge B (market value -> WAR, needs data/projections.json)
         run: python scripts/value_bridge.py
       - name: Validate values before committing
@@ -28,8 +34,8 @@ jobs:
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
-          # values*.json are global; value_bridge.json is league-scoped
-          git add data/values.json data/values_history.json data/leagues/*/value_bridge.json
+          # values*.json and ecr.json are global; value_bridge.json is league-scoped
+          git add data/values.json data/values_history.json data/ecr.json data/leagues/*/value_bridge.json
           git diff --cached --quiet && { echo "no value changes to commit"; exit 0; }
           git commit -m "Market values $(date -u +%F)"
           # retry rebase+push so a concurrent push doesn't drop this run

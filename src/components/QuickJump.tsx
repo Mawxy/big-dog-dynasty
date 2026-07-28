@@ -37,7 +37,7 @@ export default function QuickJump() {
       const sc = score(name);
       if (sc >= 0) scored.push([sc, {
         key: `t${rid}`, label: name,
-        to: lp(`/teams/${seasonSeg(latest)}/${rid}`),
+        to: lp(`/franchise/${rid}`),
       }]);
     }
     for (const [pid, [name, pos]] of Object.entries(players)) {

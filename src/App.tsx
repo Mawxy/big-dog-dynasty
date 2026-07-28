@@ -12,13 +12,17 @@ import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
 import Trades from "./views/Trades";
 import Dvi from "./views/Dvi";
+import Cvi from "./views/Cvi";
+import FranchisePage from "./components/FranchisePage";
 import PlayerPage from "./components/PlayerPage";
 import SiteFooter from "./components/SiteFooter";
 
-const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades", "dvi"] as const;
+const VIEWS = ["home", "players", "standings", "weekly", "draft", "trades", "dvi", "cvi"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
-const GLOBAL_VIEWS = ["home", "draft", "trades", "dvi"];
-const LABEL = (v: string) => (v === "dvi" ? "DVI" : v === "home" ? "League" : v[0].toUpperCase() + v.slice(1));
+const GLOBAL_VIEWS = ["home", "draft", "trades", "dvi", "cvi"];
+const LABEL = (v: string) =>
+  v === "dvi" || v === "cvi" ? v.toUpperCase()
+    : v === "home" ? "League" : v[0].toUpperCase() + v.slice(1);
 
 /** newest season that actually has WAR data (falls back to newest listed) */
 function defaultSeason(meta: Meta): string {
@@ -102,9 +106,7 @@ function Shell() {
   const base = `/${leagueSeg(league)}`;
   const parts = loc.pathname.split("/");
   const onView = (VIEWS as readonly string[]).includes(parts[2]);
-  const curView = onView ? parts[2] : "home";
   const curSeasonSeg = onView && parts[3] ? parts[3] : seasonSeg(latest);
-  const showSeason = onView && !GLOBAL_VIEWS.includes(parts[2]);
   return (
     <div className="app">
       <header className="mast">
@@ -114,14 +116,9 @@ function Shell() {
             <span className="wordmark-tag">War Board</span>
           </div>
           <div className="mast-meta">
+            {/* the season selector lives in the views that are season-scoped,
+                not here — see components/SeasonPicker */}
             <span className="mast-updated">Data refreshes Wed 1:00 AM ET · {meta.updated}</span>
-            {showSeason && (
-              <select className="season-chip" value={curSeasonSeg}
-                onChange={e => nav(`${base}/${curView}/${e.target.value}`)}>
-                {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
-                <option value="all">All-time</option>
-              </select>
-            )}
           </div>
         </div>
       </header>
@@ -143,15 +140,24 @@ function Shell() {
           <Route path="/:league" element={<Home />} />
           <Route path="/:league/home" element={<Home />} />
           <Route path="/:league/players/:season" element={<PlayersRoute />} />
-          <Route path="/:league/teams/:season" element={<TeamsRoute />} />
-          <Route path="/:league/teams/:season/:rid" element={<TeamsRoute />} />
-          <Route path="/:league/teams/:season/:rid/:tab" element={<TeamsRoute />} />
+          <Route path="/:league/standings/:season" element={<TeamsRoute />} />
+          {/* A franchise is keyed by roster_id, which is stable across seasons —
+              so its URL carries no year. The page picks its own roster season. */}
+          <Route path="/:league/franchise/:rid" element={<FranchiseRoute />} />
+          <Route path="/:league/franchise/:rid/:tab" element={<FranchiseRoute />} />
+
+          {/* the season-scoped team URLs this replaced */}
+          <Route path="/:league/teams/:season/:rid/:tab" element={<TeamRedirect />} />
+          <Route path="/:league/teams/:season/:rid" element={<TeamRedirect />} />
+          <Route path="/:league/teams/:season" element={<TeamRedirect />} />
+          <Route path="/:league/teams" element={<TeamRedirect />} />
           <Route path="/:league/weekly/:season" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
           <Route path="/:league/draft" element={<Draft />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/dvi" element={<Dvi />} />
+          <Route path="/:league/cvi" element={<Cvi />} />
           <Route path="/:league/player/:pid" element={<PlayerRoute />} />
 
           {/* pre-restructure URLs — bookmarks, and anything already shared */}
@@ -161,6 +167,7 @@ function Shell() {
           <Route path="/draft" element={<LegacyRedirect />} />
           <Route path="/trades" element={<LegacyRedirect />} />
           <Route path="/dvi" element={<LegacyRedirect />} />
+          <Route path="/cvi" element={<LegacyRedirect />} />
           <Route path="/player/*" element={<LegacyRedirect />} />
 
           <Route path="*" element={<Navigate to={base} replace />} />
@@ -180,14 +187,44 @@ function PlayersRoute() {
     defaultMinGp={Math.round(data.summary.reduce((m, r) => Math.max(m, r[2]), 0) * 0.45)} />;
 }
 
+/**
+ * `/teams/<season>[/<rid>[/<tab>]]` -> standings or a franchise.
+ *
+ * A rid in the path means a franchise, which no longer takes a season; without
+ * one it's the standings for that year. Both forms predate the rename and are
+ * already shared, so they redirect rather than 404.
+ */
+function TeamRedirect() {
+  const { meta, league } = useLeague();
+  const p = useParams();
+  const base = `/${leagueSeg(league)}`;
+  const rid = intParam(p.rid);
+  return <Navigate replace to={rid != null
+    ? `${base}/franchise/${rid}${p.tab ? `/${p.tab}` : ""}`
+    : `${base}/standings/${seasonSeg(seasonOf(p.season, meta))}`} />;
+}
+
+function FranchiseRoute() {
+  const { players, league } = useLeague();
+  const nav = useNavigate();
+  const p = useParams();
+  const rid = intParam(p.rid);
+  const base = `/${leagueSeg(league)}`;
+  if (rid == null) return <Navigate replace to={base} />;
+  return <div className="legacy">
+    <FranchisePage key={rid} rid={rid} players={players} tab={p.tab}
+      onTab={t => nav(`${base}/franchise/${rid}/${t}`, { replace: true })}
+      back={() => nav(-1)} />
+  </div>;
+}
+
 function TeamsRoute() {
   const { meta, players } = useLeague();
   const p = useParams();
   const season = seasonOf(p.season, meta);
   const data = useSeasonData(season);
   if (!data) return <div className="empty">Loading…</div>;
-  return <Teams data={data} season={season} players={players} detailRid={intParam(p.rid)}
-    tab={p.tab} />;
+  return <Teams data={data} season={season} players={players} />;
 }
 
 function WeeklyRoute() {

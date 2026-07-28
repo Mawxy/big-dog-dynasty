@@ -61,8 +61,12 @@ export interface Team {
 export type WeeklyRow = [number, number, number, number, number, number];
 export type Weekly = Record<string, WeeklyRow[]>;
 
-/** [week, pts, opp_roster_id, opp_pts, starters] */
-export type MatchEntry = [number, number, number | null, number | null, string[]];
+/** [week, pts, opp_roster_id, opp_pts, starters, bench?]
+ *  `bench` is who was rostered that week and not started — absent in site data
+ *  built before it was carried. teams.json can't stand in for it: that's the
+ *  end-of-season roster, not the roster as it was in week N. */
+export type MatchEntry =
+  [number, number, number | null, number | null, string[], string[]?];
 export interface Matchups {
   playoff_start: number; teams: Record<string, MatchEntry[]>;
   /** future-week pairings from Sleeper (preseason): week -> [[ridA, ridB], ...] */

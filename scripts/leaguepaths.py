@@ -27,6 +27,7 @@ GLOBAL_FILES = {
     "leagues.json",           # the registry itself
     "values.json",            # KTC / FantasyCalc market pull
     "values_history.json",
+    "ecr.json",                # FantasyPros consensus — a property of the FORMAT
     "crawl_leagues.json",     # crawler state and corpora
     "league_signals.json",
     "draft_signals.json",

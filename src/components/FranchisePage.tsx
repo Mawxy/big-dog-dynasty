@@ -153,7 +153,7 @@ export default function FranchisePage({ rid, players, tab, onTab, back }:
   return (
     <>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span className="back" onClick={back} style={{ display: "inline-block" }}>← all teams</span>
+        <span className="back" onClick={back} style={{ display: "inline-block" }}>← standings</span>
         <QuickJump />
       </div>
       <div id="teamDetail">

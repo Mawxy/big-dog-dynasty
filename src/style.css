@@ -120,9 +120,11 @@ a:hover { text-decoration: underline; }
   color: var(--acc-ink);
   font: 700 16px/1 var(--cond);
   letter-spacing: .08em;
-  padding: 4px 12px;
+  padding: 5px 12px;
   cursor: pointer;
 }
+/* in a screen-head it sits beside the filter chips, so match their height */
+.screen-head .season-chip { padding: 4px 12px; }
 
 /* nav --------------------------------------------------------------------- */
 .tabs {
@@ -1076,6 +1078,8 @@ table.feed td.who .line { align-items: center; }
 .mside .pts { font: 700 32px/1.1 var(--cond); font-variant-numeric: tabular-nums; }
 .mside.win .pts { color: var(--acc); }
 .mside .by { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
+/* points left on the bench is a criticism, not a stat — colour it */
+.mside .left { color: var(--bad); }
 .mlineups { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin: 0 var(--pad); }
 
 /* ---- weekly: per-team MVP line ----------------------------------------- */

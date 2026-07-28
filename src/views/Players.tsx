@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Matchups, PlayersMin, ProjectionsFile, SeasonData, Weekly } from "../lib/types";
-import { jl } from "../lib/data";
+import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
-import { pInfo, ownerOf } from "../lib/league";
+import { pInfo, ownerOf, rosterSeasonOf } from "../lib/league";
+import { useLeague } from "../lib/context";
 import { useMobile } from "../lib/useWidth";
 import { PlayerLink } from "../components/PlayerLink";
+import SeasonPicker from "../components/SeasonPicker";
 import PlayerPanel from "../components/PlayerPanel";
 import AllTimePanel from "../components/AllTimePanel";
 
@@ -14,11 +16,13 @@ interface Row {
   war: number; warG: number; posRank: number;
   /** weekly WAR values, regular season, week order (empty for all-time / proj) */
   wkWar: number[];
+  /** current Contender Value Index, roster season only (see CVI_COL) */
+  cvi?: number;
   proj?: boolean; noPts?: boolean;
 }
 
 type Align = "c" | "t" | "n";
-interface Col { label: string; key: keyof Row | null; w: number; align: Align; hm?: boolean; edge?: boolean; keyCol?: boolean; grp: 0 | 1 | 2 }
+interface Col { label: string; key: keyof Row | null; w: number; align: Align; hm?: boolean; edge?: boolean; keyCol?: boolean; grp: 0 | 1 | 2 | 3 }
 const COLS: Col[] = [
   { label: "Rk", key: null, w: 48, align: "c", grp: 0 },
   { label: "Player", key: "nm", w: 0, align: "t", grp: 0 },
@@ -32,12 +36,17 @@ const COLS: Col[] = [
   { label: "WAR/G", key: "warG", w: 88, align: "n", hm: true, grp: 2 },
   { label: "By week", key: null, w: 112, align: "n", hm: true, grp: 2 },
 ];
+/** CVI is APPENDED, never inserted: every index below (SORTABLE, the default
+ *  sortCol, clickCol) is positional, so adding a column mid-table would
+ *  silently re-point all of them. */
+const CVI_COL: Col = { label: "CVI", key: "cvi", w: 96, align: "n", edge: true, grp: 3 };
 const SORTABLE = new Set([1, 4, 5, 6, 7, 8, 9]);
 const POS: Record<string, string> = { QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)" };
 
 interface Props { data: SeasonData; season: string; seasons: string[]; players: PlayersMin; defaultMinGp: number }
 
 export default function Players({ data, season, seasons, players, defaultMinGp }: Props) {
+  const { league } = useLeague();
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
   const [sortCol, setSortCol] = useState(8);
@@ -45,8 +54,28 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
   const [openPid, setOpenPid] = useState<string | null>(null);
   const [projs, setProjs] = useState<ProjectionsFile | null>(null);
   const [wkWarMap, setWkWarMap] = useState<Record<string, number[]>>({});
+  const [cviMap, setCviMap] = useState<Record<string, number>>({});
   const mobile = useMobile();
   const gpFloor = defaultMinGp;
+
+  // CVI values THIS season, so it only belongs beside the roster season. Next
+  // to 2022's stat line it would read as that year's number, which it isn't.
+  const showCvi = season === rosterSeasonOf(league);
+  useEffect(() => {
+    if (!showCvi) { setCviMap({}); return; }
+    let live = true;
+    jlDaily<{ players: Record<string, { cvi: number }> }>("cvi.json")
+      .then(d => {
+        if (!live) return;
+        const m: Record<string, number> = {};
+        for (const [pid, r] of Object.entries(d.players)) m[pid] = r.cvi;
+        setCviMap(m);
+      }).catch(() => { if (live) setCviMap({}); });
+    return () => { live = false; };
+  }, [showCvi]);
+  const cols = useMemo(() => showCvi ? [...COLS, CVI_COL] : COLS, [showCvi]);
+  const sortable = useMemo(
+    () => showCvi ? new Set([...SORTABLE, COLS.length]) : SORTABLE, [showCvi]);
 
   // per-season weekly WAR for the by-week sparklines (scored seasons only)
   useEffect(() => {
@@ -83,7 +112,7 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
         return {
           id: p.pid, nm: pInfo(players, p.pid)[0], pos: p.pos, team: owners[p.pid] || "—",
           gp, pts: (ppg ?? 0) * gp, ppg: ppg ?? 0, sdv: 0, war, warG: war / gp,
-          posRank: 0, wkWar: [], proj: true, noPts: ppg == null,
+          posRank: 0, wkWar: [], cvi: cviMap[p.pid], proj: true, noPts: ppg == null,
         };
       })
       : data.summary.map(r => {
@@ -91,7 +120,7 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
         return {
           id, nm: pInfo(players, id)[0], pos: p, team: owners[id] || "—",
           gp, pts, ppg, sdv: sdv || 0, war, warG: gp ? war / gp : 0, posRank: 0,
-          wkWar: wkWarMap[id] || [],
+          wkWar: wkWarMap[id] || [], cvi: cviMap[id],
         };
       });
     const byPos: Record<string, Row[]> = {};
@@ -110,29 +139,45 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
     let rs = all;
     if (pos !== "ALL") rs = rs.filter(r => r.pos === pos);
     if (q) rs = rs.filter(r => r.nm.toLowerCase().includes(q.toLowerCase()));
-    const k = COLS[sortCol].key;
-    if (k) rs = rs.slice().sort((a, b) => typeof a[k] === "string"
-      ? (a[k] as string).localeCompare(b[k] as string) * dir
-      : ((a[k] as number) - (b[k] as number)) * dir);
+    // cols shrinks when the season changes, so a sortCol pointing at the CVI
+    // column can outlive it — optional-chain rather than throw on undefined
+    const k = cols[sortCol]?.key;
+    if (k) rs = rs.slice().sort((a, b) => {
+      const av = a[k], bv = b[k];
+      if (typeof av === "string" || typeof bv === "string")
+        return String(av ?? "").localeCompare(String(bv ?? "")) * dir;
+      // players with no CVI (unranked, or a season without the file) sort last
+      // in EITHER direction rather than being treated as a zero
+      if (av == null && bv == null) return 0;
+      if (av == null) return 1;
+      if (bv == null) return -1;
+      return ((av as number) - (bv as number)) * dir;
+    });
     return { rows: rs, count: rs.length, gMax, sdMin, sdMax, warMax };
-  }, [data, players, pos, q, gpFloor, sortCol, dir, isProj, projs, wkWarMap]);
+  }, [data, players, pos, q, gpFloor, sortCol, dir, isProj, projs, wkWarMap, cviMap, cols]);
 
   const clickCol = (i: number) => {
     if (i === 0) { setSortCol(8); setDir(-1); return; }
-    if (!SORTABLE.has(i)) return;
+    if (!sortable.has(i)) return;
     if (sortCol === i) setDir(-dir);
     else { setSortCol(i); setDir(i === 1 ? 1 : -1); }
   };
 
   if (!data.summary.length && !isProj)
-    return <div className="empty">No scored weeks yet for this season — check back after week 1.</div>;
+    return (
+      <>
+        <div className="screen-head"><SeasonPicker /></div>
+        <div className="empty">No scored weeks yet for this season — check back after week 1.</div>
+      </>
+    );
 
   const openRow = openPid ? rows.find(r => r.id === openPid) : undefined;
-  const span = (g: 0 | 1 | 2) => COLS.filter(c => c.grp === g && !(mobile && c.hm)).length;
+  const span = (g: 0 | 1 | 2 | 3) => cols.filter(c => c.grp === g && !(mobile && c.hm)).length;
 
   return (
     <>
       <div className="screen-head">
+        <SeasonPicker />
         {["ALL", "QB", "RB", "WR", "TE"].map(p => (
           <button key={p} className={`chip ${pos === p ? "on" : ""}`}
             onClick={() => { setPos(p); setOpenPid(null); }}>{p === "ALL" ? "All" : p}</button>
@@ -149,7 +194,7 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
 
       <table>
         <colgroup>
-          {COLS.map((c, i) => (
+          {cols.map((c, i) => (
             <col key={i} className={c.hm ? "hm" : undefined} style={c.w ? { width: c.w } : undefined} />
           ))}
         </colgroup>
@@ -158,12 +203,13 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
             <th colSpan={span(0)}></th>
             <th className="edge" colSpan={span(1)}>Production</th>
             <th className="edge value" colSpan={span(2)}>Wins added</th>
+            {showCvi && <th className="edge value" colSpan={span(3)}>Win now</th>}
           </tr>
           <tr>
-            {COLS.map((c, i) => (
+            {cols.map((c, i) => (
               <th key={i}
                 className={[c.align, c.hm ? "hm" : "", c.edge ? "edge" : "", c.keyCol ? "key" : "",
-                  (i === 0 || SORTABLE.has(i)) ? "sortable" : "", sortCol === i ? "sorted" : ""]
+                  (i === 0 || sortable.has(i)) ? "sortable" : "", sortCol === i ? "sorted" : ""]
                   .filter(Boolean).join(" ")}
                 onClick={() => clickCol(i)}>
                 {c.label}{sortCol === i ? (dir < 0 ? " ▼" : " ▲") : ""}
@@ -200,9 +246,19 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
                 </div>
               </td>
               <td className="fig quiet hm n">{fmt(r.warG, 3)}</td>
-              <td className="hm last n">
+              <td className={`hm n${showCvi ? "" : " last"}`}>
                 {r.wkWar.length ? <ByWeek war={r.wkWar} gMax={gMax} /> : <span className="fig quiet">—</span>}
               </td>
+              {showCvi && (
+                <td className="edge last n">
+                  {r.cvi == null ? <span className="fig quiet">—</span> : (
+                    <div className="meter">
+                      <div className="track grow"><div className="fill" style={{ width: Math.round(r.cvi) + "%" }} /></div>
+                      <span className="val head-fig">{r.cvi.toFixed(1)}</span>
+                    </div>
+                  )}
+                </td>
+              )}
             </tr>
           ))}
         </tbody>

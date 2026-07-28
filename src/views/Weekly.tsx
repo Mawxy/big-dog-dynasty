@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeaguePath } from "../lib/context";
-import type { Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
+import type { MatchEntry, Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
 import { jl } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo, ownerOf, weekIndex, seasonSeg } from "../lib/league";
@@ -9,6 +9,7 @@ import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
 import PlayerPanel from "../components/PlayerPanel";
 import MatchupDetail from "../components/MatchupDetail";
+import SeasonPicker from "../components/SeasonPicker";
 
 /** One team's best starter that week; starred when he led the whole league. */
 function Mvp({ e, best, players }: {
@@ -108,12 +109,23 @@ export default function Weekly({ data, season, players, week, matchupRid }: Prop
 
 
 
-  if (season === "ALL") return <div className="empty">Weekly is a per-season view — pick a year from the dropdown.</div>;
-  if (err) return <div className="empty">Couldn't load weekly data.{" "}
-    <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></div>;
-  if (!weekly || !mw) return <div className="empty">Loading weekly data…</div>;
+  // The season picker lives in this view's header, so an early return that
+  // skips the header strands the reader on a season with nothing to show — no
+  // control left to pick a different year. Every empty state renders the header.
+  const shell = (msg: React.ReactNode) => (
+    <>
+      <div className="screen-head">
+        <span className="screen-title">Week by week</span>
+        <SeasonPicker allTime={false} />
+      </div>
+      <div className="empty">{msg}</div>
+    </>
+  );
+  if (season === "ALL") return shell("Weekly is a per-season view — pick a year.");
+  if (err) return shell(<>Couldn't load weekly data.{" "}
+    <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></>);
+  if (!weekly || !mw) return shell("Loading weekly data…");
   const wks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
-  if (!wks.length) return <div className="empty">No scored weeks yet for this season.</div>;
   if (week !== null && matchupRid !== null)
     return <MatchupDetail season={season} wk={week} rid={matchupRid} data={data}
       weekly={weekly} mw={mw} players={players}
@@ -133,6 +145,9 @@ export default function Weekly({ data, season, players, week, matchupRid }: Prop
     ...wks,
     ...Object.keys(mw.schedule ?? {}).map(Number),
   ])].sort((x, y) => x - y);
+  // scored weeks OR a published schedule both count as something to show; only
+  // a season with neither is genuinely empty
+  if (!allWeeks.length) return shell("Nothing scheduled or played yet for this season.");
 
   /** the pairings for a week: from played entries when they exist, otherwise
    *  from the published schedule */
@@ -153,6 +168,7 @@ export default function Weekly({ data, season, players, week, matchupRid }: Prop
     <>
       <div className="screen-head">
         <span className="screen-title">Week by week</span>
+        <SeasonPicker allTime={false} />
         <span className="screen-note">
           Click a matchup for both lineups · ★ is the week's best starter
         </span>
@@ -226,7 +242,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
   const wkIdx = weekIndex(weekly);
   const tnames: Record<number, string> = {};
   data.teams.forEach(t => { tnames[t.roster_id] = t.team; });
-  const ent: Record<string, [number, number, number | null, number | null, string[]]> = {};
+  const ent: Record<string, MatchEntry> = {};
   for (const [rid, list] of Object.entries(mw.teams)) {
     const e = list.find(x => x[0] === wk);
     if (e) ent[rid] = e;

@@ -204,10 +204,16 @@ def main():
                 for t in teamsw:
                     rid = t["roster_id"]
                     o = opp.get(rid)
+                    # bench = rostered that week minus started. Carried so the
+                    # site can show what was left on the bench and the optimal
+                    # score — neither is recoverable later, because teams.json
+                    # is the END-of-season roster, not the week's.
+                    st = t.get("starters") or []
+                    bench = [p for p in (t.get("players") or []) if p not in st]
                     mws.setdefault(str(rid), []).append(
                         [wk, round(pts.get(rid, 0), 2), o,
                          round(pts.get(o, 0), 2) if o else None,
-                         t.get("starters") or []])
+                         st, bench])
         # NFL bye weeks (team -> week), derived by sleeper_pull from the NFL
         # schedule feed; project_war attaches each player's bye to projections
         bf = sdir / "byes.json"

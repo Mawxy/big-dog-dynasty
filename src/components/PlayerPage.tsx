@@ -25,6 +25,7 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
   const [vals, setVals] = useState<Values | null>(null);
   const [warRank, setWarRank] = useState<{ season: string; rank: number } | null>(null);
   const [dvi, setDvi] = useState<{ dvi: number; rank: number; pos: string; pos_rank: number } | null>(null);
+  const [cvi, setCvi] = useState<{ cvi: number; rank: number; pos: string; pos_rank: number } | null>(null);
   const [proj, setProj] = useState<ProjRec | null>(null);
   const [projYears, setProjYears] = useState<number[]>([]);
   const [sel, setSel] = useState<string | null>(null);
@@ -43,6 +44,8 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
       jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
       jlDaily<{ players: Record<string, { dvi: number; rank: number; pos: string; pos_rank: number }> }>("dvi.json")
         .then(d => { if (live) setDvi(d.players[pid] ?? null); }).catch(() => {});
+      jlDaily<{ players: Record<string, { cvi: number; rank: number; pos: string; pos_rank: number }> }>("cvi.json")
+        .then(d => { if (live) setCvi(d.players[pid] ?? null); }).catch(() => {});
       // one ~2 KB shard instead of all of projections.json; a 404 just means
       // this player has no projection and the panel is skipped
       jl<PlayerShard>(`player/${pid}.json`).then(sh => {
@@ -150,6 +153,8 @@ export default function PlayerPage({ pid, players, meta, back }: Props) {
           <div className="php-stats">
             <Stat k="Dynasty index" v={dvi ? fmt(dvi.dvi, 1) : "—"}
               sub={dvi ? `#${dvi.rank} overall · ${dvi.pos}${dvi.pos_rank}` : "no dvi"} color="var(--acc)" />
+            <Stat k="Contender index" v={cvi ? fmt(cvi.cvi, 1) : "—"}
+              sub={cvi ? `#${cvi.rank} this season · ${cvi.pos}${cvi.pos_rank}` : "no cvi"} color="var(--acc)" />
             <Stat k="Model WAR / 3yr" v={modelWar == null ? "—" : fmt(modelWar, 2)} sub="our projection" />
             <Stat k="Market WAR / 3yr" v={mktWar == null ? "—" : fmt(mktWar, 2)} sub="implied by price" color="var(--txt2)" />
             <Stat k={latest ? `${latest.season} WAR` : "Last WAR"}
