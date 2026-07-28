@@ -148,6 +148,7 @@ function Shell() {
           <Route path="/:league/teams/:season/:rid/:tab" element={<TeamsRoute />} />
           <Route path="/:league/weekly/:season" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
+          <Route path="/:league/weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
           <Route path="/:league/draft" element={<Draft />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/dvi" element={<Dvi />} />
@@ -195,7 +196,8 @@ function WeeklyRoute() {
   const season = seasonOf(p.season, meta);
   const data = useSeasonData(season);
   if (!data) return <div className="empty">Loading…</div>;
-  return <WeeklyView data={data} season={season} players={players} week={intParam(p.wk)} />;
+  return <WeeklyView data={data} season={season} players={players}
+    week={intParam(p.wk)} matchupRid={intParam(p.mid)} />;
 }
 
 function PlayerRoute() {

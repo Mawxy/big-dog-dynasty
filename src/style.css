@@ -1066,3 +1066,14 @@ table.feed tr.grp th.worst { color: var(--bad); }
 table.feed tbody + tbody tr.grp th { border-top: 1px solid var(--rule); }
 table.feed td.who { padding: 7px 10px; }
 table.feed td.who .line { align-items: center; }
+
+/* ---- matchup detail ----------------------------------------------------- */
+.mscore { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 0 var(--pad) 16px; }
+.mside { background: var(--band); border-top: 3px solid var(--rule); padding: 12px 14px; }
+.mside.win { border-top-color: var(--acc); }
+.mside .nm { font: 600 14.5px/1.3 var(--sans); color: var(--txt2); }
+.mside.win .nm { color: var(--txt); }
+.mside .pts { font: 700 32px/1.1 var(--cond); font-variant-numeric: tabular-nums; }
+.mside.win .pts { color: var(--acc); }
+.mside .by { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
+.mlineups { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin: 0 var(--pad); }

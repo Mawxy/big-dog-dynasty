@@ -8,13 +8,19 @@ import { pInfo, ownerOf, weekIndex, seasonSeg } from "../lib/league";
 import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
 import PlayerPanel from "../components/PlayerPanel";
+import MatchupDetail from "../components/MatchupDetail";
 
 interface Entry { pid: string; pts: number; war: number; pos: string }
 const POS: Record<string, string> = { QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)" };
 
-interface Props { data: SeasonData; season: string; players: PlayersMin; week: number | null }
+interface Props {
+  data: SeasonData; season: string; players: PlayersMin;
+  week: number | null;
+  /** one side's roster_id — renders that single matchup instead of the week */
+  matchupRid: number | null;
+}
 
-export default function Weekly({ data, season, players, week }: Props) {
+export default function Weekly({ data, season, players, week, matchupRid }: Props) {
   const [weekly, setWeekly] = useState<WeeklyT | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
   const [expWeek, setExpWeek] = useState<number | null>(null);
@@ -71,6 +77,10 @@ export default function Weekly({ data, season, players, week }: Props) {
   if (!weekly || !mw) return <div className="empty">Loading weekly data…</div>;
   const wks = Object.keys(byWeek).map(Number).sort((a, b) => a - b);
   if (!wks.length) return <div className="empty">No scored weeks yet for this season.</div>;
+  if (week !== null && matchupRid !== null)
+    return <MatchupDetail season={season} wk={week} rid={matchupRid} data={data}
+      weekly={weekly} mw={mw} players={players}
+      back={() => nav(lp(`/weekly/${seasonSeg(season)}/${week}`))} />;
   if (week !== null)
     return <div className="legacy"><WeekDetail wk={week} season={season} data={data} weekly={weekly} mw={mw} players={players} back={() => nav(lp(`/weekly/${seasonSeg(season)}`))} /></div>;
 
@@ -191,6 +201,9 @@ function WeekDrawer({ wk, arr, players }: { wk: number; arr: Entry[]; players: P
 function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
   wk: number; season: string; data: SeasonData; weekly: WeeklyT; mw: Matchups; players: PlayersMin; back: () => void;
 }) {
+  const nav = useNavigate();
+  const lp = useLeaguePath();
+  const goMatchup = (rid: number) => nav(lp(`/weekly/${seasonSeg(season)}/${wk}/${rid}`));
   const ps = mw.playoff_start || 15;
   const wkIdx = weekIndex(weekly);
   const tnames: Record<number, string> = {};
@@ -207,6 +220,12 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
     if (seen.has(a)) continue;
     seen.add(a); if (b) seen.add(b);
     pairs.push([a, e[1], b, e[3]]);
+  }
+  // A week with no played entries is a FUTURE week — Sleeper publishes the
+  // pairings well before kickoff, so the schedule is the only source of the
+  // matchup list and every row is a projection rather than a result.
+  if (!pairs.length) {
+    for (const [x, y] of mw.schedule?.[String(wk)] ?? []) pairs.push([x, 0, y, null]);
   }
   const lineupWar = (rid: number) => {
     const e = ent[String(rid)];
@@ -235,7 +254,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, back }: {
           {pairs.map(([a, ap, b, bp]) => {
             const aw = bp != null && ap > bp, bw = bp != null && bp > ap;
             return (
-              <tr key={a} style={{ cursor: "default" }}>
+              <tr key={a} className="click" onClick={() => goMatchup(a)}>
                 <td style={{ textAlign: "left", ...(aw ? { color: "var(--acc)" } : {}) }}>{tnames[a] || "?"}</td>
                 <td className={aw ? "num good" : ""}>{fmt(ap, 1)}</td>
                 <td className="hm">{wk < ps ? sgn(lineupWar(a)) : "—"}</td>
