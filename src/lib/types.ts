@@ -192,6 +192,13 @@ export interface Insights {
 export interface DviRow { name: string; pos: string; dvi: number; rank: number; pos_rank: number }
 export interface DviFile { generated: string; players: Record<string, DviRow> }
 
+/** data/cvi.json — Contender Value Index, DVI's one-season sibling */
+export interface CviRow { name: string; pos: string; cvi: number; rank: number; pos_rank: number }
+export interface CviFile {
+  generated: string; format?: string; ecrRanked?: number;
+  players: Record<string, CviRow>;
+}
+
 /** data/picks_owned.json — who holds which future draft picks right now */
 export interface PicksOwned {
   meta: { seasons: number[]; as_of: string };

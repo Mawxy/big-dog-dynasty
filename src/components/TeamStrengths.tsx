@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import type { DviFile, ProjectionsFile, Team } from "../lib/types";
+import type { CviFile, DviFile, ProjectionsFile, Team } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { useLeague } from "../lib/context";
@@ -51,7 +51,7 @@ function Grid({ rows, n, caption, note }: {
                 <td className="t"><b>{r.label}</b><span>{r.note}</span></td>
                 {r.cells.map((c, i) => (
                   <td key={i} title={c.pid
-                    ? `${c.name} — ${fmt(c.value, r.key === "war" ? 2 : 0)}`
+                    ? `${c.name} — ${fmt(c.value, 1)}`
                     : "no player for this seat"}>
                     <Rank rank={c.rank} n={n} who={c.pid ? surname(c.name) : "—"} />
                   </td>
@@ -75,6 +75,7 @@ export default function TeamStrengths({ rid }: { rid: number }) {
   const [proj, setProj] = useState<ProjectionsFile | null>(null);
   const [teams, setTeams] = useState<Team[] | null>(null);
   const [dvi, setDvi] = useState<DviFile | null>(null);
+  const [cvi, setCvi] = useState<CviFile | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -85,16 +86,20 @@ export default function TeamStrengths({ rid }: { rid: number }) {
         .then(t => { if (live) setTeams(t); }).catch(() => {});
     }).catch(() => {});
     jlDaily<DviFile>("dvi.json").then(x => { if (live) setDvi(x); }).catch(() => {});
+    jlDaily<CviFile>("cvi.json").then(x => { if (live) setCvi(x); }).catch(() => {});
     return () => { live = false; };
   }, []);
 
   const shape = useMemo(() => {
-    if (!proj || !teams || !dvi) return null;
-    const flat: Record<string, number> = {};
-    for (const [pid, r] of Object.entries(dvi.players)) flat[pid] = r.dvi;
+    if (!proj || !teams || !dvi || !cvi) return null;
+    const flatDvi: Record<string, number> = {};
+    for (const [pid, r] of Object.entries(dvi.players)) flatDvi[pid] = r.dvi;
+    const flatCvi: Record<string, number> = {};
+    for (const [pid, r] of Object.entries(cvi.players)) flatCvi[pid] = r.cvi;
     const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
-    return rosterShapes(proj.players, teams, flat, lineup).get(rid) ?? null;
-  }, [proj, teams, dvi, meta, rid]);
+    return rosterShapes(proj.players, teams,
+      { cvi: flatCvi, dvi: flatDvi }, lineup).get(rid) ?? null;
+  }, [proj, teams, dvi, cvi, meta, rid]);
 
   if (!shape || !teams) return null;
   const n = teams.length;
@@ -112,7 +117,7 @@ export default function TeamStrengths({ rid }: { rid: number }) {
       <div style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8, lineHeight: 1.6 }}>
         Each seat ranked against the same seat league-wide. Rows are optimised
         separately, so a seat can hold different players. Superflex reads as QB2;
-        the flex is left out — WAR can't rank across positions.
+        the flex is left out — it holds a different position on every roster.
       </div>
     </div>
   );
