@@ -202,16 +202,24 @@ export function rankingLineup(lineup: string[]): string[] {
   return STRENGTH_POS.flatMap(P => out.filter(s => s === P));
 }
 
+/** an index's reading for one player: the 0-100 value and its rank WITHIN the
+ *  player's position, straight out of cvi.json / dvi.json */
+export interface IndexEntry { value: number; posRank: number }
+const NO_ENTRY: IndexEntry = { value: 0, posRank: 0 };
+
 /** one seat in an optimised lineup and whoever holds it */
 export interface SlotRow {
   slot: string; label: string;
   pid: string | null; name: string; pos: string;
-  cvi: number; dvi: number;
+  cvi: IndexEntry; dvi: IndexEntry;
 }
 
 /** one currency's league ranks, seat by seat: QB1, RB1, RB2, … FLX, SFLX */
 export interface RankCell {
   label: string; value: number; rank: number;
+  /** rank within position in this currency — the RB5 in "CMC · 75.0 · RB5".
+   *  Distinct from `rank`, which is this SEAT against the same seat league-wide. */
+  posRank: number;
   pid: string | null; name: string; pos: string;
 }
 export interface RankRow {
@@ -258,16 +266,16 @@ export interface RosterShape {
  */
 export function rosterShapes(
   players: Projection[], teams: Team[],
-  idx: { cvi: Record<string, number>; dvi: Record<string, number> },
+  idx: { cvi: Record<string, IndexEntry>; dvi: Record<string, IndexEntry> },
   rosterPositions: string[] = DEFAULT_LINEUP,
 ): Map<number, RosterShape> {
   const lineup = rankingLineup(rosterPositions);
   const byPid = new Map(players.map(p => [p.pid, p]));
-  const dviOf = (id: string) => idx.dvi[id] ?? 0;
+  const dviOf = (id: string) => idx.dvi[id] ?? NO_ENTRY;
   // cvi.json is built FROM projections.json, so coverage here is 1:1 and the
-  // ?? 0 never fires for a projected player. It matters for anyone rostered
+  // fallback never fires for a projected player. It matters for anyone rostered
   // without a projection, who correctly reads as no win-now value at all.
-  const cviOf = (id: string) => idx.cvi[id] ?? 0;
+  const cviOf = (id: string) => idx.cvi[id] ?? NO_ENTRY;
 
   /** Optimise every roster in ONE currency and keep the resulting seats and
    *  bench. Run twice: each row of the grid is that currency's own best nine,
@@ -298,15 +306,15 @@ export function rosterShapes(
         return {
           slot: s.slot, label: `${s.slot}${seen[s.slot]}`,
           pid: p?.pid ?? null, name: p?.name ?? "—", pos: p?.pos ?? "",
-          cvi: p ? cviOf(p.pid) : 0, dvi: p ? dviOf(p.pid) : 0,
+          cvi: p ? cviOf(p.pid) : NO_ENTRY, dvi: p ? dviOf(p.pid) : NO_ENTRY,
         };
       }));
       benchOf.set(t.roster_id, pool.filter(p => !starters.has(p.id)));
     }
     return { slotsOf, benchOf };
   };
-  const cviVal = (p: PoolP) => cviOf(p.id);
-  const dviVal = (p: PoolP) => dviOf(p.id);
+  const cviVal = (p: PoolP) => cviOf(p.id).value;
+  const dviVal = (p: PoolP) => dviOf(p.id).value;
   const byCvi = buildLineup(cviVal);
   const byDvi = buildLineup(dviVal);
   // second string: the same seats again, filled from whoever missed the first
@@ -329,8 +337,9 @@ export function rosterShapes(
   // consistent across teams. Each row uses its OWN optimised lineup and bench.
   const series = (
     key: RankRow["key"], label: string, note: string,
-    L: { slotsOf: Map<number, SlotRow[]> }, slotVal: (s: SlotRow) => number,
+    L: { slotsOf: Map<number, SlotRow[]> }, entryOf: (s: SlotRow) => IndexEntry,
   ) => {
+    const slotVal = (s: SlotRow) => entryOf(s).value;
     const nSlots = L.slotsOf.get(teams[0].roster_id)!.length;
     // An EMPTY seat ranks last, not at zero. Owning a fourth quarterback is
     // strictly better than not owning one, even a bad fourth quarterback —
@@ -347,12 +356,13 @@ export function rosterShapes(
       key, label, note,
       cells: L.slotsOf.get(rid)!.map((s, i) => ({
         label: s.label, value: slotVal(s), rank: rankIn(cols[i], seatVal(s)),
+        posRank: entryOf(s).posRank,
         pid: s.pid, name: s.name, pos: s.pos,
       })),
     });
   };
-  const cviOfSlot = (s: SlotRow) => s.cvi;
-  const dviOfSlot = (s: SlotRow) => s.dvi;
+  const cviOfSlot = (s: SlotRow): IndexEntry => s.cvi;
+  const dviOfSlot = (s: SlotRow): IndexEntry => s.dvi;
   const starters = [
     series("cvi", "CVI", "value this season", byCvi, cviOfSlot),
     series("dvi", "DVI", "dynasty value", byDvi, dviOfSlot),

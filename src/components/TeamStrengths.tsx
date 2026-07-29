@@ -4,7 +4,7 @@ import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { useLeague } from "../lib/context";
 import { DEFAULT_LINEUP } from "../lib/league";
-import { rosterShapes, type RankRow } from "../lib/rosterModel";
+import { rosterShapes, type IndexEntry, type RankRow } from "../lib/rosterModel";
 
 const ordinal = (v: number) => {
   const s = ["th", "st", "nd", "rd"], m = v % 100;
@@ -52,6 +52,7 @@ function Grid({ rows, n, caption, note }: {
                 {r.cells.map((c, i) => (
                   <td key={i} title={c.pid
                     ? `${c.name} — ${fmt(c.value, 1)}`
+                      + (c.posRank ? ` — ${c.pos}${c.posRank}` : "")
                     : "no player for this seat"}>
                     <Rank rank={c.rank} n={n} who={c.pid ? surname(c.name) : "—"} />
                   </td>
@@ -92,10 +93,15 @@ export default function TeamStrengths({ rid }: { rid: number }) {
 
   const shape = useMemo(() => {
     if (!proj || !teams || !dvi || !cvi) return null;
-    const flatDvi: Record<string, number> = {};
-    for (const [pid, r] of Object.entries(dvi.players)) flatDvi[pid] = r.dvi;
-    const flatCvi: Record<string, number> = {};
-    for (const [pid, r] of Object.entries(cvi.players)) flatCvi[pid] = r.cvi;
+    // pos_rank comes from the index file itself, so it is the player's rank
+    // among ALL QBs/RBs/… in that currency — not his rank among the twelve
+    // players sitting in this seat, which is what the grid already shows.
+    const flatDvi: Record<string, IndexEntry> = {};
+    for (const [pid, r] of Object.entries(dvi.players))
+      flatDvi[pid] = { value: r.dvi, posRank: r.pos_rank };
+    const flatCvi: Record<string, IndexEntry> = {};
+    for (const [pid, r] of Object.entries(cvi.players))
+      flatCvi[pid] = { value: r.cvi, posRank: r.pos_rank };
     const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
     return rosterShapes(proj.players, teams,
       { cvi: flatCvi, dvi: flatDvi }, lineup).get(rid) ?? null;

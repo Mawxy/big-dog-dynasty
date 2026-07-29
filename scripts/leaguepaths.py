@@ -74,5 +74,8 @@ class DataDir:
     def glob(self, pat):
         return self.league.glob(pat)
 
+    def iterdir(self):
+        return self.league.iterdir()
+
     def exists(self):
         return self.league.exists()
