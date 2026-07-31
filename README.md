@@ -20,11 +20,17 @@ MVP+, playoff WAR, projections, DVI, CVI, and the two pick-value bridges.
   `build_site_data.py` packs everything into compact JSON under `data/`.
 - **Front end (Vite + React + TypeScript, `src/`)** — reads only `data/*.json`,
   never calls Sleeper. Built by GitHub Actions; you never need Node locally.
-- **Two workflows:**
+- **Workflows:**
   - `deploy.yml` — build & deploy. Runs on every push to `main` (and manually).
     Never touches the Sleeper API, so rebuild as often as you like.
-  - `data-refresh.yml` — Wednesdays 1 AM ET (and manually): pulls Sleeper,
-    recomputes WAR, commits `data/`, then calls the deploy workflow.
+  - `data-refresh.yml` — **daily**, 1 AM ET: pulls the league, recomputes
+    everything, commits `data/`, then calls deploy.
+  - `players-refresh.yml` — **weekly**, Tuesdays. Fetches only Sleeper's ~19 MB
+    player map and caches it. The daily job restores that cache rather than
+    re-downloading it, which is what makes a daily cadence cheap. A player
+    added to Sleeper mid-week isn't in the map yet and is skipped until the
+    next weekly run; `sleeper_war.py` reports how many.
+  - `values-refresh.yml` — daily market pull (KTC / FantasyCalc / ECR).
 
 ## One-time setup change for v2
 
@@ -42,7 +48,8 @@ npm run build      # production build into dist/
 
 ## Notes
 
-- Cron `0 6 * * 3` = 06:00 UTC Wednesday = 1:00 AM EST (2:00 AM EDT), in `data-refresh.yml`.
+- Cron `0 6 * * *` = 06:00 UTC daily = 1:00 AM EST (2:00 AM EDT), in `data-refresh.yml`.
+  The player map is `0 5 * * 2` (Tuesdays) in `players-refresh.yml`.
 - The league ID lives in `data-refresh.yml`.
 - Every figure's methodology is in [METHODOLOGY.md](METHODOLOGY.md); each
   engine's docstring is the deeper reference.

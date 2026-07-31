@@ -1,0 +1,47 @@
+name: Players map refresh (weekly)
+# Sleeper's /players/nfl map is ~19 MB — by far the heaviest call it serves,
+# and the one it asks you to make at most once a day. It also changes slowly:
+# names, positions, teams and injury flags, not scores.
+#
+# So it gets its own weekly cadence. Everything else (data-refresh, which now
+# runs DAILY) restores this cache instead of re-downloading it. A player added
+# to Sleeper between weekly runs simply isn't in the map yet and is skipped by
+# the daily pipeline — sleeper_war.py counts and reports how many, so a stale
+# map can't quietly move replacement level without anyone noticing.
+#
+# Runs Tuesdays, a day ahead of nothing in particular — just early enough that
+# a fresh map is in place before the week's heaviest daily run.
+on:
+  schedule:
+    - cron: "0 5 * * 2"      # Tuesdays 05:00 UTC
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: players-map
+  cancel-in-progress: false
+jobs:
+  players:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download the player map
+        run: python scripts/sleeper_pull.py --players-only --out sleeper_data
+      - name: Report what landed
+        run: |
+          python - <<'PY'
+          import json, pathlib
+          p = pathlib.Path("sleeper_data/players.json")
+          d = json.loads(p.read_text())
+          print(f"{len(d):,} players, {p.stat().st_size/1e6:.1f} MB")
+          PY
+      # A unique key always saves; the daily job restores the newest match on
+      # the `players-nfl-` prefix. Same pattern the crawlers use for state.
+      - name: Cache the map for the daily runs
+        uses: actions/cache/save@v4
+        with:
+          path: sleeper_data/players.json
+          key: players-nfl-${{ github.run_id }}

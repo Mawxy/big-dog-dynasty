@@ -275,7 +275,12 @@ def main():
     ap.add_argument("--username", help="Look up leagues by username instead of league_id")
     ap.add_argument("--season", help="Season to use with --username (default: current)")
     ap.add_argument("--out", default="sleeper_data", help="Output folder (default: sleeper_data)")
-    ap.add_argument("--players", action="store_true", help="Also download the full player-ID map (~5MB; Sleeper asks max once/day)")
+    ap.add_argument("--players", action="store_true", help="Also download the full player-ID map (~19MB; Sleeper asks max once/day)")
+    ap.add_argument("--players-only", action="store_true",
+                    help="Download ONLY the player map and exit. The map is by "
+                         "far the heaviest call Sleeper serves and changes "
+                         "slowly, so it is refreshed on its own weekly cadence "
+                         "while everything else runs daily against the cached copy.")
     ap.add_argument("--no-history", action="store_true", help="Only the given league, don't walk previous seasons")
     ap.add_argument("--no-forward", action="store_true", help="Don't follow the chain forward to newer seasons — pull exactly the id given")
     args = ap.parse_args()
@@ -283,6 +288,15 @@ def main():
     root = Path(args.out)
     state = get("/state/nfl")
     save(state, root / "nfl_state.json")
+
+    # --players-only needs no league at all: the map is global to Sleeper.
+    # Doing it before league selection means the weekly job can run with no
+    # arguments and never touch a league endpoint.
+    if args.players_only:
+        print("Downloading full player map (~19MB)...")
+        save(get("/players/nfl"), root / "players.json")
+        print("--players-only: player map written, skipping the league pull")
+        return
 
     league_id = args.league_id
     if not league_id:
@@ -302,7 +316,7 @@ def main():
         league_id = leagues[idx]["league_id"]
 
     if args.players:
-        print("Downloading full player map (~5MB)...")
+        print("Downloading full player map (~19MB)...")
         save(get("/players/nfl"), root / "players.json")
 
     if not args.no_forward:

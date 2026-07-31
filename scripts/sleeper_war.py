@@ -181,6 +181,7 @@ def run_season(season_dir: Path, players, args):
     acc = defaultdict(lambda: {"pts": 0.0, "gp": 0, "paa": 0.0, "par": 0.0,
                                "waa": 0.0, "war": 0.0, "paw": 0.0, "vowp": 0.0})
     weekly_rows = []
+    unknown_pids = set()
     scoring = league.get("scoring_settings") or {}
     # VoWP needs the full-NFL stats feed (allstats/) for every scored week; if any
     # week is missing it (older dumps, nfl_history's synthetic data), we can't
@@ -217,6 +218,14 @@ def run_season(season_dir: Path, players, args):
         points, positions = {}, {}
         for team in load_json(wf):
             for pid, pts in (team.get("players_points") or {}).items():
+                # A pid absent from the player map ENTIRELY is a different
+                # thing from one whose position we don't score (K, DEF): it
+                # means the map is older than the transaction that added him.
+                # The daily pipeline runs against a weekly player map, so this
+                # is expected and he is simply skipped — but silently dropping
+                # a real scorer would move replacement level, so count them.
+                if players.get(pid) is None:
+                    unknown_pids.add(pid)
                 pos = player_pos(players, pid)
                 if not pos or pts is None:
                     continue
@@ -276,6 +285,10 @@ def run_season(season_dir: Path, players, args):
                                 int(pid in startable),
                                 round(paw, 2) if paw is not None else "",
                                 round(vowp_w, 4) if vowp_w is not None else ""])
+    if unknown_pids:
+        print(f"  ! {len(unknown_pids)} scored player(s) are not in players.json "
+              f"— skipped. The map refreshes weekly; rerun sleeper_pull.py "
+              f"--players-only if this looks wrong.")
     return league["season"], sigma, acc, weekly_rows, players, vowp_ok
 
 def write_csv(path, header, rows):

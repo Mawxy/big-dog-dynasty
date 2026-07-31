@@ -1,7 +1,14 @@
-name: Weekly data refresh
+name: Daily data refresh
+# Runs DAILY. The one call that made this expensive — Sleeper's ~19 MB player
+# map — moved to players-refresh.yml on a weekly cadence; this job restores it
+# from cache instead of downloading it. Everything else Sleeper serves here
+# (matchups, rosters, transactions) is small.
+#
+# A player added to Sleeper since the last weekly map run is not in the cached
+# copy and is skipped for the day; sleeper_war.py reports how many.
 on:
   schedule:
-    - cron: "0 6 * * 3"   # Wednesdays 06:00 UTC = 1:00 AM EST (2:00 AM EDT)
+    - cron: "0 6 * * *"   # every day 06:00 UTC = 1:00 AM EST (2:00 AM EDT)
   workflow_dispatch:
 permissions:
   contents: write
@@ -23,8 +30,28 @@ jobs:
           python-version: "3.12"
       - name: Engine invariants (fail before touching Sleeper)
         run: python -m unittest discover -s tests
+      # The weekly job (players-refresh.yml) saves this; restore-keys takes the
+      # newest match so a daily run never re-downloads 19 MB.
+      - name: Restore the weekly player map
+        uses: actions/cache/restore@v4
+        with:
+          path: sleeper_data/players.json
+          key: players-nfl-restore
+          restore-keys: players-nfl-
+      # Self-heal: a first run, or a cache evicted after 7 idle days, would
+      # otherwise fail sleeper_war.py outright. Fetching here costs one extra
+      # call on the rare miss rather than one every day.
+      - name: Fetch the player map if the cache missed
+        run: |
+          if [ ! -s sleeper_data/players.json ]; then
+            echo "::warning title=Player map cache miss::downloading it inline; \
+            check that players-refresh.yml is running weekly."
+            python scripts/sleeper_pull.py --players-only --out sleeper_data
+          else
+            echo "player map restored from cache ($(du -h sleeper_data/players.json | cut -f1))"
+          fi
       - name: Pull league history from Sleeper
-        run: python scripts/sleeper_pull.py 1312221243742621696 --players --out sleeper_data
+        run: python scripts/sleeper_pull.py 1312221243742621696 --out sleeper_data
       - name: Compute WAA/WAR
         run: python scripts/sleeper_war.py --data sleeper_data
       - name: Build site JSON
@@ -81,7 +108,7 @@ jobs:
           git rebase --abort 2>/dev/null || true
           git add data
           git diff --cached --quiet && { echo "no data changes to commit"; exit 0; }
-          git commit -m "Weekly data update $(date -u +%F)"
+          git commit -m "Daily data update $(date -u +%F)"
           # retry rebase+push: a human/bot push in the window would otherwise
           # fail the run outright and drop this week's update
           for i in 1 2 3 4 5; do

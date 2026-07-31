@@ -141,13 +141,21 @@ def snapshot_projections(season, ld, sproj, week, teams):
     starters and can't affect a line."""
     if not week or not sproj:
         return False
+    f = ld / season / "proj_history.json"
+    hist = load(f) or {}
+    # FIRST write for a week wins. The pipeline runs daily, and Sleeper's
+    # nfl_state week does not advance until after the week completes — so a
+    # Monday run would otherwise overwrite the week's snapshot with numbers
+    # taken AFTER its games were played, which is exactly the lookahead this
+    # file exists to prevent. The first snapshot of a week is taken the day it
+    # became current, which is safely pregame.
+    if str(week) in hist:
+        return False
     rostered = {str(p) for t in (teams or []) for p in (t.get("players") or [])}
     snap = {p: round(v["ppg"], 2) for p, v in sproj.items()
             if p in rostered and v.get("ppg") is not None}
     if not snap:
         return False
-    f = ld / season / "proj_history.json"
-    hist = load(f) or {}
     hist[str(week)] = snap
     f.write_text(json.dumps(hist), encoding="utf-8")
     return True
