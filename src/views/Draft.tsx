@@ -640,7 +640,8 @@ function DraftBoards({ history }: { history: History }) {
                           }}>
                           <div className="pk"><span>{r.slot}</span><span>{r.pos}</span></div>
                           <div className="nm"><PlayerLink pid={r.pid} name={r.name} /></div>
-                          <div className="by">{r.via ? `${r.drafter} · via` : r.drafter}</div>
+                          <div className="by">{r.drafter}</div>
+                          {r.via && <div className="via">via {r.via}</div>}
                         </div>
                       );
                     }),
@@ -654,8 +655,8 @@ function DraftBoards({ history }: { history: History }) {
       <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
         Every draft this league has held, newest first — rows are rounds, columns the
         pick within the round, cells coloured by position. The small line names the
-        franchise that made the selection; "via" marks a pick acquired by trade, with
-        the original owner on hover.
+        franchise that made the selection; an amber "via" line marks a pick acquired
+        by trade and names the franchise that originally held it.
       </div>
     </div>
   );
