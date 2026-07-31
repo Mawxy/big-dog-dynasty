@@ -129,44 +129,77 @@ class TestRoundWeights(unittest.TestCase):
 class TestWinShares(unittest.TestCase):
     """Win share is in UNITS OF WINS: one game pays out exactly 1.0 to the
     side that won it. That is what makes "he accounted for 1.4 of his team's
-    3 playoff wins" a true sentence rather than a figure of speech."""
+    3 playoff wins" a true sentence rather than a figure of speech.
+
+    The 1.0 is split between LEVERAGE (Shapley WPA) and PRODUCTION (points
+    over positional replacement), PRODUCTION_BLEND deciding the mix."""
+
+    # leverage values, production values — deliberately disagreeing
+    LEV = [0.40, 0.20, -0.10]
+    PAR = [5.0, 30.0, 12.0]
 
     def test_a_win_pays_exactly_one(self):
-        self.assertAlmostEqual(sum(win_shares([0.4, 0.2, -0.1], True)), 1.0)
+        self.assertAlmostEqual(sum(win_shares(self.LEV, self.PAR, True)), 1.0)
 
     def test_a_loss_pays_nothing(self):
-        self.assertEqual(win_shares([0.4, 0.2, -0.1], False), [0.0, 0.0, 0.0])
+        self.assertEqual(win_shares(self.LEV, self.PAR, False), [0.0, 0.0, 0.0])
 
-    def test_split_follows_contribution(self):
-        a, b, c = win_shares([0.6, 0.3, 0.1], True)
-        self.assertGreater(a, b)
-        self.assertGreater(b, c)
-        self.assertAlmostEqual(a, 0.6)
+    def test_pure_leverage_ignores_production(self):
+        a = win_shares(self.LEV, self.PAR, True, blend=0.0)
+        b = win_shares(self.LEV, [1.0, 1.0, 1.0], True, blend=0.0)
+        for x, y in zip(a, b):
+            self.assertAlmostEqual(x, y)
 
-    def test_a_drag_gets_nothing_not_a_negative_share(self):
-        """A negative contribution can't be a negative share OF A WIN — the
-        win still happened. His negative WPA is reported separately."""
-        shares = win_shares([0.5, -0.2], True)
+    def test_pure_production_ignores_leverage(self):
+        a = win_shares(self.LEV, self.PAR, True, blend=1.0)
+        b = win_shares([9.0, 1.0, 1.0], self.PAR, True, blend=1.0)
+        for x, y in zip(a, b):
+            self.assertAlmostEqual(x, y)
+
+    def test_the_blend_sits_between_its_ends(self):
+        """The reason the blend exists: a big line in a rout claims almost no
+        leverage, so production has to speak for it — but not alone."""
+        lev = win_shares(self.LEV, self.PAR, True, blend=0.0)[1]
+        mid = win_shares(self.LEV, self.PAR, True, blend=0.5)[1]
+        prod = win_shares(self.LEV, self.PAR, True, blend=1.0)[1]
+        self.assertLess(lev, mid)
+        self.assertLess(mid, prod)
+
+    def test_blended_still_pays_exactly_one(self):
+        for b in (0.0, 0.25, 0.5, 0.75, 1.0):
+            self.assertAlmostEqual(sum(win_shares(self.LEV, self.PAR, True, blend=b)), 1.0)
+
+    def test_a_drag_on_both_counts_gets_nothing(self):
+        """Negative on leverage AND below replacement: no slice of the win."""
+        shares = win_shares([0.5, -0.2], [20.0, -6.0], True)
         self.assertEqual(shares[1], 0.0)
         self.assertAlmostEqual(shares[0], 1.0)
 
     def test_a_win_nobody_earned_splits_evenly(self):
-        """Every starter under expectation, carried by the opponent's
-        collapse: the win happened, so the credit still has to land."""
-        shares = win_shares([-0.3, -0.2, -0.5], True)
+        """Every starter under water, carried by the opponent's collapse:
+        the win happened, so the credit still has to land."""
+        shares = win_shares([-0.3, -0.2, -0.5], [-4.0, -9.0, -2.0], True)
         self.assertAlmostEqual(sum(shares), 1.0)
         self.assertAlmostEqual(shares[0], shares[1])
 
+    def test_missing_production_falls_back_to_leverage(self):
+        """Raw dumps unavailable: degrade to the pure-leverage split rather
+        than silently mis-weighting."""
+        a = win_shares(self.LEV, [], True)
+        b = win_shares(self.LEV, None, True, blend=0.0)
+        for x, y in zip(a, b):
+            self.assertAlmostEqual(x, y)
+
     def test_blowout_and_nailbiter_pay_the_same(self):
-        """The whole reason this exists alongside WPA. Two games, same
-        shape of contribution, wildly different drama — same win share."""
-        nail = win_shares([0.30, 0.15, 0.05], True)      # swing 0.50
-        rout = win_shares([0.06, 0.03, 0.01], True)      # swing 0.10
+        """Two games, same shape of contribution, wildly different drama —
+        the same 1.0 gets handed out either way."""
+        nail = win_shares([0.30, 0.15, 0.05], self.PAR, True)
+        rout = win_shares([0.06, 0.03, 0.01], self.PAR, True)
         for x, y in zip(nail, rout):
             self.assertAlmostEqual(x, y)
 
     def test_empty_lineup_is_not_a_crash(self):
-        self.assertEqual(win_shares([], True), [])
+        self.assertEqual(win_shares([], [], True), [])
 
 
 class TestMvpScore(unittest.TestCase):
