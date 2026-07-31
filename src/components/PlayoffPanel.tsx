@@ -70,16 +70,23 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
     () => [...new Set(bracket.winners.map(g => g.week))].sort((a, b) => a - b),
     [bracket]);
 
-  /** worse seed beats better seed, ranked by seed gap then margin */
+  /** Games won against the pregame odds, longest shot first.
+   *
+   *  Ranked by WIN PROBABILITY, not by seed. A seed is a regular-season
+   *  finish and says nothing about the two rosters that actually took the
+   *  field: 2025's final had the 1 seed beat the 2 — chalk by seed, and the
+   *  longest shot on record by probability, because the lineup it fielded
+   *  that week was a 28.9% underdog. The pregame line is already computed per
+   *  game for WPA, so this reads the same number the award does. */
   const upsets = useMemo(() => bracket.winners
     .filter(g => g.w != null && g.l != null && !(g.p && g.p > 1))
     .map(g => {
-      const sw = bracket.seeds[String(g.w)] ?? 0, sl = bracket.seeds[String(g.l)] ?? 0;
-      const margin = g.t1_pts != null && g.t2_pts != null ? Math.abs(g.t1_pts - g.t2_pts) : 0;
-      return { g, gap: sw - sl, margin };
+      const wp = bracket.wp?.[`${g.week}.${g.t1}`];
+      if (!wp) return null;
+      return { g, pre: g.w === g.t1 ? wp.pre_t1 : 1 - wp.pre_t1 };
     })
-    .filter(u => u.gap > 0)
-    .sort((a, b) => b.gap - a.gap || b.margin - a.margin), [bracket]);
+    .filter((u): u is { g: BracketGame; pre: number } => !!u && u.pre < 0.5)
+    .sort((a, b) => a.pre - b.pre), [bracket]);
 
   /** superlatives over the elimination games */
   const supers = useMemo(() => {
@@ -361,16 +368,17 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
       )}
 
       {/* (c) biggest upset */}
-      {secBand("upset", "Biggest upset",
-        upsets.length ? `${upsets.length} games went to the worse seed` : "chalk all the way")}
+      {secBand("upset", "Biggest upset", upsets.length
+        ? `${upsets.length} ${upsets.length === 1 ? "game was" : "games were"} won against the odds`
+        : "every game went to the favourite")}
       {openSec.upset && (upsets.length ? (
         <div className="card-row">
           {upsets.slice(0, 3).map((u, i) => (
-            <div key={i}>{gameCard(u.g, `Seed ${seedOf(u.g.w)} over seed ${seedOf(u.g.l)}`)}</div>
+            <div key={i}>{gameCard(u.g, `Won as a ${fmt(u.pre * 100, 1)}% underdog`)}</div>
           ))}
         </div>
       ) : (
-        <div className="empty">Every game went to the better seed.</div>
+        <div className="empty">Every game went to the pregame favourite.</div>
       ))}
 
       {/* (d) superlatives */}
