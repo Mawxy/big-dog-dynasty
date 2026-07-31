@@ -194,7 +194,7 @@ export default function FranchisePage({ rid, players, tab }:
       <td className="t fig quiet">{slot}</td>
       <td className="t name">
         <PlayerLink pid={r.id} name={r.nm} />
-        {r.tag === "IR" && <span className="tag">IR</span>}
+        {r.tag === "IR" && <span className="name-note">IR</span>}
       </td>
       <td className="c"><PosBadge pos={r.pos} /></td>
       <td className="c fig quiet">{r.nfl || "—"}</td>
@@ -388,10 +388,14 @@ export default function FranchisePage({ rid, players, tab }:
                         {s.manager !== latest.manager && <> · {s.manager}</>}</td>
                       <td className="n fig">{played ? <>{s.wins}-{s.losses}{s.ties ? `-${s.ties}` : ""}</> : "—"}</td>
                       <td className="n fig quiet hm">{played ? s.seed ?? "—" : "—"}</td>
+                      {/* a placing in a dense numeric row is a tabular ordinal,
+                          gold for the title — the CHAMP tag lives in the rail */}
                       <td className="n fig">
-                        {s.finish === 1
-                          ? <span className="tag" style={{ background: "var(--acc)", marginLeft: 0 }}>CHAMP</span>
-                          : s.finish != null ? ord(s.finish) : "—"}
+                        {s.finish == null ? "—" : (
+                          <span style={s.finish === 1 ? { color: "var(--acc)", fontWeight: 700 } : undefined}>
+                            {ord(s.finish)}
+                          </span>
+                        )}
                       </td>
                       <td className="n fig">{played ? fmt(s.ppg, 1) : "—"}</td>
                       <td className={`n edge ${played ? clsOf(s.war) : "fig quiet"}`}>{played ? fmt(s.war, 2) : "—"}</td>
@@ -458,7 +462,7 @@ export default function FranchisePage({ rid, players, tab }:
                               <td className="t fig strong">{p.slot}</td>
                               <td className="t name">
                                 <PlayerLink pid={p.pid} name={p.name} />
-                                {p.traded && <span className="tag">traded</span>}
+                                {p.traded && <span className="name-note">traded</span>}
                               </td>
                               <td className="c"><PosBadge pos={p.pos} /></td>
                               <td className={`n ${np || p.traded ? "fig quiet" : clsOf(p.war)}`}>

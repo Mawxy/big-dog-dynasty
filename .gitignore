@@ -5,6 +5,8 @@ dist/
 nfl_history_data/
 HANDOFF.md
 vite.config.*.timestamp-*.mjs
+# Claude Code local tooling (dev-server preview config) — machine-local, never shipped
+.claude/
 # raw trade corpus can be tens of MB at scale — kept as a CI artifact, not committed
 data/trade_corpus.json
 data/trade_corpus_*.json

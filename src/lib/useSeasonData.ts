@@ -5,12 +5,14 @@ import { sd } from "./stats";
 import { useLeague } from "./context";
 import { rosterSeasonOf } from "./league";
 
-export function useSeasonData(season: string): SeasonData | null {
+/** null season = "this view doesn't need season data right now" — no fetch */
+export function useSeasonData(season: string | null): SeasonData | null {
   const { meta, league } = useLeague();
   const [d, setD] = useState<SeasonData | null>(null);
   useEffect(() => {
     let live = true;
     setD(null);
+    if (season == null) return;
     (async () => {
       if (season === "ALL") {
         const seasons = meta.seasons;

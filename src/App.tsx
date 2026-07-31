@@ -6,9 +6,7 @@ import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } fr
 import { useSeasonData } from "./lib/useSeasonData";
 import { seasonSeg } from "./lib/league";
 import Home from "./views/Home";
-import Players from "./views/Players";
 import PlayersHub from "./views/PlayersHub";
-import Teams from "./views/Teams";
 import FranchisesView from "./views/Franchises";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
@@ -16,7 +14,6 @@ import Trades from "./views/Trades";
 import Ledger from "./views/Ledger";
 import Dvi from "./views/Dvi";
 import Cvi from "./views/Cvi";
-import Value from "./views/Value";
 import FranchisePage from "./components/FranchisePage";
 import Player from "./views/Player";
 import SiteFooter from "./components/SiteFooter";
@@ -120,7 +117,7 @@ function Shell() {
   // "where am I": standings belongs to League; the player tables and player
   // pages to Players; franchise pages to Teams.
   const HUB_OF: Record<string, string> = {
-    standings: "home", ledger: "home", value: "players", stats: "players",
+    standings: "teams", ledger: "home", value: "players", stats: "players",
     dvi: "players", cvi: "players", player: "players", franchise: "teams",
   };
   const active = onView ? parts[2] : HUB_OF[parts[2]] ?? "";
@@ -156,29 +153,33 @@ function Shell() {
               :league, so the legacy block below can never be shadowed. */}
           <Route path="/:league" element={<Home />} />
           <Route path="/:league/home" element={<Home />} />
+          {/* the leaderboard: /players is the value lens, /players/market the
+              market lens, /players/<season> a played season, /players/all the
+              career board. /stats and /value are its pre-lens addresses. */}
           <Route path="/:league/players" element={<PlayersHub />} />
-          <Route path="/:league/stats/:season" element={<PlayersRoute />} />
-          {/* the stat table's pre-hub address — bookmarks carry a season */}
-          <Route path="/:league/players/:season" element={<StatsRedirect />} />
-          <Route path="/:league/standings/:season" element={<TeamsRoute />} />
+          <Route path="/:league/players/:season" element={<PlayersHub />} />
+          <Route path="/:league/stats/:season" element={<StatsRedirect />} />
+          <Route path="/:league/standings/:season" element={<StandingsRedirect />} />
           {/* A franchise is keyed by roster_id, which is stable across seasons —
               so its URL carries no year. The page picks its own roster season. */}
           <Route path="/:league/franchise/:rid" element={<FranchiseRoute />} />
           <Route path="/:league/franchise/:rid/:tab" element={<FranchiseRoute />} />
 
-          {/* franchise-level hub: value rankings + history */}
+          {/* franchise-level hub: the 5C board plus the season spine.
+              /teams is the roster board, /teams/<season> that year's
+              standings, /teams/all the franchise history board. */}
           <Route path="/:league/teams" element={<FranchisesView />} />
-          {/* the season-scoped team URLs the franchise pages replaced */}
+          <Route path="/:league/teams/:season" element={<FranchisesView />} />
+          {/* the season-scoped franchise URLs the franchise pages replaced */}
           <Route path="/:league/teams/:season/:rid/:tab" element={<TeamRedirect />} />
           <Route path="/:league/teams/:season/:rid" element={<TeamRedirect />} />
-          <Route path="/:league/teams/:season" element={<TeamRedirect />} />
           <Route path="/:league/weekly/:season" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
           <Route path="/:league/draft" element={<Draft />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
-          <Route path="/:league/value" element={<Value />} />
+          <Route path="/:league/value" element={<ValueRedirect />} />
           <Route path="/:league/dvi" element={<Dvi />} />
           <Route path="/:league/cvi" element={<Cvi />} />
           <Route path="/:league/player/:pid" element={<PlayerRoute />} />
@@ -202,37 +203,41 @@ function Shell() {
   );
 }
 
-/** /players/<season> predates the hub; the season now lives under /stats */
+/** /stats/<season> predates the lens control; the season lens replaced it.
+ *  Kept as a redirect for one release — the address is already shared. */
 function StatsRedirect() {
   const { league } = useLeague();
   const p = useParams();
-  return <Navigate replace to={`/${leagueSeg(league)}/stats/${p.season}`} />;
+  return <Navigate replace to={`/${leagueSeg(league)}/players/${p.season}`} />;
 }
 
-function PlayersRoute() {
-  const { meta, players } = useLeague();
-  const season = seasonOf(useParams().season, meta);
-  const data = useSeasonData(season);
-  if (!data) return <div className="empty">Loading…</div>;
-  return <Players data={data} season={season} seasons={meta.seasons} players={players}
-    defaultMinGp={Math.round(data.summary.reduce((m, r) => Math.max(m, r[2]), 0) * 0.45)} />;
+/** /value collapsed into the leaderboard's value lens (its resting state) */
+function ValueRedirect() {
+  const { league } = useLeague();
+  return <Navigate replace to={`/${leagueSeg(league)}/players`} />;
+}
+
+/** /standings/<season> moved onto the Teams page's season spine.
+ *  Kept as a redirect for one release. */
+function StandingsRedirect() {
+  const { meta, league } = useLeague();
+  const p = useParams();
+  return <Navigate replace
+    to={`/${leagueSeg(league)}/teams/${seasonSeg(seasonOf(p.season, meta))}`} />;
 }
 
 /**
- * `/teams/<season>[/<rid>[/<tab>]]` -> standings or a franchise.
- *
- * A rid in the path means a franchise, which no longer takes a season; without
- * one it's the standings for that year. Both forms predate the rename and are
- * already shared, so they redirect rather than 404.
+ * `/teams/<season>/<rid>[/<tab>]` -> a franchise page. The form predates the
+ * franchise rename and is already shared, so it redirects rather than 404s.
+ * (`/teams/<season>` without a rid is now a real address — the season spine.)
  */
 function TeamRedirect() {
-  const { meta, league } = useLeague();
+  const { league } = useLeague();
   const p = useParams();
   const base = `/${leagueSeg(league)}`;
   const rid = intParam(p.rid);
-  return <Navigate replace to={rid != null
-    ? `${base}/franchise/${rid}${p.tab ? `/${p.tab}` : ""}`
-    : `${base}/standings/${seasonSeg(seasonOf(p.season, meta))}`} />;
+  if (rid == null) return <Navigate replace to={`${base}/teams`} />;
+  return <Navigate replace to={`${base}/franchise/${rid}${p.tab ? `/${p.tab}` : ""}`} />;
 }
 
 function FranchiseRoute() {
@@ -242,15 +247,6 @@ function FranchiseRoute() {
   const base = `/${leagueSeg(league)}`;
   if (rid == null) return <Navigate replace to={base} />;
   return <FranchisePage key={rid} rid={rid} players={players} tab={p.tab} />;
-}
-
-function TeamsRoute() {
-  const { meta, players } = useLeague();
-  const p = useParams();
-  const season = seasonOf(p.season, meta);
-  const data = useSeasonData(season);
-  if (!data) return <div className="empty">Loading…</div>;
-  return <Teams data={data} season={season} players={players} />;
 }
 
 function WeeklyRoute() {

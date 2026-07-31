@@ -297,7 +297,7 @@ export default function Home() {
           <span className="band-label">Power rankings</span>
           <span className="band-note">Ranked by starters DVI — the roster season's best legal dynasty lineup, not last season's record</span>
           <button type="button" className="dlink" style={{ marginLeft: 12 }}
-            onClick={() => nav(lp(`/standings/${league.latest ?? rosterSeason}`))}>
+            onClick={() => nav(lp(`/teams/${league.latest ?? rosterSeason}`))}>
             Standings
           </button>
         </div>
@@ -330,9 +330,12 @@ export default function Home() {
                     <td className="t sub hm">{r.manager}</td>
                     <td className="n edge"><span className="head-fig sm">{fmt(r.sDvi, 0)}</span></td>
                     <td className="n"><span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.sCvi, 0)}</span></td>
-                    <td className="n fig edge">
+                    {/* the champion's record goes gold — a figure, never a
+                        pill inside a dense numeric row */}
+                    <td className="n fig edge"
+                      style={r.lastFin === 1 ? { color: "var(--acc)" } : undefined}
+                      title={r.lastFin === 1 ? `${league.latest} champion` : undefined}>
                       {r.lastRec}
-                      {r.lastFin === 1 && <span className="tag" style={{ background: "var(--acc)" }}>CHAMP</span>}
                     </td>
                     <td className="n fig">{p?.rec ?? "—"}</td>
                     <td className="n fig hm" style={{

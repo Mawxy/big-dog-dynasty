@@ -382,20 +382,15 @@ export default function Draft() {
           </div>
           <div className="dscroll">
             <table className="dtbl">
-              <colgroup>
-                <col style={{ width: `${W_FIRST}%` }} />
-                {yearCols.map((_, i) => <col key={i} style={{ width: W_YEAR }} />)}
-                <col style={{ width: `${W_MED}%` }} />
-                <col style={{ width: `${W_HIT}%` }} />
-              </colgroup>
               <thead>
                 <tr>
-                  <th className="t">Round · Tier · Pick</th>
+                  <th className="t" style={{ width: `${W_FIRST}%` }}>Round · Tier · Pick</th>
                   {yearCols.map(c => (
-                    <th key={c.label} className="n" style={{ color: c.pending ? "var(--dim3)" : undefined }}>{c.label}</th>
+                    <th key={c.label} className="n"
+                      style={{ width: W_YEAR, color: c.pending ? "var(--dim3)" : undefined }}>{c.label}</th>
                   ))}
-                  <th className="n med">Median</th>
-                  <th className="n">Hit %</th>
+                  <th className="n med" style={{ width: `${W_MED}%` }}>Median</th>
+                  <th className="n" style={{ width: `${W_HIT}%` }}>Hit %</th>
                 </tr>
               </thead>
               <tbody>
@@ -447,13 +442,13 @@ export default function Draft() {
           <div key={cls}>
             <div className={`pick-title ${cls}`}>{title}</div>
             <table>
-              <colgroup>
-                <col style={{ width: "10%" }} /><col style={{ width: "10%" }} /><col style={{ width: "36%" }} />
-                <col style={{ width: "13%" }} /><col style={{ width: "13%" }} /><col style={{ width: "18%" }} />
-              </colgroup>
               <thead><tr>
-                <th className="t">Slot</th><th className="t">Yr</th><th className="t">Player</th>
-                <th className="n">Exp</th><th className="n">WAR</th><th className="n key">Vs exp</th>
+                <th className="t" style={{ width: "10%" }}>Slot</th>
+                <th className="t" style={{ width: "10%" }}>Yr</th>
+                <th className="t" style={{ width: "36%" }}>Player</th>
+                <th className="n" style={{ width: "13%" }}>Exp</th>
+                <th className="n" style={{ width: "13%" }}>WAR</th>
+                <th className="n key" style={{ width: "18%" }}>Vs exp</th>
               </tr></thead>
               <tbody>
                 {rows.map(r => (

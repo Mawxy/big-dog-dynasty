@@ -324,15 +324,16 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 .pos.PICK { background: var(--rule); color: var(--dim); }
 
 /* small tag (playoff marker) */
-.tag {
+/* quiet inline status note after a name (IR, traded) — never a filled pill:
+   a tag inside a dense numeric row breaks the line the eye is following */
+.name-note {
   display: inline-block;
   vertical-align: middle;
   margin-left: 6px;
-  padding: 1px 5px;
-  font: 400 11px/1.4 var(--cond);
+  font: 600 11px/1.4 var(--cond);
   letter-spacing: .12em;
-  background: var(--dim);
-  color: var(--acc-ink);
+  text-transform: uppercase;
+  color: var(--dim);
 }
 
 /* ---------- bars --------------------------------------------------------
@@ -1092,19 +1093,6 @@ table.wktbl { width: auto; background: transparent; }
 .back { color: var(--acc); cursor: pointer; font-size: 14px; display: inline-block; margin: 10px 0; }
 .back:hover { text-decoration: underline; }
 
-/* ---- homeboard: compact board tables (standings, weekly index) --------- */
-table.homeboard { background: var(--band); }
-table.homeboard td { padding: 8px 10px; border-bottom: 1px solid var(--hair); }
-table.homeboard tbody tr:hover { background: var(--sel); }
-table.homeboard .nm { font: 600 14.5px/1.3 var(--sans); color: var(--txt); }
-table.homeboard .by { font: 400 11.5px/1.4 var(--sans); color: var(--dim); }
-table.homeboard td.sub { color: var(--dim); }
-table.homeboard td b { font: 700 16px/1 var(--cond); font-variant-numeric: tabular-nums; }
-table.homeboard .fin { font: 700 15px/1 var(--cond); color: var(--txt2); }
-table.homeboard .fin.champ { font-size: 15px; }
-table.homeboard td.t.hm { text-transform: uppercase; font: 600 12px/1 var(--cond); letter-spacing: .1em; }
-table.homeboard .titles { font-size: 13px; letter-spacing: -2px; }
-table.homeboard .sub { color: var(--dim); }
 
 /* ---- league home: activity + movers feeds ------------------------------ */
 .feeds { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
