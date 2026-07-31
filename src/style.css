@@ -865,7 +865,10 @@ button.dband:hover .band-label { color: var(--txt2); }
   grid-template-columns: repeat(12, minmax(116px, 1fr));
   gap: 2px;
   padding: 12px var(--pad) 6px;
-  min-width: 1430px;
+  /* padding-right vanishes at the end of a horizontal scroll (overflow width
+     is the content box); a transparent border survives it */
+  border-right: var(--pad) solid transparent;
+  min-width: 1460px;
 }
 .dcell {
   border-left: 3px solid var(--rule);
