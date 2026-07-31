@@ -5,7 +5,6 @@ import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { POS_COLOR } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
-import { PlayerLink } from "../components/PlayerLink";
 import { boxStats } from "../components/BoxMarks";
 const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const ROUNDS = [1, 2, 3, 4];
@@ -593,9 +592,17 @@ interface History {
  * contrast. The 3px position spine stays, so the tint is redundant encoding.
  */
 function DraftBoards({ history }: { history: History }) {
+  const nav = useNavigate();
+  const lp = useLeaguePath();
   // newest draft open, the rest collapsed — the startup is 28 rounds tall
   const [openS, setOpenS] = useState<Record<string, boolean>>(
     () => ({ [history.seasons[0]]: true }));
+  /** first name / rest, so EVERY cell is the same two-line shape — a mix of
+   *  one- and two-line names reads as misalignment, not economy */
+  const split = (name: string): [string, string] => {
+    const sp = name.indexOf(" ");
+    return sp < 0 ? [name, " "] : [name.slice(0, sp), name.slice(sp + 1)];
+  };
 
   return (
     <div style={{ paddingTop: 26 }}>
@@ -639,7 +646,10 @@ function DraftBoards({ history }: { history: History }) {
                             background: c ? `color-mix(in srgb, ${c} 16%, var(--bg))` : "var(--zebra)",
                           }}>
                           <div className="pk"><span>{r.slot}</span><span>{r.pos}</span></div>
-                          <div className="nm"><PlayerLink pid={r.pid} name={r.name} /></div>
+                          <div className="nm tlink"
+                            onClick={e => { e.stopPropagation(); nav(lp(`/player/${r.pid}`)); }}>
+                            {split(r.name).map((part, i) => <span key={i}>{part}</span>)}
+                          </div>
                           <div className="by">{r.drafter}</div>
                           {r.via && <div className="via">via {r.via}</div>}
                         </div>
