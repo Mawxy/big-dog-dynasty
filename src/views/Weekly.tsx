@@ -9,7 +9,7 @@ import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
 import PlayerPanel from "../components/PlayerPanel";
 import MatchupDetail from "../components/MatchupDetail";
-import PlayoffBracket from "../components/PlayoffBracket";
+import PlayoffPanel from "../components/PlayoffPanel";
 import SeasonPicker from "../components/SeasonPicker";
 
 /** the week's entries, one per roster that has a row for it */
@@ -245,19 +245,9 @@ function BracketScope({ season, bracket, allWeeks, hasBracket }: {
         <div className="page-title">Playoffs</div>
       </div>
       <WeekChips season={season} allWeeks={allWeeks} on="playoffs" hasBracket={hasBracket} />
-      {bracket ? <>
-        <PlayoffBracket season={season} bracket={bracket} />
-        <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
-          Click a game for the full matchup, or{" "}
-          <span className="tlink" style={{ color: "var(--acc)" }}
-            onClick={() => nav(lp(`/playoffs/${season}`))}>
-            open the {season} playoffs page →
-          </span>{" "}
-          for the MVP, the biggest upset and the superlatives.
-        </div>
-      </> : (
-        <div className="empty">No bracket for this season yet.</div>
-      )}
+      {bracket
+        ? <PlayoffPanel season={season} bracket={bracket} />
+        : <div className="empty">No bracket for this season yet.</div>}
     </>
   );
 }

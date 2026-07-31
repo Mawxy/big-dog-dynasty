@@ -11,7 +11,6 @@ import FranchisesView from "./views/Franchises";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
 import DraftDetail from "./views/DraftDetail";
-import PlayoffDetail from "./views/PlayoffDetail";
 import Trades from "./views/Trades";
 import Ledger from "./views/Ledger";
 import Dvi from "./views/Dvi";
@@ -186,9 +185,6 @@ function Shell() {
               /draft/history/<season> is that draft's own page */}
           <Route path="/:league/draft/:sub" element={<Draft />} />
           <Route path="/:league/draft/history/:season" element={<DraftDetailRoute />} />
-          {/* the bracket is the season view's last chip (/weekly/<season>/playoffs);
-              /playoffs/<season> is that postseason's own page */}
-          <Route path="/:league/playoffs/:season" element={<PlayoffDetailRoute />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
           <Route path="/:league/value" element={<ValueRedirect />} />
@@ -197,6 +193,8 @@ function Shell() {
           <Route path="/:league/player/:pid" element={<PlayerRoute />} />
 
           {/* pre-restructure URLs — bookmarks, and anything already shared */}
+          <Route path="/:league/playoffs/:season" element={<PlayoffsRedirect />} />
+
           <Route path="/players/*" element={<LegacyRedirect />} />
           <Route path="/teams/*" element={<LegacyRedirect />} />
           <Route path="/weekly/*" element={<LegacyRedirect />} />
@@ -252,15 +250,18 @@ function TeamRedirect() {
   return <Navigate replace to={`${base}/franchise/${rid}${p.tab ? `/${p.tab}` : ""}`} />;
 }
 
+/** /playoffs/<season> was its own page for one release; the season view's
+ *  Playoffs chip owns that content now. */
+function PlayoffsRedirect() {
+  const { league } = useLeague();
+  const p = useParams();
+  return <Navigate replace to={`/${leagueSeg(league)}/weekly/${p.season}/playoffs`} />;
+}
+
 /** key={season} forces a fresh mount per draft, resetting sort/scroll state */
 function DraftDetailRoute() {
   const season = useParams().season!;
   return <DraftDetail key={season} />;
-}
-
-function PlayoffDetailRoute() {
-  const season = useParams().season!;
-  return <PlayoffDetail key={season} />;
 }
 
 function FranchiseRoute() {

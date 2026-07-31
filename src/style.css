@@ -949,6 +949,12 @@ button.dband:hover .band-label { color: var(--txt2); }
   font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
   color: var(--dim3);
 }
+/* a row of standalone game cards (upsets, superlatives) */
+.card-row {
+  display: flex; flex-wrap: wrap; gap: 18px; padding: 14px var(--pad) 4px;
+}
+.card-row > * { flex: 0 1 380px; }
+
 .pbr-plc { grid-row: 5; padding-top: 4px; }
 .pbr-plc.c1 { grid-column: 1; }
 .pbr-plc.c2 { grid-column: 2; }
