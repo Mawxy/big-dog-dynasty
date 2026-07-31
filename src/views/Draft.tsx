@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { POS_COLOR } from "../lib/league";
+import { useLeaguePath } from "../lib/context";
+import { PlayerLink } from "../components/PlayerLink";
+import DataTable, { applySort, sortCol, type Col, type Grp } from "../components/DataTable";
 import { boxStats } from "../components/BoxMarks";
 const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const ROUNDS = [1, 2, 3, 4];
@@ -64,6 +68,9 @@ interface TreeNode {
  *    `drafts.json`, because that table names our players and our franchises.
  */
 export default function Draft() {
+  const nav = useNavigate();
+  const lp = useLeaguePath();
+  const seg = useParams().season;
   const [drafts, setDrafts] = useState<Drafts | null>(null);
   const [fr, setFr] = useState<Franchises | null>(null);
   const [pv, setPv] = useState<PickValues | null>(null);
@@ -184,6 +191,50 @@ export default function Draft() {
     };
   }, [pv]);
 
+  /** every draft, pick by pick, for the history boards — startup included.
+   *  A traded pick appears under BOTH franchises in drafts.json: the
+   *  traded:false entry belongs to the selector, the traded:true one to the
+   *  original owner, which is exactly the "via" note. */
+  const history = useMemo(() => {
+    if (!drafts) return null;
+    const nameOf = (rid: string, season: string): string => {
+      const f = fr?.[rid];
+      if (!f?.seasons.length) return `Roster ${rid}`;
+      return (f.seasons.find(s => s.season === season)
+        ?? f.seasons[f.seasons.length - 1]).name;
+    };
+    const sel = new Map<string, { p: DraftPick; rid: string }>();
+    const orig = new Map<string, string>();
+    for (const [rid, picks] of Object.entries(drafts))
+      for (const p of picks) {
+        const k = `${p.season}|${p.slot}|${p.pid}`;
+        if (p.traded) orig.set(k, rid);
+        else sel.set(k, { p, rid });
+      }
+    const rowsBy: Record<string, HistRow[]> = {};
+    for (const [k, { p, rid }] of sel) {
+      const selector = p.drafted_by != null ? String(p.drafted_by) : rid;
+      const via = orig.get(k);
+      (rowsBy[p.season] ??= []).push({
+        slot: p.slot, round: p.round, pickNo: p.pick_no,
+        pid: p.pid, name: p.name, pos: p.pos, kind: p.kind,
+        drafter: nameOf(selector, p.season),
+        via: via != null && via !== selector ? nameOf(via, p.season) : null,
+        war: p.war, years: p.years,
+        per: p.years > 0 ? p.war / p.years : null,
+        expected: p.expected, diff: p.diff,
+      });
+    }
+    for (const rs of Object.values(rowsBy)) rs.sort((a, b) => a.pickNo - b.pickNo);
+    const seasons = Object.keys(rowsBy).sort().reverse();
+    const kindOf: Record<string, string> = {};
+    for (const s of seasons) kindOf[s] = rowsBy[s][0].kind;
+    return { rowsBy, seasons, kindOf };
+  }, [drafts, fr]);
+
+  /** "returns" (the corpus view) or a draft season from the spine */
+  const scope = seg && history?.seasons.includes(seg) ? seg : "returns";
+
   /** our own draft record, for the two tables that name names */
   const league = useMemo(() => {
     if (!drafts) return null;
@@ -283,18 +334,34 @@ export default function Draft() {
   const toggleAll = () =>
     setOpen(allOpen ? {} : Object.fromEntries(allKeys.map(k => [k, true])));
 
+  const chip = (label: string, to: string, on: boolean) => (
+    <button key={to} type="button" className={`chip ${on ? "on" : ""}`}
+      onClick={() => nav(lp(to))}>{label}</button>
+  );
+
   return (
     <>
       <div className="screen-head">
-        <span className="screen-title">Rookie draft returns</span>
-        <span className="screen-note">
-          {corpus && <><b>{corpus.picks.toLocaleString()}</b> picks, {corpus.classes} · </>}
-          <b>{league.n}</b> of ours graded
-          {league.pendingClasses.length ? ` · ${league.pendingClasses.join(", ")} not yet scored` : ""}
-        </span>
+        <span className="screen-title">Draft</span>
+        {chip("Returns", "/draft", scope === "returns")}
+        {history?.seasons.map(s => chip(
+          history.kindOf[s] === "startup" ? `${s} startup` : s,
+          `/draft/${s}`, scope === s))}
+        {scope === "returns" && (
+          <span className="screen-note">
+            {corpus && <><b>{corpus.picks.toLocaleString()}</b> picks, {corpus.classes} · </>}
+            <b>{league.n}</b> of ours graded
+            {league.pendingClasses.length ? ` · ${league.pendingClasses.join(", ")} not yet scored` : ""}
+          </span>
+        )}
       </div>
 
-      {corpus && <>
+      {scope !== "returns" && history && (
+        <DraftBoard key={scope} season={scope}
+          rows={history.rowsBy[scope]} kind={history.kindOf[scope]} />
+      )}
+
+      {scope === "returns" && corpus && <>
         {/* (a) WAR per season by round */}
         <div style={{ padding: "0 var(--pad) 20px" }}>
           <div className="panel" style={{ margin: 0 }}>
@@ -389,7 +456,7 @@ export default function Draft() {
       </>}
 
       {/* (c) returns by round -> tier -> pick */}
-      {corpus && (
+      {scope === "returns" && corpus && (
         <div className="dwrap" style={{ paddingTop: 22 }}>
           <div className="dhead">
             <div className="chart-label" style={{ marginBottom: 0 }}>Returns by round, tier and pick</div>
@@ -463,6 +530,7 @@ export default function Draft() {
       )}
 
       {/* (d) best / worst value over slot — our picks */}
+      {scope === "returns" && <>
       <div className="pick-tables">
         {([["Best value over slot", "best", league.best], ["Worst value over slot", "worst", league.worst]] as const).map(([title, cls, rows]) => (
           <div key={cls}>
@@ -509,6 +577,112 @@ export default function Draft() {
         </>}
         The value tables are our own {league.gradedClasses.join("–")} picks only · every pick is divided
         by the seasons it has actually had, and the value tables rank by WAR over the slot's expectation, not raw WAR (Bridge A)
+      </div>
+      </>}
+    </>
+  );
+}
+
+/* ------------------------------------------- one draft, pick by pick */
+
+interface HistRow {
+  slot: string; round: number; pickNo: number;
+  pid: string; name: string; pos: string; kind: string;
+  drafter: string; via: string | null;
+  war: number; years: number; per: number | null;
+  expected: number | null; diff: number | null;
+}
+type HistCtx = Record<string, never>;
+
+const histNul = <span className="fig quiet">—</span>;
+
+function DraftBoard({ season, rows, kind }: { season: string; rows: HistRow[]; kind: string }) {
+  const [sortId, setSortId] = useState("pick");
+  const [dir, setDir] = useState(1);
+  const rookie = kind === "rookie";
+  const graded = rows.some(r => r.years > 0);
+
+  const inkOf = (v: number) => v > 0.02 ? "var(--war-pos)" : v < -0.02 ? "var(--war-neg)" : "var(--dim)";
+  const signed = (v: number | null, quiet = false) => v == null ? histNul : (
+    <span style={{ color: quiet ? undefined : inkOf(v) }}>{sgn(v)}</span>
+  );
+
+  const cols = useMemo<Col<HistRow, HistCtx>[]>(() => [
+    {
+      id: "pick", label: "Pick", grp: 0, w: 7, align: "c", td: "rank", asc: true,
+      sort: r => r.pickNo,
+      cell: r => <>
+        <span className="spine" style={{ background: POS_COLOR[r.pos] || "#2b3642" }} />
+        <span className="fig">{r.slot}</span>
+      </>,
+    },
+    {
+      id: "player", label: "Player", grp: 0, w: 0, align: "t", td: "name", asc: true,
+      sort: r => r.name, cell: r => <PlayerLink pid={r.pid} name={r.name} />,
+    },
+    {
+      id: "pos", label: "Pos", grp: 0, w: 6, align: "c", td: "c",
+      cell: r => <span className={`pos ${r.pos}`}>{r.pos}</span>,
+    },
+    {
+      id: "by", label: "Drafted by", grp: 0, w: 20, align: "t", td: "sub", asc: true,
+      sort: r => r.drafter,
+      cell: r => <>{r.drafter}{r.via && <span className="name-note">via {r.via}</span>}</>,
+    },
+    {
+      id: "war", label: "WAR", grp: 1, w: 9, align: "n", edge: true, td: "fig edge n",
+      sort: r => r.years > 0 ? r.war : null,
+      cell: r => r.years > 0 ? signed(r.war) : histNul,
+    },
+    {
+      id: "per", label: "WAR / yr", grp: 1, w: 9, align: "n", hm: true, td: "fig quiet hm n",
+      sort: r => r.per, cell: r => r.per == null ? histNul : sgn(r.per),
+    },
+    {
+      id: "yrs", label: "Yrs", grp: 1, w: 5, align: "n", hm: true, td: "fig quiet hm n",
+      sort: r => r.years, cell: r => r.years || histNul,
+    },
+    // slot expectation only exists for rookie picks (Bridge A is a rookie corpus)
+    ...(rookie ? [
+      {
+        id: "exp", label: "Exp", grp: 1, w: 8, align: "n", hm: true, td: "fig quiet hm n",
+        sort: r => r.expected, cell: r => r.expected == null ? histNul : sgn(r.expected),
+      },
+      {
+        id: "vs", label: "Vs exp", grp: 1, w: 9, align: "n", keyCol: true, td: "n",
+        sort: r => r.diff,
+        cell: r => r.diff == null ? histNul : (
+          <span className="fig" style={{ color: inkOf(r.diff) }}>{sgn(r.diff)}</span>
+        ),
+      },
+    ] satisfies Col<HistRow, HistCtx>[] : []),
+  ], [rookie]);
+
+  const groups: Grp[] = [
+    { id: 0, label: "", cls: "" },
+    { id: 1, label: "Returns to date", cls: "edge" },
+  ];
+
+  const sorted = useMemo(
+    () => applySort(rows, sortCol(cols, sortId, "pick"), dir), [rows, cols, sortId, dir]);
+  const onSort = (c: Col<HistRow, HistCtx>) => {
+    if (!c.sort) return;
+    if (sortId === c.id) setDir(-dir);
+    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
+  };
+
+  return (
+    <>
+      <DataTable cols={cols} groups={groups} rows={sorted} ctx={{}}
+        rowKey={r => `${r.slot}|${r.pid}`} sortId={sortId} dir={dir}
+        onSort={onSort} homeCol="pick" />
+      <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+        The {season} {rookie ? "rookie" : "startup"} draft in pick order —{" "}
+        {rows.length} selections. A "via" note names the franchise that originally
+        held the pick. WAR is everything the player has returned since this draft,
+        vs replacement, divided over the seasons he has actually had for WAR / yr
+        {rookie ? "; Vs exp compares his total to what this slot typically returns (Bridge A)" : ""}.
+        {!graded ? " This class has not played a season yet — returns arrive once it has." : ""}
       </div>
     </>
   );
