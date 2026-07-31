@@ -13,6 +13,9 @@ interface Perf {
   pid: string; rid: number; pts: number;
   /** RAW win probability added — the measured quantity; weeks sum to it */
   wpa: number | null;
+  /** win share, in wins: each game hands 1.0 to the winning side, so a
+   *  champion's nine starters sum to 3.0 */
+  ws: number | null;
   /** the derived 0-100 award scale: round-weighted, anchored historically */
   mvp: number | null;
   byWeek: Record<string, number>;
@@ -46,6 +49,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       pid, rid: s.rid, byWeek: s.wk,
       pts: Object.values(s.wk).reduce((a, b) => a + b, 0),
       wpa: w[pid]?.tot ?? null,
+      ws: w[pid]?.ws ?? null,
       mvp: w[pid]?.mvp ?? null,
       wpaWeek: w[pid]?.wk ?? {},
     }));
@@ -131,19 +135,19 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <tr className="grp">
           <th colSpan={4}></th>
           <th colSpan={weeks.length + 1} className="edge">Win probability added</th>
-          <th colSpan={2} className="edge acc">Award</th>
+          <th colSpan={2} className="edge acc">Wins created</th>
         </tr>
         <tr>
           <th className="t" style={{ width: "5%" }}>Rk</th>
-          <th className="t" style={{ width: "24%" }}>Player</th>
+          <th className="t" style={{ width: "25%" }}>Player</th>
           <th className="c" style={{ width: "6%" }}>Pos</th>
-          <th className="t" style={{ width: "17%" }}>For</th>
+          <th className="t" style={{ width: "18%" }}>For</th>
           {weeks.map(w => (
             <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
           ))}
           <th className="n" style={{ width: "9%" }}>Total</th>
+          <th className="n" style={{ width: "10%" }}>Win share</th>
           <th className="n key" style={{ width: "9%" }}>MVP</th>
-          <th className="n" style={{ width: "8%" }}>Points</th>
         </tr>
       </thead>
       <tbody>
@@ -186,13 +190,16 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   {p.wpa == null ? "—" : wsgn(p.wpa)}
                 </span>
               </td>
+              {/* wins, to two places — the units the name promises */}
+              <td className="fig n">
+                {p.ws == null ? <span className="quiet">—</span> : fmt(p.ws, 2)}
+              </td>
               {/* the award index: bare figure, never metered */}
               <td className="fig n key">
                 <b style={{ color: lead ? "var(--acc)" : p.mvp != null && p.mvp < 0 ? "var(--bad)" : undefined }}>
                   {p.mvp == null ? "—" : fmt(p.mvp, 1)}
                 </b>
               </td>
-              <td className="fig quiet n">{fmt(p.pts, 1)}</td>
             </tr>
           );
         })}
@@ -203,8 +210,14 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
   const N = 10;
   const ranked = perf.filter(p => p.mvp != null);
   const top = ranked.slice(0, N);
-  // the other end of the same list — ascending, so the biggest loss leads
-  const bottom = ranked.slice(-Math.min(N, Math.max(ranked.length - top.length, 0))).reverse();
+  // The bottom table ranks by RAW WPA, not by MVP. Win share is never
+  // negative — a loss pays 0.0, it doesn't charge you — so ranking the bottom
+  // by the award would just list ties at zero. Signed WPA is where a bust
+  // actually shows up: he made his team less likely to win.
+  const bottom = ranked
+    .filter(p => (p.wpa ?? 0) < 0)
+    .slice().sort((a, b) => (a.wpa ?? 0) - (b.wpa ?? 0))
+    .slice(0, N);
 
   return (
     <>
@@ -217,7 +230,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           ["PLAYOFF MVP", mvp ? pInfo(players, mvp.pid)[0] : "—",
             !mvp ? "no scored weeks"
               : mvp.mvp != null
-                ? `${fmt(mvp.mvp, 1)} MVP · ${wsgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
+                ? `${fmt(mvp.ws ?? 0, 2)} of the wins · ${fmt(mvp.mvp, 1)} MVP · ${nameOf(mvp.rid)}`
                 : `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}`],
         ].map(([k, v, sub]) => (
           <div key={k} className="figcell">
@@ -234,7 +247,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
 
       {/* (b) who won it, and who lost it */}
       {secBand("mvp", "Who won it — and who cost it", hasWpa
-        ? "raw win probability added; MVP is the round-weighted, all-time scale"
+        ? "win share is in wins; MVP is the round-weighted, all-time scale"
         : "fantasy points across the playoff weeks, credited while starting")}
       {openSec.mvp && (!perf.length ? (
         <div className="empty">No scored playoff weeks yet.</div>
@@ -247,18 +260,22 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <div className="band" style={{ marginTop: 18 }}>
           <span className="band-label">Cost them</span>
           <span className="band-note">
-            the {bottom.length} biggest losses — a start that made a win less likely
+            by raw WPA — the {bottom.length} starts that most hurt their team's chances
           </span>
         </div>
-        {perfTable(bottom, "cost")}
+        {bottom.length ? perfTable(bottom, "cost")
+          : <div className="empty">Nobody finished with negative WPA.</div>}
         <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
-          WPA is the share of his team's win-probability swing a player caused, allocated by
-          Shapley value so every game's swing is fully accounted for — which is why the two
-          tables mirror: one team's gain is the other's loss. The week columns and Total are
-          raw win probability and add up. MVP is the derived award figure: the same WPA with
+Three figures, three questions. <b>WPA</b> is how much win probability a player
+          swung, allocated by Shapley value so each game's swing is fully accounted for; the
+          week columns are raw and add up to the Total. <b>Win share</b> is how much of the
+          winning was his: every game hands out exactly 1.0 to the side that won it, split by
+          contribution, so a champion's nine starters sum to 3.0 and a blowout pays the same
+          as a nail-biter — which WPA can't do, since a game that was never in doubt has
+          almost no probability left to hand out. <b>MVP</b> is the award: win share with the
           later rounds weighted — the final counts double a quarterfinal and half again a
-          semifinal, so a bye can't cost the top seeds the award — then rescaled so 100 is
-          the best postseason on record
+          semifinal, so a bye can't cost the top seeds it — then rescaled so 100 is the best
+          postseason on record
           {anchor?.anchor_name && anchor.anchor_season
             ? ` — ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}. That scale is
           historical, not per-year, so a thin year scores in the forties instead of being

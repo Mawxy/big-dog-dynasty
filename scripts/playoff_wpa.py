@@ -55,13 +55,29 @@ WPA IS REPORTED RAW. `tot` and the per-week figures are unweighted win
 probability — the quantity actually measured — so a player's weeks add up to
 his total and nothing on screen is a silently scaled version of something else.
 
-THE MVP SCORE IS THE DERIVED FIGURE, 0-100. Both adjustments live in it and
-nowhere else:
+WIN SHARE (`ws`) IS THE SECOND MEASURED FIGURE, IN UNITS OF WINS. Each
+elimination game hands out exactly 1.0 to the winning side, split among its
+starters in proportion to their Shapley contributions (0.0 to the losing
+side). A player's total therefore reads literally — "he accounted for 1.4 of
+his team's 3 playoff wins" — and the champion's nine sum to 3.0, which
+season_wpa() asserts rather than assumes.
+
+Win share exists because WPA can only hand out what was in doubt. A side that
+led a rout from the first snap has almost no win probability left to allocate,
+so a dominant performance in a blowout earned close to nothing — even though
+those players are the reason it was a blowout. Normalising every game to a
+fixed 1.0 removes that penalty. The two figures answer different questions and
+both are reported: WPA is "how much did he swing games that were live", win
+share is "how much of the winning was his".
+
+THE MVP SCORE IS THE DERIVED FIGURE, 0-100, built from the WIN SHARE. Both
+adjustments live in it and nowhere else:
 
   * Round weight. A bye means the top seeds play one fewer game, and a
-    championship is not a quarterfinal, so each game's WPA is scaled by its
-    round before the total is taken: a quarterfinal counts 1.0, a semifinal
-    4/3, the final 2.0 — double a quarterfinal, half again a semifinal.
+    championship is not a quarterfinal, so each game's win share is scaled by
+    its round before the total is taken: a quarterfinal counts 1.0, a
+    semifinal 4/3, the final 2.0 — double a quarterfinal, half again a
+    semifinal.
   * A HISTORICAL scale, not a per-season one. The anchor is the best weighted
     postseason ON RECORD across every season, so 100 always means "as good as
     the best playoff run this league has seen", not "the best of this
@@ -69,16 +85,17 @@ nowhere else:
     renormalising each season to 100 would quietly claim every year's winner
     was equally dominant.
 
-        score = 100 * weighted_total / anchor
+        score = 100 * weighted_win_share / anchor
 
-    Negative runs score below zero rather than being floored — the bottom of
-    the table is a real ranking of who cost their team, and clipping at zero
-    would throw that away.
+    Because win share is never negative, MVP is never negative either. The
+    "who cost them" ranking reads the raw WPA column instead, which is signed
+    and is where a bust actually shows up.
 
 Output: merged into each season's bracket.json as "wpa":
 
-  {"<pid>": {"rid": 4, "tot": 0.71, "wtot": 0.94, "mvp": 95.4,
-             "wk": {"16": 0.42, "17": 0.29}}, ...}
+  {"<pid>": {"rid": 4, "tot": 0.71, "wtot": 0.94,      # raw + weighted WPA
+             "ws": 1.40, "wsw": 2.31, "mvp": 95.4,     # win share, weighted, award
+             "wk": {"16": 0.42, "17": 0.29}}, ...}     # raw WPA per week
 
 plus per-game "wp": {"<week>": {"pre": 0.38, "t1": 1, ...}} so the site can
 show the pregame line each game turned on, and "wpa_meta.anchor" naming the
@@ -116,6 +133,42 @@ MIN_SD = 2.0
 # Fallback for a starter with NO regular-season weeks (a waiver-wire dart, a
 # player who arrived mid-playoffs). Position prior only.
 DEFAULT_POS = "?"
+
+
+def win_shares(vals, won):
+    """Split ONE game's result among the starters, in units of wins.
+
+    A win is worth exactly 1.0 and a loss exactly 0.0, distributed in
+    proportion to each starter's Shapley contribution — so a player's
+    postseason total reads literally: "he accounted for 1.4 of his team's 3
+    playoff wins", and the champion's nine sum to 3.0.
+
+    Why this exists alongside raw WPA: WPA can only hand out what was in
+    doubt. A side that led a blowout from the first snap has almost no win
+    probability left to allocate, so a dominant performance in a rout earned
+    close to nothing — even though the blowout itself was built by those
+    players. Normalising each game to a fixed 1.0 removes that penalty: what
+    matters is the SHARE of the result a player was responsible for, not how
+    close the game happened to be.
+
+    The proportions come from positive contributions only. A negative Shapley
+    value means "made the win less likely", which cannot be a positive share
+    of a win; those players take 0.0 for the game rather than a negative
+    share of it. (Their negative WPA is still reported — this figure answers
+    a different question.) A win with no positive contributor at all — every
+    starter under his expectation, carried entirely by the opponent's
+    collapse — splits evenly, because the win still happened and the credit
+    has to go somewhere.
+    """
+    if not vals:
+        return []
+    if not won:
+        return [0.0] * len(vals)
+    pos = [max(v, 0.0) for v in vals]
+    tot = sum(pos)
+    if tot <= 0:
+        return [1.0 / len(vals)] * len(vals)
+    return [p / tot for p in pos]
 
 
 def mvp_score(wtot, anchor):
@@ -302,11 +355,15 @@ def season_wpa(season, ld, raw_root):
             vals, base = shapley_wpa(s["mus"], s["vars"], s["acts"], opp_actual)
             checks.append((season, wk, rid, sum(vals),
                            (1.0 if g.get("w") == rid else 0.0) - base))
-            for pid, v in zip(s["pids"], vals):
-                rec = wpa.setdefault(pid, {"rid": rid, "tot": 0.0, "wtot": 0.0, "wk": {}})
+            shares = win_shares(vals, g.get("w") == rid)
+            for pid, v, sh in zip(s["pids"], vals, shares):
+                rec = wpa.setdefault(pid, {
+                    "rid": rid, "tot": 0.0, "wtot": 0.0, "ws": 0.0, "wsw": 0.0, "wk": {}})
                 rec["rid"] = rid
-                rec["tot"] += v
+                rec["tot"] += v                 # raw WPA, unweighted
                 rec["wtot"] += v * w
+                rec["ws"] += sh                 # win share, in wins — UNWEIGHTED
+                rec["wsw"] += sh * w            # round-weighted; feeds MVP
                 rec["wk"][str(wk)] = round(rec["wk"].get(str(wk), 0.0) + v, 4)
 
         wp_games[str(wk) + "." + str(t1)] = {
@@ -316,13 +373,21 @@ def season_wpa(season, ld, raw_root):
         }
 
     for pid, rec in wpa.items():
-        rec["tot"] = round(rec["tot"], 4)
-        rec["wtot"] = round(rec["wtot"], 4)
+        for k in ("tot", "wtot", "ws", "wsw"):
+            rec[k] = round(rec[k], 4)
 
     # efficiency: every side's values must sum to its realised swing
     bad = [c for c in checks if abs(c[3] - c[4]) > 1e-6]
     if bad:
         raise AssertionError(f"Shapley efficiency violated: {bad[:3]}")
+    # and the win shares must sum to the games actually won — the property the
+    # name promises, so it is asserted rather than assumed
+    won_games = sum(1 for g in bracket["winners"]
+                    if not (g.get("p") and g["p"] > 1) and g.get("w") is not None)
+    got = sum(r["ws"] for r in wpa.values())
+    if abs(got - won_games) > 1e-3:
+        raise AssertionError(
+            f"{season}: win shares sum to {got:.4f}, expected {won_games} wins")
     return wpa, wp_games
 
 
@@ -358,18 +423,18 @@ def main():
     anchor, who = 0.0, None
     for s, (wpa, _) in computed.items():
         for pid, rec in wpa.items():
-            if rec["wtot"] > anchor:
-                anchor, who = rec["wtot"], (s, pid)
+            if rec["wsw"] > anchor:
+                anchor, who = rec["wsw"], (s, pid)
     if not anchor:
         sys.exit("no positive WPA anywhere — refusing to build a scale")
     a_season, a_pid = who
     a_name = ((json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
                .get(a_pid) or ["?"])[0])
-    print(f"\nscale anchor (100) = {a_name}, {a_season} · {anchor:+.3f} weighted WPA")
+    print(f"\nscale anchor (100) = {a_name}, {a_season} · {anchor:.3f} weighted win share")
 
     for s, (wpa, _) in computed.items():
         for rec in wpa.values():
-            rec["mvp"] = mvp_score(rec["wtot"], anchor)
+            rec["mvp"] = mvp_score(rec["wsw"], anchor)
 
     players_min = json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
     for s in all_seasons:
@@ -378,7 +443,7 @@ def main():
         wpa, _ = computed[s]
         top = sorted(wpa.items(), key=lambda kv: -kv[1]["mvp"])[:3]
         line = " · ".join(f"{(players_min.get(p) or ['?'])[0]} {v['mvp']:.0f}"
-                          f" ({v['tot']:+.3f} raw)" for p, v in top)
+                          f" ({v['ws']:.2f} ws)" for p, v in top)
         print(f"  {s}: MVP {line}")
 
     n = 0

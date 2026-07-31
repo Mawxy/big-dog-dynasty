@@ -17,7 +17,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from playoff_wpa import (ROUND_WEIGHT, mvp_score, shapley_wpa,   # noqa: E402
-                         shrink, win_prob)
+                         shrink, win_prob, win_shares)
 
 
 class TestWinProb(unittest.TestCase):
@@ -124,6 +124,49 @@ class TestRoundWeights(unittest.TestCase):
 
     def test_final_is_half_again_a_semifinal(self):
         self.assertAlmostEqual(ROUND_WEIGHT[3], 1.5 * ROUND_WEIGHT[2])
+
+
+class TestWinShares(unittest.TestCase):
+    """Win share is in UNITS OF WINS: one game pays out exactly 1.0 to the
+    side that won it. That is what makes "he accounted for 1.4 of his team's
+    3 playoff wins" a true sentence rather than a figure of speech."""
+
+    def test_a_win_pays_exactly_one(self):
+        self.assertAlmostEqual(sum(win_shares([0.4, 0.2, -0.1], True)), 1.0)
+
+    def test_a_loss_pays_nothing(self):
+        self.assertEqual(win_shares([0.4, 0.2, -0.1], False), [0.0, 0.0, 0.0])
+
+    def test_split_follows_contribution(self):
+        a, b, c = win_shares([0.6, 0.3, 0.1], True)
+        self.assertGreater(a, b)
+        self.assertGreater(b, c)
+        self.assertAlmostEqual(a, 0.6)
+
+    def test_a_drag_gets_nothing_not_a_negative_share(self):
+        """A negative contribution can't be a negative share OF A WIN — the
+        win still happened. His negative WPA is reported separately."""
+        shares = win_shares([0.5, -0.2], True)
+        self.assertEqual(shares[1], 0.0)
+        self.assertAlmostEqual(shares[0], 1.0)
+
+    def test_a_win_nobody_earned_splits_evenly(self):
+        """Every starter under expectation, carried by the opponent's
+        collapse: the win happened, so the credit still has to land."""
+        shares = win_shares([-0.3, -0.2, -0.5], True)
+        self.assertAlmostEqual(sum(shares), 1.0)
+        self.assertAlmostEqual(shares[0], shares[1])
+
+    def test_blowout_and_nailbiter_pay_the_same(self):
+        """The whole reason this exists alongside WPA. Two games, same
+        shape of contribution, wildly different drama — same win share."""
+        nail = win_shares([0.30, 0.15, 0.05], True)      # swing 0.50
+        rout = win_shares([0.06, 0.03, 0.01], True)      # swing 0.10
+        for x, y in zip(nail, rout):
+            self.assertAlmostEqual(x, y)
+
+    def test_empty_lineup_is_not_a_crash(self):
+        self.assertEqual(win_shares([], True), [])
 
 
 class TestMvpScore(unittest.TestCase):

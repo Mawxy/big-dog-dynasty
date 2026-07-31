@@ -305,7 +305,14 @@ export interface BracketFile {
    *  scores compare across years. Elimination games only — placement games
    *  are excluded. See scripts/playoff_wpa.py */
   wpa?: Record<string, {
-    rid: number; tot: number; wtot: number; mvp?: number;
+    rid: number;
+    /** raw WPA, and the round-weighted version */
+    tot: number; wtot: number;
+    /** win share, IN WINS: each elimination game hands out exactly 1.0 to the
+     *  winning side, so a champion's nine starters sum to 3.0. `wsw` is the
+     *  round-weighted version the MVP score is built from. */
+    ws?: number; wsw?: number;
+    mvp?: number;
     wk: Record<string, number>;
   }>;
   /** per elimination game: the pregame line it turned on */
