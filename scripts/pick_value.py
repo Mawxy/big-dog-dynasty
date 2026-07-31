@@ -164,9 +164,11 @@ def summarize(order, cells, hits, years, outs, labels=None):
             'n': {k: len(cells[b][k]) for k in years},
             'raw': {k: round(statistics.mean(cells[b][k]), 3)
                     for k in years if cells[b][k]},
-            # share of year-k observations that are out-of-league zeros: the
-            # player left no trace in a season whose history exists. Distinct
-            # from "played, ~0 WAR" — that carries a real figure.
+            # share of year-k observations that are out-of-league FOR GOOD:
+            # no trace in year k or any later observed season, so the column
+            # is cumulative (monotone within a class). A missed year before a
+            # comeback is a hiatus and does not count. Distinct from "played,
+            # ~0 WAR" — that carries a real figure.
             'out_rate': {k: round(outs[b][k] / len(cells[b][k]), 3)
                          for k in years if cells[b][k]},
             'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
@@ -203,10 +205,26 @@ def main():
 
     meta, hist, real, hist_seasons = load_sources(last)
 
+    last_trace_cache = {}
+
+    def last_trace(sleeper_id, gsis):
+        """Newest season with ANY trace of the player (real league WAR or
+        calibrated history). None = never seen."""
+        key = (sleeper_id, gsis)
+        if key not in last_trace_cache:
+            mx = max(real.get(sleeper_id, {}), default=None)
+            if gsis:
+                h = max(hist.get(gsis, {}), default=None)
+                if mx is None or (h is not None and h > mx):
+                    mx = h
+            last_trace_cache[key] = mx
+        return last_trace_cache[key]
+
     def war_of(sleeper_id, gsis, season):
         """Real league WAR first, calibrated history second, else None.
         Returns (war, out): out=True marks the busted/out-of-league real zero —
-        the player left no trace in a season whose history exists."""
+        CUMULATIVE: no trace in this season or any later observed season, so a
+        redshirt year before a comeback is a hiatus, not out."""
         if season in real.get(sleeper_id, {}):
             return real[sleeper_id][season], False
         # Only treat a missing player-season as a real (busted) zero if that
@@ -217,7 +235,8 @@ def main():
             h = hist.get(gsis, {})
             if season in h:
                 return h[season], False
-            return 0.0, True
+            lt = last_trace(sleeper_id, gsis)
+            return 0.0, (lt is None or season > lt)
         return None
 
     def resolve(name, pos, season):
