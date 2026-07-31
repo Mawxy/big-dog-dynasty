@@ -53,6 +53,8 @@ MIN_OBS_BY_ROUND = {1: 10, 2: 10, 3: 10, 4: 7}
 MAX_YEARS = 6
 MAX_PICK = 48            # rounds 1-4
 HIT_WAR = 1.0            # 3-yr raw total that counts as a "hit"
+OUT_MIN_CLASSES = 4      # classes that must complete year k before its
+                         # out_rate publishes (deeper years are class-thin)
 # crawl rookie-pick corpus blend: ignore (slot, player) combos taken in fewer
 # than CRAWL_MIN leagues (flukes), and give each slot CRAWL_BUDGET weighted
 # observations split across its players by how often each was taken.
@@ -154,7 +156,7 @@ def match_gsis(name, pos, season, meta):
     return None
 
 
-def summarize(order, cells, hits, years, outs, labels=None):
+def summarize(order, cells, hits, years, outs, out_years, labels=None):
     """Aggregate sample lists into the JSON bucket rows (raw means only)."""
     rows = []
     for b in order:
@@ -168,9 +170,11 @@ def summarize(order, cells, hits, years, outs, labels=None):
             # no trace in year k or any later observed season, so the column
             # is cumulative (monotone within a class). A missed year before a
             # comeback is a hiatus and does not count. Distinct from "played,
-            # ~0 WAR" — that carries a real figure.
+            # ~0 WAR" — that carries a real figure. Published only for
+            # out_years (enough classes deep) — later years are class-thin
+            # survivor noise, not yet available rather than wrong.
             'out_rate': {k: round(outs[b][k] / len(cells[b][k]), 3)
-                         for k in years if cells[b][k]},
+                         for k in out_years if cells[b][k]},
             'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
             'hit_n': len(h),
             'dist3': sorted(round(x, 2) for x in h),
@@ -343,6 +347,14 @@ def main():
     # comparison in draft_analysis.py, which sums years 1..n.
     years = [k for i, k in enumerate(years) if k == i + 1]
 
+    # out_rate gets a stricter gate than the WAR columns: each year column
+    # mixes whichever classes have reached it, so the deepest years are
+    # survivor noise from two classes. Publish out_rate for year k only once
+    # >= OUT_MIN_CLASSES classes have completed it; year 5 unlocks after the
+    # 2027 season on its own — data not yet available, not wrong.
+    out_years = [k for k in years
+                 if last - FIRST_CLASS - k + 2 >= OUT_MIN_CLASSES]
+
     for b in PICK_ORDER:
         pcells[b] = {k: pcells[b][k] for k in years}
     for b in BAND_ORDER:
@@ -362,8 +374,8 @@ def main():
         'unmatched': len(unmatched),
         'source': 'real Big Dog WAR where available, calibrated NFL history otherwise',
     },
-        'picks': summarize(PICK_ORDER, pcells, phits, years, pouts),
-        'bands': summarize(BAND_ORDER, bcells, bhits, years, bouts,
+        'picks': summarize(PICK_ORDER, pcells, phits, years, pouts, out_years),
+        'bands': summarize(BAND_ORDER, bcells, bhits, years, bouts, out_years,
                            labels=(band_label, band_slots)),
     }
 
@@ -386,8 +398,8 @@ def main():
             cols = " ".join(f"{row['raw'].get(k, float('nan')):5.2f}"
                             for k in years)
             hit = f"{row['hit_rate']:.0%}" if row['hit_rate'] is not None else '-'
-            o = row['out_rate'].get(years[-1])
-            out = f"out y{years[-1]} {o:.0%}" if o is not None else ''
+            o = row['out_rate'].get(out_years[-1]) if out_years else None
+            out = f"out y{out_years[-1]} {o:.0%}" if o is not None else ''
             lbl = row.get('label', row['bucket'])
             print(f"  {lbl:10s} {n:>3d} | {cols} | {hit} | {out}")
     print(f"\nwrote {dest}")

@@ -113,9 +113,12 @@ export default function Draft() {
       const hitN = bs.reduce((a, b) => a + (b.hit_n ?? 0), 0);
       return { hitN, hit: hitN ? bs.reduce((a, b) => a + (b.hit_rate ?? 0) * (b.hit_n ?? 0), 0) / hitN : null };
     };
-    // Out-of-league share at the DEEPEST published year — attrition compounds,
-    // so the last year is where a bucket's dropout burden is fully visible.
-    const lastY = years[years.length - 1];
+    // Out-of-league share at the deepest year the pipeline publishes it for.
+    // out_rate carries a stricter maturity gate than the WAR columns (deeper
+    // years are class-thin survivor noise), so this is NOT years[-1]: read
+    // what actually arrived and let the column deepen as classes mature.
+    const outYears = years.filter(y => (pv.bands ?? []).some(b => b.out_rate?.[y] != null));
+    const lastY = outYears[outYears.length - 1] ?? "";
     const outOf = (b?: PickBucket): number | null => b?.out_rate?.[lastY] ?? null;
     /** pooled like poolHit: observations summed, never an average of rates */
     const poolOut = (bs: PickBucket[]): number | null => {
@@ -169,7 +172,7 @@ export default function Draft() {
     const ns = SLOTS.map(s => pool(s).length).filter(n => n > 0);
     return {
       tree, hitThreshold: pv.meta.hit_threshold_war,
-      lastAge: Number(lastY),
+      lastAge: outYears.length ? Number(lastY) : null,
       slotMed, byRound, ages, pendingAges,
       // observed extremes — the box-plot axis sits exactly 0.1 outside these
       lo: Math.min(...SLOTS.flatMap(pool)),
@@ -452,8 +455,9 @@ export default function Draft() {
             Median WAR a pick returned in each season since it was drafted — * marks a year the corpus has
             not scored yet. Hit % is the share of picks returning at
             least {fmt(corpus.hitThreshold, 0)} WAR across their first three seasons.
-            Out yr {corpus.lastAge} is the share of picks out of the NFL by then — scored as zero,
-            distinct from playing at replacement level.
+            Out yr {corpus.lastAge} is the share of picks out of the NFL for good by then — no season
+            played then or since, scored as zero, distinct from playing at replacement level. Deeper
+            years aren't available yet: too few classes have reached them.
           </div>
         </div>
       )}
