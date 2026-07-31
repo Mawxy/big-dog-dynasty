@@ -185,11 +185,16 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
     <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></>);
   if (!weekly || !mw) return shell("Loading weekly data…");
 
+  // The chip row is the REGULAR season. Sleeper publishes a full 18-week
+  // schedule for an upcoming year, so an unplayed season would otherwise show
+  // W15-W18 chips for weeks that are the postseason — which the Playoffs chip
+  // owns. (Home.tsx already drops them the same way when projecting records.)
+  const ps = mw.playoff_start || 15;
   const played = new Set(Object.values(weekly).flatMap(rows => rows.map(r => r[0])));
   const allWeeks = [...new Set([
     ...played,
     ...Object.keys(mw.schedule ?? {}).map(Number),
-  ])].sort((x, y) => x - y);
+  ])].filter(w => w < ps).sort((x, y) => x - y);
   if (!allWeeks.length) return shell("Nothing scheduled or played yet for this season.");
 
   if (week !== null && matchupRid !== null)
@@ -305,7 +310,10 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
       <div style={{ padding: "2px var(--pad) 0" }}>
         <div className="page-title">Week {wk}{wk >= ps ? " · playoffs" : ""}</div>
       </div>
-      <WeekChips season={season} allWeeks={allWeeks} on={wk} hasBracket={hasBracket} />
+      {/* a playoff week is reached from a bracket link, not from the row —
+          light the Playoffs chip so something in the row is still active */}
+      <WeekChips season={season} allWeeks={allWeeks} hasBracket={hasBracket}
+        on={wk >= ps ? "playoffs" : wk} />
 
       <MatchupGrid season={season} wk={wk} mw={mw} weekly={weekly}
         players={players} tnames={tnames} />

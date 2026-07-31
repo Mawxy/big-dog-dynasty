@@ -115,7 +115,13 @@ function Shell() {
   const base = `/${leagueSeg(league)}`;
   const parts = loc.pathname.split("/");
   const onView = (VIEWS as readonly string[]).includes(parts[2]);
-  const curSeasonSeg = onView && parts[3] ? parts[3] : seasonSeg(latest);
+  // Carry the current season across a tab switch — but only if that segment
+  // IS a season. Several views take a non-season fourth segment (/draft/history,
+  // /players/market), and carrying one of those produced "/weekly/history",
+  // which rendered the Season tab with its picker reading "history".
+  const seg3 = parts[3];
+  const isSeason = !!seg3 && (meta.seasons.includes(seg3) || seg3.toLowerCase() === "all");
+  const curSeasonSeg = onView && isSeason ? seg3 : seasonSeg(latest);
   // Off-tab pages still light their hub's tab, so the bar always answers
   // "where am I": standings belongs to League; the player tables and player
   // pages to Players; franchise pages to Teams.
