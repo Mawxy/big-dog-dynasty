@@ -51,19 +51,38 @@ finish, nothing advances from them, and by then the motivation is not the same
 game. They are excluded from WPA entirely (`p > 1` games are skipped), which
 matches how the site draws them: outside the bracket, under their own band.
 
-ROUND WEIGHTS. A bye means the top seeds play one fewer game, and a
-championship is not a round-1 game. Each game's WPA is scaled by its round:
-round 1 counts 1.0, semifinals 1.25, the final 1.5. The weighted total is what
-ranks MVP; the raw sum is kept alongside it so the unweighted figure stays
-visible.
+WPA IS REPORTED RAW. `tot` and the per-week figures are unweighted win
+probability — the quantity actually measured — so a player's weeks add up to
+his total and nothing on screen is a silently scaled version of something else.
+
+THE MVP SCORE IS THE DERIVED FIGURE, 0-100. Both adjustments live in it and
+nowhere else:
+
+  * Round weight. A bye means the top seeds play one fewer game, and a
+    championship is not a round-1 game, so each game's WPA is scaled by its
+    round — round 1 counts 1.0, semifinals 1.25, the final 1.5 — before the
+    total is taken.
+  * A HISTORICAL scale, not a per-season one. The anchor is the best weighted
+    postseason ON RECORD across every season, so 100 always means "as good as
+    the best playoff run this league has seen", not "the best of this
+    particular year". A thin MVP year scores in the forties and says so;
+    renormalising each season to 100 would quietly claim every year's winner
+    was equally dominant.
+
+        score = 100 * weighted_total / anchor
+
+    Negative runs score below zero rather than being floored — the bottom of
+    the table is a real ranking of who cost their team, and clipping at zero
+    would throw that away.
 
 Output: merged into each season's bracket.json as "wpa":
 
-  {"<pid>": {"rid": 4, "tot": 0.71, "wtot": 0.94,
+  {"<pid>": {"rid": 4, "tot": 0.71, "wtot": 0.94, "mvp": 95.4,
              "wk": {"16": 0.42, "17": 0.29}}, ...}
 
 plus per-game "wp": {"<week>": {"pre": 0.38, "t1": 1, ...}} so the site can
-show the pregame line each game turned on.
+show the pregame line each game turned on, and "wpa_meta.anchor" naming the
+run the whole scale is pinned to.
 """
 import argparse, json, math, sys
 from itertools import combinations
@@ -90,6 +109,24 @@ MIN_SD = 2.0
 # Fallback for a starter with NO regular-season weeks (a waiver-wire dart, a
 # player who arrived mid-playoffs). Position prior only.
 DEFAULT_POS = "?"
+
+
+def mvp_score(wtot, anchor):
+    """Round-weighted WPA on the 0-100 MVP scale.
+
+    `anchor` is the best weighted postseason ON RECORD, pooled across every
+    season — so 100 means "as good as the best playoff run this league has
+    seen", and a year whose best run was half that scores 50 rather than
+    being renormalised up to 100. Comparing MVPs across years is the whole
+    point of the scale; a per-season normalisation would make every winner
+    look equally dominant by construction.
+
+    Not clipped at zero: a run that cost its team win probability scores
+    negative, which is what makes the bottom of the table a real ranking.
+    """
+    if not anchor:
+        return 0.0
+    return round(100.0 * wtot / anchor, 1)
 
 
 def phi(z):
@@ -180,7 +217,7 @@ def load(p):
     return json.loads(Path(p).read_text(encoding="utf-8")) if Path(p).exists() else None
 
 
-def season_wpa(season, ld, raw_root, verbose=True):
+def season_wpa(season, ld, raw_root):
     """Compute WPA for one season. Returns (wpa, wp_by_game) or None."""
     sdir = ld / season
     bracket = load(sdir / "bracket.json")
@@ -279,12 +316,6 @@ def season_wpa(season, ld, raw_root, verbose=True):
     bad = [c for c in checks if abs(c[3] - c[4]) > 1e-6]
     if bad:
         raise AssertionError(f"Shapley efficiency violated: {bad[:3]}")
-    if verbose:
-        top = sorted(wpa.items(), key=lambda kv: -kv[1]["wtot"])[:3]
-        names = {p: (players.get(p) or ["?"])[0] for p, _ in top}
-        line = " · ".join(f"{names[p]} {v['wtot']:+.3f}" for p, v in top)
-        print(f"  {season}: {len(checks)} sides over "
-              f"{len(wp_games)} games · MVP {line}")
     return wpa, wp_games
 
 
@@ -298,32 +329,72 @@ def main():
 
     ld = Path(str(DATA))
     raw_root = Path(args.raw)
-    seasons = ([args.season] if args.season
-               else sorted(d.name for d in ld.iterdir()
-                           if d.is_dir() and d.name.isdigit()
-                           and (d / "bracket.json").exists()))
-    if not seasons:
+    # EVERY season is computed, even when only one is being written: the MVP
+    # scale is historical, so the anchor cannot be known from one year alone.
+    all_seasons = sorted(d.name for d in ld.iterdir()
+                         if d.is_dir() and d.name.isdigit()
+                         and (d / "bracket.json").exists())
+    if not all_seasons:
         sys.exit("no season has a bracket.json — run build_site_data.py first")
+    write = [args.season] if args.season else all_seasons
 
     print(f"playoff WPA · round weights {ROUND_WEIGHT}")
-    n = 0
-    for s in seasons:
+    computed = {}
+    for s in all_seasons:
         got = season_wpa(s, ld, raw_root)
-        if not got:
+        if got:
+            computed[s] = got
+        else:
             print(f"  {s}: no bracket/weekly — skipped")
+
+    # --- the historical anchor: the best weighted postseason on record -------
+    anchor, who = 0.0, None
+    for s, (wpa, _) in computed.items():
+        for pid, rec in wpa.items():
+            if rec["wtot"] > anchor:
+                anchor, who = rec["wtot"], (s, pid)
+    if not anchor:
+        sys.exit("no positive WPA anywhere — refusing to build a scale")
+    a_season, a_pid = who
+    a_name = ((json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
+               .get(a_pid) or ["?"])[0])
+    print(f"\nscale anchor (100) = {a_name}, {a_season} · {anchor:+.3f} weighted WPA")
+
+    for s, (wpa, _) in computed.items():
+        for rec in wpa.values():
+            rec["mvp"] = mvp_score(rec["wtot"], anchor)
+
+    players_min = json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
+    for s in all_seasons:
+        if s not in computed:
             continue
-        wpa, wp_games = got
-        if args.probe:
-            continue
-        f = ld / s / "bracket.json"
-        b = json.loads(f.read_text(encoding="utf-8"))
-        b["wpa"] = wpa
-        b["wp"] = wp_games
-        b["wpa_meta"] = {"round_weight": {str(k): v for k, v in ROUND_WEIGHT.items()},
-                         "prior_n": PRIOR_N, "min_sd": MIN_SD,
-                         "scope": "elimination games only; placement games excluded"}
-        f.write_text(json.dumps(b), encoding="utf-8")
-        n += 1
+        wpa, _ = computed[s]
+        top = sorted(wpa.items(), key=lambda kv: -kv[1]["mvp"])[:3]
+        line = " · ".join(f"{(players_min.get(p) or ['?'])[0]} {v['mvp']:.0f}"
+                          f" ({v['tot']:+.3f} raw)" for p, v in top)
+        print(f"  {s}: MVP {line}")
+
+    n = 0
+    if not args.probe:
+        for s in write:
+            if s not in computed:
+                continue
+            wpa, wp_games = computed[s]
+            f = ld / s / "bracket.json"
+            b = json.loads(f.read_text(encoding="utf-8"))
+            b["wpa"] = wpa
+            b["wp"] = wp_games
+            b["wpa_meta"] = {
+                "round_weight": {str(k): v for k, v in ROUND_WEIGHT.items()},
+                "prior_n": PRIOR_N, "min_sd": MIN_SD,
+                "scope": "elimination games only; placement games excluded",
+                # the scale is historical: state what 100 is pinned to, so a
+                # score read off one season is auditable against the record
+                "anchor": round(anchor, 4), "anchor_season": a_season,
+                "anchor_pid": a_pid, "anchor_name": a_name,
+            }
+            f.write_text(json.dumps(b), encoding="utf-8")
+            n += 1
     print(f"\n{'probe: nothing written' if args.probe else f'wrote {n} bracket.json'}")
 
 

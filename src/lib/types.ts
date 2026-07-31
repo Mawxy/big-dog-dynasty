@@ -298,11 +298,15 @@ export interface BracketFile {
   /** pid -> fantasy points per winners-bracket week while STARTING; points,
    *  not WAR, because WAR is only scored for the regular season */
   stars?: Record<string, { rid: number; wk: Record<string, number> }>;
-  /** pid -> win probability added (Shapley, per matchup). `wtot` is weighted
-   *  by round and is what ranks MVP; `tot` is the unweighted sum. Elimination
-   *  games only — placement games are excluded. See scripts/playoff_wpa.py */
+  /** pid -> win probability added (Shapley, per matchup). `tot` and `wk` are
+   *  RAW win probability — the measured quantity, so the weeks sum to the
+   *  total. `wtot` applies the round weights and `mvp` puts that on a 0-100
+   *  scale anchored to the best postseason on record across ALL seasons, so
+   *  scores compare across years. Elimination games only — placement games
+   *  are excluded. See scripts/playoff_wpa.py */
   wpa?: Record<string, {
-    rid: number; tot: number; wtot: number; wk: Record<string, number>;
+    rid: number; tot: number; wtot: number; mvp?: number;
+    wk: Record<string, number>;
   }>;
   /** per elimination game: the pregame line it turned on */
   wp?: Record<string, {
@@ -312,6 +316,9 @@ export interface BracketFile {
   wpa_meta?: {
     round_weight: Record<string, number>;
     prior_n: number; min_sd: number; scope: string;
+    /** what a score of 100 is pinned to — the best run on record */
+    anchor?: number; anchor_season?: string;
+    anchor_pid?: string; anchor_name?: string;
   };
 }
 

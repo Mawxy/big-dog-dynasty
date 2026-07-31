@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from playoff_wpa import (ROUND_WEIGHT, shapley_wpa, shrink,   # noqa: E402
-                         win_prob)
+from playoff_wpa import (ROUND_WEIGHT, mvp_score, shapley_wpa,   # noqa: E402
+                         shrink, win_prob)
 
 
 class TestWinProb(unittest.TestCase):
@@ -116,6 +116,34 @@ class TestRoundWeights(unittest.TestCase):
 
     def test_round_one_is_the_unit(self):
         self.assertEqual(ROUND_WEIGHT[1], 1.0)
+
+
+class TestMvpScore(unittest.TestCase):
+    """The award scale. WPA stays raw; these two adjustments live here."""
+
+    def test_the_record_run_is_a_hundred(self):
+        self.assertEqual(mvp_score(0.94, 0.94), 100.0)
+
+    def test_the_scale_is_historical_not_per_season(self):
+        """A thin year must score thin. If each season were renormalised to
+        its own best, every winner would read 100 and the figure would say
+        nothing across years — which is the entire reason it exists."""
+        anchor = 0.94                       # best postseason on record
+        strong_year_winner = mvp_score(0.897, anchor)
+        thin_year_winner = mvp_score(0.418, anchor)
+        self.assertGreater(strong_year_winner, 90)
+        self.assertLess(thin_year_winner, 50)
+
+    def test_negatives_are_not_floored(self):
+        """The bottom table ranks who cost their team — clipping at zero
+        would flatten it into a row of ties."""
+        self.assertLess(mvp_score(-0.196, 0.94), 0)
+
+    def test_proportional(self):
+        self.assertAlmostEqual(mvp_score(0.47, 0.94), 50.0)
+
+    def test_no_anchor_is_not_a_crash(self):
+        self.assertEqual(mvp_score(0.5, 0.0), 0.0)
 
 
 class TestPositionNeutrality(unittest.TestCase):

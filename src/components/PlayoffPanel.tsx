@@ -11,8 +11,10 @@ const wsgn = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v)
 
 interface Perf {
   pid: string; rid: number; pts: number;
-  /** round-weighted WPA — what ranks MVP; null before the engine has run */
+  /** RAW win probability added — the measured quantity; weeks sum to it */
   wpa: number | null;
+  /** the derived 0-100 award scale: round-weighted, anchored historically */
+  mvp: number | null;
   byWeek: Record<string, number>;
   wpaWeek: Record<string, number>;
 }
@@ -32,32 +34,37 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
   const lp = useLeaguePath();
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({ bracket: true, mvp: true });
 
-  /** Every starter, ranked by round-weighted WPA — win probability added,
-   *  computed per matchup by scripts/playoff_wpa.py. Points ride along as the
-   *  secondary column: WPA says who won the games, points say who scored. */
+  /** Every starter, ranked by MVP score. WPA is shown raw — the win
+   *  probability actually measured, so the week columns add up to the total —
+   *  and the award's two adjustments (round weight, the historical scale) live
+   *  in the MVP column alone. Points ride along: WPA says who won the games,
+   *  points say who scored. Computed by scripts/playoff_wpa.py. */
   const perf = useMemo<Perf[]>(() => {
     if (!bracket.stars) return [];
     const w = bracket.wpa ?? {};
     const rows = Object.entries(bracket.stars).map(([pid, s]) => ({
       pid, rid: s.rid, byWeek: s.wk,
       pts: Object.values(s.wk).reduce((a, b) => a + b, 0),
-      wpa: w[pid]?.wtot ?? null,
+      wpa: w[pid]?.tot ?? null,
+      mvp: w[pid]?.mvp ?? null,
       wpaWeek: w[pid]?.wk ?? {},
     }));
     return bracket.wpa
-      ? rows.sort((a, b) => (b.wpa ?? -99) - (a.wpa ?? -99))
+      ? rows.sort((a, b) => (b.mvp ?? -999) - (a.mvp ?? -999))
       : rows.sort((a, b) => b.pts - a.pts);
   }, [bracket]);
   const hasWpa = !!bracket.wpa;
+  const anchor = bracket.wpa_meta;
 
   const weeks = useMemo(
     () => [...new Set(bracket.winners.map(g => g.week))].sort((a, b) => a - b),
     [bracket]);
 
-  /** week -> its round weight. The WPA total is round-weighted, so the week
-   *  cells must be too or the row won't add up to it — showing raw weekly
-   *  values against a weighted total is how a reader ends up asking why a
-   *  −0.157 semifinal totals −0.196. The multiplier rides in the header. */
+  /** week -> its round weight, for the header note. The cells themselves are
+   *  RAW, so they add up to the raw total; the weighting is applied only in
+   *  the MVP score. Showing weighted cells against a weighted total worked,
+   *  but it meant every figure on screen was a scaled version of something
+   *  the reader couldn't see. */
   const weightOf = useMemo(() => {
     const m: Record<number, number> = {};
     for (const g of Object.values(bracket.wp ?? {})) m[g.week] = g.weight;
@@ -134,22 +141,23 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       <thead>
         <tr className="grp">
           <th colSpan={4}></th>
-          <th colSpan={weeks.length} className="edge">WPA by week</th>
-          <th colSpan={2} className="edge acc">Playoff total</th>
+          <th colSpan={weeks.length + 1} className="edge">Win probability added</th>
+          <th colSpan={2} className="edge acc">Award</th>
         </tr>
         <tr>
           <th className="t" style={{ width: "5%" }}>Rk</th>
-          <th className="t" style={{ width: "26%" }}>Player</th>
+          <th className="t" style={{ width: "24%" }}>Player</th>
           <th className="c" style={{ width: "6%" }}>Pos</th>
-          <th className="t" style={{ width: "19%" }}>For</th>
+          <th className="t" style={{ width: "17%" }}>For</th>
           {weeks.map(w => (
             <th key={w} className="n" style={{ width: "9%" }}>
               WK {w}
               {(weightOf[w] ?? 1) !== 1 && <span className="wmul">×{weightOf[w]}</span>}
             </th>
           ))}
-          <th className="n key" style={{ width: "11%" }}>WPA</th>
-          <th className="n" style={{ width: "9%" }}>Points</th>
+          <th className="n" style={{ width: "9%" }}>Total</th>
+          <th className="n key" style={{ width: "9%" }}>MVP</th>
+          <th className="n" style={{ width: "8%" }}>Points</th>
         </tr>
       </thead>
       <tbody>
@@ -173,10 +181,9 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               <td className="c"><span className={`pos ${pos}`}>{pos}</span></td>
               <td className="sub">{nameOf(p.rid)}</td>
               {weeks.map(w => {
-                const raw = p.wpaWeek[String(w)];
+                // RAW win probability — these add up to the Total column
+                const v = p.wpaWeek[String(w)];
                 const started = p.byWeek[String(w)] != null;
-                // weighted, so the row sums to the total in the last column
-                const v = raw == null ? null : raw * (weightOf[w] ?? 1);
                 return (
                   <td key={w} className="fig n">
                     {v == null
@@ -188,9 +195,15 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   </td>
                 );
               })}
-              <td className="fig n key">
-                <b style={{ color: p.wpa == null ? undefined : p.wpa > 0.005 ? "var(--good)" : p.wpa < -0.005 ? "var(--bad)" : undefined }}>
+              <td className="fig n">
+                <span style={{ color: p.wpa == null ? undefined : p.wpa > 0.005 ? "var(--good)" : p.wpa < -0.005 ? "var(--bad)" : undefined }}>
                   {p.wpa == null ? "—" : wsgn(p.wpa)}
+                </span>
+              </td>
+              {/* the award index: bare figure, never metered */}
+              <td className="fig n key">
+                <b style={{ color: lead ? "var(--acc)" : p.mvp != null && p.mvp < 0 ? "var(--bad)" : undefined }}>
+                  {p.mvp == null ? "—" : fmt(p.mvp, 1)}
                 </b>
               </td>
               <td className="fig quiet n">{fmt(p.pts, 1)}</td>
@@ -202,7 +215,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
   );
 
   const N = 10;
-  const ranked = perf.filter(p => p.wpa != null);
+  const ranked = perf.filter(p => p.mvp != null);
   const top = ranked.slice(0, N);
   // the other end of the same list — ascending, so the biggest loss leads
   const bottom = ranked.slice(-Math.min(N, Math.max(ranked.length - top.length, 0))).reverse();
@@ -217,7 +230,8 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           ["THIRD", nameOf(third?.w), `seed ${seedOf(third?.w) ?? "—"}`],
           ["PLAYOFF MVP", mvp ? pInfo(players, mvp.pid)[0] : "—",
             !mvp ? "no scored weeks"
-              : mvp.wpa != null ? `${wsgn(mvp.wpa)} WPA · ${nameOf(mvp.rid)}`
+              : mvp.mvp != null
+                ? `${fmt(mvp.mvp, 1)} MVP · ${wsgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
                 : `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}`],
         ].map(([k, v, sub]) => (
           <div key={k} className="figcell">
@@ -234,7 +248,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
 
       {/* (b) who won it, and who lost it */}
       {secBand("mvp", "Who won it — and who cost it", hasWpa
-        ? "win probability added, per matchup — points ride along"
+        ? "raw win probability added; MVP is the round-weighted, all-time scale"
         : "fantasy points across the playoff weeks, credited while starting")}
       {openSec.mvp && (!perf.length ? (
         <div className="empty">No scored playoff weeks yet.</div>
@@ -254,10 +268,15 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
           WPA is the share of his team's win-probability swing a player caused, allocated by
           Shapley value so every game's swing is fully accounted for — which is why the two
-          tables mirror: one team's gain is the other's loss. Every week column is already
-          multiplied by its round weight (shown in the header), so the weeks add up to the
-          total: a bye can't cost the top seeds the award. A dot marks a week he started
-          only in a placement game, which doesn't count.
+          tables mirror: one team's gain is the other's loss. The week columns and Total are
+          raw win probability and add up. MVP is the derived award figure: the same WPA with
+          later rounds weighted (the multiplier sits in each header, so a bye can't cost the
+          top seeds the award), rescaled so 100 is the best postseason on record
+          {anchor?.anchor_name && anchor.anchor_season
+            ? ` — ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}. That scale is
+          historical, not per-year, so a thin year scores in the forties instead of being
+          promoted to 100. A dot marks a week he started only in a placement game, which
+          doesn't count.
         </div>
       </>)}
 
