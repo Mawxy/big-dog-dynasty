@@ -16,8 +16,10 @@ interface Perf {
   wpa: number | null;
   /** playoff WAR — production over replacement, credited win or lose */
   war: number | null;
-  /** the derived 0-100 award scale: round-weighted, anchored historically */
+  /** the award on the SEASON scale — 100 is this year's best run */
   mvp: number | null;
+  /** the award as a historical index — 100 is the average MVP-winning run */
+  mvpp: number | null;
   byWeek: Record<string, number>;
   wpaWeek: Record<string, number>;
   /** week -> MVP points; these sum to `mvp` */
@@ -53,6 +55,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       wpa: w[pid]?.tot ?? null,
       war: bracket.war?.[pid]?.war ?? null,
       mvp: w[pid]?.mvp ?? null,
+      mvpp: w[pid]?.mvpp ?? null,
       wpaWeek: w[pid]?.wk ?? {},
       mvpWeek: w[pid]?.mvpwk ?? {},
     }));
@@ -195,8 +198,8 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <tr className="grp">
           <th colSpan={4}></th>
           <th colSpan={weeks.length} className="edge">MVP points by week</th>
-          <th colSpan={2} className="edge">Production</th>
-          <th className="edge acc">Award</th>
+          <th className="edge">Production</th>
+          <th colSpan={2} className="edge acc">Award</th>
         </tr>
         <tr>
           <th className="t" style={{ width: "6%" }}>Rk</th>
@@ -207,8 +210,8 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
             <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
           ))}
           <th className="n" style={{ width: "9%" }}>WAR</th>
-          <th className="n" style={{ width: "9%" }}>Points</th>
-          <th className="n key" style={{ width: "11%" }}>MVP</th>
+          <th className="n key" style={{ width: "10%" }}>MVP</th>
+          <th className="n" style={{ width: "10%" }}>MVP+</th>
         </tr>
       </thead>
       <tbody>
@@ -245,11 +248,17 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               <td className="fig n">
                 {p.war == null ? <span className="quiet">—</span> : wsgn2(p.war)}
               </td>
-              <td className="fig quiet n">{fmt(p.pts, 1)}</td>
               <td className="fig n key">
                 <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
                   {p.mvp == null ? "—" : fmt(p.mvp, 1)}
                 </b>
+              </td>
+              {/* the across-year index: above 100 beat a typical winner */}
+              <td className="fig n">
+                {p.mvpp == null ? <span className="quiet">—</span>
+                  : <span style={{ color: p.mvpp >= 100 ? "var(--good)" : undefined }}>
+                    {fmt(p.mvpp, 0)}
+                  </span>}
               </td>
             </tr>
           );
@@ -329,15 +338,18 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <>
           {mvpTable(ranked.slice(0, N))}
           <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
-<b>MVP</b>: every elimination game hands out exactly 1.0 win to the side that won it,
-            split by contribution — so a blowout pays the same as a nail-biter, which WPA can’t
-            do, since a game never in doubt has almost no probability left to hand out even
-            though those players are the reason it wasn’t in doubt. Each game’s share is then
-            weighted by round — the final counts double a quarterfinal and half again a
-            semifinal, so a bye can’t cost the top seeds the award — and put on a scale where
-            100 is the best postseason on record
-            {anchor?.anchor_name && anchor.anchor_season
-              ? `: ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}.{" "}
+Every elimination game hands out exactly 1.0 win to the side that won it, split
+            half by leverage and half by production — so a blowout pays the same as a
+            nail-biter, which WPA alone can’t do, since a game never in doubt has almost no
+            probability left to hand out even though those players are the reason it wasn’t in
+            doubt. Each game’s share is then weighted by round: the final counts double a
+            quarterfinal and half again a semifinal, so a bye can’t cost the top seeds the
+            award. That total is shown on two scales. <b>MVP</b> is within this season — 100 is
+            {anchor?.season_anchor_name ? ` ${anchor.season_anchor_name}` : " the year's best run"},
+            so the week columns are points out of a shared 100 and add up to it. <b>MVP+</b> is
+            across seasons, like OPS+: 100 is the average MVP-winning run
+            {anchor?.mvp_avg_seasons?.length ? ` over ${anchor.mvp_avg_seasons.length} postseasons` : ""},
+            so above 100 beat a typical champion’s best player and below it was a thin year.{" "}
             <b>WAR</b> is the one figure here that doesn’t care who won: points above what a
             replacement-level player at the same position scored that week, converted to wins.
             A big game in a loss earns WAR and nothing else — which is the whole reason it’s

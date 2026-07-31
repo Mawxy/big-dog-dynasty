@@ -81,18 +81,24 @@ adjustments live in it and nowhere else:
     its round before the total is taken: a quarterfinal counts 1.0, a
     semifinal 4/3, the final 2.0 — double a quarterfinal, half again a
     semifinal.
-  * A HISTORICAL scale, not a per-season one. The anchor is the best weighted
-    postseason ON RECORD across every season, so 100 always means "as good as
-    the best playoff run this league has seen", not "the best of this
-    particular year". A thin MVP year scores in the forties and says so;
-    renormalising each season to 100 would quietly claim every year's winner
-    was equally dominant.
+  * TWO SCALES, because one number cannot answer both questions.
 
-        score = 100 * weighted_win_share / anchor
+        MVP  = 100 * weighted_win_share / THAT SEASON'S best run
+        MVP+ = 100 * weighted_win_share / the AVERAGE MVP-winning run
 
-    Because win share is never negative, MVP is never negative either. The
-    "who cost them" ranking reads the raw WPA column instead, which is signed
-    and is where a bust actually shows up.
+    MVP is within-year: the season's winner is 100 and everyone else is a
+    share of him, which is what makes the per-week columns readable — they are
+    points out of a shared 100 and they sum to the season score.
+
+    MVP+ is across-year, on the OPS+ pattern: 100 is a typical MVP-winning
+    run, so 121 says "better than the average champion's best player" and 72
+    says "a thin year". A single historical scale forced the season figure to
+    lie about one of the two — a thin year's winner reading 44 when he did, in
+    fact, win it. Splitting them lets both be true.
+
+    Because win share is never negative, neither figure is. The "who cost
+    them" ranking reads the raw WPA column instead, which is signed and is
+    where a bust actually shows up.
 
 Output: merged into each season's bracket.json as "wpa":
 
@@ -507,36 +513,49 @@ def main():
         else:
             print(f"  {s}: no bracket/weekly — skipped")
 
-    # --- the historical anchor: the best weighted postseason on record -------
-    anchor, who = 0.0, None
+    # --- two scales, two anchors ---------------------------------------------
+    # MVP is normalised WITHIN its season: that year's best run is 100, so the
+    # week columns are points out of a shared 100 and the race reads cleanly.
+    # MVP+ is normalised against the AVERAGE MVP-winning run across every
+    # season, so 100 is a typical winner and the figure compares years. A thin
+    # year's winner reads 100 on the season scale (he did win it) while his
+    # MVP+ says 72 (it was a thin year) — neither figure has to lie.
+    season_best = {}
     for s, (wpa, _) in computed.items():
+        best, who = 0.0, None
         for pid, rec in wpa.items():
-            if rec["wsw"] > anchor:
-                anchor, who = rec["wsw"], (s, pid)
-    if not anchor:
-        sys.exit("no positive WPA anywhere — refusing to build a scale")
-    a_season, a_pid = who
-    a_name = ((json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
-               .get(a_pid) or ["?"])[0])
-    print(f"\nscale anchor (100) = {a_name}, {a_season} · {anchor:.3f} weighted win share")
+            if rec["wsw"] > best:
+                best, who = rec["wsw"], pid
+        if best > 0:
+            season_best[s] = (best, who)
+    if not season_best:
+        sys.exit("no positive win share anywhere — refusing to build a scale")
+
+    pmin = json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
+    mvp_avg = sum(v for v, _ in season_best.values()) / len(season_best)
+    print("\nMVP  : 100 = that season's best run")
+    print(f"MVP+ : 100 = the average MVP-winning run ({mvp_avg:.3f} weighted "
+          f"win share over {len(season_best)} seasons)")
 
     for s, (wpa, _) in computed.items():
+        best = season_best.get(s, (0.0, None))[0]
         for rec in wpa.values():
-            # Per-week MVP points, and the total as their SUM — not a
-            # separately rounded figure. The week columns are shown on the
-            # site, so they have to add up to the score beside them.
-            rec["mvpwk"] = {k: mvp_score(v, anchor)
-                            for k, v in rec.pop("_wswwk", {}).items()}
+            # Per-week MVP points, and the season total as their SUM — not a
+            # separately rounded figure. The week columns are on the site, so
+            # they have to add up to the score beside them.
+            wswwk = rec.pop("_wswwk", {})
+            rec["mvpwk"] = {k: mvp_score(v, best) for k, v in wswwk.items()}
             rec["mvp"] = round(sum(rec["mvpwk"].values()), 1)
+            rec["mvpp"] = mvp_score(rec["wsw"], mvp_avg)
 
-    players_min = json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
+    players_min = pmin
     for s in all_seasons:
         if s not in computed:
             continue
         wpa, _ = computed[s]
         top = sorted(wpa.items(), key=lambda kv: -kv[1]["mvp"])[:3]
-        line = " · ".join(f"{(players_min.get(p) or ['?'])[0]} {v['mvp']:.0f}"
-                          f" ({v['ws']:.2f} ws)" for p, v in top)
+        line = " · ".join(f"{(players_min.get(p) or ['?'])[0]} "
+                          f"{v['mvp']:.0f} ({v['mvpp']:.0f}+)" for p, v in top)
         print(f"  {s}: MVP {line}")
 
     n = 0
@@ -553,10 +572,12 @@ def main():
                 "round_weight": {str(k): v for k, v in ROUND_WEIGHT.items()},
                 "prior_n": PRIOR_N, "min_sd": MIN_SD,
                 "scope": "elimination games only; placement games excluded",
-                # the scale is historical: state what 100 is pinned to, so a
-                # score read off one season is auditable against the record
-                "anchor": round(anchor, 4), "anchor_season": a_season,
-                "anchor_pid": a_pid, "anchor_name": a_name,
+                # both scales stated so a score is auditable: MVP against
+                # this season's best run, MVP+ against the average winner
+                "season_anchor": round(season_best.get(s, (0.0, None))[0], 4),
+                "season_anchor_name": (pmin.get(season_best.get(s, (0, ""))[1]) or ["?"])[0],
+                "mvp_avg": round(mvp_avg, 4),
+                "mvp_avg_seasons": sorted(season_best),
             }
             f.write_text(json.dumps(b), encoding="utf-8")
             n += 1

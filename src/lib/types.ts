@@ -312,9 +312,14 @@ export interface BracketFile {
      *  winning side, so a champion's nine starters sum to 3.0. `wsw` is the
      *  round-weighted version the MVP score is built from. */
     ws?: number; wsw?: number;
+    /** the season scale: 100 = that year's best run, so the year's winner is
+     *  always 100 and the week columns are points out of a shared 100 */
     mvp?: number;
-    /** week -> MVP points: the weighted win share on the award scale. These
-     *  sum EXACTLY to `mvp`, which is computed as their sum. */
+    /** the historical index, OPS+ style: 100 = the average MVP-winning run,
+     *  so 122 beats a typical champion's best player and 72 is a thin year */
+    mvpp?: number;
+    /** week -> MVP points on the SEASON scale. These sum EXACTLY to `mvp`,
+     *  which is computed as their sum. */
     mvpwk?: Record<string, number>;
     /** week -> raw WPA */
     wk: Record<string, number>;
@@ -335,9 +340,10 @@ export interface BracketFile {
   wpa_meta?: {
     round_weight: Record<string, number>;
     prior_n: number; min_sd: number; scope: string;
-    /** what a score of 100 is pinned to — the best run on record */
-    anchor?: number; anchor_season?: string;
-    anchor_pid?: string; anchor_name?: string;
+    /** MVP's 100: this season's best run */
+    season_anchor?: number; season_anchor_name?: string;
+    /** MVP+'s 100: the average MVP-winning run, and the seasons behind it */
+    mvp_avg?: number; mvp_avg_seasons?: string[];
   };
 }
 
