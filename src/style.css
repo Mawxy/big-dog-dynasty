@@ -123,13 +123,18 @@ a:hover { text-decoration: underline; }
   border: 0;
   background: var(--acc);
   color: var(--acc-ink);
-  font: 700 16px/1 var(--cond);
+  font: 700 16px/1.15 var(--cond);
   letter-spacing: .08em;
-  padding: 5px 12px;
+  /* A <select> sizes itself to its text WITHOUT counting the trailing
+     letter-space or any glyph overhang, so the last character clips ("2025"
+     rendering as "202"). The extra right padding gives it back; line-height
+     1.15 does the same for the descender-less condensed numerals, which the
+     1/1 value cropped at the baseline. */
+  padding: 5px 17px 5px 12px;
   cursor: pointer;
 }
 /* in a screen-head it sits beside the filter chips, so match their height */
-.screen-head .season-chip { padding: 4px 12px; }
+.screen-head .season-chip { padding: 4px 17px 4px 12px; }
 
 /* nav --------------------------------------------------------------------- */
 .tabs {
