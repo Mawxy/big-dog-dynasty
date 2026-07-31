@@ -397,6 +397,56 @@ def main():
         for m in lb:                                 # losers bracket: places N+1..2N
             if m.get("p") and m.get("w") and m.get("l"):
                 finish[m["w"]] = n_playoff + m["p"]; finish[m["l"]] = n_playoff + m["p"] + 1
+
+        # --- the playoff bracket, self-contained for the site's Playoffs tab:
+        #     each game carries its week (playoff_start + round - 1), both
+        #     scores from the matchup rows, plus this season's seeds and team
+        #     names so the page needs no second fetch. Absent bracket = no file.
+        if wb:
+            ps_start = league.get("settings", {}).get("playoff_week_start", 15)
+
+            def _pts(rid, wk):
+                for e in mws.get(str(rid), []):
+                    if e[0] == wk:
+                        return e[1]
+                return None
+
+            def _games(br):
+                gs = []
+                for m in sorted(br, key=lambda g: (g["r"], g["m"])):
+                    t1, t2 = m.get("t1"), m.get("t2")
+                    wk = ps_start + m["r"] - 1
+                    gs.append({"r": m["r"], "week": wk, "p": m.get("p"),
+                               "t1": t1, "t2": t2,
+                               "w": m.get("w"), "l": m.get("l"),
+                               "t1_pts": _pts(t1, wk) if t1 else None,
+                               "t2_pts": _pts(t2, wk) if t2 else None})
+                return gs
+
+            # Per-starter fantasy points for every winners-bracket game, from
+            # the raw week dumps. WAR stops at the regular season (weekly.json
+            # has no playoff weeks), so points are the playoff-MVP currency.
+            wgames = _games(wb)
+            stars = {}                 # pid -> {rid, wk: {week: pts while starting}}
+            for g in wgames:
+                wf = load(sdir / "matchups" / f"week_{g['week']}.json") or []
+                by_rid = {t.get("roster_id"): t for t in wf}
+                for rid in (g["t1"], g["t2"]):
+                    t = by_rid.get(rid)
+                    if not t:
+                        continue
+                    pp = t.get("players_points") or {}
+                    for pid in (t.get("starters") or []):
+                        rec = stars.setdefault(str(pid), {"rid": rid, "wk": {}})
+                        rec["rid"] = rid
+                        rec["wk"][str(g["week"])] = round(float(pp.get(str(pid), 0.0)), 2)
+
+            (sout / "bracket.json").write_text(json.dumps({
+                "playoff_start": ps_start,
+                "seeds": {str(t["roster_id"]): seed.get(t["roster_id"]) for t in teams},
+                "names": {str(t["roster_id"]): t["team"] for t in teams},
+                "winners": wgames, "losers": _games(lb),
+                "stars": stars}))
         for t in teams:
             rid = t["roster_id"]
             g = t["wins"] + t["losses"] + t["ties"]

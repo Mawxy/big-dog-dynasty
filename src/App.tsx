@@ -11,6 +11,8 @@ import FranchisesView from "./views/Franchises";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
 import DraftDetail from "./views/DraftDetail";
+import Playoffs from "./views/Playoffs";
+import PlayoffDetail from "./views/PlayoffDetail";
 import Trades from "./views/Trades";
 import Ledger from "./views/Ledger";
 import Dvi from "./views/Dvi";
@@ -23,9 +25,9 @@ import SiteFooter from "./components/SiteFooter";
  *  live off the bar — they are reached from the hubs: League links standings
  *  and values, Players links its two tables. A route without a tab is a
  *  destination; a tab is a starting point. */
-const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades"] as const;
+const VIEWS = ["home", "players", "teams", "weekly", "draft", "playoffs", "trades"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
-const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "trades", "dvi", "cvi"];
+const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "playoffs", "trades", "dvi", "cvi"];
 const LABEL = (v: string) =>
   v === "dvi" || v === "cvi" ? v.toUpperCase()
     : v === "home" ? "League"
@@ -182,6 +184,9 @@ function Shell() {
               /draft/history/<season> is that draft's own page */}
           <Route path="/:league/draft/:sub" element={<Draft />} />
           <Route path="/:league/draft/history/:season" element={<DraftDetailRoute />} />
+          {/* /playoffs is every bracket; /playoffs/<season> the year's page */}
+          <Route path="/:league/playoffs" element={<Playoffs />} />
+          <Route path="/:league/playoffs/:season" element={<PlayoffDetailRoute />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
           <Route path="/:league/value" element={<ValueRedirect />} />
@@ -249,6 +254,11 @@ function TeamRedirect() {
 function DraftDetailRoute() {
   const season = useParams().season!;
   return <DraftDetail key={season} />;
+}
+
+function PlayoffDetailRoute() {
+  const season = useParams().season!;
+  return <PlayoffDetail key={season} />;
 }
 
 function FranchiseRoute() {

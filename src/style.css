@@ -908,6 +908,37 @@ button.dband:hover .band-label { color: var(--txt2); }
   font: 400 11.5px/1.3 var(--sans); color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* playoff bracket: three round columns of head-to-head units. Winner takes
+   the accent score; no margin figure — the two scores already state it. */
+.bracket {
+  display: grid; grid-template-columns: repeat(3, minmax(280px, 1fr));
+  gap: 0 26px; padding: 14px var(--pad) 6px; align-items: start;
+  min-width: 990px; border-right: var(--pad) solid transparent;
+}
+.bcol-label {
+  font: 600 12px/1 var(--cond); letter-spacing: .22em; text-transform: uppercase;
+  color: var(--dim); padding: 4px 0 10px;
+}
+.bgame { border: 1px solid var(--rule); background: var(--band); margin-bottom: 14px; }
+.bgame.tap { cursor: pointer; }
+.bgame.tap:hover { border-color: #2b3642; }
+.bgame-head {
+  display: flex; justify-content: space-between; gap: 12px;
+  background: var(--deep); border-bottom: 1px solid var(--rule); padding: 5px 10px;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim);
+}
+.bside { display: flex; align-items: center; gap: 9px; padding: 8px 10px; }
+.bside + .bside { border-top: 1px solid var(--hair); }
+.bside .seed { width: 16px; text-align: center; font: 600 11px/1 var(--cond); color: var(--dim3); }
+.bside .team {
+  flex: 1; font: 600 13.5px/1.25 var(--sans); color: var(--txt2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bside .pts { font: 700 16px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--dim); }
+.bside.won .team { color: var(--txt); }
+.bside.won .pts { color: var(--acc); }
+
 /* a pick acquired by trade: quiet condensed line naming the original owner */
 .dcell .via {
   margin-top: 1px;
