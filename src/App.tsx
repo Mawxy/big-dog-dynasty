@@ -11,7 +11,6 @@ import FranchisesView from "./views/Franchises";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
 import DraftDetail from "./views/DraftDetail";
-import Playoffs from "./views/Playoffs";
 import PlayoffDetail from "./views/PlayoffDetail";
 import Trades from "./views/Trades";
 import Ledger from "./views/Ledger";
@@ -25,13 +24,15 @@ import SiteFooter from "./components/SiteFooter";
  *  live off the bar — they are reached from the hubs: League links standings
  *  and values, Players links its two tables. A route without a tab is a
  *  destination; a tab is a starting point. */
-const VIEWS = ["home", "players", "teams", "weekly", "draft", "playoffs", "trades"] as const;
+const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
-const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "playoffs", "trades", "dvi", "cvi"];
+const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "trades", "dvi", "cvi"];
 const LABEL = (v: string) =>
   v === "dvi" || v === "cvi" ? v.toUpperCase()
     : v === "home" ? "League"
-      : v === "trades" ? "Trade machine" : v[0].toUpperCase() + v.slice(1);
+      // the weekly view owns the whole season now — weeks, then the bracket
+      : v === "weekly" ? "Season"
+        : v === "trades" ? "Trade machine" : v[0].toUpperCase() + v.slice(1);
 
 /** newest season that actually has WAR data (falls back to newest listed) */
 function defaultSeason(meta: Meta): string {
@@ -122,6 +123,7 @@ function Shell() {
   const HUB_OF: Record<string, string> = {
     standings: "teams", ledger: "home", value: "players", stats: "players",
     dvi: "players", cvi: "players", player: "players", franchise: "teams",
+    playoffs: "weekly",
   };
   const active = onView ? parts[2] : HUB_OF[parts[2]] ?? "";
   return (
@@ -184,8 +186,8 @@ function Shell() {
               /draft/history/<season> is that draft's own page */}
           <Route path="/:league/draft/:sub" element={<Draft />} />
           <Route path="/:league/draft/history/:season" element={<DraftDetailRoute />} />
-          {/* /playoffs is every bracket; /playoffs/<season> the year's page */}
-          <Route path="/:league/playoffs" element={<Playoffs />} />
+          {/* the bracket is the season view's last chip (/weekly/<season>/playoffs);
+              /playoffs/<season> is that postseason's own page */}
           <Route path="/:league/playoffs/:season" element={<PlayoffDetailRoute />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
@@ -276,8 +278,10 @@ function WeeklyRoute() {
   const season = seasonOf(p.season, meta);
   const data = useSeasonData(season);
   if (!data) return <div className="empty">Loading…</div>;
+  // /weekly/<season>/playoffs is the bracket scope, the season's last chip
   return <WeeklyView data={data} season={season} players={players}
-    week={intParam(p.wk)} matchupRid={intParam(p.mid)} />;
+    week={intParam(p.wk)} matchupRid={intParam(p.mid)}
+    playoffs={p.wk?.toLowerCase() === "playoffs"} />;
 }
 
 function PlayerRoute() {

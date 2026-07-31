@@ -15,7 +15,8 @@ interface Perf {
 
 /**
  * One postseason as its own page: the bracket, the MVP and top performers,
- * the biggest upset, and the superlatives. Reached from the Playoffs tab.
+ * the biggest upset, and the superlatives. Reached from the Season tab's
+ * Playoffs chip — the season owns the axis, this page owns the detail.
  */
 export default function PlayoffDetail() {
   const season = useParams().season ?? "";
@@ -119,8 +120,9 @@ export default function PlayoffDetail() {
     <>
       <div className="screen-head">
         <span className="screen-title">{season} playoffs</span>
-        <button type="button" className="chip" onClick={() => nav(lp("/playoffs"))}>
-          ‹ All years
+        <button type="button" className="chip"
+          onClick={() => nav(lp(`/weekly/${season}/playoffs`))}>
+          ‹ {season} season
         </button>
         <span className="screen-note">
           weeks {weeks[0]}–{weeks[weeks.length - 1]} · six teams

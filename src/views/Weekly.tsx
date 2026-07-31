@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeaguePath } from "../lib/context";
-import type { MatchEntry, Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
+import type { BracketFile, MatchEntry, Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
 import { jl } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo, POS_COLOR, weekIndex, seasonSeg } from "../lib/league";
@@ -9,6 +9,7 @@ import PosBadge from "../components/PosBadge";
 import { PlayerLink } from "../components/PlayerLink";
 import PlayerPanel from "../components/PlayerPanel";
 import MatchupDetail from "../components/MatchupDetail";
+import PlayoffBracket from "../components/PlayoffBracket";
 import SeasonPicker from "../components/SeasonPicker";
 
 /** the week's entries, one per roster that has a row for it */
@@ -126,16 +127,21 @@ interface Props {
   week: number | null;
   /** one side's roster_id — renders that single matchup instead of the week */
   matchupRid: number | null;
+  /** the bracket scope: the season's last chip, after the weeks */
+  playoffs?: boolean;
 }
 
 /**
- * Weekly (1F): ONE week at a time — the chip row is the navigation, so there
+ * Season (1F): ONE week at a time — the chip row is the navigation, so there
  * is no separate all-weeks index. Landing without a week in the URL shows the
- * newest played week (or the first scheduled one, preseason).
+ * newest played week (or the first scheduled one, preseason). The last chip is
+ * the postseason bracket: the playoffs are where a season ends, so they belong
+ * on the season's own axis rather than in a tab of their own.
  */
-export default function Weekly({ data, season, players, week, matchupRid }: Props) {
+export default function Weekly({ data, season, players, week, matchupRid, playoffs }: Props) {
   const [weekly, setWeekly] = useState<WeeklyT | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
+  const [bracket, setBracket] = useState<BracketFile | null>(null);
   const [err, setErr] = useState(false);
   const [reload, setReload] = useState(0);
   const nav = useNavigate();
@@ -145,6 +151,10 @@ export default function Weekly({ data, season, players, week, matchupRid }: Prop
     if (season === "ALL") return;
     let live = true;
     setErr(false);
+    setBracket(null);
+    jl<BracketFile>(`${season}/bracket.json`)
+      .then(b => { if (live) setBracket(b); })
+      .catch(() => { /* no bracket yet — the chip just doesn't appear */ });
     Promise.all([
       jl<WeeklyT>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -159,13 +169,13 @@ export default function Weekly({ data, season, players, week, matchupRid }: Prop
   const shell = (msg: React.ReactNode) => (
     <>
       <div className="screen-head">
-        <span className="screen-title">Weekly</span>
+        <span className="screen-title">Season</span>
         <SeasonPicker allTime={false} />
       </div>
       <div className="empty">{msg}</div>
     </>
   );
-  if (season === "ALL") return shell("Weekly is a per-season view — pick a year.");
+  if (season === "ALL") return shell("Season is a per-year view — pick a year.");
   if (err) return shell(<>Couldn't load weekly data.{" "}
     <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button></>);
   if (!weekly || !mw) return shell("Loading weekly data…");
@@ -182,16 +192,80 @@ export default function Weekly({ data, season, players, week, matchupRid }: Prop
       weekly={weekly} mw={mw} players={players}
       back={() => nav(lp(`/weekly/${seasonSeg(season)}/${week}`))} />;
 
+  if (playoffs)
+    return <BracketScope season={season} bracket={bracket}
+      allWeeks={allWeeks} hasBracket={!!bracket} />;
+
   // no week in the URL -> the newest played week; preseason -> the first fixture
   const wk = week ?? (played.size ? Math.max(...played) : allWeeks[0]);
   return <WeekDetail wk={wk} season={season} data={data} weekly={weekly} mw={mw}
-    players={players} allWeeks={allWeeks} />;
+    players={players} allWeeks={allWeeks} hasBracket={!!bracket} />;
+}
+
+/** the chip row: every week, then the bracket — the season's whole axis */
+function WeekChips({ season, allWeeks, on, hasBracket }: {
+  season: string; allWeeks: number[]; on: number | "playoffs"; hasBracket: boolean;
+}) {
+  const nav = useNavigate();
+  const lp = useLeaguePath();
+  return (
+    <div className="screen-head" style={{ paddingTop: 10 }}>
+      {allWeeks.map(w => (
+        <button key={w} className={`chip ${w === on ? "on" : ""}`}
+          onClick={() => nav(lp(`/weekly/${seasonSeg(season)}/${w}`))}>W{w}</button>
+      ))}
+      {hasBracket && (
+        <button className={`chip ${on === "playoffs" ? "on" : ""}`}
+          onClick={() => nav(lp(`/weekly/${seasonSeg(season)}/playoffs`))}>Playoffs</button>
+      )}
+    </div>
+  );
+}
+
+/** the season's last scope: its bracket, with the year's own page a click away */
+function BracketScope({ season, bracket, allWeeks, hasBracket }: {
+  season: string; bracket: BracketFile | null; allWeeks: number[]; hasBracket: boolean;
+}) {
+  const nav = useNavigate();
+  const lp = useLeaguePath();
+  const champ = bracket?.winners.find(g => g.p === 1);
+  const champName = champ?.w != null ? bracket?.names[String(champ.w)] : null;
+  return (
+    <>
+      <div className="screen-head">
+        <span className="screen-title">Season</span>
+        <SeasonPicker allTime={false} />
+        {champName && (
+          <span className="screen-note">
+            champion <b style={{ color: "var(--acc)" }}>{champName}</b>
+          </span>
+        )}
+      </div>
+      <div style={{ padding: "2px var(--pad) 0" }}>
+        <div className="page-title">Playoffs</div>
+      </div>
+      <WeekChips season={season} allWeeks={allWeeks} on="playoffs" hasBracket={hasBracket} />
+      {bracket ? <>
+        <PlayoffBracket season={season} bracket={bracket} />
+        <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+          Click a game for the full matchup, or{" "}
+          <span className="tlink" style={{ color: "var(--acc)" }}
+            onClick={() => nav(lp(`/playoffs/${season}`))}>
+            open the {season} playoffs page →
+          </span>{" "}
+          for the MVP, the biggest upset and the superlatives.
+        </div>
+      </> : (
+        <div className="empty">No bracket for this season yet.</div>
+      )}
+    </>
+  );
 }
 
 /** The week page: header + chip row, the head-to-head grid, top performers. */
-function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks }: {
+function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracket }: {
   wk: number; season: string; data: SeasonData; weekly: WeeklyT; mw: Matchups;
-  players: PlayersMin; allWeeks: number[];
+  players: PlayersMin; allWeeks: number[]; hasBracket: boolean;
 }) {
   const nav = useNavigate();
   const lp = useLeaguePath();
@@ -216,7 +290,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks }: {
   return (
     <>
       <div className="screen-head">
-        <span className="screen-title">Weekly</span>
+        <span className="screen-title">Season</span>
         <SeasonPicker allTime={false} />
         <span className="screen-note">
           <b>{pairs.length}</b> matchups · click one for both lineups
@@ -225,12 +299,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks }: {
       <div style={{ padding: "2px var(--pad) 0" }}>
         <div className="page-title">Week {wk}{wk >= ps ? " · playoffs" : ""}</div>
       </div>
-      <div className="screen-head" style={{ paddingTop: 10 }}>
-        {allWeeks.map(w => (
-          <button key={w} className={`chip ${w === wk ? "on" : ""}`}
-            onClick={() => nav(lp(`/weekly/${seasonSeg(season)}/${w}`))}>W{w}</button>
-        ))}
-      </div>
+      <WeekChips season={season} allWeeks={allWeeks} on={wk} hasBracket={hasBracket} />
 
       <MatchupGrid season={season} wk={wk} mw={mw} weekly={weekly}
         players={players} tnames={tnames} />
