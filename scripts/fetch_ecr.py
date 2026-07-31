@@ -173,6 +173,14 @@ def main():
         for p in verify(data, key, url, final):
             print(f"  ~~ {p}")
         rows = data.get("players") or []
+        # This format just fetched fresh rows, so every CARRIED entry for it is
+        # now stale. Strip the key before writing today's: a player who fell
+        # out of the consensus loses his slug — absence is real information
+        # (the ECR component scores 0) — while other formats' carried entries
+        # survive a single-format run untouched. Without this, setdefault()
+        # unions old and new and the carrier count drifts past meta.matched.
+        for rec in out["players"].values():
+            rec.pop(key, None)
         matched = unmatched = 0
         posfix = 0
         misses: list[str] = []
@@ -262,6 +270,8 @@ def main():
         return
     if not out["formats"]:
         sys.exit("no formats fetched — refusing to write")
+    # a player stripped from his last remaining format is an empty record
+    out["players"] = {pid: rec for pid, rec in out["players"].items() if rec}
     Path(args.out).write_text(json.dumps(out))
     print(f"\nwrote {args.out} · {len(out['players'])} players across "
           f"{len(out['formats'])} format(s)")
