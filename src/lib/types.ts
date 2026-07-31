@@ -73,6 +73,17 @@ export interface Matchups {
   schedule?: Record<string, [number, number][]>;
 }
 
+/** data/<season>/odds.json — the pregame line for every matchup, played or
+ *  upcoming. Built from weeks 1..W-1 only (no lookahead) by the same normal
+ *  model the bracket uses. `proj` marks a line built from projections
+ *  because the week hasn't been played. See scripts/week_odds.py */
+export interface WeekOdds {
+  meta: { playoff_start: number; model: string; played: number[]; projected: number[] };
+  weeks: Record<string, Record<string, {
+    mu: number; sd: number; opp: number | null; wp?: number; proj?: boolean;
+  }>>;
+}
+
 /** [season, week, text] */
 export type OwnEvent = [string, number, string];
 export type Ownership = Record<string, OwnEvent[]>;

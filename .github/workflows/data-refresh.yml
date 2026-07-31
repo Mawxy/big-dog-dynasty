@@ -41,6 +41,12 @@ jobs:
       # production over replacement, credited win or lose; reads bracket.json
       - name: Playoff WAR
         run: python scripts/playoff_war.py
+      # pregame line per matchup; needs proj_sleeper.json for unplayed weeks,
+      # so it runs after the projection fetch below would be too late — the
+      # projections it reads are last run's, which is correct for a pregame
+      # number anyway
+      - name: Week odds (pregame win probability)
+        run: python scripts/week_odds.py
       - name: Fetch Sleeper projections (composite input)
         id: fetch_proj
         run: python scripts/fetch_projections.py

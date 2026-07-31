@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeaguePath } from "../lib/context";
-import type { BracketFile, MatchEntry, Matchups, PlayersMin, SeasonData, Weekly as WeeklyT } from "../lib/types";
+import type { BracketFile, MatchEntry, Matchups, PlayersMin, SeasonData, WeekOdds, Weekly as WeeklyT } from "../lib/types";
 import { jl } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo, POS_COLOR, weekIndex, seasonSeg } from "../lib/league";
@@ -59,9 +59,9 @@ function topStarterOf(ent: Record<string, MatchEntry>, weekly: WeeklyT, rid: num
  * accent rule, score and name; the spine holds `vs`; no margin figure — the
  * two scores state it.
  */
-function MatchupGrid({ season, wk, mw, weekly, players, tnames }: {
+function MatchupGrid({ season, wk, mw, weekly, players, tnames, odds }: {
   season: string; wk: number; mw: Matchups; weekly: WeeklyT;
-  players: PlayersMin; tnames: Record<number, string>;
+  players: PlayersMin; tnames: Record<number, string>; odds: WeekOdds | null;
 }) {
   const nav = useNavigate();
   const lp = useLeaguePath();
@@ -91,12 +91,26 @@ function MatchupGrid({ season, wk, mw, weekly, players, tnames }: {
             </div>
           );
           const top = topStarterOf(ent, weekly, rid, wk);
+          const od = odds?.weeks?.[String(wk)]?.[String(rid)];
+          const pct = od?.wp != null ? `${fmt(od.wp * 100, 0)}%` : null;
           return (
             <div className={`h2h-side${win ? " win" : ""}`}>
               <div className="nm">{tnames[rid] || `Roster ${rid}`}</div>
-              <div className="score">{!scored && !pts ? "—" : fmt(pts ?? 0, 1)}</div>
+              {/* an unplayed week shows its PROJECTED total in the score slot;
+                  a played one shows what was actually scored */}
+              <div className="score" style={!scored && od ? { color: "var(--dim)" } : undefined}>
+                {scored ? fmt(pts ?? 0, 1)
+                  : od ? fmt(od.mu, 1)
+                    : !pts ? "—" : fmt(pts, 1)}
+              </div>
               <div className="res">
-                {!scored ? "upcoming" : win ? "won" : lose ? "lost" : "tied"}
+                {!scored ? (od ? "projected" : "upcoming")
+                  : win ? "won" : lose ? "lost" : "tied"}
+                {/* the pregame line — built from weeks before this one, so on a
+                    played week it says what the matchup looked like at kickoff */}
+                {pct && <> · <span style={{ color: (od?.wp ?? 0) >= 0.5 ? "var(--txt2)" : "var(--dim)" }}>
+                  {scored ? "was " : ""}{pct}
+                </span></>}
                 {scored && wk < ps ? <> · lineup WAR {sgn(lineupWar(rid), 2)}</> : null}
               </div>
               {top && (
@@ -142,6 +156,8 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
   const [weekly, setWeekly] = useState<WeeklyT | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
   const [bracket, setBracket] = useState<BracketFile | null>(null);
+  /** the pregame line per matchup — absent for data built before week_odds.py */
+  const [odds, setOdds] = useState<WeekOdds | null>(null);
   /** the bracket fetch has settled, either way — so the playoffs scope can
    *  tell "still loading" from "this season has no bracket" */
   const [brDone, setBrDone] = useState(false);
@@ -160,6 +176,10 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
       .then(b => { if (live) setBracket(b); })
       .catch(() => { /* no bracket yet — the chip just doesn't appear */ })
       .finally(() => { if (live) setBrDone(true); });
+    setOdds(null);
+    jl<WeekOdds>(`${season}/odds.json`)
+      .then(o => { if (live) setOdds(o); })
+      .catch(() => { /* no odds file — the lines just don't render */ });
     Promise.all([
       jl<WeeklyT>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -215,7 +235,7 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
     : allWeeks.reduce((a, b) =>
       Math.abs(b - want) < Math.abs(a - want) ? b : a, allWeeks[0]);
   return <WeekDetail wk={wk} season={season} data={data} weekly={weekly} mw={mw}
-    players={players} allWeeks={allWeeks} hasBracket={!!bracket} />;
+    players={players} allWeeks={allWeeks} hasBracket={!!bracket} odds={odds} />;
 }
 
 /** the chip row: every week, then the bracket — the season's whole axis */
@@ -274,9 +294,9 @@ function BracketScope({ season, bracket, allWeeks, loaded }: {
 }
 
 /** The week page: header + chip row, the head-to-head grid, top performers. */
-function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracket }: {
+function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracket, odds }: {
   wk: number; season: string; data: SeasonData; weekly: WeeklyT; mw: Matchups;
-  players: PlayersMin; allWeeks: number[]; hasBracket: boolean;
+  players: PlayersMin; allWeeks: number[]; hasBracket: boolean; odds: WeekOdds | null;
 }) {
   const nav = useNavigate();
   const lp = useLeaguePath();
@@ -316,7 +336,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
         on={wk >= ps ? "playoffs" : wk} />
 
       <MatchupGrid season={season} wk={wk} mw={mw} weekly={weekly}
-        players={players} tnames={tnames} />
+        players={players} tnames={tnames} odds={odds} />
 
       {performers.length > 0 && (
         <div style={{ marginTop: 18 }}>
