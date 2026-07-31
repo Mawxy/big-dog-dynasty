@@ -5,6 +5,13 @@ weekly breakdowns, and all-time career stats, computed from the league's exact
 Sleeper scoring and lineup rules. Data refreshes automatically every
 **Wednesday at 1:00 AM Eastern** via GitHub Actions.
 
+## How the numbers work
+
+**[METHODOLOGY.md](METHODOLOGY.md)** documents every published figure — what it
+measures, how it is built, what it deliberately ignores, and where it breaks
+down: WAR/WAA, VoWP, team win probability, playoff WPA, win share, MVP and
+MVP+, playoff WAR, projections, DVI, CVI, and the two pick-value bridges.
+
 ## Architecture
 
 - **Data pipeline (Python, `scripts/`)** — unchanged from v1:
@@ -37,4 +44,7 @@ npm run build      # production build into dist/
 
 - Cron `0 6 * * 3` = 06:00 UTC Wednesday = 1:00 AM EST (2:00 AM EDT), in `data-refresh.yml`.
 - The league ID lives in `data-refresh.yml`.
-- WAR/WAA methodology is documented on the site footer and in `scripts/sleeper_war.py`.
+- Every figure's methodology is in [METHODOLOGY.md](METHODOLOGY.md); each
+  engine's docstring is the deeper reference.
+- The methodology decisions are locked by `tests/` — a failure there is a
+  change in what a figure *means*, not a broken build.
