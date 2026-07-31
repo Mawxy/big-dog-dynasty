@@ -877,7 +877,9 @@ button.dband:hover .band-label { color: var(--txt2); }
   padding: 0 4px 3px 13px;
   font: 600 11px/1.3 var(--cond); letter-spacing: .08em; text-transform: uppercase;
   color: var(--dim);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  /* wrap to two lines as needed rather than truncating */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; overflow-wrap: anywhere;
 }
 .dcell {
   border-left: 3px solid var(--rule);

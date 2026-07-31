@@ -149,31 +149,34 @@ def main():
         # Picks this franchise originally owned but dealt away. Listed for
         # awareness only — informational, never scored: no expected, no diff,
         # no roster WAR, and the site leaves them out of season subtotals.
-        if kind == "rookie":
-            made = {(p["round"], p.get("draft_slot")) for p in board}
-            rounds = sorted({p["round"] for p in board})
-            for rid, my_slot in (slot_of.get(s) or {}).items():
-                for rnd in rounds:
-                    if (rnd, my_slot) not in made:
-                        continue
-                    sel = sel_at.get((s, rnd, my_slot))
-                    if not sel or sel.get("roster_id") == rid:
-                        continue                      # kept it, already listed
-                    pid = sel.get("player_id")
-                    if not pid:
-                        continue
-                    md = sel.get("metadata") or {}
-                    out.setdefault(str(rid), []).append({
-                        "season": str(s), "kind": kind, "round": rnd,
-                        "pick_no": sel["pick_no"], "slot": f"{rnd}.{my_slot:02d}",
-                        "pid": pid,
-                        "name": f"{md.get('first_name','')} {md.get('last_name','')}".strip(),
-                        "pos": md.get("position") or "?",
-                        "war": career(pid), "war_roster": None,
-                        "expected": None, "years": n_exp, "diff": None,
-                        "alts": [],
-                        "traded": True, "drafted_by": sel.get("roster_id"),
-                    })
+        # Applies to the startup too: it snaked, but a franchise still owns its
+        # draft slot's pick in every round, so the same slot test finds the
+        # in-draft trades. (This was gated to rookie drafts until 2026-07-31,
+        # which is why the startup board showed no traded picks.)
+        made = {(p["round"], p.get("draft_slot")) for p in board}
+        rounds = sorted({p["round"] for p in board})
+        for rid, my_slot in (slot_of.get(s) or {}).items():
+            for rnd in rounds:
+                if (rnd, my_slot) not in made:
+                    continue
+                sel = sel_at.get((s, rnd, my_slot))
+                if not sel or sel.get("roster_id") == rid:
+                    continue                      # kept it, already listed
+                pid = sel.get("player_id")
+                if not pid:
+                    continue
+                md = sel.get("metadata") or {}
+                out.setdefault(str(rid), []).append({
+                    "season": str(s), "kind": kind, "round": rnd,
+                    "pick_no": sel["pick_no"], "slot": f"{rnd}.{my_slot:02d}",
+                    "pid": pid,
+                    "name": f"{md.get('first_name','')} {md.get('last_name','')}".strip(),
+                    "pos": md.get("position") or "?",
+                    "war": career(pid), "war_roster": None,
+                    "expected": None, "years": n_exp, "diff": None,
+                    "alts": [],
+                    "traded": True, "drafted_by": sel.get("roster_id"),
+                })
 
     for rid in out:                                  # newest draft first
         out[rid].sort(key=lambda r: (r["season"], r["pick_no"]), reverse=True)
