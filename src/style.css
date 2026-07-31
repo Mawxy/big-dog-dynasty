@@ -949,6 +949,12 @@ button.dband:hover .band-label { color: var(--txt2); }
   font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
   color: var(--dim3);
 }
+/* the round multiplier in a WPA week header — the cells under it are already
+   multiplied, so the reader can see why the weeks sum to the total */
+.wmul {
+  margin-left: 4px; font-size: 10px; letter-spacing: .04em; color: var(--dim);
+}
+
 /* a row of standalone game cards (upsets, superlatives) */
 .card-row {
   display: flex; flex-wrap: wrap; gap: 18px; padding: 14px var(--pad) 4px;

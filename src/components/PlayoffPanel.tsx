@@ -54,6 +54,16 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
     () => [...new Set(bracket.winners.map(g => g.week))].sort((a, b) => a - b),
     [bracket]);
 
+  /** week -> its round weight. The WPA total is round-weighted, so the week
+   *  cells must be too or the row won't add up to it — showing raw weekly
+   *  values against a weighted total is how a reader ends up asking why a
+   *  −0.157 semifinal totals −0.196. The multiplier rides in the header. */
+  const weightOf = useMemo(() => {
+    const m: Record<number, number> = {};
+    for (const g of Object.values(bracket.wp ?? {})) m[g.week] = g.weight;
+    return m;
+  }, [bracket]);
+
   /** worse seed beats better seed, ranked by seed gap then margin */
   const upsets = useMemo(() => bracket.winners
     .filter(g => g.w != null && g.l != null && !(g.p && g.p > 1))
@@ -132,7 +142,12 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           <th className="t" style={{ width: "26%" }}>Player</th>
           <th className="c" style={{ width: "6%" }}>Pos</th>
           <th className="t" style={{ width: "19%" }}>For</th>
-          {weeks.map(w => <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>)}
+          {weeks.map(w => (
+            <th key={w} className="n" style={{ width: "9%" }}>
+              WK {w}
+              {(weightOf[w] ?? 1) !== 1 && <span className="wmul">×{weightOf[w]}</span>}
+            </th>
+          ))}
           <th className="n key" style={{ width: "11%" }}>WPA</th>
           <th className="n" style={{ width: "9%" }}>Points</th>
         </tr>
@@ -158,8 +173,10 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               <td className="c"><span className={`pos ${pos}`}>{pos}</span></td>
               <td className="sub">{nameOf(p.rid)}</td>
               {weeks.map(w => {
-                const v = p.wpaWeek[String(w)];
+                const raw = p.wpaWeek[String(w)];
                 const started = p.byWeek[String(w)] != null;
+                // weighted, so the row sums to the total in the last column
+                const v = raw == null ? null : raw * (weightOf[w] ?? 1);
                 return (
                   <td key={w} className="fig n">
                     {v == null
@@ -237,9 +254,10 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
           WPA is the share of his team's win-probability swing a player caused, allocated by
           Shapley value so every game's swing is fully accounted for — which is why the two
-          tables mirror: one team's gain is the other's loss. Weighted by round (a final
-          counts 1.5×, a semifinal 1.25×) so a bye can't cost the top seeds the award. A dot
-          marks a week he started only in a placement game, which doesn't count.
+          tables mirror: one team's gain is the other's loss. Every week column is already
+          multiplied by its round weight (shown in the header), so the weeks add up to the
+          total: a bye can't cost the top seeds the award. A dot marks a week he started
+          only in a placement game, which doesn't count.
         </div>
       </>)}
 
