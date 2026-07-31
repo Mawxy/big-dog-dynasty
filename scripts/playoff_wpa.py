@@ -358,13 +358,17 @@ def season_wpa(season, ld, raw_root):
             shares = win_shares(vals, g.get("w") == rid)
             for pid, v, sh in zip(s["pids"], vals, shares):
                 rec = wpa.setdefault(pid, {
-                    "rid": rid, "tot": 0.0, "wtot": 0.0, "ws": 0.0, "wsw": 0.0, "wk": {}})
+                    "rid": rid, "tot": 0.0, "wtot": 0.0, "ws": 0.0, "wsw": 0.0,
+                    "wk": {}, "_wswwk": {}})
                 rec["rid"] = rid
                 rec["tot"] += v                 # raw WPA, unweighted
                 rec["wtot"] += v * w
                 rec["ws"] += sh                 # win share, in wins — UNWEIGHTED
                 rec["wsw"] += sh * w            # round-weighted; feeds MVP
                 rec["wk"][str(wk)] = round(rec["wk"].get(str(wk), 0.0) + v, 4)
+                # weighted win share per week, kept unrounded — main() turns it
+                # into the per-week MVP points once the historical anchor exists
+                rec["_wswwk"][str(wk)] = rec["_wswwk"].get(str(wk), 0.0) + sh * w
 
         wp_games[str(wk) + "." + str(t1)] = {
             "week": wk, "r": g["r"], "weight": w,
@@ -434,7 +438,12 @@ def main():
 
     for s, (wpa, _) in computed.items():
         for rec in wpa.values():
-            rec["mvp"] = mvp_score(rec["wsw"], anchor)
+            # Per-week MVP points, and the total as their SUM — not a
+            # separately rounded figure. The week columns are shown on the
+            # site, so they have to add up to the score beside them.
+            rec["mvpwk"] = {k: mvp_score(v, anchor)
+                            for k, v in rec.pop("_wswwk", {}).items()}
+            rec["mvp"] = round(sum(rec["mvpwk"].values()), 1)
 
     players_min = json.loads((ld / "players_min.json").read_text(encoding="utf-8"))
     for s in all_seasons:

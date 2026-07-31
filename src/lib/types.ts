@@ -313,6 +313,10 @@ export interface BracketFile {
      *  round-weighted version the MVP score is built from. */
     ws?: number; wsw?: number;
     mvp?: number;
+    /** week -> MVP points: the weighted win share on the award scale. These
+     *  sum EXACTLY to `mvp`, which is computed as their sum. */
+    mvpwk?: Record<string, number>;
+    /** week -> raw WPA */
     wk: Record<string, number>;
   }>;
   /** per elimination game: the pregame line it turned on */

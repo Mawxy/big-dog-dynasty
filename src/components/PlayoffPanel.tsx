@@ -13,13 +13,12 @@ interface Perf {
   pid: string; rid: number; pts: number;
   /** RAW win probability added — the measured quantity; weeks sum to it */
   wpa: number | null;
-  /** win share, in wins: each game hands 1.0 to the winning side, so a
-   *  champion's nine starters sum to 3.0 */
-  ws: number | null;
   /** the derived 0-100 award scale: round-weighted, anchored historically */
   mvp: number | null;
   byWeek: Record<string, number>;
   wpaWeek: Record<string, number>;
+  /** week -> MVP points; these sum to `mvp` */
+  mvpWeek: Record<string, number>;
 }
 
 /**
@@ -49,9 +48,9 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       pid, rid: s.rid, byWeek: s.wk,
       pts: Object.values(s.wk).reduce((a, b) => a + b, 0),
       wpa: w[pid]?.tot ?? null,
-      ws: w[pid]?.ws ?? null,
       mvp: w[pid]?.mvp ?? null,
       wpaWeek: w[pid]?.wk ?? {},
+      mvpWeek: w[pid]?.mvpwk ?? {},
     }));
     return bracket.wpa
       ? rows.sort((a, b) => (b.mvp ?? -999) - (a.mvp ?? -999))
@@ -189,16 +188,19 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       <thead>
         <tr className="grp">
           <th colSpan={4}></th>
-          <th colSpan={3} className="edge acc">Wins created</th>
+          <th colSpan={weeks.length} className="edge">MVP points by week</th>
+          <th colSpan={2} className="edge acc">Playoff total</th>
         </tr>
         <tr>
           <th className="t" style={{ width: "6%" }}>Rk</th>
-          <th className="t" style={{ width: "30%" }}>Player</th>
+          <th className="t" style={{ width: "27%" }}>Player</th>
           <th className="c" style={{ width: "7%" }}>Pos</th>
-          <th className="t" style={{ width: "23%" }}>For</th>
-          <th className="n" style={{ width: "11%" }}>Win share</th>
-          <th className="n" style={{ width: "11%" }}>Points</th>
-          <th className="n key" style={{ width: "12%" }}>MVP</th>
+          <th className="t" style={{ width: "21%" }}>For</th>
+          {weeks.map(w => (
+            <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
+          ))}
+          <th className="n" style={{ width: "9%" }}>Points</th>
+          <th className="n key" style={{ width: "11%" }}>MVP</th>
         </tr>
       </thead>
       <tbody>
@@ -218,7 +220,19 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               </td>
               <td className="c"><span className={`pos ${pos}`}>{pos}</span></td>
               <td className="sub">{nameOf(p.rid)}</td>
-              <td className="fig n">{p.ws == null ? <span className="quiet">—</span> : fmt(p.ws, 2)}</td>
+              {weeks.map(w => {
+                // MVP points — the weighted win share on the award scale.
+                // They add up to the MVP column, which IS their sum.
+                const v = p.mvpWeek[String(w)];
+                const started = p.byWeek[String(w)] != null;
+                return (
+                  <td key={w} className="fig n">
+                    {v == null ? <span className="quiet">{started ? "·" : "—"}</span>
+                      : v === 0 ? <span className="quiet">0.0</span>
+                        : fmt(v, 1)}
+                  </td>
+                );
+              })}
               <td className="fig quiet n">{fmt(p.pts, 1)}</td>
               <td className="fig n key">
                 <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
@@ -255,7 +269,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           ["PLAYOFF MVP", mvp ? pInfo(players, mvp.pid)[0] : "—",
             !mvp ? "no scored weeks"
               : mvp.mvp != null
-                ? `${fmt(mvp.ws ?? 0, 2)} of the wins · ${fmt(mvp.mvp, 1)} MVP · ${nameOf(mvp.rid)}`
+                ? `${fmt(mvp.mvp, 1)} MVP · ${wsgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
                 : `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}`],
         ].map(([k, v, sub]) => (
           <div key={k} className="figcell">
@@ -303,13 +317,13 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <>
           {mvpTable(ranked.slice(0, N))}
           <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
-            <b>Win share</b> is in wins: every elimination game hands out exactly 1.0 to the
-            side that won it, split by contribution, so a champion’s nine starters sum to
-            3.0. It pays a blowout the same as a nail-biter — which WPA can’t, since a
-            game never in doubt has almost no probability left to hand out, even though those
-            players are the reason it wasn’t in doubt. <b>MVP</b> weights that by round —
-            the final counts double a quarterfinal and half again a semifinal, so a bye can’t
-            cost the top seeds it — then rescales so 100 is the best postseason on record
+            Every elimination game hands out exactly 1.0 win to the side that won it, split
+            by contribution — so a blowout pays the same as a nail-biter, which WPA can’t do,
+            since a game never in doubt has almost no probability left to hand out even though
+            those players are the reason it wasn’t in doubt. Each game’s share is then weighted
+            by round — the final counts double a quarterfinal and half again a semifinal, so a
+            bye can’t cost the top seeds the award — and put on a scale where 100 is the best
+            postseason on record
             {anchor?.anchor_name && anchor.anchor_season
               ? `: ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}.
           </div>
