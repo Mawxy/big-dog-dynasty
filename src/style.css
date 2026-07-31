@@ -870,6 +870,15 @@ button.dband:hover .band-label { color: var(--txt2); }
   border-right: var(--pad) solid transparent;
   min-width: 1460px;
 }
+/* column heads: the franchise whose draft slot the column is. 13px of left
+   inset mirrors the cells' 3px spine + 10px padding so the text aligns. */
+.dboard .ownlbl {
+  align-self: end;
+  padding: 0 4px 3px 13px;
+  font: 600 11px/1.3 var(--cond); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .dcell {
   border-left: 3px solid var(--rule);
   padding: 7px 9px 8px 10px;

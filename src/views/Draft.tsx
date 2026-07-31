@@ -636,6 +636,13 @@ function DraftBoards({ history }: { history: History }) {
                 {/* no round rail or column headers — every cell already names
                     its own slot, so the axes would just restate it */}
                 <div className="dboard">
+                  {/* whose slot each column is: the ORIGINAL holder of the
+                      round-1 pick at that position (via, if it was traded) */}
+                  {Array.from({ length: 12 }, (_, j) => {
+                    const r1 = bySlot.get(`1.${String(j + 1).padStart(2, "0")}`);
+                    const own = r1 ? r1.via ?? r1.drafter : "";
+                    return <div key={`o${j}`} className="ownlbl" title={own}>{own}</div>;
+                  })}
                   {rounds.map(rd => [
                     ...Array.from({ length: 12 }, (_, j) => {
                       const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
