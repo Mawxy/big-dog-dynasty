@@ -32,9 +32,19 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
   const r1teams = new Set(r1.flatMap(g => [g.t1, g.t2]).filter((x): x is number => x != null));
   const semis = winners.filter(g => g.r === 2 && !g.p);
   const final = winners.find(g => g.p === 1) ?? null;
-  // placement games decide a finish, not a round — they live outside the tree
-  const placements = winners.filter(g => g.p && g.p > 1)
-    .slice().sort((a, b) => (a.p ?? 0) - (b.p ?? 0));
+  // Placement games decide a finish, not a round — they hang below the tree
+  // rather than inside it. Each sits in the COLUMN OF THE WEEK IT WAS PLAYED:
+  // the 5th-place game runs in the semifinal week and the 3rd-place game in
+  // the final week, so putting them in a list ordered by placing read as
+  // though 3rd place happened first. Column-aligning them says when.
+  const placements = winners.filter(g => g.p && g.p > 1);
+  /** which round column a placement game belongs under, by its week */
+  const colOf = (g: BracketGame): number => {
+    const peers = winners.filter(x => x.week === g.week && !(x.p && x.p > 1));
+    if (peers.some(x => x.p === 1)) return 3;
+    if (peers.some(x => x.r === 2)) return 2;
+    return 1;
+  };
 
   /** a semi's bye team (never played round 1) and the game that fed its opponent */
   const legs = semis.map(s => {
@@ -94,20 +104,18 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
             </div>
           ))}
           <div className="pbr-final">{final ? game(final, "k champ") : null}</div>
+
+          {/* placement games, each under the round it was played alongside */}
+          {placements.length > 0 && (
+            <div className="pbr-plc-rule">
+              <span>Placement games · settle a finish, nothing advances, no WPA</span>
+            </div>
+          )}
+          {placements.map(g => (
+            <div key={g.p} className={`pbr-plc c${colOf(g)}`}>{game(g, "plc")}</div>
+          ))}
         </div>
       </div>
-
-      {placements.length > 0 && <>
-        <div className="band">
-          <span className="band-label">Placement games</span>
-          <span className="band-note">
-            outside the bracket — these settle a finish, nothing advances from them
-          </span>
-        </div>
-        <div className="pbr-placements">
-          {placements.map(g => <div key={g.p}>{game(g)}</div>)}
-        </div>
-      </>}
     </>
   );
 }

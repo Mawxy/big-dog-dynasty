@@ -35,6 +35,9 @@ jobs:
         run: python scripts/draft_analysis.py
       - name: Trade tracker
         run: python scripts/trade_analysis.py
+      # needs each season's bracket.json + weekly.json from build_site_data
+      - name: Playoff WPA (Shapley, per matchup — drives Playoff MVP)
+        run: python scripts/playoff_wpa.py
       - name: Fetch Sleeper projections (composite input)
         id: fetch_proj
         run: python scripts/fetch_projections.py

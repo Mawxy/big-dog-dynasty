@@ -10,8 +10,13 @@ import { PlayerLink } from "../components/PlayerLink";
 
 interface Perf {
   pid: string; rid: number; pts: number;
+  /** round-weighted WPA — what ranks MVP; null before the engine has run */
+  wpa: number | null; rawWpa: number | null;
   byWeek: Record<string, number>;
+  wpaWeek: Record<string, number>;
 }
+
+const wsgn = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), 3);
 
 /**
  * One postseason as its own page: the bracket, the MVP and top performers,
@@ -31,18 +36,25 @@ export default function PlayoffDetail() {
     jl<BracketFile>(`${season}/bracket.json`).then(setBracket).catch(() => setErr(true));
   }, [season]);
 
-  /** per-player fantasy points across the winners-bracket weeks, credited
-   *  while starting — points, not WAR: WAR is only scored in the regular
-   *  season, so bracket.json carries the playoff points itself */
+  /** Every starter, ranked by round-weighted WPA — win probability added,
+   *  computed per matchup by scripts/playoff_wpa.py. Points ride along as the
+   *  secondary column: WPA says who won the games, points say who scored.
+   *  Falls back to points-order for a season built before the engine ran. */
   const perf = useMemo<Perf[]>(() => {
     if (!bracket?.stars) return [];
-    return Object.entries(bracket.stars)
-      .map(([pid, s]) => ({
-        pid, rid: s.rid, byWeek: s.wk,
-        pts: Object.values(s.wk).reduce((a, b) => a + b, 0),
-      }))
-      .sort((a, b) => b.pts - a.pts);
+    const w = bracket.wpa ?? {};
+    const rows = Object.entries(bracket.stars).map(([pid, s]) => ({
+      pid, rid: s.rid, byWeek: s.wk,
+      pts: Object.values(s.wk).reduce((a, b) => a + b, 0),
+      wpa: w[pid]?.wtot ?? null,
+      rawWpa: w[pid]?.tot ?? null,
+      wpaWeek: w[pid]?.wk ?? {},
+    }));
+    return bracket.wpa
+      ? rows.sort((a, b) => (b.wpa ?? -99) - (a.wpa ?? -99))
+      : rows.sort((a, b) => b.pts - a.pts);
   }, [bracket]);
+  const hasWpa = !!bracket?.wpa;
 
   const weeks = useMemo(
     () => bracket ? [...new Set(bracket.winners.map(g => g.week))].sort((a, b) => a - b) : [],
@@ -136,7 +148,9 @@ export default function PlayoffDetail() {
           ["RUNNER-UP", nameOf(finals?.l), `seed ${seedOf(finals?.l) ?? "—"}`],
           ["THIRD", nameOf(third?.w), `seed ${seedOf(third?.w) ?? "—"}`],
           ["PLAYOFF MVP", mvp ? pInfo(players, mvp.pid)[0] : "—",
-            mvp ? `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}` : "no scored weeks"],
+            !mvp ? "no scored weeks"
+              : mvp.wpa != null ? `${wsgn(mvp.wpa)} WPA · ${nameOf(mvp.rid)}`
+                : `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}`],
         ].map(([k, v, sub]) => (
           <div key={k} className="figcell">
             <div className="figkey">{k}</div>
@@ -151,18 +165,29 @@ export default function PlayoffDetail() {
       {openSec.bracket && <PlayoffBracket season={season} bracket={bracket} />}
 
       {/* (b) MVP & top performers */}
-      {secBand("mvp", "Top performers",
-        "fantasy points across the playoff weeks, credited while starting")}
+      {secBand("mvp", "Top performers", hasWpa
+        ? "win probability added, per matchup — points ride along"
+        : "fantasy points across the playoff weeks, credited while starting")}
       {openSec.mvp && (perf.length ? (
         <table>
-          <thead><tr>
-            <th className="t" style={{ width: "5%" }}>Rk</th>
-            <th className="t" style={{ width: "30%" }}>Player</th>
-            <th className="c" style={{ width: "7%" }}>Pos</th>
-            <th className="t" style={{ width: "22%" }}>For</th>
-            {weeks.map(w => <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>)}
-            <th className="n key" style={{ width: "12%" }}>Points</th>
-          </tr></thead>
+          <thead>
+            <tr className="grp">
+              <th colSpan={4}></th>
+              <th colSpan={weeks.length} className="edge">WPA by week</th>
+              <th colSpan={2} className="edge acc">Playoff total</th>
+            </tr>
+            <tr>
+              <th className="t" style={{ width: "5%" }}>Rk</th>
+              <th className="t" style={{ width: "26%" }}>Player</th>
+              <th className="c" style={{ width: "6%" }}>Pos</th>
+              <th className="t" style={{ width: "19%" }}>For</th>
+              {weeks.map(w => (
+                <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
+              ))}
+              <th className="n key" style={{ width: "11%" }}>WPA</th>
+              <th className="n" style={{ width: "9%" }}>Points</th>
+            </tr>
+          </thead>
           <tbody>
             {perf.slice(0, 10).map((p, i) => {
               const [nm, pos] = pInfo(players, p.pid);
@@ -178,13 +203,24 @@ export default function PlayoffDetail() {
                   </td>
                   <td className="c"><span className={`pos ${pos}`}>{pos}</span></td>
                   <td className="sub">{nameOf(p.rid)}</td>
-                  {weeks.map(w => (
-                    <td key={w} className="fig n">
-                      {p.byWeek[String(w)] == null ? <span className="quiet">—</span>
-                        : fmt(p.byWeek[String(w)], 1)}
-                    </td>
-                  ))}
-                  <td className="fig n key"><b>{fmt(p.pts, 1)}</b></td>
+                  {weeks.map(w => {
+                    const v = p.wpaWeek[String(w)];
+                    const started = p.byWeek[String(w)] != null;
+                    return (
+                      <td key={w} className="fig n">
+                        {v == null
+                          // started, but in a placement game — no WPA by design
+                          ? <span className="quiet">{started ? "·" : "—"}</span>
+                          : <span style={{ color: v > 0.005 ? "var(--good)" : v < -0.005 ? "var(--bad)" : "var(--dim)" }}>
+                            {wsgn(v)}
+                          </span>}
+                      </td>
+                    );
+                  })}
+                  <td className="fig n key">
+                    <b>{p.wpa == null ? "—" : wsgn(p.wpa)}</b>
+                  </td>
+                  <td className="fig quiet n">{fmt(p.pts, 1)}</td>
                 </tr>
               );
             })}
@@ -193,6 +229,14 @@ export default function PlayoffDetail() {
       ) : (
         <div className="empty">No scored playoff weeks yet.</div>
       ))}
+      {openSec.mvp && hasWpa && (
+        <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
+          WPA is the share of his team's win-probability swing a player caused, allocated
+          by Shapley value so every game's swing is fully accounted for. Weighted by round
+          — a final counts 1.5×, a semifinal 1.25× — so a bye can't cost the top seeds the
+          award. A dot marks a week he started only in a placement game, which doesn't count.
+        </div>
+      )}
 
       {/* (c) biggest upset */}
       {secBand("upset", "Biggest upset",
@@ -219,11 +263,12 @@ export default function PlayoffDetail() {
       )}
 
       <div className="footnote">
-        MVP and the performer table credit fantasy points only for weeks the player was
-        in a starting lineup during a winners-bracket game — points, not WAR, because WAR
-        is only scored against the regular season · upsets and superlatives read the
-        winners bracket only — the consolation rounds tell no one's story ·
-        seeds are regular-season, wins then points
+        MVP is the biggest round-weighted win-probability swing, not the most points: WAR
+        doesn't extend to the postseason — it needs a replacement baseline and fungible
+        wins, and weeks 15–17 have neither once half the league stops setting lineups — so
+        each game is modelled on its own, every starter priced off his regular-season form
+        and credited by Shapley value · elimination games only, placement games excluded ·
+        upsets and superlatives read the bracket only · seeds are regular-season, wins then points
       </div>
     </>
   );
