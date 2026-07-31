@@ -54,8 +54,12 @@ jobs:
       # Must follow the projection fetch: an unplayed week's line is built
       # from proj_sleeper.json, so running earlier would quote this week's
       # games off last week's projections.
+      # --snapshot archives THIS week's projections, so the week can be priced
+      # off what was known at the time once it's in the past. Sleeper only
+      # serves current projections; without the archive a past week can only
+      # ever fall back to a positional prior.
       - name: Week odds (pregame win probability per matchup)
-        run: python scripts/week_odds.py
+        run: python scripts/week_odds.py --snapshot
       - name: Recompute WAR projections
         run: python scripts/project_war.py
       - name: Shard per-player projections for the site
