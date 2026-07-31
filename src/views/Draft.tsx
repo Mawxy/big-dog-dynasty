@@ -603,6 +603,13 @@ function DraftBoards({ history }: { history: History }) {
     const sp = name.indexOf(" ");
     return sp < 0 ? [name, " "] : [name.slice(0, sp), name.slice(sp + 1)];
   };
+  /** The startup snaked, and its `slot` field is Sleeper's draft-slot (the
+   *  COLUMN), so even rounds read 2.12 -> 2.01 in pick order. The label
+   *  people mean by "2.01" is pick-in-round, so derive it from pick_no; for
+   *  linear rookie drafts the two coincide. Grid placement stays on `slot`,
+   *  which is what draws the snake weaving back — that part is right. */
+  const label = (r: HistRow) =>
+    `${r.round}.${String(((r.pickNo - 1) % 12) + 1).padStart(2, "0")}`;
 
   return (
     <div style={{ paddingTop: 26 }}>
@@ -637,12 +644,12 @@ function DraftBoards({ history }: { history: History }) {
                       const c = POS_COLOR[r.pos];
                       return (
                         <div key={slot} className="dcell"
-                          title={r.via ? `${r.slot} ${r.name} — ${r.drafter}, via ${r.via}` : undefined}
+                          title={r.via ? `${label(r)} ${r.name} — ${r.drafter}, via ${r.via}` : undefined}
                           style={{
                             borderLeftColor: c ?? "var(--rule)",
                             background: c ? `color-mix(in srgb, ${c} 16%, var(--bg))` : "var(--zebra)",
                           }}>
-                          <div className="pk"><span>{r.slot}</span><span>{r.pos}</span></div>
+                          <div className="pk"><span>{label(r)}</span><span>{r.pos}</span></div>
                           <div className="nm tlink"
                             onClick={e => { e.stopPropagation(); nav(lp(`/player/${r.pid}`)); }}>
                             {split(r.name).map((part, i) => <span key={i}>{part}</span>)}
