@@ -41,12 +41,6 @@ jobs:
       # production over replacement, credited win or lose; reads bracket.json
       - name: Playoff WAR
         run: python scripts/playoff_war.py
-      # pregame line per matchup; needs proj_sleeper.json for unplayed weeks,
-      # so it runs after the projection fetch below would be too late — the
-      # projections it reads are last run's, which is correct for a pregame
-      # number anyway
-      - name: Week odds (pregame win probability)
-        run: python scripts/week_odds.py
       - name: Fetch Sleeper projections (composite input)
         id: fetch_proj
         run: python scripts/fetch_projections.py
@@ -57,6 +51,11 @@ jobs:
           echo "::warning title=Stale projections::fetch_projections.py failed — \
           projections/composite this run are computed from the PREVIOUS inputs. \
           Trade values may be a week stale; investigate before relying on them."
+      # Must follow the projection fetch: an unplayed week's line is built
+      # from proj_sleeper.json, so running earlier would quote this week's
+      # games off last week's projections.
+      - name: Week odds (pregame win probability per matchup)
+        run: python scripts/week_odds.py
       - name: Recompute WAR projections
         run: python scripts/project_war.py
       - name: Shard per-player projections for the site
