@@ -389,7 +389,9 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
         and weeks {weeks[0]}–{weeks[weeks.length - 1]} have neither once half the league stops
         setting lineups — so each game is modelled on its own, every starter priced off his
         regular-season form and credited by Shapley value · elimination games only, placement
-        games excluded · seeds are regular-season, wins then points
+        games excluded · upsets rank by the pregame win probability of the side that won, not
+        by seed — a seed is a regular-season finish and says nothing about the two rosters that
+        actually took the field · seeds shown are regular-season, wins then points
       </div>
     </>
   );
