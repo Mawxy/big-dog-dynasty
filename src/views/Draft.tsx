@@ -5,6 +5,8 @@ import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { POS_COLOR } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
+import { buildHistory, type History } from "../lib/draftHistory";
+import DraftBoardGrid from "../components/DraftBoardGrid";
 import { boxStats } from "../components/BoxMarks";
 const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const ROUNDS = [1, 2, 3, 4];
@@ -190,43 +192,9 @@ export default function Draft() {
     };
   }, [pv]);
 
-  /** every draft, pick by pick, for the history boards — startup included.
-   *  A traded pick appears under BOTH franchises in drafts.json: the
-   *  traded:false entry belongs to the selector, the traded:true one to the
-   *  original owner, which is exactly the "via" note. */
-  const history = useMemo(() => {
-    if (!drafts) return null;
-    const nameOf = (rid: string, season: string): string => {
-      const f = fr?.[rid];
-      if (!f?.seasons.length) return `Roster ${rid}`;
-      return (f.seasons.find(s => s.season === season)
-        ?? f.seasons[f.seasons.length - 1]).name;
-    };
-    const sel = new Map<string, { p: DraftPick; rid: string }>();
-    const orig = new Map<string, string>();
-    for (const [rid, picks] of Object.entries(drafts))
-      for (const p of picks) {
-        const k = `${p.season}|${p.slot}|${p.pid}`;
-        if (p.traded) orig.set(k, rid);
-        else sel.set(k, { p, rid });
-      }
-    const rowsBy: Record<string, HistRow[]> = {};
-    for (const [k, { p, rid }] of sel) {
-      const selector = p.drafted_by != null ? String(p.drafted_by) : rid;
-      const via = orig.get(k);
-      (rowsBy[p.season] ??= []).push({
-        slot: p.slot, round: p.round, pickNo: p.pick_no,
-        pid: p.pid, name: p.name, pos: p.pos, kind: p.kind,
-        drafter: nameOf(selector, p.season),
-        via: via != null && via !== selector ? nameOf(via, p.season) : null,
-      });
-    }
-    for (const rs of Object.values(rowsBy)) rs.sort((a, b) => a.pickNo - b.pickNo);
-    const seasons = Object.keys(rowsBy).sort().reverse();
-    const kindOf: Record<string, string> = {};
-    for (const s of seasons) kindOf[s] = rowsBy[s][0].kind;
-    return { rowsBy, seasons, kindOf };
-  }, [drafts, fr]);
+  /** every draft, pick by pick, for the history boards — startup included */
+  const history = useMemo(
+    () => (drafts ? buildHistory(drafts, fr) : null), [drafts, fr]);
 
   /** our own draft record, for the two tables that name names */
   const league = useMemo(() => {
@@ -575,41 +543,17 @@ export default function Draft() {
 
 /* -------------------------- the draft boards: one collapsible grid per draft */
 
-interface HistRow {
-  slot: string; round: number; pickNo: number;
-  pid: string; name: string; pos: string; kind: string;
-  drafter: string; via: string | null;
-}
-interface History {
-  rowsBy: Record<string, HistRow[]>; seasons: string[]; kindOf: Record<string, string>;
-}
-
 /**
- * Sleeper-style boards: rows are rounds, columns the pick within the round,
- * each cell tinted by the player's position. The one screen where a position
- * tint is allowed as a background — the board IS the position map, there are
- * no figures on it to misread, and the tint is 16% over --bg so names hold
- * contrast. The 3px position spine stays, so the tint is redundant encoding.
+ * The history scope: every draft as a collapsible Sleeper-style board (the
+ * grid itself lives in components/DraftBoardGrid). Each band links to the
+ * draft's own page for returns by year, its pick trades and value tables.
  */
 function DraftBoards({ history }: { history: History }) {
   const nav = useNavigate();
   const lp = useLeaguePath();
-  // newest draft open, the rest collapsed — the startup is 28 rounds tall
+  // newest draft open, the rest collapsed - the startup is 28 rounds tall
   const [openS, setOpenS] = useState<Record<string, boolean>>(
     () => ({ [history.seasons[0]]: true }));
-  /** first name / rest, so EVERY cell is the same two-line shape — a mix of
-   *  one- and two-line names reads as misalignment, not economy */
-  const split = (name: string): [string, string] => {
-    const sp = name.indexOf(" ");
-    return sp < 0 ? [name, " "] : [name.slice(0, sp), name.slice(sp + 1)];
-  };
-  /** The startup snaked, and its `slot` field is Sleeper's draft-slot (the
-   *  COLUMN), so even rounds read 2.12 -> 2.01 in pick order. The label
-   *  people mean by "2.01" is pick-in-round, so derive it from pick_no; for
-   *  linear rookie drafts the two coincide. Grid placement stays on `slot`,
-   *  which is what draws the snake weaving back — that part is right. */
-  const label = (r: HistRow) =>
-    `${r.round}.${String(((r.pickNo - 1) % 12) + 1).padStart(2, "0")}`;
 
   return (
     <div style={{ paddingTop: 26 }}>
@@ -617,8 +561,7 @@ function DraftBoards({ history }: { history: History }) {
         const rows = history.rowsBy[season];
         const rookie = history.kindOf[season] === "rookie";
         const isOpen = !!openS[season];
-        const rounds = [...new Set(rows.map(r => r.round))].sort((a, b) => a - b);
-        const bySlot = new Map(rows.map(r => [r.slot, r]));
+        const nRounds = new Set(rows.map(r => r.round)).size;
         return (
           <div key={season}>
             <button type="button" className="band dband" aria-expanded={isOpen}
@@ -629,47 +572,15 @@ function DraftBoards({ history }: { history: History }) {
                 </span>
                 {season} {rookie ? "rookie draft" : "startup draft"}
               </span>
-              <span className="band-note">{rows.length} picks · {rounds.length} rounds</span>
+              <span className="band-note">
+                {rows.length} picks · {nRounds} rounds ·{" "}
+                <span className="tlink" style={{ color: "var(--acc)" }}
+                  onClick={e => { e.stopPropagation(); nav(lp(`/draft/history/${season}`)); }}>
+                  Open draft page →
+                </span>
+              </span>
             </button>
-            {isOpen && (
-              <div className="dscroll">
-                {/* no round rail or column headers — every cell already names
-                    its own slot, so the axes would just restate it */}
-                <div className="dboard">
-                  {/* whose slot each column is: the ORIGINAL holder of the
-                      round-1 pick at that position (via, if it was traded) */}
-                  {Array.from({ length: 12 }, (_, j) => {
-                    const r1 = bySlot.get(`1.${String(j + 1).padStart(2, "0")}`);
-                    const own = r1 ? r1.via ?? r1.drafter : "";
-                    return <div key={`o${j}`} className="ownlbl" title={own}>{own}</div>;
-                  })}
-                  {rounds.map(rd => [
-                    ...Array.from({ length: 12 }, (_, j) => {
-                      const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
-                      const r = bySlot.get(slot);
-                      if (!r) return <div key={slot} className="dcell empty" />;
-                      const c = POS_COLOR[r.pos];
-                      return (
-                        <div key={slot} className="dcell"
-                          title={r.via ? `${label(r)} ${r.name} — ${r.drafter}, via ${r.via}` : undefined}
-                          style={{
-                            borderLeftColor: c ?? "var(--rule)",
-                            background: c ? `color-mix(in srgb, ${c} 16%, var(--bg))` : "var(--zebra)",
-                          }}>
-                          <div className="pk"><span>{label(r)}</span><span>{r.pos}</span></div>
-                          <div className="nm tlink"
-                            onClick={e => { e.stopPropagation(); nav(lp(`/player/${r.pid}`)); }}>
-                            {split(r.name).map((part, i) => <span key={i}>{part}</span>)}
-                          </div>
-                          <div className="by">{r.drafter}</div>
-                          {r.via && <div className="via">via {r.via}</div>}
-                        </div>
-                      );
-                    }),
-                  ])}
-                </div>
-              </div>
-            )}
+            {isOpen && <DraftBoardGrid rows={rows} />}
           </div>
         );
       })}
@@ -677,7 +588,8 @@ function DraftBoards({ history }: { history: History }) {
         Every draft this league has held, newest first — a row per round, cells
         coloured by position and labelled with their slot. The small line names the
         franchise that made the selection; an amber "via" line marks a pick acquired
-        by trade and names the franchise that originally held it.
+        by trade and names the franchise that originally held it. Open a draft’s
+        page for returns by year, the trades in its picks and its value tables.
       </div>
     </div>
   );

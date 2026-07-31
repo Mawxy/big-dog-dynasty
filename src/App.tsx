@@ -10,6 +10,7 @@ import PlayersHub from "./views/PlayersHub";
 import FranchisesView from "./views/Franchises";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
+import DraftDetail from "./views/DraftDetail";
 import Trades from "./views/Trades";
 import Ledger from "./views/Ledger";
 import Dvi from "./views/Dvi";
@@ -177,8 +178,10 @@ function Shell() {
           <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
           <Route path="/:league/draft" element={<Draft />} />
-          {/* /draft/history is the draft-boards scope of the Draft page */}
+          {/* /draft/history is the draft-boards scope of the Draft page;
+              /draft/history/<season> is that draft's own page */}
           <Route path="/:league/draft/:sub" element={<Draft />} />
+          <Route path="/:league/draft/history/:season" element={<DraftDetailRoute />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
           <Route path="/:league/value" element={<ValueRedirect />} />
@@ -240,6 +243,12 @@ function TeamRedirect() {
   const rid = intParam(p.rid);
   if (rid == null) return <Navigate replace to={`${base}/teams`} />;
   return <Navigate replace to={`${base}/franchise/${rid}${p.tab ? `/${p.tab}` : ""}`} />;
+}
+
+/** key={season} forces a fresh mount per draft, resetting sort/scroll state */
+function DraftDetailRoute() {
+  const season = useParams().season!;
+  return <DraftDetail key={season} />;
 }
 
 function FranchiseRoute() {
