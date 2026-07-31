@@ -60,17 +60,6 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
     () => [...new Set(bracket.winners.map(g => g.week))].sort((a, b) => a - b),
     [bracket]);
 
-  /** week -> its round weight, for the header note. The cells themselves are
-   *  RAW, so they add up to the raw total; the weighting is applied only in
-   *  the MVP score. Showing weighted cells against a weighted total worked,
-   *  but it meant every figure on screen was a scaled version of something
-   *  the reader couldn't see. */
-  const weightOf = useMemo(() => {
-    const m: Record<number, number> = {};
-    for (const g of Object.values(bracket.wp ?? {})) m[g.week] = g.weight;
-    return m;
-  }, [bracket]);
-
   /** worse seed beats better seed, ranked by seed gap then margin */
   const upsets = useMemo(() => bracket.winners
     .filter(g => g.w != null && g.l != null && !(g.p && g.p > 1))
@@ -150,10 +139,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           <th className="c" style={{ width: "6%" }}>Pos</th>
           <th className="t" style={{ width: "17%" }}>For</th>
           {weeks.map(w => (
-            <th key={w} className="n" style={{ width: "9%" }}>
-              WK {w}
-              {(weightOf[w] ?? 1) !== 1 && <span className="wmul">×{weightOf[w]}</span>}
-            </th>
+            <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
           ))}
           <th className="n" style={{ width: "9%" }}>Total</th>
           <th className="n key" style={{ width: "9%" }}>MVP</th>
@@ -270,8 +256,8 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           Shapley value so every game's swing is fully accounted for — which is why the two
           tables mirror: one team's gain is the other's loss. The week columns and Total are
           raw win probability and add up. MVP is the derived award figure: the same WPA with
-          later rounds weighted (the multiplier sits in each header, so a bye can't cost the
-          top seeds the award), rescaled so 100 is the best postseason on record
+          later rounds weighted — a final counts 1.5×, a semifinal 1.25×, so a bye can't cost
+          the top seeds the award — then rescaled so 100 is the best postseason on record
           {anchor?.anchor_name && anchor.anchor_season
             ? ` — ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}. That scale is
           historical, not per-year, so a thin year scores in the forties instead of being
