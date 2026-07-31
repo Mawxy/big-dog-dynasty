@@ -908,17 +908,61 @@ button.dband:hover .band-label { color: var(--txt2); }
   font: 400 11.5px/1.3 var(--sans); color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-/* playoff bracket: three round columns of head-to-head units. Winner takes
-   the accent score; no margin figure — the two scores already state it. */
-.bracket {
-  display: grid; grid-template-columns: repeat(3, minmax(280px, 1fr));
-  gap: 0 26px; padding: 14px var(--pad) 6px; align-items: start;
-  min-width: 990px; border-right: var(--pad) solid transparent;
+/* playoff bracket: round 1 (byes + games) feeding semis, semis feeding the
+   final, each round centred against what feeds it. Connectors are drawn off
+   the cells so the shape holds at any column width. Winner takes the accent
+   score; no margin figure — the two scores already state it. */
+.pbr {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(250px, 1fr));
+  grid-template-rows: auto 1fr 1fr;
+  gap: 0 46px; padding: 14px var(--pad) 10px;
+  min-width: 1020px; border-right: var(--pad) solid transparent;
 }
-.bcol-label {
+.pbr-lbl {
+  grid-row: 1;
   font: 600 12px/1 var(--cond); letter-spacing: .22em; text-transform: uppercase;
-  color: var(--dim); padding: 4px 0 10px;
+  color: var(--dim); padding: 4px 0 12px;
 }
+.pbr-lbl.c1 { grid-column: 1; }
+.pbr-lbl.c2 { grid-column: 2; }
+.pbr-lbl.c3 { grid-column: 3; }
+/* one leg = the two feeders in column 1 and the semi they decide in column 2 */
+.pbr-leg { display: contents; }
+.pbr-feed { grid-column: 1; display: flex; flex-direction: column; justify-content: center; }
+.pbr-semi { grid-column: 2; display: flex; flex-direction: column; justify-content: center; }
+.leg1 .pbr-feed, .leg1 .pbr-semi { grid-row: 2; }
+.leg2 .pbr-feed, .leg2 .pbr-semi { grid-row: 3; }
+.pbr-final {
+  grid-column: 3; grid-row: 2 / span 2;
+  display: flex; flex-direction: column; justify-content: center;
+}
+.pbr-placements {
+  display: flex; flex-wrap: wrap; gap: 0 26px; padding: 14px var(--pad) 4px;
+}
+.pbr-placements > * { flex: 0 1 340px; }
+
+/* connectors: a stub out of each feeder, a stub into each advancing game */
+.bgame.j, .bgame.k { position: relative; }
+.bgame.j::after, .bgame.k::before {
+  content: ""; position: absolute; top: 50%;
+  width: 23px; border-top: 1px solid var(--rule);
+}
+.bgame.j::after { right: -23px; }
+.bgame.k::before { left: -23px; }
+/* the vertical run joining a leg's two feeders into its semi */
+.pbr-feed { position: relative; }
+.pbr-feed::after {
+  content: ""; position: absolute; right: -23px;
+  top: 25%; bottom: 25%; border-right: 1px solid var(--rule);
+}
+
+/* a bye: a real slot in the bracket, the week off the seed earned */
+.bgame.bye { background: var(--deep); border-style: dashed; }
+.bgame.bye .team { color: var(--dim); }
+.bside .pts.rest { font: 600 10.5px/1 var(--cond); letter-spacing: .14em; color: var(--dim3); }
+.bgame.empty-slot { border: 1px dashed var(--hair); min-height: 76px; }
+.bgame.champ { border-color: var(--acc-dim); }
 .bgame { border: 1px solid var(--rule); background: var(--band); margin-bottom: 14px; }
 .bgame.tap { cursor: pointer; }
 .bgame.tap:hover { border-color: #2b3642; }
