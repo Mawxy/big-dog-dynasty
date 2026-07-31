@@ -35,6 +35,8 @@ export default function DraftDetail() {
   const [err, setErr] = useState(false);
   const [sortId, setSortId] = useState("pick");
   const [dir, setDir] = useState(1);
+  // every section collapses; the board is the page's face, so it starts open
+  const [openSec, setOpenSec] = useState<Record<string, boolean>>({ board: true });
 
   const latest = meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : meta.seasons[meta.seasons.length - 1];
@@ -163,6 +165,21 @@ export default function DraftDetail() {
   if (!history) return <div className="empty">Loading draft…</div>;
   if (!rows) return <div className="empty">No {season} draft on record.</div>;
 
+  /** a collapsible section band, same control as the History tab's boards */
+  const secBand = (id: string, label: string, note: string) => (
+    <button type="button" className="band dband" aria-expanded={!!openSec[id]}
+      style={{ marginTop: 22 }}
+      onClick={() => setOpenSec(s => ({ ...s, [id]: !s[id] }))}>
+      <span className="band-label">
+        <span className="caret" style={{ color: openSec[id] ? "var(--acc)" : "var(--dim)" }}>
+          {openSec[id] ? "▾" : "▸"}
+        </span>
+        {label}
+      </span>
+      <span className="band-note">{note}</span>
+    </button>
+  );
+
   return (
     <>
       <div className="screen-head">
@@ -176,30 +193,25 @@ export default function DraftDetail() {
       </div>
 
       {/* (a) the board */}
-      <DraftBoardGrid rows={rows} />
+      {secBand("board", "Draft board", `${rows.length} picks`)}
+      {openSec.board && <DraftBoardGrid rows={rows} />}
 
       {/* (b) WAR by year, pick by pick */}
-      <div className="band" style={{ marginTop: 22 }}>
-        <span className="band-label">Returns by pick</span>
-        <span className="band-note">
-          {played.length ? "each season's WAR vs replacement, wherever he played"
-            : "no seasons played yet"}
-        </span>
-      </div>
-      {played.length ? (
+      {secBand("returns", "Returns by pick",
+        played.length ? "each season's WAR vs replacement, wherever he played"
+          : "no seasons played yet")}
+      {openSec.returns && (played.length ? (
         <DataTable cols={cols} groups={groups} rows={sorted} ctx={{ years: played }}
           rowKey={r => `${r.slot}|${r.pid}`} sortId={sortId} dir={dir}
           onSort={onSort} homeCol="pick" />
       ) : (
         <div className="empty">This class hasn't played a season yet — returns arrive once it has.</div>
-      )}
+      ))}
 
       {/* (c) trades that moved this draft's picks */}
-      <div className="band" style={{ marginTop: 22 }}>
-        <span className="band-label">Trades in its picks</span>
-        <span className="band-note">every trade whose assets included a {season} pick</span>
-      </div>
-      {pickTrades.length ? (
+      {secBand("trades", "Trades in its picks",
+        `${pickTrades.length} trades included a ${season} pick`)}
+      {openSec.trades && (pickTrades.length ? (
         <div className="ledger">
           {pickTrades.map(t => (
             <div key={t.ts} className="trade">
@@ -240,10 +252,16 @@ export default function DraftDetail() {
         </div>
       ) : (
         <div className="empty">No recorded trades moved this draft's picks.</div>
-      )}
+      ))}
 
       {/* (d) best / worst value */}
-      {value && (
+      {secBand("value", "Best & worst value",
+        value ? (value.mode === "exp" ? "vs the slot's expectation" : "vs the round's median WAR")
+          : "arrives once the class has played")}
+      {openSec.value && !value && (
+        <div className="empty">No graded seasons yet — value tables arrive once the class has played.</div>
+      )}
+      {openSec.value && value && (
         <div className="pick-tables" style={{ marginTop: 22 }}>
           {([["Best value", "best", value.best], ["Worst value", "worst", value.worst]] as const).map(([title, cls, list]) => (
             <div key={cls}>
