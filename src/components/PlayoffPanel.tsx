@@ -133,14 +133,14 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
   const wpaTable = (rows: Perf[]) => (
     <table>
       <thead><tr>
-        <th className="t" style={{ width: "10%" }}>Rk</th>
-        <th className="t" style={{ width: "52%" }}>Player</th>
+        <th className="t" style={{ width: "7%" }}>Rk</th>
+        <th className="t" style={{ width: "38%" }}>Player</th>
         {weeks.map(w => (
-          <th key={w} className="n" style={{ width: `${Math.floor(26 / weeks.length)}%` }}>
+          <th key={w} className="n" style={{ width: `${(39 / weeks.length).toFixed(1)}%` }}>
             WK {w}
           </th>
         ))}
-        <th className="n key" style={{ width: "12%" }}>WPA</th>
+        <th className="n key" style={{ width: "16%" }}>WPA</th>
       </tr></thead>
       <tbody>
         {rows.map((p, i) => {
@@ -161,8 +161,10 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                 const v = p.wpaWeek[String(w)];
                 const started = p.byWeek[String(w)] != null;
                 return (
-                  <td key={w} className="n sub">
-                    {v == null ? <span className="quiet">{started ? "·" : "—"}</span> : wsgn(v)}
+                  // `fig`, not `sub`: sub carries text-overflow:ellipsis, which
+                  // clipped these to "+0…" in a half-width table
+                  <td key={w} className="fig quiet n">
+                    {v == null ? (started ? "·" : "—") : wsgn(v)}
                   </td>
                 );
               })}
@@ -291,7 +293,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       {openSec.mvp && (!perf.length ? (
         <div className="empty">No scored playoff weeks yet.</div>
       ) : !hasWpa ? mvpTable(perf.slice(0, N)) : <>
-        <div className="pick-tables">
+        <div className="pick-tables wpa">
           <div>
             <div className="pick-title best">Won it for them</div>
             {wpaTable(top)}

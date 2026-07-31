@@ -828,6 +828,11 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .pick-tables .pos.mini { width: auto; min-width: 26px; padding: 1px 4px; font-size: 11px; flex: 0 0 auto; }
+/* the playoff WPA pair carries per-week columns as well as a total, so it
+   needs more room before wrapping than the two-figure draft tables do —
+   and its numeric cells must never ellipsis away the value */
+.pick-tables.wpa > div { min-width: 520px; }
+.pick-tables.wpa td.fig { overflow: visible; text-overflow: clip; padding-left: 4px; padding-right: 8px; }
 .pick-tables td.vs { border-left: 1px solid var(--rule); font: 700 20px/1 var(--cond); }
 .pick-tables td.raw { font: 600 16px/1 var(--cond); color: var(--txt2); }
 
