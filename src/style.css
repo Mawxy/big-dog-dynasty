@@ -862,18 +862,10 @@ button.dband:hover .band-label { color: var(--txt2); }
    encoding. Zero radius, as everywhere. */
 .dboard {
   display: grid;
-  grid-template-columns: 34px repeat(12, minmax(116px, 1fr));
+  grid-template-columns: repeat(12, minmax(116px, 1fr));
   gap: 2px;
   padding: 12px var(--pad) 6px;
-  min-width: 1460px;
-}
-.dboard .collbl {
-  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2px;
-  font: 600 11px/1 var(--cond); letter-spacing: .14em; color: var(--dim3);
-}
-.dboard .rdlbl {
-  display: flex; align-items: center; justify-content: center;
-  font: 600 12px/1 var(--cond); letter-spacing: .1em; color: var(--dim);
+  min-width: 1430px;
 }
 .dcell {
   border-left: 3px solid var(--rule);

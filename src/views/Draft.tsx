@@ -626,13 +626,10 @@ function DraftBoards({ history }: { history: History }) {
             </button>
             {isOpen && (
               <div className="dscroll">
+                {/* no round rail or column headers — every cell already names
+                    its own slot, so the axes would just restate it */}
                 <div className="dboard">
-                  <div className="rdlbl" />
-                  {Array.from({ length: 12 }, (_, j) => (
-                    <div key={j} className="collbl">{String(j + 1).padStart(2, "0")}</div>
-                  ))}
                   {rounds.map(rd => [
-                    <div key={`r${rd}`} className="rdlbl">{rd}</div>,
                     ...Array.from({ length: 12 }, (_, j) => {
                       const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
                       const r = bySlot.get(slot);
@@ -663,8 +660,8 @@ function DraftBoards({ history }: { history: History }) {
         );
       })}
       <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
-        Every draft this league has held, newest first — rows are rounds, columns the
-        pick within the round, cells coloured by position. The small line names the
+        Every draft this league has held, newest first — a row per round, cells
+        coloured by position and labelled with their slot. The small line names the
         franchise that made the selection; an amber "via" line marks a pick acquired
         by trade and names the franchise that originally held it.
       </div>
