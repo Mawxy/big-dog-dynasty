@@ -8,11 +8,14 @@ import PlayoffBracket from "./PlayoffBracket";
 import { PlayerLink } from "./PlayerLink";
 
 const wsgn = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), 3);
+const wsgn2 = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), 2);
 
 interface Perf {
   pid: string; rid: number; pts: number;
   /** RAW win probability added — the measured quantity; weeks sum to it */
   wpa: number | null;
+  /** playoff WAR — production over replacement, credited win or lose */
+  war: number | null;
   /** the derived 0-100 award scale: round-weighted, anchored historically */
   mvp: number | null;
   byWeek: Record<string, number>;
@@ -48,6 +51,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       pid, rid: s.rid, byWeek: s.wk,
       pts: Object.values(s.wk).reduce((a, b) => a + b, 0),
       wpa: w[pid]?.tot ?? null,
+      war: bracket.war?.[pid]?.war ?? null,
       mvp: w[pid]?.mvp ?? null,
       wpaWeek: w[pid]?.wk ?? {},
       mvpWeek: w[pid]?.mvpwk ?? {},
@@ -191,7 +195,8 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <tr className="grp">
           <th colSpan={4}></th>
           <th colSpan={weeks.length} className="edge">MVP points by week</th>
-          <th colSpan={2} className="edge acc">Playoff total</th>
+          <th colSpan={2} className="edge">Production</th>
+          <th className="edge acc">Award</th>
         </tr>
         <tr>
           <th className="t" style={{ width: "6%" }}>Rk</th>
@@ -201,6 +206,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           {weeks.map(w => (
             <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
           ))}
+          <th className="n" style={{ width: "9%" }}>WAR</th>
           <th className="n" style={{ width: "9%" }}>Points</th>
           <th className="n key" style={{ width: "11%" }}>MVP</th>
         </tr>
@@ -235,6 +241,10 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   </td>
                 );
               })}
+              {/* production, not the award: this one counts in a loss too */}
+              <td className="fig n">
+                {p.war == null ? <span className="quiet">—</span> : wsgn2(p.war)}
+              </td>
               <td className="fig quiet n">{fmt(p.pts, 1)}</td>
               <td className="fig n key">
                 <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
@@ -319,15 +329,21 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         <>
           {mvpTable(ranked.slice(0, N))}
           <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
-            Every elimination game hands out exactly 1.0 win to the side that won it, split
-            by contribution — so a blowout pays the same as a nail-biter, which WPA can’t do,
-            since a game never in doubt has almost no probability left to hand out even though
-            those players are the reason it wasn’t in doubt. Each game’s share is then weighted
-            by round — the final counts double a quarterfinal and half again a semifinal, so a
-            bye can’t cost the top seeds the award — and put on a scale where 100 is the best
-            postseason on record
+<b>MVP</b>: every elimination game hands out exactly 1.0 win to the side that won it,
+            split by contribution — so a blowout pays the same as a nail-biter, which WPA can’t
+            do, since a game never in doubt has almost no probability left to hand out even
+            though those players are the reason it wasn’t in doubt. Each game’s share is then
+            weighted by round — the final counts double a quarterfinal and half again a
+            semifinal, so a bye can’t cost the top seeds the award — and put on a scale where
+            100 is the best postseason on record
             {anchor?.anchor_name && anchor.anchor_season
-              ? `: ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}.
+              ? `: ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}.{" "}
+            <b>WAR</b> is the one figure here that doesn’t care who won: points above what a
+            replacement-level player at the same position scored that week, converted to wins.
+            A big game in a loss earns WAR and nothing else — which is the whole reason it’s
+            on the page. Its points-per-win rate is imported from the regular season, because
+            the consolation bracket’s unset lineups inflate the playoff-week spread and would
+            quietly discount every performance.
           </div>
         </>
       )}

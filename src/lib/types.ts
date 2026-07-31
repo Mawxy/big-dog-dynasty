@@ -324,6 +324,14 @@ export interface BracketFile {
     week: number; r: number; weight: number;
     t1: number; t2: number; pre_t1: number; mu_t1: number; mu_t2: number;
   }>;
+  /** pid -> playoff WAR: points above positional replacement converted to
+   *  wins, credited WIN OR LOSE. The one figure here that isn't conditioned
+   *  on the result — see scripts/playoff_war.py */
+  war?: Record<string, {
+    rid: number; war: number; pts: number; par: number; gp: number;
+    wk: Record<string, number>;
+  }>;
+  war_meta?: { sigma: number; sigma_source: string; scope: string; note: string };
   wpa_meta?: {
     round_weight: Record<string, number>;
     prior_n: number; min_sd: number; scope: string;
