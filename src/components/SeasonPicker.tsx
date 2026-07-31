@@ -21,6 +21,14 @@ export default function SeasonPicker({ allTime = true }: { allTime?: boolean }) 
   const view = parts[2] || "players";
   const cur = parts[3] || seasonSeg(meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : meta.seasons[meta.seasons.length - 1]);
+  // "Week 12" and "the playoffs" are the same question asked of a different
+  // year, so the season switch carries that segment across instead of dropping
+  // the reader back on the view's index. Only the weekly view has a week
+  // there — elsewhere a fourth segment is season-specific (a roster id), which
+  // would mean something different or nothing at all in the new season. A
+  // deeper segment still (one matchup) is always left behind: that pairing
+  // belongs to the season being left.
+  const carry = view === "weekly" && parts[4] ? `/${parts[4]}` : "";
   const label = cur.toLowerCase() === "all" ? "All-time" : cur;
   // The chip is a SPAN that carries the text, with the <select> laid over it
   // transparently. A bare styled <select> sizes itself to its text without
@@ -33,9 +41,7 @@ export default function SeasonPicker({ allTime = true }: { allTime?: boolean }) 
     <span className="season-chip">
       <span className="season-chip-label">{label}</span>
       <select value={cur} aria-label="Season"
-        // deeper segments (a team, a week) belong to the season being left, so
-        // changing season returns to the view's index rather than carrying them
-        onChange={e => nav(lp(`/${view}/${e.target.value}`))}>
+        onChange={e => nav(lp(`/${view}/${e.target.value}${carry}`))}>
         {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
         {allTime && <option value="all">All-time</option>}
       </select>

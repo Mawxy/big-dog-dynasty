@@ -142,6 +142,9 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
   const [weekly, setWeekly] = useState<WeeklyT | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
   const [bracket, setBracket] = useState<BracketFile | null>(null);
+  /** the bracket fetch has settled, either way — so the playoffs scope can
+   *  tell "still loading" from "this season has no bracket" */
+  const [brDone, setBrDone] = useState(false);
   const [err, setErr] = useState(false);
   const [reload, setReload] = useState(0);
   const nav = useNavigate();
@@ -152,9 +155,11 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
     let live = true;
     setErr(false);
     setBracket(null);
+    setBrDone(false);
     jl<BracketFile>(`${season}/bracket.json`)
       .then(b => { if (live) setBracket(b); })
-      .catch(() => { /* no bracket yet — the chip just doesn't appear */ });
+      .catch(() => { /* no bracket yet — the chip just doesn't appear */ })
+      .finally(() => { if (live) setBrDone(true); });
     Promise.all([
       jl<WeeklyT>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -193,11 +198,17 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
       back={() => nav(lp(`/weekly/${seasonSeg(season)}/${week}`))} />;
 
   if (playoffs)
-    return <BracketScope season={season} bracket={bracket}
-      allWeeks={allWeeks} hasBracket={!!bracket} />;
+    return <BracketScope season={season} bracket={bracket} loaded={brDone}
+      allWeeks={allWeeks} />;
 
   // no week in the URL -> the newest played week; preseason -> the first fixture
-  const wk = week ?? (played.size ? Math.max(...played) : allWeeks[0]);
+  const want = week ?? (played.size ? Math.max(...played) : allWeeks[0]);
+  // A week carried over from another season's chip row may not exist here —
+  // seasons differ in length. Land on the nearest week that does rather than
+  // on an empty page the reader has to navigate out of.
+  const wk = allWeeks.includes(want) ? want
+    : allWeeks.reduce((a, b) =>
+      Math.abs(b - want) < Math.abs(a - want) ? b : a, allWeeks[0]);
   return <WeekDetail wk={wk} season={season} data={data} weekly={weekly} mw={mw}
     players={players} allWeeks={allWeeks} hasBracket={!!bracket} />;
 }
@@ -223,8 +234,8 @@ function WeekChips({ season, allWeeks, on, hasBracket }: {
 }
 
 /** the season's last scope: its bracket, with the year's own page a click away */
-function BracketScope({ season, bracket, allWeeks, hasBracket }: {
-  season: string; bracket: BracketFile | null; allWeeks: number[]; hasBracket: boolean;
+function BracketScope({ season, bracket, allWeeks, loaded }: {
+  season: string; bracket: BracketFile | null; allWeeks: number[]; loaded: boolean;
 }) {
   const nav = useNavigate();
   const lp = useLeaguePath();
@@ -244,10 +255,15 @@ function BracketScope({ season, bracket, allWeeks, hasBracket }: {
       <div style={{ padding: "2px var(--pad) 0" }}>
         <div className="page-title">Playoffs</div>
       </div>
-      <WeekChips season={season} allWeeks={allWeeks} on="playoffs" hasBracket={hasBracket} />
-      {bracket
-        ? <PlayoffPanel season={season} bracket={bracket} />
-        : <div className="empty">No bracket for this season yet.</div>}
+      {/* always show the chip here: it is the scope being viewed, and hiding
+          it mid-refetch would make the active chip blink out on a season
+          switch (and strand a season that genuinely has no bracket) */}
+      <WeekChips season={season} allWeeks={allWeeks} on="playoffs" hasBracket />
+      {bracket ? <PlayoffPanel season={season} bracket={bracket} />
+        : !loaded ? <div className="empty">Loading the bracket…</div>
+          : <div className="empty">
+            No bracket for {season} — pick a week above, or another season.
+          </div>}
     </>
   );
 }
