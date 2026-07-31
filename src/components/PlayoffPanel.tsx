@@ -297,7 +297,10 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           ["PLAYOFF MVP", mvp ? pInfo(players, mvp.pid)[0] : "—",
             !mvp ? "no scored weeks"
               : mvp.mvp != null
-                ? `${fmt(mvp.mvp, 1)} MVP · ${wsgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
+                // MVP+ is the figure worth carrying here: the season score is
+                // always 100 for whoever leads it, so it says nothing on its own
+                ? `${mvp.mvpp != null ? `${fmt(mvp.mvpp, 0)} MVP+ · ` : ""}`
+                  + `${wsgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
                 : `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}`],
         ].map(([k, v, sub]) => (
           <div key={k} className="figcell">
