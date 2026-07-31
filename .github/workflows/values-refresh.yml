@@ -34,13 +34,16 @@ jobs:
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
+          # heal a stale conflicted rebase (detached HEAD) before staging anything
+          git rebase --abort 2>/dev/null || true
           # values*.json and ecr.json are global; value_bridge.json is league-scoped
           git add data/values.json data/values_history.json data/ecr.json data/leagues/*/value_bridge.json
           git diff --cached --quiet && { echo "no value changes to commit"; exit 0; }
           git commit -m "Market values $(date -u +%F)"
           # retry rebase+push so a concurrent push doesn't drop this run
           for i in 1 2 3 4 5; do
-            git pull --rebase --autostash && git push && exit 0
+            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            git rebase --abort 2>/dev/null || true
             echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
           done
           echo "push failed after 5 attempts"; exit 1

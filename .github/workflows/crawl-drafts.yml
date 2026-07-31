@@ -38,11 +38,14 @@ jobs:
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
+          # heal a stale conflicted rebase (detached HEAD) before staging anything
+          git rebase --abort 2>/dev/null || true
           git add data/draft_signals.json data/rookie_pick_corpus.json
           git diff --cached --quiet && { echo "no changes"; exit 0; }
           git commit -m "Crawl drafts $(date -u +%FT%H:%MZ)"
           for i in 1 2 3 4 5; do
-            git pull --rebase --autostash && git push && exit 0
+            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            git rebase --abort 2>/dev/null || true
             echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
           done
           echo "push failed after 5 attempts"; exit 1

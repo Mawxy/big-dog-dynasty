@@ -147,6 +147,11 @@ def git_push(paths, message):
                     and run("push").returncode == 0):
                 print(f"  pushed: {message}", file=sys.stderr, flush=True)
                 return
+            # A conflicted rebase stops halfway and leaves HEAD detached; left
+            # alone it poisons every later push AND the end-of-job commit step
+            # ("You are not currently on a branch"). Abort restores the branch
+            # and the autostash; a no-op when the failure was the push itself.
+            run("rebase", "--abort")
             time.sleep(i * 5)
         print("  periodic push failed; end-of-run commit is the backstop",
               file=sys.stderr, flush=True)

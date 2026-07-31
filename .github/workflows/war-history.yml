@@ -47,12 +47,15 @@ jobs:
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
+          # heal a stale conflicted rebase (detached HEAD) before staging anything
+          git rebase --abort 2>/dev/null || true
           git add nfl_history
           git diff --cached --quiet && { echo "no history changes to commit"; exit 0; }
           git commit -m "WAR history rebuild ($START-$END)"
           # retry rebase+push so a concurrent push doesn't drop this run
           for i in 1 2 3 4 5; do
-            git pull --rebase --autostash && git push && exit 0
+            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
+            git rebase --abort 2>/dev/null || true
             echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
           done
           echo "push failed after 5 attempts"; exit 1
