@@ -30,7 +30,7 @@ from leaguepaths import DataDir
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = DataDir(ROOT / "data")
-LEAGUE_ID = "1312221243742621696"          # Big Dog Dynasty
+LEAGUE_ID = "1312221243742621696"          # Big Dog Dynasty (registry fallback)
 V1 = "https://api.sleeper.app/v1"
 PROJ_HOST = "https://api.sleeper.app"       # projections live off /v1
 POSITIONS = ["QB", "RB", "WR", "TE"]
@@ -74,17 +74,31 @@ def score_line(stats, scoring, pos):
     return pts
 
 
+def default_league_id():
+    """The registry default's CURRENT-season league_id — scoring settings must
+    come from the live season, and Sleeper mints a new id every year. Falls
+    back to the hardcoded id when the registry or field is absent."""
+    try:
+        reg = json.loads((ROOT / "data" / "leagues.json").read_text(encoding="utf-8"))
+        entry = next(l for l in reg["leagues"] if l["key"] == reg.get("default"))
+        return entry.get("currentLeagueId") or LEAGUE_ID
+    except (OSError, ValueError, KeyError, StopIteration):
+        return LEAGUE_ID
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", type=int, default=None, help="default: current from /state/nfl")
-    ap.add_argument("--league-id", default=LEAGUE_ID)
+    ap.add_argument("--league-id", default=None,
+                    help="default: the registry's current-season league id")
     args = ap.parse_args()
+    league_id = args.league_id or default_league_id()
 
     season = args.season
     if season is None:
         season = int(get(f"{V1}/state/nfl")["season"])
 
-    league = get(f"{V1}/league/{args.league_id}")
+    league = get(f"{V1}/league/{league_id}")
     scoring = league.get("scoring_settings") or {}
     if not scoring:
         sys.exit("no scoring_settings on league; cannot score projections")
@@ -119,7 +133,7 @@ def main():
     if empty:
         sys.exit(f"no projections returned for {', '.join(empty)} "
                  f"(season {season}) — not yet published? refusing to overwrite {dest}")
-    result = {"meta": {"season": season, "league_id": args.league_id,
+    result = {"meta": {"season": season, "league_id": league_id,
                        "league_games": LEAGUE_GAMES, "players": len(out),
                        "note": "pts13 = league-scored projected points scaled to 13 games"},
               "players": out}

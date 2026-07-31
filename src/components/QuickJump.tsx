@@ -65,7 +65,7 @@ export default function QuickJump() {
       {open && opts.length > 0 && (
         <div style={{
           position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 30,
-          background: "var(--card)", border: "1px solid var(--line)", borderRadius: 10,
+          background: "var(--card)", border: "1px solid var(--line)",
           minWidth: 235, maxWidth: 320, overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,.35)",
         }}>
           {opts.map((o, i) => (

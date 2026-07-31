@@ -1,32 +1,43 @@
 import { useEffect, useState } from "react";
-import type { Ownership, PlayersMin, Team, Weekly, WeeklyRow } from "../lib/types";
+import { useNavigate } from "react-router-dom";
+import type { Absences, PlayersMin, Team, Weekly, WeeklyRow } from "../lib/types";
 import { jl } from "../lib/data";
-import { fmt, sgn, clsOf, sd, mean } from "../lib/stats";
+import { fmt, sgn, sd, mean, quart } from "../lib/stats";
 import { pInfo, ownerOf } from "../lib/league";
+import { useLeaguePath } from "../lib/context";
 import PosBadge from "./PosBadge";
-import BoxPlot from "./BoxPlot";
-import OwnershipHistory from "./OwnershipHistory";
-import { PlayerLink } from "./PlayerLink";
+import WeekGrid from "./WeekGrid";
 
 interface Props { pid: string; season: string; teams: Team[]; players: PlayersMin }
 
-/** Quick-look dropdown panel for one season (row expansion). */
+/**
+ * Row drawer (1E): one season at a glance. Six figures and a link to the full
+ * player page on the left, the fixed 14-cell week strip on the right.
+ *
+ * The drawer answers "was this season good, and when". The signed reference
+ * columns (vs avg / vs replacement) and ownership history deliberately live on
+ * the player page, not here — six signed columns is a reference table, and
+ * ownership is a career fact, not a season one.
+ */
 export default function PlayerPanel({ pid, season, teams, players }: Props) {
   const [wks, setWks] = useState<WeeklyRow[] | null>(null);
-  const [own, setOwn] = useState<Ownership>({});
+  const [abs, setAbs] = useState<Record<string, string>>({});
   const [err, setErr] = useState(false);
+  const nav = useNavigate();
+  const lp = useLeaguePath();
+
   useEffect(() => {
     let live = true;
     setErr(false);
     (async () => {
       try {
-        const [weekly, ownership] = await Promise.all([
+        const [weekly, absences] = await Promise.all([
           jl<Weekly>(`${season}/weekly.json`),
-          jl<Ownership>("ownership.json").catch(() => ({} as Ownership)),
+          jl<Absences>(`${season}/absence.json`).catch(() => ({} as Absences)),
         ]);
         if (!live) return;
         setWks((weekly[pid] || []).slice().sort((a, b) => a[0] - b[0]));
-        setOwn(ownership);
+        setAbs(absences[pid] || {});
       } catch {
         // a transient weekly.json failure otherwise hangs on "loading…" forever
         if (live) setErr(true);
@@ -35,44 +46,54 @@ export default function PlayerPanel({ pid, season, teams, players }: Props) {
     return () => { live = false; };
   }, [pid, season]);
 
-  if (err) return <div style={{ color: "var(--dim)" }}>couldn't load — reopen to retry</div>;
-  if (!wks) return <div style={{ color: "var(--dim)" }}>loading…</div>;
-  const [nm, pos] = pInfo(players, pid);
+  if (err) return <div className="empty">couldn't load — reopen to retry</div>;
+  if (!wks) return <div className="empty">loading…</div>;
+
+  const [nm, pos, nfl] = pInfo(players, pid);
   const owner = ownerOf(teams)[pid];
-  const pts = wks.map(w => w[1]);
+  // the strip is the 14 regular-season cells; playoff rows never enter it
+  const reg = wks.filter(w => w[0] <= 14);
+  const pts = reg.map(w => w[1]);
+  const med = pts.length ? quart(pts.slice().sort((a, b) => a - b), 0.5) : 0;
+  const waa = reg.reduce((s, w) => s + w[4], 0);
+  const war = reg.reduce((s, w) => s + w[5], 0);
+
+  const figs: [string, string, boolean][] = [
+    ["Games", String(pts.length), false],
+    ["PPG", fmt(mean(pts), 1), false],
+    ["Volatility", fmt(sd(pts), 1), false],
+    ["Median", fmt(med, 1), false],
+    ["WAA", sgn(waa), false],
+    ["WAR", sgn(war), true],
+  ];
+
   return (
-    <>
-      <div className="wkhead">
-        <b><PlayerLink pid={pid} name={nm} /></b> <PosBadge pos={pos} />
-        {" · "}{owner ? <>owned by <span className="own">{owner}</span></> : "free agent"}
-        {pts.length > 0 && <> · {pts.length} games, {fmt(mean(pts), 1)} ppg, σ {fmt(sd(pts), 1)}</>}
-      </div>
-      <div className="wkflex">
-        <div>
-          {wks.length ? (
-            <div className="wkwrap">
-              <table className="wktbl">
-                <thead><tr><th>Week</th><th>Pts</th><th>vs Avg</th><th>vs Repl</th><th>WAA</th><th>WAR</th></tr></thead>
-                <tbody>
-                  {wks.map(w => (
-                    <tr key={w[0]}>
-                      <td>W{w[0]}</td><td><b>{fmt(w[1], 1)}</b></td>
-                      <td className={clsOf(w[2])}>{sgn(w[2], 1)}</td>
-                      <td className={clsOf(w[3])}>{sgn(w[3], 1)}</td>
-                      <td className={clsOf(w[4])}>{sgn(w[4])}</td>
-                      <td className={clsOf(w[5])}>{sgn(w[5])}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : <div style={{ color: "var(--dim)" }}>no weekly data</div>}
+    <div className="drawer">
+      <div className="drawer-body">
+        <div style={{ flex: "0 0 auto", minWidth: 200 }}>
+          <div className="drawer-title">{nm}</div>
+          <div className="drawer-sub" style={{ marginTop: 4 }}>
+            <PosBadge pos={pos} />{" "}
+            {nfl && <>{nfl} · </>}{season} · {owner ?? "free agent"}
+          </div>
+          <div className="drawer-figs">
+            {figs.map(([k, v, acc]) => (
+              <div key={k}>
+                <div className="k">{k}</div>
+                <div className={acc ? "v acc" : "v"}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <button type="button" className="dlink" style={{ marginLeft: 0 }}
+            onClick={() => nav(lp(`/player/${pid}`))}>
+            Full player page
+          </button>
         </div>
-        <div className="wkright">
-          <BoxPlot values={pts} label="Weekly points spread" />
-          <OwnershipHistory events={own[pid] || []} />
+        <div style={{ flex: "1 1 440px", minWidth: 320 }}>
+          <div className="chart-label">{season} week by week · regular season</div>
+          <WeekGrid weeks={reg} absent={abs} />
         </div>
       </div>
-    </>
+    </div>
   );
 }

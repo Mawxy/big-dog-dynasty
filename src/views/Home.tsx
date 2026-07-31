@@ -1,482 +1,560 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Franchises, PickValues, PicksOwned, ProjectionsFile, Team,
-  Trade, TradesPayload,
+  CviFile, DviFile, Franchises, Matchups, ProjectionsFile, Team,
+  Trade, TradesPayload, Values,
 } from "../lib/types";
-import { j, jl, jDaily, jlDaily } from "../lib/data";
-import { fmt, sgn } from "../lib/stats";
+import { jDaily, jl, jlDaily } from "../lib/data";
+import { fmt, sgn, mean, normCdf, normInv } from "../lib/stats";
+import { DEFAULT_LINEUP, optimalLineup, pInfo } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
-import { computePostures } from "../lib/rosterModel";
-import { DEFAULT_LINEUP, optimalLineup } from "../lib/league";
-import { readTrades, tradeWhen } from "../components/TradeCard";
+import { readTrades, tradeWhen } from "../lib/trades";
 import { PlayerLink } from "../components/PlayerLink";
 import PosBadge from "../components/PosBadge";
 
-const ord = (n: number) => {
-  const s = ["th", "st", "nd", "rd"], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
-};
+const MODULE_ROWS = 5;
+const REG_WEEKS = 14;
 
-/**
- * A traded asset as one line: what changed hands, then what it became.
- *
- * Trade labels arrive as "<asset> → <resolution>", e.g. "2024 2nd → Roman
- * Wilson". The head is the trade; the tail is only how it turned out later, and
- * printing the tail alone describes a deal nobody made. Parenthesising the tail
- * matches how an unresolved pick already reads — "2028 4th (not yet drafted)" —
- * so both forms are "the asset, then a note about it".
- */
-const assetLabel = (label: string) => {
-  const [head, tail] = label.split(" → ");
-  return tail ? `${head} (${tail})` : head;
-};
-const RECENT_TRADES = 5;
-const MOVERS = 5;
-const RECENT_MOVES = 5;
-/** the window the movers list reports; matches the player page's mid window */
-const MOVER_DAYS = 14;
-
-interface Col {
-  key: string; label: string; cls: string;
-  val: (r: Row) => number | string;
-  /** sort as a string rather than a number */
-  text?: boolean;
-}
-
-interface Row {
-  rid: number; name: string; manager: string;
-  finish: number | null; record: string; lastSeason: string | null;
-  war: number;
-  /** WAR per season actually played, oldest first */
-  hist: { season: string; war: number }[];
-  age: number | null;
-  /** best finish across every season played, and when it happened */
-  best: number | null; bestSeason: string | null;
-  /** every season the franchise has played */
-  allW: number; allL: number; allT: number; winPct: number;
-  titles: number;
+/** pad a module list to a fixed row count so paired modules measure equal */
+function padTo<T>(a: T[], n: number): (T | null)[] {
+  return [...a.slice(0, n), ...Array(Math.max(0, n - a.length)).fill(null)];
 }
 
 /**
- * Per-season WAR bars, on one scale shared by every franchise — BOTH axes.
- *
- * Vertical: a single league-wide max, so a taller bar always means a better
- * season no matter whose row it is on.
- *
- * Horizontal: a fixed season axis, passed in rather than derived per row. Every
- * franchise renders the same seasons at the same x positions, so column three
- * is the same year on all twelve rows and bar widths never differ. Deriving the
- * axis per row happens to look right while everyone has played the same years
- * and silently breaks the moment one has not — a franchise that joined a season
- * late would draw wider bars against different years, directly under a row it
- * appears to line up with.
- *
- * The baseline sits at the bottom unless some franchise has actually posted a
- * negative season. A season's lineup WAR is a sum over ~14 weeks of starters and
- * in practice never goes below zero — all 48 played seasons here run 0.04 to
- * 9.28 — so centring on zero the way the weekly chart does would spend half the
- * height on a region nothing can reach. The zero floor is kept honest: bars are
- * not truncated to exaggerate differences, they just use the whole box.
+ * League front page (2B): champion + title race hero, power rankings by
+ * starter DVI, then two module rows — value plays beside market movers,
+ * recent waivers beside recent trades. Paired modules share row count and
+ * cell line count so they measure equal.
  */
-function SeasonWar({ hist, axis, max, min }: {
-  hist: { season: string; war: number }[];
-  axis: string[]; max: number; min: number;
-}) {
-  const W = 108, H = 34, PAD = 2;
-  const signed = min < 0;
-  const zero = signed ? H * (max / (max - min)) : H;      // y of the baseline
-  const span = signed ? H : H - PAD;
-  const step = W / Math.max(1, axis.length);
-  const bw = Math.min(14, Math.max(4, step - 4));
-  const byS = new Map(hist.map(h => [h.season, h.war]));
-  return (
-    <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`}
-      style={{ overflow: "visible", verticalAlign: "middle" }}>
-      <title>{axis.map(sn => `${sn}: ${byS.has(sn) ? fmt(byS.get(sn)!, 2) : "—"}`).join("\n")}</title>
-      <line x1={0} y1={zero} x2={W} y2={zero} stroke="#2b3642" strokeWidth={1} />
-      {axis.map((sn, i) => {
-        const v = byS.get(sn);
-        if (v == null) return null;                       // no season: leave the slot empty
-        const frac = Math.abs(v) / (signed ? Math.max(max, -min) : max);
-        const bh = Math.max(1, frac * (signed ? span / 2 : span));
-        return <rect key={sn} x={(i * step + (step - bw) / 2).toFixed(1)}
-          y={(v >= 0 ? zero - bh : zero).toFixed(1)} width={bw} height={bh.toFixed(1)}
-          fill={v >= 0 ? "var(--acc)" : "var(--bad)"} />;
-      })}
-    </svg>
-  );
-}
-
 export default function Home() {
-  const { meta, league } = useLeague();
+  const { meta, players, league } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
   const [fr, setFr] = useState<Franchises | null>(null);
   const [proj, setProj] = useState<ProjectionsFile | null>(null);
   const [teams, setTeams] = useState<Team[] | null>(null);
-  const [pv, setPv] = useState<PickValues | null>(null);
-  const [owned, setOwned] = useState<PicksOwned | null>(null);
+  const [mw, setMw] = useState<Matchups | null>(null);
+  const [dvi, setDvi] = useState<DviFile | null>(null);
+  const [cvi, setCvi] = useState<CviFile | null>(null);
   const [trades, setTrades] = useState<Trade[]>([]);
-  const [hist, setHist] = useState<Record<string, [string, number, number][]> | null>(null);
-  const [sortKey, setSortKey] = useState("war");
-  const [dir, setDir] = useState<1 | -1>(1);
+  const [vals, setVals] = useState<Values | null>(null);
+
+  const rosterSeason = league.rosterSeason && league.seasons.includes(league.rosterSeason)
+    ? league.rosterSeason : league.seasons[league.seasons.length - 1];
 
   useEffect(() => {
     let live = true;
     const set = <T,>(f: (v: T) => void) => (v: T) => { if (live) f(v); };
     jl<Franchises>("franchises.json").then(set(setFr)).catch(() => {});
-    jl<ProjectionsFile>("projections.json").then(p => {
-      if (!live) return;
-      setProj(p);
-      jl<Team[]>(`${p.meta.roster_season}/teams.json`).then(set(setTeams)).catch(() => {});
-    }).catch(() => {});
-    jlDaily<PickValues>("pick_values.json").then(set(setPv)).catch(() => {});
-    jl<PicksOwned>("picks_owned.json").then(set(setOwned)).catch(() => {});
+    jl<ProjectionsFile>("projections.json").then(set(setProj)).catch(() => {});
+    jl<Team[]>(`${rosterSeason}/teams.json`).then(set(setTeams)).catch(() => {});
+    jl<Matchups>(`${rosterSeason}/matchups.json`).then(set(setMw)).catch(() => {});
+    jlDaily<DviFile>("dvi.json").then(set(setDvi)).catch(() => {});
+    jlDaily<CviFile>("cvi.json").then(set(setCvi)).catch(() => {});
     jl<TradesPayload>("trades.json")
       .then(p => { if (live) setTrades(readTrades(p).trades); }).catch(() => {});
-    j<Record<string, [string, number, number][]>>("data/values_history.json")
-      .then(set(setHist)).catch(() => {});
+    jDaily<Values>("data/values.json").then(set(setVals)).catch(() => {});
     return () => { live = false; };
-  }, []);
+  }, [league, rosterSeason]);
 
-  /** the franchise board — one row per franchise */
-  const rows = useMemo<Row[] | null>(() => {
-    if (!fr || !proj || !teams) return null;
-    const season = String(proj.meta.roster_season);
-    const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
+  const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
 
-    // Postures are used ONLY for the WAR-weighted lineup age now that the
-    // window column is gone. They need pick_values + picks_owned, so the board
-    // renders without them and simply shows no age until they land.
-    const postures = pv
-      ? computePostures(proj.players, teams, pv, owned, +season)
-      : [];
-    const warOf = new Map(postures.map(p => [p.rid, p]));
+  /** the reigning champion's full season row */
+  const champ = useMemo(() => {
+    if (!fr || !league.latest) return null;
+    for (const [rid, f] of Object.entries(fr)) {
+      const sn = f.seasons.find(s => s.season === league.latest && s.finish === 1);
+      if (sn) return { rid: +rid, s: sn };
+    }
+    return null;
+  }, [fr, league]);
 
+  /**
+   * Per-franchise projected strength, record and starter age for the roster
+   * season: optimal lineup on year-one composite WAR, win probabilities from
+   * the published schedule via the same z-score conversion the standings
+   * page uses (byes ignored — this is a front-page read, not the model).
+   */
+  const power = useMemo(() => {
+    if (!teams || !proj) return null;
     const byPid = new Map(proj.players.map(p => [p.pid, p]));
-    // Projected WAR = what this roster's best legal lineup produces in the
-    // roster season. Deliberately NOT posture.s[0], which also folds in owned
-    // picks' expected production — that answers "how strong is the franchise",
-    // a different question from "how good is the team you can field".
-    const projWar = new Map(teams.map(t => {
-      const pool = t.players.map(pid => byPid.get(pid)).filter(Boolean)
-        .map(p => ({ id: p!.pid, pos: p!.pos, war: Math.max(0, p!.composite?.[0] ?? 0) }));
+    const built = teams.map(t => {
+      const pool = t.players.map(p => byPid.get(p))
+        .filter((p): p is NonNullable<typeof p> => !!p)
+        .map(p => ({ id: p.pid, pos: p.pos, war: p.composite?.[0] ?? 0, age: p.age }));
       const { slots } = optimalLineup(pool, lineup);
-      return [t.roster_id, slots.reduce((a, sl) => a + (sl.player?.war ?? 0), 0)];
-    }));
-    // the last completed season is what "finish" means — not the roster season,
-    // which in the offseason has no games and every team at 0-0
-    const done = league.latest;
-    return teams.map(t => {
-      const rid = t.roster_id;
-      const f = fr[String(rid)];
-      const cur = f?.seasons.find(s => s.season === season) ?? f?.seasons[f.seasons.length - 1];
-      const last = f?.seasons.find(s => s.season === done);
-      const p = warOf.get(rid);
-      // all-time is every season on record, including the unplayed current one
-      // (0-0, so it costs nothing and keeps the column honest as games land)
-      const all = (f?.seasons ?? []).reduce(
-        (a, sn) => ({ w: a.w + sn.wins, l: a.l + sn.losses, t: a.t + (sn.ties || 0) }),
-        { w: 0, l: 0, t: 0 });
-      const games = all.w + all.l + all.t;
-      // best finish, and the most recent season it was achieved — a franchise
-      // that has won twice should read as its latest title, not its first
-      const bestSn = (f?.seasons ?? []).filter(sn => sn.finish != null)
-        .reduce<typeof f.seasons[number] | null>(
-          (b, sn) => !b || sn.finish! < b.finish! || (sn.finish === b.finish && sn.season > b.season)
-            ? sn : b, null);
-      const best = bestSn?.finish ?? null;
-      return {
-        rid, name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
-        finish: last?.finish ?? null,
-        record: last ? `${last.wins}-${last.losses}${last.ties ? `-${last.ties}` : ""}` : "—",
-        lastSeason: last?.season ?? done ?? null,
-        war: projWar.get(rid) ?? 0,
-        // played seasons only — an unplayed season sits at 0.0 WAR and would
-        // draw as a collapsed bar, reading as a bad year rather than no year
-        hist: (f?.seasons ?? [])
-          .filter(sn => sn.wins + sn.losses > 0)
-          .map(sn => ({ season: sn.season, war: sn.war })),
-        age: p?.age ?? null,
-        best, bestSeason: bestSn?.season ?? null,
-        allW: all.w, allL: all.l, allT: all.t,
-        winPct: games ? (all.w + all.t / 2) / games : 0,
-        titles: (f?.seasons ?? []).filter(sn => sn.finish === 1).length,
-      };
-    }).sort((a, b) => b.war - a.war);
-  }, [fr, proj, teams, pv, owned, meta, league]);
-
-  /** biggest market moves over the window, per source.
-   *  values_history rows are [date, ktc, fc] — index 1 is KeepTradeCut, 2 is
-   *  FantasyCalc, and the two disagree often enough to be worth both. */
-  const movers = useMemo(() => {
-    if (!hist || !teams) return null;
-    const owner = new Map<string, string>();
-    for (const t of teams) for (const pid of t.players) owner.set(pid, t.team);
-    const forCol = (col: 1 | 2) => {
-      const out: { pid: string; d: number; now: number; team: string }[] = [];
-      for (const [pid, rows] of Object.entries(hist)) {
-        if (!owner.has(pid) || rows.length < 2) continue;
-        const now = rows[rows.length - 1];
-        // walk back to the first snapshot at least MOVER_DAYS old; short history
-        // just uses the oldest there is rather than dropping the player
-        const cutoff = Date.parse(now[0]) - MOVER_DAYS * 864e5;
-        let prev = rows[0];
-        for (const r of rows) { if (Date.parse(r[0]) <= cutoff) prev = r; }
-        const a = now[col], b = prev[col];
-        if (!a || !b || a === b) continue;
-        out.push({ pid, d: a - b, now: a, team: owner.get(pid)! });
+      const starters = slots.flatMap(s => s.player ? [s.player] : []);
+      const war = starters.reduce((a, p) => a + p.war, 0);
+      const wsum = starters.reduce((a, p) => a + Math.max(p.war, 0.01), 0);
+      const age = wsum ? starters.reduce((a, p) => a + p.age * Math.max(p.war, 0.01), 0) / wsum : null;
+      return { rid: t.roster_id, war, age };
+    });
+    const meanWar = mean(built.map(b => b.war));
+    const warOf = new Map(built.map(b => [b.rid, b.war]));
+    const z = (w: number) => normInv(0.5 + Math.min(0.45, Math.max(-0.45, (w - meanWar) / 13)));
+    const ps = mw?.playoff_start || 15;
+    const games: Record<number, number[]> = {};
+    for (const [wkS, pairs] of Object.entries(mw?.schedule ?? {})) {
+      if (+wkS >= ps) continue;
+      for (const [a, b] of pairs) {
+        (games[a] ??= []).push(b);
+        (games[b] ??= []).push(a);
       }
-      out.sort((x, y) => y.d - x.d);
-      return { up: out.slice(0, MOVERS), down: out.slice(-MOVERS).reverse() };
-    };
-    return { ktc: forCol(1), fc: forCol(2) };
-  }, [hist, teams]);
+    }
+    return new Map(built.map(b => {
+      const opps = games[b.rid] ?? [];
+      const wins = opps.length
+        ? opps.reduce((a, o) => a + normCdf(z(b.war) - z(warOf.get(o) ?? meanWar)), 0)
+        : Math.min(REG_WEEKS, Math.max(0, REG_WEEKS / 2 + (b.war - meanWar) * (REG_WEEKS / 13)));
+      const n = opps.length || REG_WEEKS;
+      return [b.rid, { ...b, wins, rec: `${fmt(wins, 1)}-${fmt(n - wins, 1)}` }];
+    }));
+  }, [teams, proj, mw, lineup]);
 
-  /** last few waiver / free-agent moves across the league */
+  /** starters totals per franchise in each index currency */
+  const indexRows = useMemo(() => {
+    if (!teams || !dvi || !cvi || !fr) return null;
+    const price = (t: Team, idx: Record<string, { pos: string }>, of: (pid: string) => number) => {
+      const pool = t.players.filter(p => idx[p])
+        .map(p => ({ id: p, pos: idx[p].pos, war: of(p) }));
+      return optimalLineup(pool, lineup).slots
+        .reduce((a, sl) => a + (sl.player?.war ?? 0), 0);
+    };
+    return teams.map(t => {
+      const f = fr[String(t.roster_id)];
+      const cur = f?.seasons[f.seasons.length - 1];
+      const lastSn = f?.seasons.find(s => s.season === league.latest);
+      return {
+        rid: t.roster_id,
+        name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
+        sDvi: price(t, dvi.players, p => dvi.players[p].dvi),
+        sCvi: price(t, cvi.players, p => cvi.players[p].cvi),
+        lastRec: lastSn ? `${lastSn.wins}-${lastSn.losses}${lastSn.ties ? `-${lastSn.ties}` : ""}` : "—",
+        lastFin: lastSn?.finish ?? null,
+      };
+    }).sort((a, b) => b.sDvi - a.sDvi);
+  }, [teams, dvi, cvi, fr, league, lineup]);
+
+  const titleRace = useMemo(() => {
+    if (!indexRows) return null;
+    return indexRows.slice().sort((a, b) => b.sCvi - a.sCvi).slice(0, 4);
+  }, [indexRows]);
+
+  /** rostered owner per pid, for movers and value plays */
+  const ownerOfPid = useMemo(() => {
+    const m = new Map<string, string>();
+    if (teams) for (const t of teams) for (const p of t.players) m.set(p, t.team);
+    return m;
+  }, [teams]);
+
+  /** largest DVI-minus-CVI disagreements among rostered players */
+  const valuePlays = useMemo(() => {
+    if (!dvi || !cvi) return null;
+    const rows: { pid: string; pos: string; name: string; d: number; c: number; gap: number }[] = [];
+    for (const [pid, dr] of Object.entries(dvi.players)) {
+      const cr = cvi.players[pid];
+      if (!cr || !ownerOfPid.has(pid)) continue;
+      rows.push({ pid, pos: dr.pos, name: dr.name, d: dr.dvi, c: cr.cvi, gap: dr.dvi - cr.cvi });
+    }
+    rows.sort((a, b) => b.gap - a.gap);
+    return {
+      sell: rows.filter(r => r.gap > 0).slice(0, MODULE_ROWS),
+      buy: rows.filter(r => r.gap < 0).reverse().slice(0, MODULE_ROWS),
+    };
+  }, [dvi, cvi, ownerOfPid]);
+
+  /** KeepTradeCut 7-day movement, rostered players only */
+  const movers = useMemo(() => {
+    if (!vals) return null;
+    const rows: { pid: string; val: number; d: number }[] = [];
+    for (const [pid, v] of Object.entries(vals.players)) {
+      if (!ownerOfPid.has(pid) || v.ktc == null) continue;
+      const d = v.ktcT?.["7"];
+      if (d == null || d === 0) continue;
+      rows.push({ pid, val: v.ktc, d });
+    }
+    rows.sort((a, b) => b.d - a.d);
+    return {
+      up: rows.filter(r => r.d > 0).slice(0, MODULE_ROWS),
+      down: rows.filter(r => r.d < 0).reverse().slice(0, MODULE_ROWS),
+    };
+  }, [vals, ownerOfPid]);
+
   const waivers = useMemo(() => {
     if (!fr) return [];
-    return Object.entries(fr).flatMap(([rid, f]) =>
-      f.tx.filter(t => t.type !== "trade").map(t => ({ ...t, rid: +rid, team: f.seasons[f.seasons.length - 1].name })))
-      .sort((a, b) => b.ts - a.ts).slice(0, RECENT_MOVES);
+    return Object.entries(fr).flatMap(([rid, f]) => {
+      const cur = f.seasons[f.seasons.length - 1];
+      return f.tx.filter(t => t.type !== "trade").map(t => ({
+        ...t, rid: +rid, team: cur?.name ?? "—", manager: cur?.manager ?? "",
+      }));
+    }).sort((a, b) => b.ts - a.ts).slice(0, MODULE_ROWS);
   }, [fr]);
 
-  const recent = useMemo(
-    () => trades.slice().sort((a, b) => b.ts - a.ts).slice(0, RECENT_TRADES),
-    [trades]);
+  /** newest trades, deduplicated on timestamp — one record per trade */
+  const recentTrades = useMemo(() => {
+    const seen = new Set<number>();
+    return trades.slice().sort((a, b) => b.ts - a.ts)
+      .filter(t => !seen.has(t.ts) && !!seen.add(t.ts))
+      .slice(0, MODULE_ROWS);
+  }, [trades]);
 
-  // one scale for every sparkline, so bar heights compare across franchises
-  const warMax = useMemo(
-    () => Math.max(1, ...(rows ?? []).flatMap(r => r.hist.map(h => h.war))), [rows]);
-  const warMin = useMemo(
-    () => Math.min(0, ...(rows ?? []).flatMap(r => r.hist.map(h => h.war))), [rows]);
-  // the season axis every row draws against — union across franchises, so a
-  // team that missed a year leaves a gap instead of shifting its neighbours
-  const warAxis = useMemo(() => [...new Set((rows ?? [])
-    .flatMap(r => r.hist.map(h => h.season)))].sort(), [rows]);
+  const nTeams = teams?.length ?? 12;
+  const sf = meta.rosterPositions?.includes("SUPER_FLEX") ? "superflex" : "1QB";
+  const phase = league.latest === rosterSeason ? "in season" : "offseason";
+  const pricedAt = dvi?.generated?.slice(0, 10) ?? meta.updated;
 
-  const champ = rows?.find(r => r.finish === 1);
-  // One spec per column: label, alignment, and the value to sort on. Sorting
-  // falls out of the spec instead of every column needing its own case. There
-  // are no rank columns — with twelve rows, sorting a column IS the ranking.
-  const cols = useMemo<Col[]>(() => [
-    { key: "name", label: "Franchise", cls: "t", val: r => r.name, text: true },
-    { key: "war", label: "WAR by season", cls: "n",
-      val: r => r.hist.length ? r.hist[r.hist.length - 1].war : 0 },
-    { key: "age", label: "Age", cls: "n hm", val: r => r.age ?? 99 },
-    { key: "finish", label: "Last year", cls: "n", val: r => -(r.finish ?? 99) },
-    { key: "best", label: "Best", cls: "n", val: r => -(r.best ?? 99) },
-    { key: "alltime", label: "All-time", cls: "n hm", val: r => r.winPct },
-    { key: "titles", label: "Titles", cls: "n", val: r => r.titles },
-  ], []);
+  const lede = champ ? (() => {
+    const s = champ.s;
+    const top = s.top ? pInfo(players, s.top.pid)[0] : null;
+    return `${s.name} took the ${s.season} title at ${s.wins}-${s.losses}`
+      + `${s.ties ? `-${s.ties}` : ""}, scoring ${fmt(s.ppg, 1)} points a week on a lineup `
+      + `worth ${fmt(s.war, 2)} WAR against the optimal pool`
+      + (top && s.top ? `. ${top} carried the biggest share at ${fmt(s.top.war, 2)} WAR.` : ".");
+  })() : null;
 
-  const sorted = useMemo(() => {
-    if (!rows) return null;
-    const c = cols.find(x => x.key === sortKey) ?? cols[2];
-    return rows.slice().sort((a, b) => c.text
-      ? String(c.val(a)).localeCompare(String(c.val(b))) * -dir
-      : ((c.val(b) as number) - (c.val(a) as number)) * dir);
-  }, [rows, cols, sortKey, dir]);
-
-  const clickCol = (k: string) => {
-    if (sortKey === k) setDir(d => (-d) as 1 | -1);
-    else { setSortKey(k); setDir(1); }
-  };
+  const grpRow = (label: string, cols: number) => (
+    <tr className="grp">
+      <th colSpan={cols} className="t" style={{ textAlign: "left", padding: "6px 10px 5px", letterSpacing: ".16em", borderBottom: "1px solid var(--rule)" }}>
+        {label}
+      </th>
+    </tr>
+  );
 
   return (
     <>
       <div className="screen-head">
         <span className="screen-title">{league.name}</span>
-        <span className="screen-note">
-          {league.seasons.length} seasons · {league.rosterSeason} rosters
-          {champ && <> · {league.latest} champion <b>{champ.name}</b></>}
+        <span style={{ font: "400 14px/1 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)" }}>
+          {nTeams} teams · {sf} · established {league.seasons[0]} · {phase}
         </span>
+        <span className="screen-note">Priced {pricedAt}</span>
       </div>
 
-      {/* ---- activity: what has happened lately ---- */}
-      <div className="dwrap">
-        <div className="dhead">
-          <div className="chart-label" style={{ marginBottom: 0 }}>Activity</div>
-          <button type="button" className="dtoggle" onClick={() => nav(lp("/trades"))}>
-            All trades
+      {/* ---- hero: champion + title race ---- */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 18, padding: "2px var(--pad) 0" }}>
+        <div className="panel" style={{ margin: 0 }}>
+          <div className="chart-label">Reigning champion · {league.latest ?? "—"}</div>
+          {!champ ? <div className="empty">No completed season yet.</div> : <>
+            <div style={{ font: "700 40px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)", cursor: "pointer" }}
+              onClick={() => nav(lp(`/franchise/${champ.rid}`))}>
+              {champ.s.name}
+            </div>
+            <div style={{ font: "400 14px/1.4 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", marginTop: 5 }}>
+              {champ.s.manager} · {champ.s.wins}-{champ.s.losses}{champ.s.ties ? `-${champ.s.ties}` : ""} · {fmt(champ.s.ppg, 1)} ppg
+            </div>
+            <div style={{ display: "flex", marginTop: 14 }}>
+              <div className="figcell">
+                <div className="figkey">Lineup WAR</div>
+                <div className="figval">{fmt(champ.s.war, 2)}</div>
+                <div className="figsub">actual starters, {champ.s.season}</div>
+              </div>
+              <div className="figcell">
+                <div className="figkey">Top player</div>
+                <div className="figval" style={{ fontSize: 20, lineHeight: 1.35 }}>
+                  {champ.s.top
+                    ? <PlayerLink pid={champ.s.top.pid} name={pInfo(players, champ.s.top.pid)[0]} />
+                    : "—"}
+                </div>
+                <div className="figsub">{champ.s.top ? `${fmt(champ.s.top.war, 2)} WAR` : ""}</div>
+              </div>
+            </div>
+            {lede && (
+              <div style={{ borderTop: "1px solid var(--rule)", marginTop: 14, paddingTop: 10, font: "400 13.5px/1.6 var(--sans)", color: "var(--txt2)", textWrap: "pretty" }}>
+                {lede}
+              </div>
+            )}
+          </>}
+        </div>
+
+        <div className="panel" style={{ margin: 0, borderTopColor: "#2b3642" }}>
+          <div className="chart-label">Title race · {rosterSeason} · top 4 by starter CVI</div>
+          {!titleRace ? <div className="empty">Loading indices…</div> : titleRace.map((r, i) => (
+            <div key={r.rid} onClick={() => nav(lp(`/franchise/${r.rid}`))}
+              style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "9px 0", borderTop: i ? "1px solid var(--hair)" : "none", cursor: "pointer" }}>
+              <span style={{ font: "600 17px/1 var(--cond)", color: "var(--dim)", flex: "0 0 16px" }}>{i + 1}</span>
+              <div style={{ minWidth: 0, flex: 1 }}>
+                <div style={{ font: "600 14px/1.35 var(--sans)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
+                <div style={{ font: "400 11.5px/1.4 var(--sans)", color: "var(--dim)" }}>{r.manager}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ font: "600 15px/1.3 var(--cond)", fontVariantNumeric: "tabular-nums" }}>
+                  {power?.get(r.rid)?.rec ?? "—"}
+                </div>
+                <div style={{ font: "400 11.5px/1.4 var(--sans)", color: "var(--dim)" }}>proj record</div>
+              </div>
+              <div style={{ textAlign: "right", flex: "0 0 58px" }}>
+                <div className="head-fig sm">{fmt(r.sCvi, 0)}</div>
+                <div style={{ font: "400 11.5px/1.4 var(--sans)", color: "var(--dim)" }}>starter CVI</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* ---- power rankings ---- */}
+      <div style={{ marginTop: 18 }}>
+        <div className="band">
+          <span className="band-label">Power rankings</span>
+          <span className="band-note">Ranked by starters DVI — the roster season's best legal dynasty lineup, not last season's record</span>
+          <button type="button" className="dlink" style={{ marginLeft: 12 }}
+            onClick={() => nav(lp(`/standings/${league.latest ?? rosterSeason}`))}>
+            Standings
           </button>
         </div>
-        <div className="feeds">
-          <div className="feed-panel">
-            <div className="pick-title">Recent trades</div>
-            <table className="feed">
-              <tbody>
-                {recent.length === 0 && <tr><td className="sub">No trades yet.</td></tr>}
-                {recent.map(t => (
-                  <tr key={t.ts}>
-                    <td className="t">
-                      {t.sides.map((sd, k) => (
-                        <div key={sd.rid} className="line">
-                          <span className={k ? "arrow alt" : "arrow"}>{k ? "◄" : "►"}</span>
-                          <span className="nm">{sd.team}</span>
-                          <span className="by">
-                            {sd.got.map(a => assetLabel(a.label)).join(" · ") || "—"}
-                          </span>
-                        </div>
-                      ))}
-                    </td>
-                    <td className="n sub">{tradeWhen(t.ts)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <div className="feed-panel">
-            <div className="pick-title">Recent waivers</div>
-            <table className="feed">
-              <tbody>
-                {waivers.length === 0 && <tr><td className="sub">No moves yet.</td></tr>}
-                {waivers.map((w, i) => (
-                  <tr key={`${w.ts}${i}`}>
-                    <td className="t">
-                      <div className="nm">{w.team}</div>
-                      <div className="by">
-                        {w.adds?.length ? <span className="add">+ {w.adds.join(", ")}</span> : null}
-                        {w.adds?.length && w.drops?.length ? " · " : null}
-                        {w.drops?.length ? <span className="drop">− {w.drops.join(", ")}</span> : null}
-                      </div>
-                    </td>
-                    <td className="n sub">{tradeWhen(w.ts)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </div>
-
-      {/* ---- market movers, both sources ---- */}
-      {movers && (
-        <div className="dwrap">
-          <div className="dhead">
-            <div className="chart-label" style={{ marginBottom: 0 }}>
-              Market movers · {MOVER_DAYS} days
-            </div>
-          </div>
-          <div className="feeds">
-            {([["KeepTradeCut", movers.ktc], ["FantasyCalc", movers.fc]] as const).map(([src, m]) => (
-              <div key={src} className="feed-panel">
-                <div className="pick-title">{src}</div>
-                <table className="feed">
-                  {/* Rising and falling are two labelled groups rather than one
-                      list with a hairline — a reader shouldn't have to infer
-                      where the sign flips by scanning the numbers. */}
-                  {([["Rising", "best", m.up], ["Falling", "worst", m.down]] as const)
-                    .map(([label, cls, list]) => (
-                      <tbody key={label}>
-                        <tr className="grp">
-                          <th className={`t ${cls}`} colSpan={3}>{label}</th>
-                        </tr>
-                        {list.length === 0 && (
-                          <tr><td className="sub" colSpan={3}>No moves.</td></tr>
-                        )}
-                        {list.map(mv => {
-                          const pl = proj?.players.find(x => x.pid === mv.pid);
-                          return (
-                            <tr key={`${src}${label}${mv.pid}`}>
-                              <td className="who">
-                                <div className="line">
-                                  {pl && <PosBadge pos={pl.pos} />}
-                                  <PlayerLink pid={mv.pid} name={pl?.name ?? mv.pid} />
-                                </div>
-                                <div className="by">{mv.team}</div>
-                              </td>
-                              <td className="n sub">{fmt(mv.now, 0)}</td>
-                              <td className="n vs"
-                                style={{ color: mv.d >= 0 ? "var(--good)" : "var(--bad)" }}>
-                                {sgn(mv.d, 0)}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    ))}
-                </table>
-              </div>
-            ))}
-          </div>
-          <div className="tnote">
-            Value change over the last {MOVER_DAYS} days, rostered players only. The two
-            markets are priced independently and often disagree.
-          </div>
-        </div>
-      )}
-
-      {/* ---- franchise board ---- */}
-      <div className="dwrap">
-        <div className="dhead">
-          <div className="chart-label" style={{ marginBottom: 0 }}>The league</div>
-        </div>
-        {!sorted ? <div className="empty">Loading league…</div> : (
-          <div className="dscroll">
-            <table className="wide homeboard">
-              <thead>
-                <tr>
-                  {cols.map(c => (
-                    <th key={c.key}
-                      className={[c.cls, "sortable", sortKey === c.key ? "sorted" : ""]
-                        .filter(Boolean).join(" ")}
-                      onClick={() => clickCol(c.key)}>
-                      {c.label}{sortKey === c.key ? (dir > 0 ? " ▼" : " ▲") : ""}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((r, i) => (
+        {!indexRows ? <div className="empty">Loading indices…</div> : (
+          <table style={{ tableLayout: "fixed" }}>
+            <thead>
+              <tr>
+                <th className="c" style={{ width: "5%" }}>Rk</th>
+                <th className="t" style={{ width: "23%" }}>Franchise</th>
+                <th className="t hm" style={{ width: "13%" }}>Manager</th>
+                <th className="n key edge" style={{ width: "11%" }}>Starters DVI</th>
+                <th className="n" style={{ width: "11%" }}>Starters CVI</th>
+                <th className="n edge" style={{ width: "12%" }}>{league.latest ?? "Last"}</th>
+                <th className="n" style={{ width: "13%" }}>Proj {rosterSeason}</th>
+                <th className="n hm" style={{ width: "12%" }}>Starter age</th>
+              </tr>
+            </thead>
+            <tbody>
+              {indexRows.map((r, i) => {
+                const p = power?.get(r.rid);
+                const age = p?.age ?? null;
+                return (
                   <tr key={r.rid} className={`click ${i % 2 ? "zebra" : ""}`}
                     onClick={() => nav(lp(`/franchise/${r.rid}`))}>
-                    <td className="t">
-                      <div className="nm">{r.name}</div>
-                      <div className="by">{r.manager}</div>
+                    <td className="spine-cell">
+                      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "#2b3642" }} />
+                      <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
                     </td>
-                    <td className="n">
-                      <SeasonWar hist={r.hist} axis={warAxis} max={warMax} min={warMin} />
+                    <td className="t name">{r.name}</td>
+                    <td className="t sub hm">{r.manager}</td>
+                    <td className="n edge"><span className="head-fig sm">{fmt(r.sDvi, 0)}</span></td>
+                    <td className="n"><span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.sCvi, 0)}</span></td>
+                    <td className="n fig edge">
+                      {r.lastRec}
+                      {r.lastFin === 1 && <span className="tag" style={{ background: "var(--acc)" }}>CHAMP</span>}
                     </td>
-                    <td className="n hm sub">{r.age == null ? "—" : fmt(r.age, 1)}</td>
-                    <td className="n">
-                      {r.finish ? <span className={r.finish === 1 ? "fin champ" : "fin"}>
-                        {ord(r.finish)}
-                      </span> : "—"}
-                      <div className="by">{r.record}</div>
+                    <td className="n fig">{p?.rec ?? "—"}</td>
+                    <td className="n fig hm" style={{
+                      color: age == null ? "var(--dim3)"
+                        : age <= 25.5 ? "var(--good)" : age >= 27 ? "var(--warn)" : "var(--txt2)",
+                    }}>
+                      {age == null ? "—" : fmt(age, 1)}
                     </td>
-                    <td className="n">
-                      {r.best ? <span className={r.best === 1 ? "fin champ" : "fin"}>
-                        {ord(r.best)}
-                      </span> : <span className="sub">—</span>}
-                      <div className="by">{r.bestSeason ?? ""}</div>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* ---- module row 1: value plays + market movers ---- */}
+      <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
+        <div className="feed-panel">
+          <div className="band" style={{ borderTop: "none" }}>
+            <span className="band-label">Value plays</span>
+            <span className="band-note">Largest DVI-minus-CVI gaps, rostered players · index points, not value</span>
+          </div>
+          <table style={{ tableLayout: "fixed" }}>
+            <thead>
+              <tr>
+                <th className="c" style={{ width: "14%" }}>Pos</th>
+                <th className="t" style={{ width: "42%" }}>Player</th>
+                <th className="n" style={{ width: "14%" }}>DVI</th>
+                <th className="n" style={{ width: "14%" }}>CVI</th>
+                <th className="n" style={{ width: "16%" }}>Gap</th>
+              </tr>
+            </thead>
+            {([["Sell high · dynasty premium", valuePlays?.sell], ["Buy low · win-now premium", valuePlays?.buy]] as const)
+              .map(([label, list]) => (
+                <tbody key={label}>
+                  {grpRow(label, 5)}
+                  {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
+                    <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
+                      <td className="c"><PosBadge pos={r.pos} /></td>
+                      <td className="t name"><PlayerLink pid={r.pid} name={r.name} /></td>
+                      <td className="n fig">{fmt(r.d, 1)}</td>
+                      <td className="n fig">{fmt(r.c, 1)}</td>
+                      <td className="n fig strong last">{sgn(r.gap, 1)}</td>
+                    </tr>
+                  ) : (
+                    <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
+                      <td className="c fig quiet">—</td>
+                      <td className="t fig quiet">—</td>
+                      <td className="n fig quiet">—</td>
+                      <td className="n fig quiet">—</td>
+                      <td className="n fig quiet last">—</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+          </table>
+        </div>
+
+        <div className="feed-panel">
+          <div className="band" style={{ borderTop: "none" }}>
+            <span className="band-label">Market movers · 7 days</span>
+            <span className="band-note">KeepTradeCut value change, rostered players</span>
+          </div>
+          <table style={{ tableLayout: "fixed" }}>
+            <thead>
+              <tr>
+                <th className="c" style={{ width: "14%" }}>Pos</th>
+                <th className="t" style={{ width: "42%" }}>Player</th>
+                <th className="n" style={{ width: "22%" }}>Value</th>
+                <th className="n" style={{ width: "22%" }}>7d</th>
+              </tr>
+            </thead>
+            {([["Rising", movers?.up], ["Falling", movers?.down]] as const).map(([label, list]) => (
+              <tbody key={label}>
+                {grpRow(label, 4)}
+                {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
+                  <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
+                    <td className="c"><PosBadge pos={pInfo(players, r.pid)[1]} /></td>
+                    <td className="t name"><PlayerLink pid={r.pid} name={pInfo(players, r.pid)[0]} /></td>
+                    <td className="n fig">{r.val.toLocaleString("en-US")}</td>
+                    <td className="n fig strong last" style={{ color: r.d > 0 ? "var(--good)" : "var(--bad)" }}>
+                      {sgn(r.d, 0)}
                     </td>
-                    <td className="n hm">
-                      <b>{r.allW}-{r.allL}{r.allT ? `-${r.allT}` : ""}</b>
-                      <div className="by">{fmt(r.winPct * 100, 0)}%</div>
-                    </td>
-                    <td className="n">
-                      {r.titles ? <span className="titles">
-                        {"🏆".repeat(Math.min(r.titles, 3))}{r.titles > 3 ? ` ×${r.titles}` : ""}
-                      </span> : <span className="sub">—</span>}
-                    </td>
+                  </tr>
+                ) : (
+                  <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
+                    <td className="c fig quiet">—</td>
+                    <td className="t fig quiet">—</td>
+                    <td className="n fig quiet">—</td>
+                    <td className="n fig quiet last">—</td>
                   </tr>
                 ))}
               </tbody>
-            </table>
-          </div>
-        )}
-        <div className="tnote">
-          WAR bars are each season's lineup WAR from zero — same vertical scale and
-          same season columns for every franchise, oldest first ({warAxis[0]}–
-          {warAxis[warAxis.length - 1]}); sorting uses the most recent. DVI is total dynasty value across the
-          current roster, drawn against the league leader. Last year is {league.latest};
-          all-time, best finish and titles span every season the franchise has played.
-          Click any column to sort.
+            ))}
+          </table>
+          {!vals && (
+            <div className="tnote" style={{ padding: "8px 10px 10px" }}>
+              Waiting on the nightly market pull — values fill in when the KeepTradeCut feed lands.
+            </div>
+          )}
         </div>
       </div>
 
+      {/* ---- module row 2: recent waivers + recent trades ---- */}
+      <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
+        <div className="feed-panel">
+          <div className="band" style={{ borderTop: "none" }}>
+            <span className="band-label">Recent waivers</span>
+            <span className="band-note">Adds and drops, league-wide</span>
+          </div>
+          <table style={{ tableLayout: "fixed" }}>
+            <thead>
+              <tr>
+                <th className="t" style={{ width: "13%" }}>Week</th>
+                <th className="t" style={{ width: "27%" }}>Team</th>
+                <th className="t" style={{ width: "30%" }}>Added</th>
+                <th className="t" style={{ width: "30%" }}>Dropped</th>
+              </tr>
+            </thead>
+            <tbody>
+              {padTo(waivers, MODULE_ROWS).map((w, i) => w ? (
+                <tr key={`${w.ts}${i}`} className={i % 2 ? "zebra" : ""}>
+                  <td className="t">
+                    <div className="two-line">
+                      <span className="fig">{w.season.slice(2)} W{w.week}</span><br />
+                      <span style={{ font: "600 10.5px/1.45 var(--cond)", letterSpacing: ".12em", color: "var(--dim3)" }}>
+                        {w.type === "waiver" ? "WAIVER" : "FA"}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="t">
+                    <div className="two-line">
+                      <span style={{ font: "600 13px/1.45 var(--sans)" }}>{w.team}</span><br />
+                      <span style={{ font: "400 11.5px/1.45 var(--sans)", color: "var(--dim)" }}>{w.manager}</span>
+                    </div>
+                  </td>
+                  <td className="t sub">
+                    <div className="two-line" style={{ color: "var(--good)" }}>
+                      {w.adds?.length ? w.adds.join(", ") : "—"}
+                    </div>
+                  </td>
+                  <td className="t sub last">
+                    <div className="two-line" style={{ color: "var(--drop)" }}>
+                      {w.drops?.length ? w.drops.join(", ") : "—"}
+                    </div>
+                  </td>
+                </tr>
+              ) : (
+                <tr key={`ew${i}`} className={i % 2 ? "zebra" : ""}>
+                  {[0, 1, 2, 3].map(k => (
+                    <td key={k} className={`t fig quiet${k === 3 ? " last" : ""}`}>
+                      <div className="two-line">—</div>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="feed-panel">
+          <div className="band" style={{ borderTop: "none" }}>
+            <span className="band-label">Recent trades</span>
+            <span className="band-note">What each side received, both in the same ink</span>
+            <button type="button" className="dlink" style={{ marginLeft: 12 }}
+              onClick={() => nav(lp("/ledger"))}>
+              Ledger
+            </button>
+          </div>
+          <table style={{ tableLayout: "fixed" }}>
+            <thead>
+              <tr>
+                <th className="t" style={{ width: "13%" }}>Week</th>
+                <th className="t" style={{ width: "43%" }}>Gets</th>
+                <th className="t" style={{ width: "44%" }}>Gets</th>
+              </tr>
+            </thead>
+            <tbody>
+              {padTo(recentTrades, MODULE_ROWS).map((t, i) => t ? (
+                <tr key={t.ts} className={i % 2 ? "zebra" : ""}>
+                  <td className="t">
+                    <div className="two-line">
+                      <span className="fig">{t.season.slice(2)} W{t.week}</span><br />
+                      <span style={{ font: "600 10.5px/1.45 var(--cond)", letterSpacing: ".12em", color: "var(--dim3)" }}>
+                        {tradeWhen(t.ts).replace(`, ${t.season}`, "").toUpperCase()}
+                      </span>
+                    </div>
+                  </td>
+                  {[0, 1].map(k => {
+                    const sd = t.sides[k];
+                    return (
+                      <td key={k} className={`t${k === 1 ? " last" : ""}`}>
+                        <div className="two-line">
+                          <span style={{ font: "600 12px/1.45 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase" }}>
+                            {sd?.team ?? "—"}
+                          </span><br />
+                          <span style={{ font: "400 12px/1.45 var(--sans)", color: "var(--txt2)" }}>
+                            {sd?.got.map(a => a.label.split(" → ")[0]).join(" · ") || "—"}
+                          </span>
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              ) : (
+                <tr key={`et${i}`} className={i % 2 ? "zebra" : ""}>
+                  {[0, 1, 2].map(k => (
+                    <td key={k} className={`t fig quiet${k === 2 ? " last" : ""}`}>
+                      <div className="two-line">—</div>
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div className="footnote">
+        Starter indices price each roster's best legal lineup in that index · value plays and movers cover rostered players only
+      </div>
     </>
   );
 }

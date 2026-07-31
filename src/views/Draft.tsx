@@ -2,9 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
+import { POS_COLOR } from "../lib/league";
 import { boxStats } from "../components/BoxMarks";
-
-const POS: Record<string, string> = { QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)" };
 const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const ROUNDS = [1, 2, 3, 4];
 const SLOTS = ROUNDS.flatMap(rd => Array.from({ length: 12 }, (_, i) => `${rd}.${String(i + 1).padStart(2, "0")}`));
@@ -377,7 +376,7 @@ export default function Draft() {
         <div className="dwrap" style={{ paddingTop: 22 }}>
           <div className="dhead">
             <div className="chart-label" style={{ marginBottom: 0 }}>Returns by round, tier and pick</div>
-            <button type="button" className="dtoggle" onClick={toggleAll}>
+            <button type="button" className="dexpand" aria-expanded={allOpen} onClick={toggleAll}>
               {allOpen ? "Collapse all" : "Expand all"}
             </button>
           </div>
@@ -463,7 +462,7 @@ export default function Draft() {
                     <td className="t sub">{r.season}</td>
                     <td className="who">
                       <div className="line">
-                        <span className="pos mini" style={{ background: POS[r.pos] || "var(--rule)" }}>{r.pos}</span>
+                        <span className="pos mini" style={{ background: POS_COLOR[r.pos] || "var(--rule)" }}>{r.pos}</span>
                         <span className="nm">{r.name}</span>
                       </div>
                       <div className="by">{r.drafter}</div>

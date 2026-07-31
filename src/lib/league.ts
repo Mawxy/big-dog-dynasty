@@ -3,6 +3,15 @@ import type { PlayersMin, Team, Weekly } from "./types";
 export const pInfo = (players: PlayersMin, pid: string): [string, string, string] =>
   players[pid] ?? [`#${pid}`, "?", ""];
 
+/** position -> badge/spine color. One copy — the same map was pasted into
+ *  seven files before this. Callers pick their own fallback for non-core. */
+export const POS_COLOR: Record<string, string> = {
+  QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)",
+};
+
+/** the position-filter chip row every leaderboard shares */
+export const POS_CHIPS = ["ALL", "QB", "RB", "WR", "TE"];
+
 /** Whose rosters to read for "who owns this player". Current rosters unless a
  *  past season is being viewed — never `latest`, which lags a full year behind
  *  through the offseason. Takes the league registry entry. */

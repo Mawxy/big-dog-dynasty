@@ -26,6 +26,16 @@ export function normInv(p: number): number {
     (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
 }
 export const sgn = (v: number, d = 3) => (v > 0 ? "+" : "") + fmt(v, d);
+
+/** 1 -> "1st", 12 -> "12th" — teens handled (11th/12th/13th) */
+export const ord = (n: number) => {
+  const s = ["th", "st", "nd", "rd"], v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+};
+
+/** meter-fill width: share of `max`, clamped so a negative value reads 0% */
+export const pct = (v: number, max: number) =>
+  Math.round((Math.max(0, v) / max) * 100) + "%";
 export const clsOf = (n: number) => n > 0.0005 ? "num good" : n < -0.0005 ? "num bad" : "num";
 export const mean = (a: number[]) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
 

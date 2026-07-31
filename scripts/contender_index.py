@@ -155,8 +155,12 @@ def main():
     for i, pid in enumerate(ranked, 1):
         r = out[pid]
         pos_seen[r["pos"]] = pos_seen.get(r["pos"], 0) + 1   # rank within position
+        # `components` = how many signals fed the figure (mirrors dvi.json) —
+        # published so a confidence affordance can be designed on the figure
+        # itself; the breakdown stays local in cvi_detail.json.
         cvi[pid] = {"name": r["name"], "pos": r["pos"], "cvi": r["rating"],
-                    "rank": i, "pos_rank": pos_seen[r["pos"]]}
+                    "rank": i, "pos_rank": pos_seen[r["pos"]],
+                    "components": sum(1 for c in r["components"].values() if c is not None)}
     Path(args.out).write_text(json.dumps(
         {"generated": date.today().isoformat(), "format": args.format,
          "ecrRanked": len(ecr_rank), "players": cvi}, separators=(",", ":")),

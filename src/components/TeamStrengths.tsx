@@ -1,15 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import type { CviFile, DviFile, ProjectionsFile, Team } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
-import { fmt } from "../lib/stats";
+import { fmt, ord } from "../lib/stats";
 import { useLeague } from "../lib/context";
 import { DEFAULT_LINEUP } from "../lib/league";
 import { rosterShapes, type IndexEntry, type RankRow } from "../lib/rosterModel";
-
-const ordinal = (v: number) => {
-  const s = ["th", "st", "nd", "rd"], m = v % 100;
-  return v + (s[(m - 20) % 10] || s[m] || s[0]);
-};
 
 /** surnames only — the grid is ten columns wide and the full name is on hover */
 const surname = (name: string) => {
@@ -20,7 +15,7 @@ const surname = (name: string) => {
 /** rank as figure + meter, with whoever holds the seat named underneath */
 const Rank = ({ rank, n, who }: { rank: number; n: number; who: string }) => (
   <span className="cell">
-    <span className={`fig${rank === 1 ? " top" : ""}`}>{ordinal(rank)}</span>
+    <span className={`fig${rank === 1 ? " top" : ""}`}>{ord(rank)}</span>
     <span className="track">
       <span className="fill" style={{ width: `${((n - rank + 1) / n) * 100}%` }} />
     </span>
@@ -30,15 +25,11 @@ const Rank = ({ rank, n, who }: { rank: number; n: number; who: string }) => (
 
 
 /** one grid: a caption, then a rank row per currency across the nine seats */
-function Grid({ rows, n, caption, note }: {
-  rows: RankRow[]; n: number; caption: string; note?: string;
-}) {
+function Grid({ rows, n, caption }: { rows: RankRow[]; n: number; caption: string }) {
   if (!rows.length) return null;
   return (
     <>
-      <div className="rankcap">
-        {caption}{note && <span> — {note}</span>}
-      </div>
+      <div className="rankcap">{caption}</div>
       <div className="rankwrap">
         <table className="rankgrid">
           <thead><tr>
@@ -111,7 +102,7 @@ export default function TeamStrengths({ rid }: { rid: number }) {
   const n = teams.length;
 
   return (
-    <div style={{ background: "var(--card)", border: "1px solid var(--line)", borderRadius: 12, padding: "12px 16px", margin: "12px 0 4px" }}>
+    <div style={{ background: "var(--card)", border: "1px solid var(--line)", padding: "12px 16px", margin: "12px 0 4px" }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
         <b style={{ color: "var(--txt)", fontSize: 13.5 }}>Strengths &amp; weaknesses</b>
         <span style={{ color: "var(--dim)", fontSize: 12 }}>rank of {n}, two currencies</span>

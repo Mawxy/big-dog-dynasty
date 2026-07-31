@@ -188,12 +188,38 @@ export interface Insights {
   teams: Record<string, { head: string; text: string }>;
 }
 
-/** data/dvi.json — Dynasty Value Index, one 0-100 figure per player */
-export interface DviRow { name: string; pos: string; dvi: number; rank: number; pos_rank: number }
+/** data/dvi.json — Dynasty Value Index, one 0-100 figure per player.
+ *  `components` = how many signals fed the figure (absent in older data);
+ *  a rating built from one signal is a weaker claim than one built from five. */
+export interface DviRow { name: string; pos: string; dvi: number; rank: number; pos_rank: number; components?: number }
 export interface DviFile { generated: string; players: Record<string, DviRow> }
 
-/** data/cvi.json — Contender Value Index, DVI's one-season sibling */
-export interface CviRow { name: string; pos: string; cvi: number; rank: number; pos_rank: number }
+/**
+ * data/ecr.json — FantasyPros expert consensus, GLOBAL because a consensus
+ * ranking is a property of the FORMAT (PPR, superflex), not of any one league.
+ *
+ * `ecr` is a RANK: 1 is best and lower is better, the opposite direction from
+ * every index on the site. Players are keyed by Sleeper id, then by format
+ * slug — the file can hold more than one, so read the slug from `formats`
+ * rather than hardcoding it.
+ */
+export interface EcrRow {
+  ecr: number; posRank: string; best: string; worst: string;
+  avg: string; std: string; tier: number | null; delta: number | null;
+}
+export interface EcrFile {
+  fetched: string;
+  source: string;
+  formats: Record<string, {
+    scoring: string; year: string; week: string; type: string;
+    experts: number; updated: string; ranked: number; matched: number;
+  }>;
+  players: Record<string, Record<string, EcrRow>>;
+}
+
+/** data/cvi.json — Contender Value Index, DVI's one-season sibling.
+ *  `components` mirrors dvi.json (absent in older data). */
+export interface CviRow { name: string; pos: string; cvi: number; rank: number; pos_rank: number; components?: number }
 export interface CviFile {
   generated: string; format?: string; ecrRanked?: number;
   players: Record<string, CviRow>;

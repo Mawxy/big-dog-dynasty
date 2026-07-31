@@ -1,81 +1,123 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Matchups, PlayersMin, ProjectionsFile, SeasonData, Weekly } from "../lib/types";
-import { jl, jlDaily } from "../lib/data";
-import { fmt } from "../lib/stats";
-import { pInfo, ownerOf, rosterSeasonOf } from "../lib/league";
-import { useLeague } from "../lib/context";
-import { useMobile } from "../lib/useWidth";
+import type { Matchups, PlayersMin, SeasonData, Weekly } from "../lib/types";
+import { jl } from "../lib/data";
+import { fmt, pct } from "../lib/stats";
+import { pInfo, ownerOf, POS_COLOR, POS_CHIPS } from "../lib/league";
 import { PlayerLink } from "../components/PlayerLink";
 import SeasonPicker from "../components/SeasonPicker";
-import PlayerPanel from "../components/PlayerPanel";
 import AllTimePanel from "../components/AllTimePanel";
+import DataTable, { applySort, sortCol, type Col, type Grp } from "../components/DataTable";
 
+/**
+ * STATS — what a player actually did, in a season that has been played.
+ *
+ * The forward-looking half of the old combined table (projected WAR, DVI, CVI)
+ * now lives on the Value page. The split is not cosmetic: everything here is
+ * keyed to a chosen season and means nothing without one, while everything on
+ * Value is a single current estimate that no season qualifies. Holding both on
+ * one screen forced the CVI column to be conditionally present on the roster
+ * season, because a win-now number beside a 2022 stat line reads as a 2022
+ * number. Separating them retires that condition.
+ *
+ * A consequence worth expecting: before week 1 this page is empty, because
+ * there are no scored weeks to report. That is correct — the preseason answer
+ * is a projection, and projections are on Value.
+ */
 interface Row {
   id: string; nm: string; pos: string; team: string;
   gp: number; pts: number; ppg: number; sdv: number;
   war: number; warG: number; posRank: number;
-  /** weekly WAR values, regular season, week order (empty for all-time / proj) */
+  /** weekly WAR values, regular season, week order (empty for all-time) */
   wkWar: number[];
-  /** current Contender Value Index, roster season only (see CVI_COL) */
-  cvi?: number;
-  proj?: boolean; noPts?: boolean;
 }
 
-type Align = "c" | "t" | "n";
-interface Col { label: string; key: keyof Row | null; w: number; align: Align; hm?: boolean; edge?: boolean; keyCol?: boolean; grp: 0 | 1 | 2 | 3 }
-const COLS: Col[] = [
-  { label: "Rk", key: null, w: 48, align: "c", grp: 0 },
-  { label: "Player", key: "nm", w: 0, align: "t", grp: 0 },
-  { label: "Pos", key: null, w: 60, align: "c", grp: 0 },
-  { label: "Roster", key: "team", w: 190, align: "t", hm: true, grp: 0 },
-  { label: "GP", key: "gp", w: 48, align: "n", hm: true, edge: true, grp: 1 },
-  { label: "Pts", key: "pts", w: 76, align: "n", hm: true, grp: 1 },
-  { label: "PPG", key: "ppg", w: 66, align: "n", grp: 1 },
-  { label: "Consistency", key: "sdv", w: 112, align: "n", grp: 1 },
-  { label: "WAR", key: "war", w: 156, align: "n", edge: true, keyCol: true, grp: 2 },
-  { label: "WAR/G", key: "warG", w: 88, align: "n", hm: true, grp: 2 },
-  { label: "By week", key: null, w: 112, align: "n", hm: true, grp: 2 },
+/** page-wide scales, computed once and shared by every cell */
+interface Ctx { gMax: number; sdMin: number; sdMax: number; warMax: number }
+
+const GROUPS: Grp[] = [
+  { id: 0, label: "", cls: "" },
+  { id: 1, label: "Production", cls: "edge" },
+  { id: 2, label: "Wins added", cls: "edge value" },
 ];
-/** CVI is APPENDED, never inserted: every index below (SORTABLE, the default
- *  sortCol, clickCol) is positional, so adding a column mid-table would
- *  silently re-point all of them. */
-const CVI_COL: Col = { label: "CVI", key: "cvi", w: 96, align: "n", edge: true, grp: 3 };
-const SORTABLE = new Set([1, 4, 5, 6, 7, 8, 9]);
-const POS: Record<string, string> = { QB: "var(--qb)", RB: "var(--rb)", WR: "var(--wr)", TE: "var(--te)" };
+
+const COLS: Col<Row, Ctx>[] = [
+  {
+    id: "rk", label: "Rk", grp: 0, w: 48, align: "c", td: "rank",
+    cell: (r, _x, i) => <>
+      <span className="spine" style={{ background: POS_COLOR[r.pos] || "var(--rule)" }} />
+      <span className="fig">{i + 1}</span>
+    </>,
+  },
+  {
+    id: "nm", label: "Player", grp: 0, w: 0, align: "t", td: "name", asc: true,
+    sort: r => r.nm,
+    cell: r => <PlayerLink pid={r.id} name={r.nm} />,
+  },
+  {
+    id: "pos", label: "Pos", grp: 0, w: 60, align: "c", td: "c",
+    cell: r => <span className={`pos ${r.pos}`}>{r.pos}{r.posRank || ""}</span>,
+  },
+  {
+    id: "team", label: "Roster", grp: 0, w: 190, align: "t", hm: true, td: "sub hm",
+    sort: r => r.team, cell: r => r.team,
+  },
+  {
+    id: "gp", label: "GP", grp: 1, w: 48, align: "n", hm: true, edge: true,
+    td: "fig quiet hm edge n", sort: r => r.gp, cell: r => r.gp,
+  },
+  {
+    id: "pts", label: "Pts", grp: 1, w: 76, align: "n", hm: true, td: "fig hm n",
+    sort: r => r.pts, cell: r => fmt(r.pts, 1),
+  },
+  {
+    id: "ppg", label: "PPG", grp: 1, w: 66, align: "n", td: "fig strong n",
+    sort: r => r.ppg, cell: r => fmt(r.ppg),
+  },
+  {
+    id: "sdv", label: "Consistency", grp: 1, w: 112, align: "n", td: "n",
+    sort: r => r.sdv,
+    cell: (r, x) => (
+      <div className="meter">
+        <div className="track cons"><div className="fill" style={{ width: consPct(r.sdv, x.sdMin, x.sdMax) }} /></div>
+        <span className="val sm">{fmt(r.sdv, 1)}</span>
+      </div>
+    ),
+  },
+  {
+    id: "war", label: "WAR", grp: 2, w: 156, align: "n", edge: true, keyCol: true,
+    td: "edge n", sort: r => r.war,
+    cell: (r, x) => (
+      <div className="meter">
+        <div className="track war"><div className="fill" style={{ width: pct(r.war, x.warMax) }} /></div>
+        <span className="val head-fig">{fmt(r.war, 3)}</span>
+      </div>
+    ),
+  },
+  {
+    id: "warG", label: "WAR/G", grp: 2, w: 88, align: "n", hm: true, td: "fig quiet hm n",
+    sort: r => r.warG, cell: r => fmt(r.warG, 3),
+  },
+  {
+    id: "wkWar", label: "By week", grp: 2, w: 112, align: "n", hm: true, td: "hm n",
+    cell: (r, x) => r.wkWar.length
+      ? <ByWeek war={r.wkWar} gMax={x.gMax} />
+      : <span className="fig quiet">—</span>,
+  },
+];
+
+/** the table's resting order, and where clicking Rk returns it to */
+const HOME_SORT = "war";
 
 interface Props { data: SeasonData; season: string; seasons: string[]; players: PlayersMin; defaultMinGp: number }
 
 export default function Players({ data, season, seasons, players, defaultMinGp }: Props) {
-  const { league } = useLeague();
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
-  const [sortCol, setSortCol] = useState(8);
+  const [sortId, setSortId] = useState(HOME_SORT);
   const [dir, setDir] = useState(-1);
   const [openPid, setOpenPid] = useState<string | null>(null);
-  const [projs, setProjs] = useState<ProjectionsFile | null>(null);
   const [wkWarMap, setWkWarMap] = useState<Record<string, number[]>>({});
-  const [cviMap, setCviMap] = useState<Record<string, number>>({});
-  const mobile = useMobile();
   const gpFloor = defaultMinGp;
-
-  // CVI values THIS season, so it only belongs beside the roster season. Next
-  // to 2022's stat line it would read as that year's number, which it isn't.
-  const showCvi = season === rosterSeasonOf(league);
-  useEffect(() => {
-    if (!showCvi) { setCviMap({}); return; }
-    let live = true;
-    jlDaily<{ players: Record<string, { cvi: number }> }>("cvi.json")
-      .then(d => {
-        if (!live) return;
-        const m: Record<string, number> = {};
-        for (const [pid, r] of Object.entries(d.players)) m[pid] = r.cvi;
-        setCviMap(m);
-      }).catch(() => { if (live) setCviMap({}); });
-    return () => { live = false; };
-  }, [showCvi]);
-  const cols = useMemo(() => showCvi ? [...COLS, CVI_COL] : COLS, [showCvi]);
-  const sortable = useMemo(
-    () => showCvi ? new Set([...SORTABLE, COLS.length]) : SORTABLE, [showCvi]);
 
   // per-season weekly WAR for the by-week sparklines (scored seasons only)
   useEffect(() => {
@@ -95,34 +137,16 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
     return () => { live = false; };
   }, [season, data]);
 
-  // preseason: no scored weeks yet — fall back to the projection model
-  useEffect(() => {
-    if (data.summary.length) return;
-    let live = true;
-    jl<ProjectionsFile>("projections.json").then(p => { if (live) setProjs(p); }).catch(() => {});
-    return () => { live = false; };
-  }, [data]);
-  const isProj = !data.summary.length && projs != null && String(projs.meta.roster_season) === season;
-
-  const { rows, count, gMax, sdMin, sdMax, warMax } = useMemo(() => {
+  const { rows, count, ctx } = useMemo(() => {
     const owners = ownerOf(data.teams);
-    let all: Row[] = isProj && projs
-      ? projs.players.map(p => {
-        const gp = 13, war = p.composite[0] ?? 0, ppg = p.ppg ?? null;
-        return {
-          id: p.pid, nm: pInfo(players, p.pid)[0], pos: p.pos, team: owners[p.pid] || "—",
-          gp, pts: (ppg ?? 0) * gp, ppg: ppg ?? 0, sdv: 0, war, warG: war / gp,
-          posRank: 0, wkWar: [], cvi: cviMap[p.pid], proj: true, noPts: ppg == null,
-        };
-      })
-      : data.summary.map(r => {
-        const [id, p, gp, pts, ppg, , war, sdv] = r;
-        return {
-          id, nm: pInfo(players, id)[0], pos: p, team: owners[id] || "—",
-          gp, pts, ppg, sdv: sdv || 0, war, warG: gp ? war / gp : 0, posRank: 0,
-          wkWar: wkWarMap[id] || [], cvi: cviMap[id],
-        };
-      });
+    let all: Row[] = data.summary.map(r => {
+      const [id, p, gp, pts, ppg, , war, sdv] = r;
+      return {
+        id, nm: pInfo(players, id)[0], pos: p, team: owners[id] || "—",
+        gp, pts, ppg, sdv: sdv || 0, war, warG: gp ? war / gp : 0, posRank: 0,
+        wkWar: wkWarMap[id] || [],
+      };
+    });
     const byPos: Record<string, Row[]> = {};
     all.forEach(r => (byPos[r.pos] ??= []).push(r));
     Object.values(byPos).forEach(list => {
@@ -130,55 +154,45 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
       list.forEach((r, i) => { r.posRank = i + 1; });
     });
     if (gpFloor) all = all.filter(r => r.gp >= gpFloor);
-    const real = all.filter(r => !r.proj);
-    const gMax = Math.max(0.05, ...all.flatMap(r => r.wkWar.map(Math.abs)));
-    const sdMin = real.length ? Math.min(...real.map(r => r.sdv)) : 0;
-    const sdMax = real.length ? Math.max(...real.map(r => r.sdv)) : 1;
-    const warMax = Math.max(0.01, ...all.map(r => r.war));
+    const ctx: Ctx = {
+      gMax: Math.max(0.05, ...all.flatMap(r => r.wkWar.map(Math.abs))),
+      sdMin: all.length ? Math.min(...all.map(r => r.sdv)) : 0,
+      sdMax: all.length ? Math.max(...all.map(r => r.sdv)) : 1,
+      warMax: Math.max(0.01, ...all.map(r => r.war)),
+    };
 
     let rs = all;
     if (pos !== "ALL") rs = rs.filter(r => r.pos === pos);
     if (q) rs = rs.filter(r => r.nm.toLowerCase().includes(q.toLowerCase()));
-    // cols shrinks when the season changes, so a sortCol pointing at the CVI
-    // column can outlive it — optional-chain rather than throw on undefined
-    const k = cols[sortCol]?.key;
-    if (k) rs = rs.slice().sort((a, b) => {
-      const av = a[k], bv = b[k];
-      if (typeof av === "string" || typeof bv === "string")
-        return String(av ?? "").localeCompare(String(bv ?? "")) * dir;
-      // players with no CVI (unranked, or a season without the file) sort last
-      // in EITHER direction rather than being treated as a zero
-      if (av == null && bv == null) return 0;
-      if (av == null) return 1;
-      if (bv == null) return -1;
-      return ((av as number) - (bv as number)) * dir;
-    });
-    return { rows: rs, count: rs.length, gMax, sdMin, sdMax, warMax };
-  }, [data, players, pos, q, gpFloor, sortCol, dir, isProj, projs, wkWarMap, cviMap, cols]);
+    rs = applySort(rs, sortCol(COLS, sortId, HOME_SORT), dir);
+    return { rows: rs, count: rs.length, ctx };
+  }, [data, players, pos, q, gpFloor, sortId, dir, wkWarMap]);
 
-  const clickCol = (i: number) => {
-    if (i === 0) { setSortCol(8); setDir(-1); return; }
-    if (!sortable.has(i)) return;
-    if (sortCol === i) setDir(-dir);
-    else { setSortCol(i); setDir(i === 1 ? 1 : -1); }
+  const onSort = (c: Col<Row, Ctx>) => {
+    if (c.id === "rk") { setSortId(HOME_SORT); setDir(-1); return; }
+    if (!c.sort) return;
+    if (sortId === c.id) setDir(-dir);
+    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
   };
 
-  if (!data.summary.length && !isProj)
+  if (!data.summary.length)
     return (
       <>
         <div className="screen-head"><SeasonPicker /></div>
-        <div className="empty">No scored weeks yet for this season — check back after week 1.</div>
+        <div className="empty">
+          No scored weeks yet for this season — check back after week 1.
+          Projected WAR and the value indices are on the Value page.
+        </div>
       </>
     );
 
   const openRow = openPid ? rows.find(r => r.id === openPid) : undefined;
-  const span = (g: 0 | 1 | 2 | 3) => cols.filter(c => c.grp === g && !(mobile && c.hm)).length;
 
   return (
     <>
       <div className="screen-head">
         <SeasonPicker />
-        {["ALL", "QB", "RB", "WR", "TE"].map(p => (
+        {POS_CHIPS.map(p => (
           <button key={p} className={`chip ${pos === p ? "on" : ""}`}
             onClick={() => { setPos(p); setOpenPid(null); }}>{p === "ALL" ? "All" : p}</button>
         ))}
@@ -186,94 +200,15 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
         <span className="screen-note">Regular season · <b>{count}</b> shown</span>
       </div>
 
-      {isProj && (
-        <div className="footnote" style={{ background: "var(--band)", color: "var(--dim)", textTransform: "none", letterSpacing: 0 }}>
-          No scored weeks yet — showing projections for a full healthy 13-game season · σ and by-week are not projected
-        </div>
-      )}
+      <DataTable cols={COLS} groups={GROUPS} rows={rows} ctx={ctx} rowKey={r => r.id}
+        sortId={sortId} dir={dir} onSort={onSort} homeCol="rk" openKey={openPid}
+        onRowClick={r => setOpenPid(openPid === r.id ? null : r.id)} />
 
-      <table>
-        <colgroup>
-          {cols.map((c, i) => (
-            <col key={i} className={c.hm ? "hm" : undefined} style={c.w ? { width: c.w } : undefined} />
-          ))}
-        </colgroup>
-        <thead>
-          <tr className="grp">
-            <th colSpan={span(0)}></th>
-            <th className="edge" colSpan={span(1)}>Production</th>
-            <th className="edge value" colSpan={span(2)}>Wins added</th>
-            {showCvi && <th className="edge value" colSpan={span(3)}>Win now</th>}
-          </tr>
-          <tr>
-            {cols.map((c, i) => (
-              <th key={i}
-                className={[c.align, c.hm ? "hm" : "", c.edge ? "edge" : "", c.keyCol ? "key" : "",
-                  (i === 0 || sortable.has(i)) ? "sortable" : "", sortCol === i ? "sorted" : ""]
-                  .filter(Boolean).join(" ")}
-                onClick={() => clickCol(i)}>
-                {c.label}{sortCol === i ? (dir < 0 ? " ▼" : " ▲") : ""}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.id} className={`click ${openPid === r.id ? "open" : i % 2 ? "zebra" : ""}`}
-              onClick={() => setOpenPid(openPid === r.id ? null : r.id)}>
-              <td className="rank">
-                <span className="spine" style={{ background: POS[r.pos] || "var(--rule)" }} />
-                <span className="fig">{i + 1}</span>
-              </td>
-              <td className="name"><PlayerLink pid={r.id} name={r.nm} /></td>
-              <td className="c"><span className={`pos ${r.pos}`}>{r.pos}{r.posRank || ""}</span></td>
-              <td className="sub hm">{r.team}</td>
-              <td className="fig quiet hm edge n">{r.gp}</td>
-              <td className="fig hm n">{r.noPts ? "—" : fmt(r.pts, 1)}</td>
-              <td className="fig strong n">{r.noPts ? "—" : fmt(r.ppg)}</td>
-              <td className="n">
-                {r.proj ? <span className="fig quiet">—</span> : (
-                  <div className="meter">
-                    <div className="track cons"><div className="fill" style={{ width: consPct(r.sdv, sdMin, sdMax) }} /></div>
-                    <span className="val sm">{fmt(r.sdv, 1)}</span>
-                  </div>
-                )}
-              </td>
-              <td className="edge n">
-                <div className="meter">
-                  <div className="track war"><div className="fill" style={{ width: pct(r.war, warMax) }} /></div>
-                  <span className="val head-fig">{fmt(r.war, 3)}</span>
-                </div>
-              </td>
-              <td className="fig quiet hm n">{fmt(r.warG, 3)}</td>
-              <td className={`hm n${showCvi ? "" : " last"}`}>
-                {r.wkWar.length ? <ByWeek war={r.wkWar} gMax={gMax} /> : <span className="fig quiet">—</span>}
-              </td>
-              {showCvi && (
-                <td className="edge last n">
-                  {r.cvi == null ? <span className="fig quiet">—</span> : (
-                    <div className="meter">
-                      <div className="track grow"><div className="fill" style={{ width: Math.round(r.cvi) + "%" }} /></div>
-                      <span className="val head-fig">{r.cvi.toFixed(1)}</span>
-                    </div>
-                  )}
-                </td>
-              )}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-
-      {openRow && season !== "ALL" && !openRow.proj && <PlayerDrawer r={openRow} gMax={gMax} />}
+      {openRow && season !== "ALL" && <PlayerDrawer r={openRow} gMax={ctx.gMax} />}
       {openRow && season === "ALL" && (
-        <div className="drawer"><div className="legacy">
+        <div className="drawer">
           <AllTimePanel pid={openRow.id} data={data} seasons={seasons} teams={data.teams} players={players} />
-        </div></div>
-      )}
-      {openRow && season !== "ALL" && openRow.proj && (
-        <div className="drawer"><div className="legacy">
-          <PlayerPanel pid={openRow.id} season={season} teams={data.teams} players={players} />
-        </div></div>
+        </div>
       )}
 
       <div className="footnote">
@@ -285,7 +220,6 @@ export default function Players({ data, season, seasons, players, defaultMinGp }
   );
 }
 
-const pct = (v: number, max: number) => Math.round((v / max) * 100) + "%";
 const consPct = (sdv: number, lo: number, hi: number) =>
   Math.round(Math.max(4, (1 - (sdv - lo) / ((hi - lo) || 1)) * 100)) + "%";
 
@@ -319,7 +253,7 @@ function PlayerDrawer({ r, gMax }: { r: Row; gMax: number }) {
     <div className="drawer">
       <div className="drawer-head">
         <span className="drawer-title">{r.nm}</span>
-        <span className="pos" style={{ width: 46, background: POS[r.pos] || "var(--rule)" }}>{r.pos}{r.posRank}</span>
+        <span className="pos" style={{ width: 46, background: POS_COLOR[r.pos] || "var(--rule)" }}>{r.pos}{r.posRank}</span>
         <span className="drawer-sub">
           {r.team} · {r.gp} games · {fmt(r.ppg, 1)} ppg · <span className="sigma">σ</span> {fmt(r.sdv, 1)}
         </span>

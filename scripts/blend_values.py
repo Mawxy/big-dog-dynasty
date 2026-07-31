@@ -140,8 +140,13 @@ def main():
     for i, pid in enumerate(ranked, 1):
         r = out[pid]
         pos_seen[r["pos"]] = pos_seen.get(r["pos"], 0) + 1   # rank within position (DVI order)
+        # `components` = how many signals fed the figure. A rating built from
+        # one component is otherwise indistinguishable from one built from
+        # five; the count is published so a confidence affordance can be
+        # designed on the figure itself. The breakdown stays local.
         dvi[pid] = {"name": r["name"], "pos": r["pos"], "dvi": r["rating"],
-                    "rank": i, "pos_rank": pos_seen[r["pos"]]}
+                    "rank": i, "pos_rank": pos_seen[r["pos"]],
+                    "components": sum(1 for c in r["components"].values() if c is not None)}
     (DATA / "dvi.json").write_text(json.dumps(
         {"generated": __import__("datetime").date.today().isoformat(),
          "players": dvi}, separators=(",", ":")), encoding="utf-8")

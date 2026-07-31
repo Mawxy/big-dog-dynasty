@@ -58,7 +58,7 @@ export default function HoverTip({ tip, children, align = "right", block }: {
           left: pos?.left ?? anchor.right, top: pos?.top ?? anchor.top,
           visibility: pos ? "visible" : "hidden",   // hide for the pre-clamp frame
           maxWidth: "calc(100vw - 16px)",
-          background: "var(--card)", border: "1px solid var(--line)", borderRadius: 8,
+          background: "var(--card)", border: "1px solid var(--line)",
           padding: "6px 10px", fontSize: 12, whiteSpace: "nowrap", textAlign: "left",
           lineHeight: 1.7, boxShadow: "0 6px 20px rgba(0,0,0,.35)", color: "var(--dim)",
           pointerEvents: "none",

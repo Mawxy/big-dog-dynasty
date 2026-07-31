@@ -28,6 +28,8 @@ FLOORS = {
     "trades": 100,
     "values": 300,
     "franchises": 10,
+    "dvi": 150,      # currently ~391
+    "cvi": 150,      # currently ~391
 }
 
 
@@ -54,6 +56,22 @@ def check_values():
     floor("values", len(jload(DATA / "values.json").get("players") or {}))
     if not jload(DATA / "value_bridge.json").get("fits"):
         fail("value_bridge.json has no fits")
+    check_ecr()
+
+
+def check_ecr():
+    """ecr.json's own reconciliation invariant: for every format the meta's
+    `matched` must equal the players actually carrying that slug — a mismatch
+    means a name collision silently overwrote someone (see HANDOFF 2026-07-29).
+    The file persists across failed fetches (continue-on-error), so an old but
+    internally consistent copy passes."""
+    ecr = jload(DATA / "ecr.json")
+    players = ecr.get("players") or {}
+    for slug, m in (ecr.get("formats") or {}).items():
+        n = sum(1 for by_fmt in players.values() if slug in by_fmt)
+        if n != m.get("matched"):
+            fail(f"ecr.json {slug}: {n} players carry the slug but meta says "
+                 f"matched={m.get('matched')} — name collision overwriting someone?")
 
 
 def check_full():
@@ -83,6 +101,8 @@ def check_full():
     if not jload(DATA / "drafts.json"):
         fail("drafts.json is empty")
     floor("shards", len(list((DATA / "player").glob("*.json"))))
+    floor("dvi", len(jload(DATA / "dvi.json").get("players") or {}))
+    floor("cvi", len(jload(DATA / "cvi.json").get("players") or {}))
     check_values()
 
 

@@ -7,22 +7,31 @@ import { useSeasonData } from "./lib/useSeasonData";
 import { seasonSeg } from "./lib/league";
 import Home from "./views/Home";
 import Players from "./views/Players";
+import PlayersHub from "./views/PlayersHub";
 import Teams from "./views/Teams";
+import FranchisesView from "./views/Franchises";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
 import Trades from "./views/Trades";
+import Ledger from "./views/Ledger";
 import Dvi from "./views/Dvi";
 import Cvi from "./views/Cvi";
+import Value from "./views/Value";
 import FranchisePage from "./components/FranchisePage";
-import PlayerPage from "./components/PlayerPage";
+import Player from "./views/Player";
 import SiteFooter from "./components/SiteFooter";
 
-const VIEWS = ["home", "players", "standings", "weekly", "draft", "trades", "dvi", "cvi"] as const;
+/** The tab bar. Value, Standings, Stats, DVI and CVI all keep their routes but
+ *  live off the bar — they are reached from the hubs: League links standings
+ *  and values, Players links its two tables. A route without a tab is a
+ *  destination; a tab is a starting point. */
+const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
-const GLOBAL_VIEWS = ["home", "draft", "trades", "dvi", "cvi"];
+const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "trades", "dvi", "cvi"];
 const LABEL = (v: string) =>
   v === "dvi" || v === "cvi" ? v.toUpperCase()
-    : v === "home" ? "League" : v[0].toUpperCase() + v.slice(1);
+    : v === "home" ? "League"
+      : v === "trades" ? "Trade machine" : v[0].toUpperCase() + v.slice(1);
 
 /** newest season that actually has WAR data (falls back to newest listed) */
 function defaultSeason(meta: Meta): string {
@@ -107,6 +116,14 @@ function Shell() {
   const parts = loc.pathname.split("/");
   const onView = (VIEWS as readonly string[]).includes(parts[2]);
   const curSeasonSeg = onView && parts[3] ? parts[3] : seasonSeg(latest);
+  // Off-tab pages still light their hub's tab, so the bar always answers
+  // "where am I": standings belongs to League; the player tables and player
+  // pages to Players; franchise pages to Teams.
+  const HUB_OF: Record<string, string> = {
+    standings: "home", ledger: "home", value: "players", stats: "players",
+    dvi: "players", cvi: "players", player: "players", franchise: "teams",
+  };
+  const active = onView ? parts[2] : HUB_OF[parts[2]] ?? "";
   return (
     <div className="app">
       <header className="mast">
@@ -125,7 +142,7 @@ function Shell() {
 
       <nav className="tabs">
         {VIEWS.map(v => (
-          <button key={v} className={parts[2] === v ? "on" : ""}
+          <button key={v} className={active === v ? "on" : ""}
             onClick={() => nav(GLOBAL_VIEWS.includes(v)
               ? `${base}/${v}` : `${base}/${v}/${curSeasonSeg}`)}>
             {LABEL(v)}
@@ -139,23 +156,29 @@ function Shell() {
               :league, so the legacy block below can never be shadowed. */}
           <Route path="/:league" element={<Home />} />
           <Route path="/:league/home" element={<Home />} />
-          <Route path="/:league/players/:season" element={<PlayersRoute />} />
+          <Route path="/:league/players" element={<PlayersHub />} />
+          <Route path="/:league/stats/:season" element={<PlayersRoute />} />
+          {/* the stat table's pre-hub address — bookmarks carry a season */}
+          <Route path="/:league/players/:season" element={<StatsRedirect />} />
           <Route path="/:league/standings/:season" element={<TeamsRoute />} />
           {/* A franchise is keyed by roster_id, which is stable across seasons —
               so its URL carries no year. The page picks its own roster season. */}
           <Route path="/:league/franchise/:rid" element={<FranchiseRoute />} />
           <Route path="/:league/franchise/:rid/:tab" element={<FranchiseRoute />} />
 
-          {/* the season-scoped team URLs this replaced */}
+          {/* franchise-level hub: value rankings + history */}
+          <Route path="/:league/teams" element={<FranchisesView />} />
+          {/* the season-scoped team URLs the franchise pages replaced */}
           <Route path="/:league/teams/:season/:rid/:tab" element={<TeamRedirect />} />
           <Route path="/:league/teams/:season/:rid" element={<TeamRedirect />} />
           <Route path="/:league/teams/:season" element={<TeamRedirect />} />
-          <Route path="/:league/teams" element={<TeamRedirect />} />
           <Route path="/:league/weekly/:season" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
           <Route path="/:league/draft" element={<Draft />} />
           <Route path="/:league/trades" element={<Trades />} />
+          <Route path="/:league/ledger" element={<Ledger />} />
+          <Route path="/:league/value" element={<Value />} />
           <Route path="/:league/dvi" element={<Dvi />} />
           <Route path="/:league/cvi" element={<Cvi />} />
           <Route path="/:league/player/:pid" element={<PlayerRoute />} />
@@ -166,6 +189,7 @@ function Shell() {
           <Route path="/weekly/*" element={<LegacyRedirect />} />
           <Route path="/draft" element={<LegacyRedirect />} />
           <Route path="/trades" element={<LegacyRedirect />} />
+          <Route path="/value" element={<LegacyRedirect />} />
           <Route path="/dvi" element={<LegacyRedirect />} />
           <Route path="/cvi" element={<LegacyRedirect />} />
           <Route path="/player/*" element={<LegacyRedirect />} />
@@ -176,6 +200,13 @@ function Shell() {
       <SiteFooter />
     </div>
   );
+}
+
+/** /players/<season> predates the hub; the season now lives under /stats */
+function StatsRedirect() {
+  const { league } = useLeague();
+  const p = useParams();
+  return <Navigate replace to={`/${leagueSeg(league)}/stats/${p.season}`} />;
 }
 
 function PlayersRoute() {
@@ -206,16 +237,11 @@ function TeamRedirect() {
 
 function FranchiseRoute() {
   const { players, league } = useLeague();
-  const nav = useNavigate();
   const p = useParams();
   const rid = intParam(p.rid);
   const base = `/${leagueSeg(league)}`;
   if (rid == null) return <Navigate replace to={base} />;
-  return <div className="legacy">
-    <FranchisePage key={rid} rid={rid} players={players} tab={p.tab}
-      onTab={t => nav(`${base}/franchise/${rid}/${t}`, { replace: true })}
-      back={() => nav(-1)} />
-  </div>;
+  return <FranchisePage key={rid} rid={rid} players={players} tab={p.tab} />;
 }
 
 function TeamsRoute() {
@@ -238,11 +264,9 @@ function WeeklyRoute() {
 }
 
 function PlayerRoute() {
-  const { meta, players } = useLeague();
   const pid = useParams().pid!;
-  const nav = useNavigate();
   // key={pid} forces a fresh mount per player: without it, QuickJump reuses the
   // component and a shard that 404s leaves the previous player's projection on
   // screen (state is never reset on fetch failure).
-  return <PlayerPage key={pid} pid={pid} players={players} meta={meta} back={() => nav(-1)} />;
+  return <Player key={pid} pid={pid} />;
 }

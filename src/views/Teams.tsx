@@ -294,9 +294,9 @@ export default function Teams({ data, season, players }: Props) {
 
       {openRow && !openRow.proj && <TeamDrawer r={openRow} tnames={tnames} ps={ps} />}
       {openRow && openRow.proj && (
-        <div className="drawer"><div className="legacy">
+        <div className="drawer">
           <ProjPanel r={openRow} players={players} teams={data.teams} />
-        </div></div>
+        </div>
       )}
 
       <div className="footnote">
@@ -340,7 +340,7 @@ function TeamDrawer({ r, tnames, ps }: { r: Row; tnames: Record<number, string>;
 }
 
 /** Preseason projection detail — projected lineup + real schedule with per-game
- *  win probabilities (v1 presentation, kept behind `.legacy`). */
+ *  win probabilities, in the shared quick-look panel idiom. */
 function ProjPanel({ r, players, teams }: { r: Row; players: PlayersMin; teams: Team[] }) {
   const tnames: Record<number, string> = {};
   teams.forEach(t => { tnames[t.roster_id] = t.team; });
