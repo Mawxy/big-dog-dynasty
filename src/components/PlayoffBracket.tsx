@@ -97,13 +97,13 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
           {legs.map((leg, i) => (
             <div key={i} className={`pbr-leg leg${i + 1}`}>
               <div className="pbr-feed">
-                {byeCard(leg.bye, "j")}
-                {leg.feeder ? game(leg.feeder, "j") : <div className="bgame empty-slot" />}
+                {byeCard(leg.bye, "")}
+                {leg.feeder ? game(leg.feeder) : <div className="bgame empty-slot" />}
               </div>
-              <div className="pbr-semi">{game(leg.semi, "k")}</div>
+              <div className="pbr-semi">{game(leg.semi)}</div>
             </div>
           ))}
-          <div className="pbr-final">{final ? game(final, "k champ") : null}</div>
+          <div className="pbr-final">{final ? game(final, "champ") : null}</div>
 
           {/* placement games, each under the round it was played alongside */}
           {placements.length > 0 && (

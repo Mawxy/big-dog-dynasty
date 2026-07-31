@@ -915,7 +915,9 @@ button.dband:hover .band-label { color: var(--txt2); }
 .pbr {
   display: grid;
   grid-template-columns: repeat(3, minmax(250px, 1fr));
-  grid-template-rows: auto 1fr 1fr auto auto;
+  /* auto, never 1fr: a stretched row detaches a card from the rounds it
+     should line up with, which is what broke the first bracket */
+  grid-template-rows: auto auto auto auto auto;
   gap: 0 46px; padding: 14px var(--pad) 10px;
   min-width: 1020px; border-right: var(--pad) solid transparent;
 }
@@ -933,10 +935,7 @@ button.dband:hover .band-label { color: var(--txt2); }
 .pbr-semi { grid-column: 2; display: flex; flex-direction: column; justify-content: center; }
 .leg1 .pbr-feed, .leg1 .pbr-semi { grid-row: 2; }
 .leg2 .pbr-feed, .leg2 .pbr-semi { grid-row: 3; }
-.pbr-final {
-  grid-column: 3; grid-row: 2 / span 2;
-  display: flex; flex-direction: column; justify-content: center;
-}
+.pbr-final { grid-column: 3; grid-row: 2 / span 2; align-self: center; }
 /* Placement games sit BELOW the tree but in the column of the week they were
    played — 5th place under the semifinals, 3rd place under the final — so the
    grid itself says when. A full-width rule separates them from the bracket. */
@@ -949,12 +948,6 @@ button.dband:hover .band-label { color: var(--txt2); }
   font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
   color: var(--dim3);
 }
-/* a row of standalone game cards (upsets, superlatives) */
-.card-row {
-  display: flex; flex-wrap: wrap; gap: 18px; padding: 14px var(--pad) 4px;
-}
-.card-row > * { flex: 0 1 380px; }
-
 .pbr-plc { grid-row: 5; padding-top: 4px; }
 .pbr-plc.c1 { grid-column: 1; }
 .pbr-plc.c2 { grid-column: 2; }
@@ -963,20 +956,11 @@ button.dband:hover .band-label { color: var(--txt2); }
 .bgame.plc { background: var(--zebra); }
 .bgame.plc .bgame-head { background: #0a0d11; }
 
-/* connectors: a stub out of each feeder, a stub into each advancing game */
-.bgame.j, .bgame.k { position: relative; }
-.bgame.j::after, .bgame.k::before {
-  content: ""; position: absolute; top: 50%;
-  width: 23px; border-top: 1px solid var(--rule);
+/* a row of standalone game cards (upsets, superlatives) */
+.card-row {
+  display: flex; flex-wrap: wrap; gap: 18px; padding: 14px var(--pad) 4px;
 }
-.bgame.j::after { right: -23px; }
-.bgame.k::before { left: -23px; }
-/* the vertical run joining a leg's two feeders into its semi */
-.pbr-feed { position: relative; }
-.pbr-feed::after {
-  content: ""; position: absolute; right: -23px;
-  top: 25%; bottom: 25%; border-right: 1px solid var(--rule);
-}
+.card-row > * { flex: 0 1 380px; }
 
 /* a bye: a real slot in the bracket, the week off the seed earned */
 .bgame.bye { background: var(--deep); border-style: dashed; }
