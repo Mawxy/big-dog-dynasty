@@ -154,7 +154,7 @@ def match_gsis(name, pos, season, meta):
     return None
 
 
-def summarize(order, cells, hits, years, labels=None):
+def summarize(order, cells, hits, years, outs, labels=None):
     """Aggregate sample lists into the JSON bucket rows (raw means only)."""
     rows = []
     for b in order:
@@ -164,6 +164,11 @@ def summarize(order, cells, hits, years, labels=None):
             'n': {k: len(cells[b][k]) for k in years},
             'raw': {k: round(statistics.mean(cells[b][k]), 3)
                     for k in years if cells[b][k]},
+            # share of year-k observations that are out-of-league zeros: the
+            # player left no trace in a season whose history exists. Distinct
+            # from "played, ~0 WAR" — that carries a real figure.
+            'out_rate': {k: round(outs[b][k] / len(cells[b][k]), 3)
+                         for k in years if cells[b][k]},
             'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
             'hit_n': len(h),
             'dist3': sorted(round(x, 2) for x in h),
@@ -199,15 +204,20 @@ def main():
     meta, hist, real, hist_seasons = load_sources(last)
 
     def war_of(sleeper_id, gsis, season):
-        """Real league WAR first, calibrated history second, else None."""
+        """Real league WAR first, calibrated history second, else None.
+        Returns (war, out): out=True marks the busted/out-of-league real zero —
+        the player left no trace in a season whose history exists."""
         if season in real.get(sleeper_id, {}):
-            return real[sleeper_id][season]
+            return real[sleeper_id][season], False
         # Only treat a missing player-season as a real (busted) zero if that
         # season's waa_war file actually exists. A missing waa_war_<season>.csv
         # is "no source" -> None (skip), never a corpus-wide zero — otherwise
         # running before war-history regenerates poisons the whole column.
         if gsis is not None and season in hist_seasons:
-            return hist.get(gsis, {}).get(season, 0.0)
+            h = hist.get(gsis, {})
+            if season in h:
+                return h[season], False
+            return 0.0, True
         return None
 
     def resolve(name, pos, season):
@@ -273,6 +283,8 @@ def main():
 
     pcells = {b: {k: [] for k in candidates} for b in PICK_ORDER}
     bcells = {b: {k: [] for k in candidates} for b in BAND_ORDER}
+    pouts = {b: {k: 0 for k in candidates} for b in PICK_ORDER}
+    bouts = {b: {k: 0 for k in candidates} for b in BAND_ORDER}
     phits, bhits = defaultdict(list), defaultdict(list)
     for season, pick, sid, gsis in picks:
         pk, bk = pick_key(pick), band_key(pick)
@@ -280,15 +292,19 @@ def main():
             yr = season + k - 1
             if yr > last:
                 continue
-            v = war_of(sid, gsis, yr)
-            if v is not None:
+            r = war_of(sid, gsis, yr)
+            if r is not None:
+                v, out = r
                 pcells[pk][k].append(v)
                 bcells[bk][k].append(v)
+                if out:
+                    pouts[pk][k] += 1
+                    bouts[bk][k] += 1
         if season + 2 <= last:                      # 3 finished seasons
             tot = [war_of(sid, gsis, season + i) for i in range(3)]
             if all(t is not None for t in tot):
-                phits[pk].append(sum(tot))
-                bhits[bk].append(sum(tot))
+                phits[pk].append(sum(v for v, _ in tot))
+                bhits[bk].append(sum(v for v, _ in tot))
 
     # Publish year k only if EVERY slot clears its round's bar. The thinnest
     # slot governs, so a published column is honest everywhere on the board.
@@ -327,8 +343,8 @@ def main():
         'unmatched': len(unmatched),
         'source': 'real Big Dog WAR where available, calibrated NFL history otherwise',
     },
-        'picks': summarize(PICK_ORDER, pcells, phits, years),
-        'bands': summarize(BAND_ORDER, bcells, bhits, years,
+        'picks': summarize(PICK_ORDER, pcells, phits, years, pouts),
+        'bands': summarize(BAND_ORDER, bcells, bhits, years, bouts,
                            labels=(band_label, band_slots)),
     }
 
@@ -351,8 +367,10 @@ def main():
             cols = " ".join(f"{row['raw'].get(k, float('nan')):5.2f}"
                             for k in years)
             hit = f"{row['hit_rate']:.0%}" if row['hit_rate'] is not None else '-'
+            o = row['out_rate'].get(years[-1])
+            out = f"out y{years[-1]} {o:.0%}" if o is not None else ''
             lbl = row.get('label', row['bucket'])
-            print(f"  {lbl:10s} {n:>3d} | {cols} | {hit}")
+            print(f"  {lbl:10s} {n:>3d} | {cols} | {hit} | {out}")
     print(f"\nwrote {dest}")
 
 

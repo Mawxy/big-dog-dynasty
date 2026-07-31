@@ -110,6 +110,9 @@ export interface PickBucket {
   /** year-since-draft -> sample size (JSON int keys arrive as strings) */
   n: Record<string, number>;
   raw: Record<string, number>;
+  /** year-since-draft -> share of observations that are out-of-league zeros
+   *  (no trace in a season whose history exists — busted, not "played, ~0") */
+  out_rate?: Record<string, number>;
   hit_rate: number | null;
   hit_n: number;
   /** sorted raw 3-yr WAR totals of matured picks (box-plot sample) */
