@@ -23,3 +23,4 @@ data/leagues/*/cvi_detail.json
 scratch/
 # same, if one lands outside scratch/ by accident
 *-preview.html
+HANDOFF_*.md
