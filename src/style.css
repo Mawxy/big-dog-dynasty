@@ -845,6 +845,57 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
   border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
   padding: 7px 22px;
 }
+
+/* a band that is also the collapse control for the section under it */
+button.dband {
+  width: 100%; cursor: pointer; text-align: left;
+  font: inherit; color: inherit;
+  border-left: none; border-right: none;
+}
+button.dband .caret { display: inline-block; width: 16px; }
+button.dband:hover .band-label { color: var(--txt2); }
+
+/* Sleeper-style draft board: rows are rounds, columns the pick within the
+   round. Cells are tinted 16% by position over --bg — the one background the
+   position colours are allowed, because the board is a position map with no
+   figures on it — with the standard 3px position spine as the primary
+   encoding. Zero radius, as everywhere. */
+.dboard {
+  display: grid;
+  grid-template-columns: 34px repeat(12, minmax(88px, 1fr));
+  gap: 2px;
+  padding: 12px var(--pad) 6px;
+  min-width: 1150px;
+}
+.dboard .collbl {
+  display: flex; align-items: flex-end; justify-content: center; padding-bottom: 2px;
+  font: 600 11px/1 var(--cond); letter-spacing: .14em; color: var(--dim3);
+}
+.dboard .rdlbl {
+  display: flex; align-items: center; justify-content: center;
+  font: 600 12px/1 var(--cond); letter-spacing: .1em; color: var(--dim);
+}
+.dcell {
+  border-left: 3px solid var(--rule);
+  padding: 5px 7px 6px 8px;
+  min-height: 52px;
+  overflow: hidden;
+}
+.dcell.empty { background: var(--zebra); border-left-color: var(--hair); }
+.dcell .pk {
+  display: flex; justify-content: space-between;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .1em; color: var(--dim);
+}
+.dcell .nm {
+  margin: 3px 0 2px;
+  font: 600 12.5px/1.2 var(--sans); color: var(--txt);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.dcell .nm .tlink { color: inherit; }
+.dcell .by {
+  font: 400 10.5px/1.2 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .band-label {
   font: 600 12px/1.4 var(--cond); letter-spacing: .22em; text-transform: uppercase;
   color: var(--dim); white-space: nowrap;
