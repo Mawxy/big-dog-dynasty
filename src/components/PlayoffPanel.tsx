@@ -128,75 +128,100 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
     </div>
   );
 
-  /** one leaderboard of starters — the top of the list, or the bottom of it */
-  const perfTable = (rows: Perf[], kind: "won" | "cost") => (
+  /** A compact WPA leaderboard, half-width so the two ends sit side by side.
+   *  Raw win probability only — no win share, no award: this pair answers
+   *  "who swung the games", and swinging them is signed. */
+  const wpaTable = (rows: Perf[]) => (
+    <table>
+      <thead><tr>
+        <th className="t" style={{ width: "10%" }}>Rk</th>
+        <th className="t" style={{ width: "52%" }}>Player</th>
+        {weeks.map(w => (
+          <th key={w} className="n" style={{ width: `${Math.floor(26 / weeks.length)}%` }}>
+            WK {w}
+          </th>
+        ))}
+        <th className="n key" style={{ width: "12%" }}>WPA</th>
+      </tr></thead>
+      <tbody>
+        {rows.map((p, i) => {
+          const [nm, pos] = pInfo(players, p.pid);
+          return (
+            <tr key={p.pid}>
+              <td className="t" style={{ font: "600 15px/1 var(--cond)", color: "var(--txt2)" }}>
+                {i + 1}
+              </td>
+              <td className="who">
+                <div className="line">
+                  <span className="pos mini" style={{ background: POS_COLOR[pos] || "var(--rule)" }}>{pos}</span>
+                  <span className="nm">{nm}</span>
+                </div>
+                <div className="by">{nameOf(p.rid)}</div>
+              </td>
+              {weeks.map(w => {
+                const v = p.wpaWeek[String(w)];
+                const started = p.byWeek[String(w)] != null;
+                return (
+                  <td key={w} className="n sub">
+                    {v == null ? <span className="quiet">{started ? "·" : "—"}</span> : wsgn(v)}
+                  </td>
+                );
+              })}
+              <td className="n vs" style={{
+                color: (p.wpa ?? 0) > 0.005 ? "var(--good)"
+                  : (p.wpa ?? 0) < -0.005 ? "var(--bad)" : "var(--dim)",
+                font: "700 17px/1 var(--cond)",
+              }}>
+                {p.wpa == null ? "—" : wsgn(p.wpa)}
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
+  );
+
+  /** The award table. Ranked by MVP score, which is the round-weighted win
+   *  share on the all-time scale; win share rides alongside in its own units
+   *  so the reader can see what the score was built from. */
+  const mvpTable = (rows: Perf[]) => (
     <table>
       <thead>
         <tr className="grp">
           <th colSpan={4}></th>
-          <th colSpan={weeks.length + 1} className="edge">Win probability added</th>
-          <th colSpan={2} className="edge acc">Wins created</th>
+          <th colSpan={3} className="edge acc">Wins created</th>
         </tr>
         <tr>
-          <th className="t" style={{ width: "5%" }}>Rk</th>
-          <th className="t" style={{ width: "25%" }}>Player</th>
-          <th className="c" style={{ width: "6%" }}>Pos</th>
-          <th className="t" style={{ width: "18%" }}>For</th>
-          {weeks.map(w => (
-            <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
-          ))}
-          <th className="n" style={{ width: "9%" }}>Total</th>
-          <th className="n" style={{ width: "10%" }}>Win share</th>
-          <th className="n key" style={{ width: "9%" }}>MVP</th>
+          <th className="t" style={{ width: "6%" }}>Rk</th>
+          <th className="t" style={{ width: "30%" }}>Player</th>
+          <th className="c" style={{ width: "7%" }}>Pos</th>
+          <th className="t" style={{ width: "23%" }}>For</th>
+          <th className="n" style={{ width: "11%" }}>Win share</th>
+          <th className="n" style={{ width: "11%" }}>Points</th>
+          <th className="n key" style={{ width: "12%" }}>MVP</th>
         </tr>
       </thead>
       <tbody>
         {rows.map((p, i) => {
           const [nm, pos] = pInfo(players, p.pid);
-          const lead = i === 0 && kind === "won";
-          const worst = i === 0 && kind === "cost";
           return (
             <tr key={p.pid} className={i % 2 ? "zebra" : ""}>
               <td className="rank">
                 <span className="spine" style={{
-                  background: lead ? "var(--acc)" : worst ? "var(--bad)"
-                    : POS_COLOR[pos] || "#2b3642",
+                  background: i === 0 ? "var(--acc)" : POS_COLOR[pos] || "#2b3642",
                 }} />
                 <span className="fig">{i + 1}</span>
               </td>
               <td className="name">
                 <PlayerLink pid={p.pid} name={nm} />
-                {lead && <span className="name-note" style={{ color: "var(--acc)" }}>MVP</span>}
+                {i === 0 && <span className="name-note" style={{ color: "var(--acc)" }}>MVP</span>}
               </td>
               <td className="c"><span className={`pos ${pos}`}>{pos}</span></td>
               <td className="sub">{nameOf(p.rid)}</td>
-              {weeks.map(w => {
-                // RAW win probability — these add up to the Total column
-                const v = p.wpaWeek[String(w)];
-                const started = p.byWeek[String(w)] != null;
-                return (
-                  <td key={w} className="fig n">
-                    {v == null
-                      // started, but only in a placement game — no WPA by design
-                      ? <span className="quiet">{started ? "·" : "—"}</span>
-                      : <span style={{ color: v > 0.005 ? "var(--good)" : v < -0.005 ? "var(--bad)" : "var(--dim)" }}>
-                        {wsgn(v)}
-                      </span>}
-                  </td>
-                );
-              })}
-              <td className="fig n">
-                <span style={{ color: p.wpa == null ? undefined : p.wpa > 0.005 ? "var(--good)" : p.wpa < -0.005 ? "var(--bad)" : undefined }}>
-                  {p.wpa == null ? "—" : wsgn(p.wpa)}
-                </span>
-              </td>
-              {/* wins, to two places — the units the name promises */}
-              <td className="fig n">
-                {p.ws == null ? <span className="quiet">—</span> : fmt(p.ws, 2)}
-              </td>
-              {/* the award index: bare figure, never metered */}
+              <td className="fig n">{p.ws == null ? <span className="quiet">—</span> : fmt(p.ws, 2)}</td>
+              <td className="fig quiet n">{fmt(p.pts, 1)}</td>
               <td className="fig n key">
-                <b style={{ color: lead ? "var(--acc)" : p.mvp != null && p.mvp < 0 ? "var(--bad)" : undefined }}>
+                <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
                   {p.mvp == null ? "—" : fmt(p.mvp, 1)}
                 </b>
               </td>
@@ -245,44 +270,51 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       {secBand("bracket", "Bracket", "click a game for the full matchup")}
       {openSec.bracket && <PlayoffBracket season={season} bracket={bracket} />}
 
-      {/* (b) who won it, and who lost it */}
-      {secBand("mvp", "Who won it — and who cost it", hasWpa
-        ? "win share is in wins; MVP is the round-weighted, all-time scale"
-        : "fantasy points across the playoff weeks, credited while starting")}
+      {/* (b) who swung the games — the two ends of raw WPA, side by side */}
+      {secBand("mvp", "Who won it — and who cost it",
+        hasWpa ? "raw win probability added, per matchup"
+          : "fantasy points across the playoff weeks, credited while starting")}
       {openSec.mvp && (!perf.length ? (
         <div className="empty">No scored playoff weeks yet.</div>
-      ) : !hasWpa ? perfTable(perf.slice(0, N), "won") : <>
-        <div className="band" style={{ marginTop: 0 }}>
-          <span className="band-label">Won it for them</span>
-          <span className="band-note">the {top.length} biggest win-probability gains</span>
+      ) : !hasWpa ? mvpTable(perf.slice(0, N)) : <>
+        <div className="pick-tables">
+          <div>
+            <div className="pick-title best">Won it for them</div>
+            {wpaTable(top)}
+          </div>
+          <div>
+            <div className="pick-title worst">Cost them</div>
+            {bottom.length ? wpaTable(bottom)
+              : <div className="empty">Nobody finished with negative WPA.</div>}
+          </div>
         </div>
-        {perfTable(top, "won")}
-        <div className="band" style={{ marginTop: 18 }}>
-          <span className="band-label">Cost them</span>
-          <span className="band-note">
-            by raw WPA — the {bottom.length} starts that most hurt their team's chances
-          </span>
-        </div>
-        {bottom.length ? perfTable(bottom, "cost")
-          : <div className="empty">Nobody finished with negative WPA.</div>}
-        <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
-Three figures, three questions. <b>WPA</b> is how much win probability a player
-          swung, allocated by Shapley value so each game's swing is fully accounted for; the
-          week columns are raw and add up to the Total. <b>Win share</b> is how much of the
-          winning was his: every game hands out exactly 1.0 to the side that won it, split by
-          contribution, so a champion's nine starters sum to 3.0 and a blowout pays the same
-          as a nail-biter — which WPA can't do, since a game that was never in doubt has
-          almost no probability left to hand out. <b>MVP</b> is the award: win share with the
-          later rounds weighted — the final counts double a quarterfinal and half again a
-          semifinal, so a bye can't cost the top seeds it — then rescaled so 100 is the best
-          postseason on record
-          {anchor?.anchor_name && anchor.anchor_season
-            ? ` — ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}. That scale is
-          historical, not per-year, so a thin year scores in the forties instead of being
-          promoted to 100. A dot marks a week he started only in a placement game, which
-          doesn't count.
+        <div className="tnote" style={{ padding: "0 var(--pad) 8px", marginTop: 0 }}>
+          WPA is how much win probability a start swung, allocated by Shapley value so each
+          game’s swing is fully accounted for — which is why the two tables mirror: one
+          team’s gain is the other’s loss. Signed, and unweighted: this is the measured
+          quantity, not the award. A dot marks a week he started only in a placement game.
         </div>
       </>)}
+
+      {/* (b2) the award, on its own — round-weighted win share */}
+      {hasWpa && secBand("award", "Playoff MVP",
+        "round-weighted win share, on the all-time scale")}
+      {hasWpa && openSec.award && (
+        <>
+          {mvpTable(ranked.slice(0, N))}
+          <div className="tnote" style={{ padding: "10px var(--pad) 0", marginTop: 0 }}>
+            <b>Win share</b> is in wins: every elimination game hands out exactly 1.0 to the
+            side that won it, split by contribution, so a champion’s nine starters sum to
+            3.0. It pays a blowout the same as a nail-biter — which WPA can’t, since a
+            game never in doubt has almost no probability left to hand out, even though those
+            players are the reason it wasn’t in doubt. <b>MVP</b> weights that by round —
+            the final counts double a quarterfinal and half again a semifinal, so a bye can’t
+            cost the top seeds it — then rescales so 100 is the best postseason on record
+            {anchor?.anchor_name && anchor.anchor_season
+              ? `: ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}.
+          </div>
+        </>
+      )}
 
       {/* (c) biggest upset */}
       {secBand("upset", "Biggest upset",
