@@ -233,16 +233,16 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
   );
 
   const N = 10;
+  // `perf` arrives sorted by MVP, which is what the award table wants. The
+  // WPA pair is a different question and must be ranked by WPA itself —
+  // ordering a win-probability table by the award would print a column that
+  // doesn't monotonically decrease, which reads as a bug.
   const ranked = perf.filter(p => p.mvp != null);
-  const top = ranked.slice(0, N);
-  // The bottom table ranks by RAW WPA, not by MVP. Win share is never
-  // negative — a loss pays 0.0, it doesn't charge you — so ranking the bottom
-  // by the award would just list ties at zero. Signed WPA is where a bust
-  // actually shows up: he made his team less likely to win.
-  const bottom = ranked
-    .filter(p => (p.wpa ?? 0) < 0)
-    .slice().sort((a, b) => (a.wpa ?? 0) - (b.wpa ?? 0))
-    .slice(0, N);
+  const byWpa = ranked.slice().sort((a, b) => (b.wpa ?? 0) - (a.wpa ?? 0));
+  const top = byWpa.slice(0, N);
+  // The other end: only players who actually cost their team, worst first.
+  // (Win share can't do this job — a loss pays 0.0, it never charges you.)
+  const bottom = byWpa.filter(p => (p.wpa ?? 0) < 0).reverse().slice(0, N);
 
   return (
     <>
