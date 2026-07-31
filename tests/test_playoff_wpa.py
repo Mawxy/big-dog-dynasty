@@ -108,14 +108,22 @@ class TestShapleyEfficiency(unittest.TestCase):
 
 
 class TestRoundWeights(unittest.TestCase):
+    """1 = quarterfinal, 2 = semifinal, 3 = final."""
+
     def test_later_rounds_count_for_more(self):
         """A bye costs the top seeds a game; without this the award drifts to
         whoever simply played the most rounds."""
         self.assertLess(ROUND_WEIGHT[1], ROUND_WEIGHT[2])
         self.assertLess(ROUND_WEIGHT[2], ROUND_WEIGHT[3])
 
-    def test_round_one_is_the_unit(self):
+    def test_quarterfinal_is_the_unit(self):
         self.assertEqual(ROUND_WEIGHT[1], 1.0)
+
+    def test_final_is_double_a_quarterfinal(self):
+        self.assertAlmostEqual(ROUND_WEIGHT[3], 2 * ROUND_WEIGHT[1])
+
+    def test_final_is_half_again_a_semifinal(self):
+        self.assertAlmostEqual(ROUND_WEIGHT[3], 1.5 * ROUND_WEIGHT[2])
 
 
 class TestMvpScore(unittest.TestCase):

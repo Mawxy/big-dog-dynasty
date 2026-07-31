@@ -4,9 +4,9 @@ import { fmt } from "../lib/stats";
 import { useLeaguePath } from "../lib/context";
 
 /**
- * One season's bracket, drawn as a bracket: round 1 on the left with the top
- * seeds' byes in their own slots, the semifinals centred against the pairs
- * that feed them, the final centred against both. Connectors are drawn in CSS
+ * One season's bracket, drawn as a bracket: the quarterfinals on the left with
+ * the top seeds' byes in their own slots, the semifinals centred against the
+ * pairs that feed them, the final centred against both. Connectors are drawn in CSS
  * off each cell, so the shape survives any column width.
  *
  * The placement games (3rd, 5th) are NOT part of that tree — they decide
@@ -41,9 +41,9 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
   /** which round column a placement game belongs under, by its week */
   const colOf = (g: BracketGame): number => {
     const peers = winners.filter(x => x.week === g.week && !(x.p && x.p > 1));
-    if (peers.some(x => x.p === 1)) return 3;
-    if (peers.some(x => x.r === 2)) return 2;
-    return 1;
+    if (peers.some(x => x.p === 1)) return 3;      // final week
+    if (peers.some(x => x.r === 2)) return 2;      // semifinal week
+    return 1;                                      // quarterfinal week
   };
 
   /** a semi's bye team (never played round 1) and the game that fed its opponent */
@@ -56,7 +56,7 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
 
   const title = (g: BracketGame) =>
     g.p === 1 ? "Championship" : g.p === 3 ? "3rd place" : g.p === 5 ? "5th place"
-      : g.r === 1 ? "Round 1" : g.r === 2 ? "Semifinal" : `Round ${g.r}`;
+      : g.r === 1 ? "Quarterfinal" : g.r === 2 ? "Semifinal" : `Round ${g.r}`;
 
   const side = (g: BracketGame, rid: number | null, pts: number | null) => (
     <div className={`bside ${rid != null && g.w === rid ? "won" : ""}`}>
@@ -91,7 +91,7 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
     <>
       <div className="dscroll">
         <div className="pbr">
-          <div className="pbr-lbl c1">Round 1</div>
+          <div className="pbr-lbl c1">Quarterfinals</div>
           <div className="pbr-lbl c2">Semifinals</div>
           <div className="pbr-lbl c3">Final</div>
           {legs.map((leg, i) => (

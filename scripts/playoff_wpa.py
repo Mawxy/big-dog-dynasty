@@ -18,7 +18,7 @@ WPA sidesteps all of it because it is computed INSIDE ONE MATCHUP and never
 needs a league-wide anything. Consolation games simply never enter the
 calculation; there is no shared baseline for them to poison.
 
-METHOD, per elimination game (round 1, semifinals, final — see SCOPE below):
+METHOD, per elimination game (quarterfinal, semifinal, final — see SCOPE):
 
   1. Each starter's pregame distribution is his OWN regular-season form:
      mean and sd of his weekly points over the played weeks in weekly.json,
@@ -59,9 +59,9 @@ THE MVP SCORE IS THE DERIVED FIGURE, 0-100. Both adjustments live in it and
 nowhere else:
 
   * Round weight. A bye means the top seeds play one fewer game, and a
-    championship is not a round-1 game, so each game's WPA is scaled by its
-    round — round 1 counts 1.0, semifinals 1.25, the final 1.5 — before the
-    total is taken.
+    championship is not a quarterfinal, so each game's WPA is scaled by its
+    round before the total is taken: a quarterfinal counts 1.0, a semifinal
+    4/3, the final 2.0 — double a quarterfinal, half again a semifinal.
   * A HISTORICAL scale, not a per-season one. The anchor is the best weighted
     postseason ON RECORD across every season, so 100 always means "as good as
     the best playoff run this league has seen", not "the best of this
@@ -93,11 +93,18 @@ from leaguepaths import DataDir
 ROOT = Path(__file__).resolve().parent.parent
 DATA = DataDir(ROOT / "data")
 
-# How much a game counts toward the MVP total. A bye costs the top seeds a
-# game, and the championship is not round 1; without this the award drifts to
-# whoever played the most rounds. Deliberately mild — these are multipliers on
-# an already leverage-aware figure, not a second leverage model.
-ROUND_WEIGHT = {1: 1.0, 2: 1.25, 3: 1.5}
+# How much a game counts toward the MVP total, keyed by bracket round:
+# 1 = quarterfinal, 2 = semifinal, 3 = final. A bye costs the top seeds a game,
+# and a championship is not a quarterfinal; without this the award drifts to
+# whoever simply played the most rounds.
+#
+# The final is worth DOUBLE a quarterfinal and half again a semifinal. The
+# first cut of this was much flatter (1 / 1.25 / 1.5) and produced a 2023 MVP
+# who never played in the final — a big quarterfinal and semifinal outscored
+# everything that happened in the game that decided the title. Winning the
+# championship game is the thing the postseason is for, so it is priced that
+# way.
+ROUND_WEIGHT = {1: 1.0, 2: 4 / 3, 3: 2.0}
 
 # Prior strength for the shrinkage below, in "pseudo-games". A player with
 # PRIOR_N regular-season games sits halfway between his own form and his

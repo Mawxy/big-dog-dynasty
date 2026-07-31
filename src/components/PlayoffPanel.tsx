@@ -256,8 +256,9 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           Shapley value so every game's swing is fully accounted for — which is why the two
           tables mirror: one team's gain is the other's loss. The week columns and Total are
           raw win probability and add up. MVP is the derived award figure: the same WPA with
-          later rounds weighted — a final counts 1.5×, a semifinal 1.25×, so a bye can't cost
-          the top seeds the award — then rescaled so 100 is the best postseason on record
+          later rounds weighted — the final counts double a quarterfinal and half again a
+          semifinal, so a bye can't cost the top seeds the award — then rescaled so 100 is
+          the best postseason on record
           {anchor?.anchor_name && anchor.anchor_season
             ? ` — ${anchor.anchor_name}, ${anchor.anchor_season}` : ""}. That scale is
           historical, not per-year, so a thin year scores in the forties instead of being
