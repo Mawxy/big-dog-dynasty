@@ -21,13 +21,25 @@ export default function SeasonPicker({ allTime = true }: { allTime?: boolean }) 
   const view = parts[2] || "players";
   const cur = parts[3] || seasonSeg(meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : meta.seasons[meta.seasons.length - 1]);
+  const label = cur.toLowerCase() === "all" ? "All-time" : cur;
+  // The chip is a SPAN that carries the text, with the <select> laid over it
+  // transparently. A bare styled <select> sizes itself to its text without
+  // counting the trailing letter-space or the condensed font's overhang, so
+  // the last character clipped ("2025" reading as "202") and no amount of
+  // padding fixed it reliably across browsers. Here the span does the sizing —
+  // ordinary inline text, measured correctly — and the select only handles
+  // interaction, so the two can't disagree.
   return (
-    <select className="season-chip" value={cur}
-      // deeper segments (a team, a week) belong to the season being left, so
-      // changing season returns to the view's index rather than carrying them
-      onChange={e => nav(lp(`/${view}/${e.target.value}`))}>
-      {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
-      {allTime && <option value="all">All-time</option>}
-    </select>
+    <span className="season-chip">
+      <span className="season-chip-label">{label}</span>
+      <select value={cur} aria-label="Season"
+        // deeper segments (a team, a week) belong to the season being left, so
+        // changing season returns to the view's index rather than carrying them
+        onChange={e => nav(lp(`/${view}/${e.target.value}`))}>
+        {meta.seasons.slice().reverse().map(s => <option key={s} value={s}>{s}</option>)}
+        {allTime && <option value="all">All-time</option>}
+      </select>
+      <span className="season-chip-caret" aria-hidden="true">▾</span>
+    </span>
   );
 }

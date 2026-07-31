@@ -117,24 +117,38 @@ a:hover { text-decoration: underline; }
   text-transform: uppercase;
   color: var(--dim);
 }
-/* the season <select> lives here; it is styled to read as a solid chip */
+/* The season chip. A SPAN carries the text and the <select> is laid over it
+   transparently: a styled <select> sizes itself to its text without counting
+   the trailing letter-space or the condensed font's overhang, so the last
+   character clipped ("2025" reading as "202"). Letting ordinary inline text do
+   the measuring is the only version of this that holds across browsers. */
 .season-chip {
-  appearance: none;
-  border: 0;
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   background: var(--acc);
   color: var(--acc-ink);
   font: 700 16px/1.15 var(--cond);
   letter-spacing: .08em;
-  /* A <select> sizes itself to its text WITHOUT counting the trailing
-     letter-space or any glyph overhang, so the last character clips ("2025"
-     rendering as "202"). The extra right padding gives it back; line-height
-     1.15 does the same for the descender-less condensed numerals, which the
-     1/1 value cropped at the baseline. */
-  padding: 5px 17px 5px 12px;
+  padding: 5px 11px;
+  cursor: pointer;
+}
+/* the trailing letter-space would otherwise read as lopsided right padding */
+.season-chip-label { margin-right: -.08em; white-space: nowrap; }
+.season-chip-caret { font-size: 11px; line-height: 1; opacity: .75; }
+.season-chip select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  border: 0;
+  font: inherit;
   cursor: pointer;
 }
 /* in a screen-head it sits beside the filter chips, so match their height */
-.screen-head .season-chip { padding: 4px 17px 4px 12px; }
+.screen-head .season-chip { padding: 4px 11px; }
 
 /* nav --------------------------------------------------------------------- */
 .tabs {
