@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { POS_COLOR } from "../lib/league";
+import { useLeaguePath } from "../lib/context";
 import { PlayerLink } from "../components/PlayerLink";
 import { boxStats } from "../components/BoxMarks";
 const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
@@ -65,6 +67,10 @@ interface TreeNode {
  *    `drafts.json`, because that table names our players and our franchises.
  */
 export default function Draft() {
+  const nav = useNavigate();
+  const lp = useLeaguePath();
+  /** "returns" (the corpus analytics) or "history" (the draft boards) */
+  const scope = useParams().sub === "history" ? "history" : "returns";
   const [drafts, setDrafts] = useState<Drafts | null>(null);
   const [fr, setFr] = useState<Franchises | null>(null);
   const [pv, setPv] = useState<PickValues | null>(null);
@@ -322,18 +328,31 @@ export default function Draft() {
   const toggleAll = () =>
     setOpen(allOpen ? {} : Object.fromEntries(allKeys.map(k => [k, true])));
 
+  const chip = (label: string, to: string, on: boolean) => (
+    <button key={to} type="button" className={`chip ${on ? "on" : ""}`}
+      onClick={() => nav(lp(to))}>{label}</button>
+  );
+
   return (
     <>
       <div className="screen-head">
         <span className="screen-title">Draft</span>
-        <span className="screen-note">
-          {corpus && <><b>{corpus.picks.toLocaleString()}</b> picks, {corpus.classes} · </>}
-          <b>{league.n}</b> of ours graded
-          {league.pendingClasses.length ? ` · ${league.pendingClasses.join(", ")} not yet scored` : ""}
-        </span>
+        {chip("Returns", "/draft", scope === "returns")}
+        {chip("History", "/draft/history", scope === "history")}
+        {scope === "returns" && (
+          <span className="screen-note">
+            {corpus && <><b>{corpus.picks.toLocaleString()}</b> picks, {corpus.classes} · </>}
+            <b>{league.n}</b> of ours graded
+            {league.pendingClasses.length ? ` · ${league.pendingClasses.join(", ")} not yet scored` : ""}
+          </span>
+        )}
       </div>
 
-      {corpus && <>
+      {scope === "history" && (history
+        ? <DraftBoards history={history} />
+        : <div className="empty">Loading draft history…</div>)}
+
+      {scope === "returns" && corpus && <>
         {/* (a) WAR per season by round */}
         <div style={{ padding: "0 var(--pad) 20px" }}>
           <div className="panel" style={{ margin: 0 }}>
@@ -428,7 +447,7 @@ export default function Draft() {
       </>}
 
       {/* (c) returns by round -> tier -> pick */}
-      {corpus && (
+      {scope === "returns" && corpus && (
         <div className="dwrap" style={{ paddingTop: 22 }}>
           <div className="dhead">
             <div className="chart-label" style={{ marginBottom: 0 }}>Returns by round, tier and pick</div>
@@ -502,6 +521,7 @@ export default function Draft() {
       )}
 
       {/* (d) best / worst value over slot — our picks */}
+      {scope === "returns" && <>
       <div className="pick-tables">
         {([["Best value over slot", "best", league.best], ["Worst value over slot", "worst", league.worst]] as const).map(([title, cls, rows]) => (
           <div key={cls}>
@@ -549,9 +569,7 @@ export default function Draft() {
         The value tables are our own {league.gradedClasses.join("–")} picks only · every pick is divided
         by the seasons it has actually had, and the value tables rank by WAR over the slot's expectation, not raw WAR (Bridge A)
       </div>
-
-      {/* (e) draft boards — every draft this league has held, newest first */}
-      {history && <DraftBoards history={history} />}
+      </>}
     </>
   );
 }

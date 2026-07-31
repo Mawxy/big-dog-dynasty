@@ -177,6 +177,8 @@ function Shell() {
           <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
           <Route path="/:league/weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
           <Route path="/:league/draft" element={<Draft />} />
+          {/* /draft/history is the draft-boards scope of the Draft page */}
+          <Route path="/:league/draft/:sub" element={<Draft />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
           <Route path="/:league/value" element={<ValueRedirect />} />
