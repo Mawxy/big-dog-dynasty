@@ -402,7 +402,13 @@ def main():
         #     each game carries its week (playoff_start + round - 1), both
         #     scores from the matchup rows, plus this season's seeds and team
         #     names so the page needs no second fetch. Absent bracket = no file.
-        if wb:
+        #
+        #     Sleeper seeds a bracket months before the season starts, so a
+        #     bracket existing does not mean a postseason happened — those
+        #     placeholder games carry no `w`. Ship the file only once some game
+        #     has been decided, or the site renders a phantom bracket (real
+        #     roster ids, no scores) for a season nobody has played.
+        if any(m.get("w") for m in wb):
             ps_start = league.get("settings", {}).get("playoff_week_start", 15)
 
             def _pts(rid, wk):

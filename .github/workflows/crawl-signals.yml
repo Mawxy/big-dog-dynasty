@@ -44,14 +44,24 @@ jobs:
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
-          # heal a stale conflicted rebase (detached HEAD) before staging anything
+          # heal a stale conflicted rebase (detached HEAD) left by an older run
           git rebase --abort 2>/dev/null || true
-          git add data/league_signals.json data/crawl_leagues.json
-          git diff --cached --quiet && { echo "no changes"; exit 0; }
-          git commit -m "Crawl signals $(date -u +%FT%H:%MZ)"
+          # RE-PARENT, never rebase. Both outputs are generated files rewritten
+          # whole on every flush, so a rebase hits a content conflict on every
+          # replayed commit and no number of retries can clear it — that is what
+          # wedged this job. Their history is worth nothing: the crawler's real
+          # state lives in the cache, and only the newest complete file matters.
+          # A mixed reset onto origin keeps the working tree, drops the local
+          # commits, and stages only our own paths, so ours wins by construction.
+          # Safe because this workflow is the ONLY writer of these two files —
+          # crawl-trades is contents:read and crawl-drafts writes different ones.
           for i in 1 2 3 4 5; do
-            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
-            git rebase --abort 2>/dev/null || true
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            git add data/league_signals.json data/crawl_leagues.json
+            git diff --cached --quiet && { echo "no changes"; exit 0; }
+            git commit -m "Crawl signals $(date -u +%FT%H:%MZ)"
+            git push origin HEAD:main && exit 0
             echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
           done
           echo "push failed after 5 attempts"; exit 1

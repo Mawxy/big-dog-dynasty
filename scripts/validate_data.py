@@ -92,6 +92,12 @@ def check_full():
                 fail(f"{sd}/summary.json is empty but the season has scored matchups")
             if not jload(sd / "weekly.json"):
                 fail(f"{sd}/weekly.json is empty but the season has scored matchups")
+        # a shipped bracket must have a decided game: Sleeper seeds a
+        # placeholder bracket long before kickoff, and shipping that renders a
+        # postseason for a season nobody has played
+        bf = sd / "bracket.json"
+        if bf.exists() and not any(g.get("w") for g in jload(bf).get("winners") or []):
+            fail(f"{sd}/bracket.json has no decided game — placeholder seeding?")
     floor("players_min", len(jload(DATA / "players_min.json")))
     floor("ownership", len(jload(DATA / "ownership.json")))
     floor("franchises", len(jload(DATA / "franchises.json")))

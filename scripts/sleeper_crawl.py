@@ -131,27 +131,39 @@ def jdump(p, obj):
 def git_push(paths, message):
     """Best-effort commit+push of output files mid-crawl (durable incremental
     saves + gets crawl_leagues.json to the trades/drafts crawlers early). Never
-    fatal: the end-of-job commit step is the backstop."""
+    fatal: the end-of-job commit step is the backstop.
+
+    RE-PARENTS onto origin rather than rebasing onto it. These outputs are
+    generated files rewritten whole on every flush, so `pull --rebase` hits a
+    content conflict on every replayed commit — deterministically, not
+    occasionally. The old loop retried the identical rebase four times, aborted
+    each one, and left the commit behind; over a long run that stacked eight
+    unpushed commits and handed the end-of-job step a rebase it could not
+    finish either. A mixed reset onto the fetched head keeps the working tree,
+    drops the local commits and stages only our own paths, so the newest
+    complete file wins and no merge is ever attempted. Safe because each mode
+    is the only writer of the files it names.
+    """
     import subprocess
     def run(*a):
         return subprocess.run(["git", *a], cwd=ROOT, capture_output=True, text=True)
     try:
         run("config", "user.name", "big-dog-bot")
         run("config", "user.email", "actions@users.noreply.github.com")
-        run("add", *paths)
-        if run("diff", "--cached", "--quiet").returncode == 0:
-            return                                  # nothing new to push
-        run("commit", "-m", message)
+        # heal a detached HEAD left by an older build's conflicted rebase
+        run("rebase", "--abort")
         for i in range(1, 5):
-            if (run("pull", "--rebase", "--autostash").returncode == 0
-                    and run("push").returncode == 0):
+            if run("fetch", "origin", "main").returncode != 0:
+                time.sleep(i * 5)
+                continue
+            run("reset", "FETCH_HEAD")
+            run("add", *paths)
+            if run("diff", "--cached", "--quiet").returncode == 0:
+                return                              # nothing new to push
+            run("commit", "-m", message)
+            if run("push", "origin", "HEAD:main").returncode == 0:
                 print(f"  pushed: {message}", file=sys.stderr, flush=True)
                 return
-            # A conflicted rebase stops halfway and leaves HEAD detached; left
-            # alone it poisons every later push AND the end-of-job commit step
-            # ("You are not currently on a branch"). Abort restores the branch
-            # and the autostash; a no-op when the failure was the push itself.
-            run("rebase", "--abort")
             time.sleep(i * 5)
         print("  periodic push failed; end-of-run commit is the backstop",
               file=sys.stderr, flush=True)
