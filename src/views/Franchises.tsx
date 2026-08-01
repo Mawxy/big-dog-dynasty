@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type {
-  CviFile, DviFile, Franchises, MatchEntry, Matchups, ProjectionsFile, Team, Weekly,
+  CviFile, DviFile, Franchises, MatchEntry, Matchups, ProjectionsFile, Team, Values,
+  WeekOdds, Weekly,
 } from "../lib/types";
-import { jl, jlDaily } from "../lib/data";
+import { jDaily, jl, jlDaily } from "../lib/data";
 import { fmt, mean, ord, pct, sd } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, rosterSeasonOf, seasonSeg, weekIndex } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
@@ -11,14 +12,23 @@ import { useSeasonData } from "../lib/useSeasonData";
 import DataTable, { applySort, sortCol, type Col, type Grp } from "../components/DataTable";
 
 /**
- * TEAMS — one franchise per row, one season spine (5C).
+ * TEAMS — one franchise per row, two boards.
  *
- * The spine re-scopes a single table rather than stacking modules: the roster
- * season shows the 5C board (last season's result, value now, all-time on the
- * same line), a played season shows that year's standings (absorbed from the
- * old /standings route), and All-time shows the franchise history board. One
- * navigation axis where there used to be three — value rankings, history
- * chips and an off-tab standings page.
+ * Same shape as Players: a scope switch naming what you are looking at, and
+ * beneath it a year spine that only one of the two scopes has.
+ *
+ *   Value      what each roster is worth today, in three currencies: our two
+ *              indices for the best legal lineup, the same two summed over
+ *              every player held, and the dynasty market's price for the
+ *              whole roster. No year, and no results — a record and a price
+ *              are different claims and were previously sharing a row.
+ *   Standings  a played season's table (absorbed from the old /standings
+ *              route), or All-time for the franchise history board.
+ *
+ * These were one chip row — `2026 rosters · 2025 · 2024 · … · All-time` —
+ * which put a scope and a set of years on the same axis and made "2026
+ * rosters" read as just another season. It isn't one: it is the only board
+ * here with no result in it.
  *
  * The League page's power table already ranks rosters by starter DVI as a
  * summary; this page owns the breakdown. If the two ever converge to the same
@@ -38,10 +48,19 @@ export default function FranchisesView() {
   const played = useMemo(
     () => meta.seasons.filter(s => s <= latest).slice().reverse(), [meta, latest]);
 
-  /** "rosters" | "ALL" | a played season */
+  /** The season under way (or about to be), when it is not yet a played one.
+   *  It earns a chip because week_odds.py prices every week of it: the table
+   *  reads as expected wins now and fills in with results as they land. */
+  const upcoming = meta.seasons.includes(rosterSeason) && rosterSeason > latest
+    ? rosterSeason : null;
+  const years = useMemo(
+    () => (upcoming ? [upcoming, ...played] : played), [upcoming, played]);
+
+  /** "rosters" | "ALL" | a season on the spine */
   const scope = !seg ? "rosters"
     : seg.toLowerCase() === "all" ? "ALL"
-      : played.includes(seg) ? seg : "rosters";
+      : years.includes(seg) ? seg : "rosters";
+  const onValue = scope === "rosters";
 
   const chip = (label: string, to: string, on: boolean) => (
     <button key={to} type="button" className={`chip ${on ? "on" : ""}`}
@@ -52,11 +71,26 @@ export default function FranchisesView() {
     <>
       <div className="screen-head">
         <span className="screen-title">Teams</span>
-        {chip(`${rosterSeason} rosters`, "/teams", scope === "rosters")}
-        {played.map(s => chip(s, `/teams/${seasonSeg(s)}`, scope === s))}
-        {chip("All-time", "/teams/all", scope === "ALL")}
+        {chip("Value", "/teams", onValue)}
+        {/* Standings lands on the season under way — the one a reader checking
+            standings means — falling back to the newest played season */}
+        {chip("Standings", `/teams/${seasonSeg(upcoming ?? latest)}`, !onValue)}
+        <span className="screen-note">
+          {onValue ? `Rosters as they stand · ${rosterSeason}`
+            : scope === "ALL" ? "Every season played"
+              : scope === upcoming ? `${scope} · projected until played`
+                : `${scope} regular season`}
+        </span>
       </div>
-      {scope === "rosters" ? <RosterBoard latest={latest} />
+      {/* the year spine: its own row, because it re-scopes the standings board
+          rather than switching which board you are on */}
+      {!onValue && (
+        <div className="screen-head" style={{ paddingTop: 0 }}>
+          {years.map(s => chip(s, `/teams/${seasonSeg(s)}`, scope === s))}
+          {chip("All-time", "/teams/all", scope === "ALL")}
+        </div>
+      )}
+      {onValue ? <RosterBoard />
         : scope === "ALL" ? <HistoryBoard />
           : <SeasonStandings season={scope} />}
     </>
@@ -67,10 +101,11 @@ export default function FranchisesView() {
 
 interface BoardRow {
   rid: number; name: string; manager: string;
-  rec: string | null; recPct: number | null; ppg: number | null;
-  lwar: number | null; fin: number | null;
+  /** best legal lineup, priced in each index's own currency */
   sDvi: number; sCvi: number; age: number | null;
-  allRec: string; winPct: number; titles: number;
+  /** every rostered player, bench and taxi included */
+  rDvi: number; rCvi: number;
+  ktc: number | null; fc: number | null;
 }
 
 const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
@@ -89,58 +124,48 @@ const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
     id: "manager", label: "Manager", grp: 0, w: 9, align: "t", hm: true, td: "sub hm",
     sort: r => r.manager, cell: r => r.manager,
   },
+  // Starter totals, bare figures — this table sorts by an index, so nothing
+  // in it is metered. Starters and roster are separate columns rather than a
+  // figure over a sub-label because both are sortable: the gap between them
+  // IS the depth question, and you can only see it by ordering on each.
   {
-    id: "rec", label: "Rec", grp: 1, w: 7, align: "n", edge: true, td: "fig edge n",
-    sort: r => r.recPct, cell: r => r.rec ?? nul,
-  },
-  {
-    id: "ppg", label: "PPG", grp: 1, w: 6, align: "n", hm: true, td: "fig quiet hm n",
-    sort: r => r.ppg, cell: r => r.ppg == null ? nul : fmt(r.ppg, 1),
-  },
-  {
-    id: "lwar", label: "Lineup WAR", grp: 1, w: 9, align: "n", td: "fig n",
-    sort: r => r.lwar, cell: r => r.lwar == null ? nul : fmt(r.lwar, 2),
-  },
-  // the playoff result, not the seed — a plain tabular ordinal, no tag. The
-  // CHAMP treatment stays on the franchise page, where the title is the subject
-  {
-    id: "fin", label: "Finish", grp: 1, w: 6, align: "n", td: "fig n",
-    sort: r => r.fin, asc: true,
-    cell: r => r.fin == null ? nul : (
-      <span style={{ color: r.fin === 1 ? "var(--acc)" : r.fin <= 6 ? "var(--txt2)" : "var(--dim)" }}>
-        {ord(r.fin)}
-      </span>
-    ),
-  },
-  // starter totals, bare figures — this table sorts by an index, so nothing
-  // in it is metered
-  {
-    id: "dvi", label: "DVI", grp: 2, w: 7, align: "n", edge: true, keyCol: true, td: "n edge",
+    id: "dvi", label: "DVI", grp: 1, w: 8, align: "n", edge: true, keyCol: true, td: "n edge",
     sort: r => r.sDvi, cell: r => <span className="head-fig sm">{fmt(r.sDvi, 0)}</span>,
   },
   {
-    id: "cvi", label: "CVI", grp: 2, w: 7, align: "n", td: "n",
+    id: "cvi", label: "CVI", grp: 1, w: 8, align: "n", td: "n",
     sort: r => r.sCvi, cell: r => <span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.sCvi, 0)}</span>,
   },
   // context, not a verdict — uncoloured; the League power table carries the
-  // green/amber age read
+  // green/amber age read. It sits with the starters because it IS the average
+  // age of the best nine by DVI, not of the whole roster.
   {
-    id: "age", label: "Age", grp: 2, w: 6, align: "n", hm: true, td: "hm n",
+    id: "age", label: "Age", grp: 1, w: 6, align: "n", hm: true, td: "hm n",
     sort: r => r.age, cell: r => <span style={{ color: "var(--txt2)" }}>{r.age == null ? "—" : fmt(r.age, 1)}</span>,
   },
   {
-    id: "allrec", label: "Record", grp: 3, w: 9, align: "n", edge: true, td: "fig edge n",
-    sort: r => r.winPct, cell: r => r.allRec,
+    id: "rdvi", label: "DVI", grp: 2, w: 8, align: "n", edge: true, td: "n edge",
+    sort: r => r.rDvi, cell: r => <span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.rDvi, 0)}</span>,
   },
   {
-    id: "titles", label: "Titles", grp: 3, w: 6, align: "n", td: "n",
-    sort: r => r.titles,
-    cell: r => r.titles
-      ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{r.titles}</span> : nul,
+    id: "rcvi", label: "CVI", grp: 2, w: 8, align: "n", hm: true, td: "n hm",
+    sort: r => r.rCvi, cell: r => <span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.rCvi, 0)}</span>,
+  },
+  {
+    id: "ktc", label: "KTC", grp: 3, w: 9, align: "n", edge: true, td: "n edge",
+    sort: r => r.ktc,
+    cell: r => r.ktc == null ? nul
+      : <span className="head-fig src">{r.ktc.toLocaleString()}</span>,
+  },
+  {
+    id: "fc", label: "FantasyCalc", grp: 3, w: 11, align: "n", hm: true, td: "n hm",
+    sort: r => r.fc,
+    cell: r => r.fc == null ? nul
+      : <span className="head-fig src">{r.fc.toLocaleString()}</span>,
   },
 ];
 
-function RosterBoard({ latest }: { latest: string }) {
+function RosterBoard() {
   const { meta, league } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
@@ -150,6 +175,7 @@ function RosterBoard({ latest }: { latest: string }) {
   const [dvi, setDvi] = useState<DviFile | null>(null);
   const [cvi, setCvi] = useState<CviFile | null>(null);
   const [projs, setProjs] = useState<ProjectionsFile | null>(null);
+  const [vals, setVals] = useState<Values | null>(null);
   const [sortId, setSortId] = useState("dvi");
   const [dir, setDir] = useState(-1);
 
@@ -161,6 +187,8 @@ function RosterBoard({ latest }: { latest: string }) {
     jlDaily<DviFile>("dvi.json").then(set(setDvi)).catch(() => {});
     jlDaily<CviFile>("cvi.json").then(set(setCvi)).catch(() => {});
     jl<ProjectionsFile>("projections.json").then(set(setProjs)).catch(() => {});
+    // global file: the market prices a format, not a league
+    jDaily<Values>("data/values.json").then(set(setVals)).catch(() => {});
     return () => { live = false; };
   }, [rosterSeason]);
 
@@ -180,6 +208,21 @@ function RosterBoard({ latest }: { latest: string }) {
         .map(p => ({ id: p, pos: idx[p].pos, war: of(p) }));
       return optimalLineup(pool, lineup);
     };
+    /**
+     * A roster total sums every player the team holds — bench and taxi
+     * included — so it answers depth where the starter figure answers
+     * quality. A market total is null rather than 0 when NO player on the
+     * roster carries a price: 0 would read as "this roster is worthless"
+     * when it means "the feed didn't cover it".
+     */
+    const total = (t: Team, of: (pid: string) => number | null | undefined) => {
+      let sum = 0, n = 0;
+      for (const p of t.players) {
+        const x = of(p);
+        if (x != null) { sum += x; n++; }
+      }
+      return n ? sum : null;
+    };
     return teams.map(t => {
       const d = price(t, dvi.players, p => dvi.players[p].dvi);
       const c = price(t, cvi.players, p => cvi.players[p].cvi);
@@ -190,30 +233,22 @@ function RosterBoard({ latest }: { latest: string }) {
         .filter((a): a is number => a != null);
       const f = fr[String(t.roster_id)];
       const cur = f?.seasons[f.seasons.length - 1];
-      const sn = f?.seasons.find(s => s.season === latest);
-      const all = (f?.seasons ?? []).reduce(
-        (a, s) => ({ w: a.w + s.wins, l: a.l + s.losses, t: a.t + (s.ties || 0) }),
-        { w: 0, l: 0, t: 0 });
-      const games = all.w + all.l + all.t;
-      const g = sn ? sn.wins + sn.losses + (sn.ties || 0) : 0;
       return {
         rid: t.roster_id, name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
-        rec: sn ? `${sn.wins}-${sn.losses}${sn.ties ? `-${sn.ties}` : ""}` : null,
-        recPct: sn && g ? (sn.wins + (sn.ties || 0) / 2) / g : null,
-        ppg: sn?.ppg ?? null, lwar: sn?.war ?? null, fin: sn?.finish ?? null,
         sDvi, sCvi, age: ages.length ? mean(ages) : null,
-        allRec: `${all.w}-${all.l}${all.t ? `-${all.t}` : ""}`,
-        winPct: games ? (all.w + all.t / 2) / games : 0,
-        titles: (f?.seasons ?? []).filter(s => s.finish === 1).length,
+        rDvi: total(t, p => dvi.players[p]?.dvi) ?? 0,
+        rCvi: total(t, p => cvi.players[p]?.cvi) ?? 0,
+        ktc: total(t, p => vals?.players[p]?.ktc),
+        fc: total(t, p => vals?.players[p]?.fc),
       };
     });
-  }, [teams, dvi, cvi, fr, projs, meta, latest]);
+  }, [teams, dvi, cvi, fr, projs, vals, meta]);
 
   const groups: Grp[] = [
     { id: 0, label: "", cls: "" },
-    { id: 1, label: `${latest} season`, cls: "edge" },
-    { id: 2, label: `Value now · ${rosterSeason}`, cls: "edge value" },
-    { id: 3, label: "All-time", cls: "edge" },
+    { id: 1, label: `Starters · ${rosterSeason}`, cls: "edge value" },
+    { id: 2, label: "Full roster", cls: "edge" },
+    { id: 3, label: "Dynasty market", cls: "edge" },
   ];
 
   const sorted = useMemo(
@@ -235,11 +270,14 @@ function RosterBoard({ latest }: { latest: string }) {
         homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))} />
       <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
         Sorted by starters DVI — every header re-sorts, a row opens the franchise page.
-        Lineup WAR is what the manager actually fielded in {latest}, so it separates a
-        roster that was good from one that was well managed. Starters DVI and CVI each
-        price the roster's best legal lineup in their own index — the best dynasty nine
-        and the best win-now nine can differ — and age is the average of the best nine
-        by DVI. Finish is the playoff result, not the seed.
+        Starters DVI and CVI each price the roster's best legal lineup in their own
+        index — the best dynasty nine and the best win-now nine can differ, so each gets
+        its own optimal lineup — and age is the average of the best nine by DVI. Full
+        roster sums every player held, bench and taxi included: a team well ahead on
+        roster but not on starters is deep, not good. KTC and FantasyCalc are the same
+        sum in the dynasty market's own currencies, and a roster no feed covers reads
+        <span className="sigma"> —</span>, not zero. What each team did in a given
+        season is on Standings.
       </div>
     </>
   );
@@ -247,10 +285,25 @@ function RosterBoard({ latest }: { latest: string }) {
 
 /* ------------------------------------------------- a played season's table */
 
+/**
+ * A standings row for a season that may be partly, or entirely, unplayed.
+ *
+ * Anything a projection can honestly stand in for is a plain number: expected
+ * wins from the per-week win probabilities, points per game from the projected
+ * totals. Anything it cannot is nullable and renders as an em dash rather than
+ * a zero — volatility is the spread of what a team ACTUALLY scored, lineup WAR
+ * is what the manager actually fielded, and luck is the gap between real wins
+ * and median wins. None of those exist before a game is played, and printing
+ * 0.0 would say the team was perfectly steady and added nothing.
+ */
 interface StandRow {
   rid: number; seed: number; team: string; manager: string;
-  wins: number; fpts: number; rec: string; med: string; luck: number;
-  ppg: number; sdv: number; war: number; ent: MatchEntry[];
+  /** real wins plus the summed win probability of every unplayed week */
+  wins: number; fpts: number; rec: string;
+  med: string | null; luck: number | null;
+  ppg: number; sdv: number | null; war: number | null; ent: MatchEntry[];
+  /** any week in this row's record is a projection, not a result */
+  proj: boolean;
 }
 interface StandCtx { warMax: number }
 
@@ -264,6 +317,7 @@ function SeasonStandings({ season }: { season: string }) {
   const data = useSeasonData(season);
   const [weekly, setWeekly] = useState<Weekly | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
+  const [odds, setOdds] = useState<WeekOdds | null>(null);
   const [err, setErr] = useState(false);
   const [reload, setReload] = useState(0);
   const [openRid, setOpenRid] = useState<number | null>(null);
@@ -276,6 +330,12 @@ function SeasonStandings({ season }: { season: string }) {
     setOpenRid(null);
     setSortId("seed");
     setDir(1);
+    setOdds(null);
+    // the pregame lines: present for every season week_odds.py has run over,
+    // and the ONLY source for a week that hasn't been played yet
+    jl<WeekOdds>(`${season}/odds.json`)
+      .then(o => { if (live) setOdds(o); })
+      .catch(() => { /* no odds file — an unplayed week simply has no figure */ });
     Promise.all([
       jl<Weekly>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -311,20 +371,41 @@ function SeasonStandings({ season }: { season: string }) {
         if (m == null) continue;
         e[1] > m ? mwin++ : e[1] < m ? mloss++ : mtie++;
       }
+      // Every regular-season week the odds file prices that this team has not
+      // actually played. Summed win probability is expected wins: over a
+      // fourteen-week schedule that is a far better read than 0-0.
+      const done = new Set(reg.map(e => e[0]));
+      const ahead = Object.keys(odds?.weeks ?? {})
+        .map(wk => ({ wk: Number(wk), o: odds?.weeks[wk]?.[String(t.roster_id)] }))
+        .filter(x => x.wk < ps && !done.has(x.wk) && x.o != null);
+      const expWins = ahead.reduce((a, x) => a + (x.o?.wp ?? 0), 0);
+      const projPts = ahead.map(x => x.o?.mu ?? 0);
+
       const g = t.wins + t.losses + t.ties;
+      const wins = t.wins + expWins;
+      const losses = g - t.wins + (ahead.length - expWins);
+      const proj = ahead.length > 0;
+      const all = [...pts, ...projPts];
       return {
-        rid: t.roster_id, seed: 0, team: t.team, manager: t.manager,
-        wins: t.wins, fpts: t.fpts,
-        rec: `${t.wins}-${t.losses}${t.ties ? "-" + t.ties : ""}`,
-        med: `${mwin}-${mloss}${mtie ? "-" + mtie : ""}`, luck: t.wins - mwin,
-        ppg: pts.length ? mean(pts) : (g ? t.fpts / g : 0),
-        sdv: sd(pts), war, ent,
+        rid: t.roster_id, seed: 0, manager: t.manager, team: t.team,
+        wins, fpts: t.fpts + projPts.reduce((a, b) => a + b, 0),
+        rec: proj
+          ? `${wins.toFixed(1)}-${losses.toFixed(1)}`
+          : `${t.wins}-${t.losses}${t.ties ? "-" + t.ties : ""}`,
+        // median record and luck are settled facts about weeks that happened;
+        // an unplayed week contributes nothing to either
+        med: reg.length ? `${mwin}-${mloss}${mtie ? "-" + mtie : ""}` : null,
+        luck: reg.length ? t.wins - mwin : null,
+        ppg: all.length ? mean(all) : (g ? t.fpts / g : 0),
+        sdv: pts.length > 1 ? sd(pts) : null,
+        war: reg.length ? war : null,
+        ent, proj,
       };
     });
     const seedOrder = rs.slice().sort((a, b) => b.wins - a.wins || b.fpts - a.fpts);
     rs.forEach(r => { r.seed = seedOrder.indexOf(r) + 1; });
     return rs;
-  }, [data, mw, weekly]);
+  }, [data, mw, weekly, odds]);
 
   const cols = useMemo<Col<StandRow, StandCtx>[]>(() => [
     {
@@ -349,32 +430,40 @@ function SeasonStandings({ season }: { season: string }) {
       id: "manager", label: "Manager", grp: 0, w: 11, align: "t", hm: true, td: "sub hm",
       sort: r => r.manager, cell: r => r.manager,
     },
+    // a projected figure is dimmed, the same treatment an unplayed week's score
+    // gets on the Season tab — same fact, so the same visual weight
     {
-      id: "rec", label: "Record", grp: 1, w: 8, align: "n", edge: true, td: "edge n",
+      id: "rec", label: "Record", grp: 1, w: 9, align: "n", edge: true, td: "edge n",
       sort: r => r.wins * 10000 + r.fpts,
-      cell: r => <span style={{ font: "600 20px/1 var(--cond)" }}>{r.rec}</span>,
+      cell: r => <span style={{
+        font: "600 20px/1 var(--cond)", color: r.proj ? "var(--dim)" : undefined,
+      }}>{r.rec}</span>,
     },
     {
       id: "med", label: "Vs median", grp: 1, w: 9, align: "n", hm: true,
-      td: "fig quiet hm n", sort: r => r.luck, cell: r => r.med,
+      td: "fig quiet hm n", sort: r => r.luck, cell: r => r.med ?? nul,
     },
     {
       id: "luck", label: "Luck", grp: 1, w: 7, align: "n", td: "n",
       sort: r => r.luck,
-      cell: r => <span style={{ font: "600 15px/1.4 var(--cond)", color: luckColor(r.luck) }}>{luckStr(r.luck)}</span>,
+      cell: r => r.luck == null ? nul
+        : <span style={{ font: "600 15px/1.4 var(--cond)", color: luckColor(r.luck) }}>{luckStr(r.luck)}</span>,
     },
     {
       id: "ppg", label: "PPG", grp: 2, w: 8, align: "n", edge: true, td: "fig strong edge n",
-      sort: r => r.ppg, cell: r => fmt(r.ppg, 1),
+      sort: r => r.ppg,
+      cell: r => <span style={{ color: r.proj ? "var(--dim)" : undefined }}>{fmt(r.ppg, 1)}</span>,
     },
     {
       id: "sdv", label: "Volatility", grp: 2, w: 8, align: "n", hm: true,
-      td: "fig quiet hm n", sort: r => r.sdv, cell: r => fmt(r.sdv, 1),
+      td: "fig quiet hm n", sort: r => r.sdv, cell: r => r.sdv == null ? nul : fmt(r.sdv, 1),
     },
     {
       id: "war", label: "Lineup WAR", grp: 2, w: 16, align: "n", keyCol: true, td: "n",
       sort: r => r.war,
-      cell: (r, x) => (
+      // WAR is what the manager actually fielded, so there is nothing to show
+      // — and nothing to meter — until a week has been played
+      cell: (r, x) => r.war == null ? nul : (
         <div className="meter-row">
           <div className="meter"><i style={{ width: pct(Math.max(0, r.war), x.warMax) }} /></div>
           <span className="fig">{fmt(r.war, 3)}</span>
@@ -383,13 +472,15 @@ function SeasonStandings({ season }: { season: string }) {
     },
   ], [nav, lp]);
 
+  /** no week played yet: every figure in the Results group is a projection */
+  const wholly = rows.length > 0 && rows.every(r => r.proj && r.luck == null);
   const groups: Grp[] = [
     { id: 0, label: "", cls: "" },
-    { id: 1, label: "Results", cls: "edge" },
+    { id: 1, label: wholly ? "Projected results" : "Results", cls: "edge" },
     { id: 2, label: "Scoring & value", cls: "edge value" },
   ];
 
-  const ctx: StandCtx = { warMax: Math.max(0.01, ...rows.map(r => r.war)) };
+  const ctx: StandCtx = { warMax: Math.max(0.01, ...rows.map(r => r.war ?? 0)) };
   const sorted = useMemo(
     () => applySort(rows, sortCol(cols, sortId, "seed"), dir), [rows, cols, sortId, dir]);
 
@@ -405,9 +496,13 @@ function SeasonStandings({ season }: { season: string }) {
     </div>
   );
   if (!data || !mw || !weekly) return <div className="empty">Loading…</div>;
-  if (!data.summary.length) return (
+  // An unplayed season is only empty if nothing prices it either. With an odds
+  // file every row still has an expected record and a projected PPG, which is
+  // the whole point of listing the upcoming season here.
+  if (!data.summary.length && !rows.some(r => r.proj)) return (
     <div className="empty">
-      No scored weeks for {season} yet — the roster board is the preseason read.
+      No scored weeks for {season} yet, and no projected lines to stand in —
+      the Value board is the preseason read.
     </div>
   );
 
@@ -427,6 +522,13 @@ function SeasonStandings({ season }: { season: string }) {
         week's league median score; luck is actual wins minus median wins. Lineup WAR
         sums each week's real starters, measured against the league-wide optimal pool.
         Open a row for the week-by-week results.
+        {rows.some(r => r.proj) && <>
+          {" "}Dimmed figures are projections: an unplayed week contributes its pregame
+          win probability to the record and its projected total to PPG, so the record
+          reads in tenths of a win and firms up as results land. Volatility, luck and
+          lineup WAR are facts about weeks that happened and stay <span className="sigma">—</span> until
+          they have some.
+        </>}
       </div>
     </>
   );
@@ -438,7 +540,10 @@ function TeamDrawer({ r, tnames, ps }: { r: StandRow; tnames: Record<number, str
     <div className="drawer">
       <div className="drawer-head">
         <span className="drawer-title">{r.team}</span>
-        <span className="drawer-sub">{r.manager} · {r.rec} · {fmt(r.ppg, 1)} ppg · lineup WAR {fmt(r.war, 3)}</span>
+        <span className="drawer-sub">
+          {r.manager} · {r.rec}{r.proj ? " projected" : ""} · {fmt(r.ppg, 1)} ppg
+          {r.war != null && <> · lineup WAR {fmt(r.war, 3)}</>}
+        </span>
       </div>
       <div className="week-grid">
         {r.ent.filter(e => e[0] < ps).map(e => {

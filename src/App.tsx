@@ -6,7 +6,8 @@ import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } fr
 import { useSeasonData } from "./lib/useSeasonData";
 import { seasonSeg } from "./lib/league";
 import Home from "./views/Home";
-import PlayersHub from "./views/PlayersHub";
+import Stats from "./views/Stats";
+import Value from "./views/Value";
 import FranchisesView from "./views/Franchises";
 import WeeklyView from "./views/Weekly";
 import Draft from "./views/Draft";
@@ -19,10 +20,13 @@ import FranchisePage from "./components/FranchisePage";
 import Player from "./views/Player";
 import SiteFooter from "./components/SiteFooter";
 
-/** The tab bar. Value, Standings, Stats, DVI and CVI all keep their routes but
- *  live off the bar — they are reached from the hubs: League links standings
- *  and values, Players links its two tables. A route without a tab is a
- *  destination; a tab is a starting point. */
+/** The tab bar. Players is ONE tab holding two boards — Value (what a player
+ *  is worth now) and Stats (what he did in a given year). They are separate
+ *  screens rather than lenses on one table, because the two answer different
+ *  questions, but they share a tab because they share a population and a
+ *  reader moves between them constantly. Standings, DVI and CVI keep their
+ *  routes but live off the bar — a route without a tab is a destination; a
+ *  tab is a starting point. */
 const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
 const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "trades", "dvi", "cvi"];
@@ -123,8 +127,8 @@ function Shell() {
   const isSeason = !!seg3 && (meta.seasons.includes(seg3) || seg3.toLowerCase() === "all");
   const curSeasonSeg = onView && isSeason ? seg3 : seasonSeg(latest);
   // Off-tab pages still light their hub's tab, so the bar always answers
-  // "where am I": standings belongs to League; the player tables and player
-  // pages to Players; franchise pages to Teams.
+  // "where am I": standings belongs to League; both player boards, the two
+  // index pages and any player page to Players; franchise pages to Teams.
   const HUB_OF: Record<string, string> = {
     standings: "teams", ledger: "home", value: "players", stats: "players",
     dvi: "players", cvi: "players", player: "players", franchise: "teams",
@@ -163,12 +167,16 @@ function Shell() {
               :league, so the legacy block below can never be shadowed. */}
           <Route path="/:league" element={<Home />} />
           <Route path="/:league/home" element={<Home />} />
-          {/* the leaderboard: /players is the value lens, /players/market the
-              market lens, /players/<season> a played season, /players/all the
-              career board. /stats and /value are its pre-lens addresses. */}
-          <Route path="/:league/players" element={<PlayersHub />} />
-          <Route path="/:league/players/:season" element={<PlayersHub />} />
-          <Route path="/:league/stats/:season" element={<StatsRedirect />} />
+          {/* the Players tab's two boards. /stats is the latest played season,
+              /stats/<season> a given year, /stats/all the career board;
+              /value is the one merged price table. /players is the tab's own
+              address and rests on Value. */}
+          <Route path="/:league/stats" element={<Stats />} />
+          <Route path="/:league/stats/:season" element={<Stats />} />
+          <Route path="/:league/value" element={<Value />} />
+          {/* /players once held both boards behind a lens control */}
+          <Route path="/:league/players" element={<PlayersRedirect />} />
+          <Route path="/:league/players/:season" element={<PlayersRedirect />} />
           <Route path="/:league/standings/:season" element={<StandingsRedirect />} />
           {/* A franchise is keyed by roster_id, which is stable across seasons —
               so its URL carries no year. The page picks its own roster season. */}
@@ -193,7 +201,6 @@ function Shell() {
           <Route path="/:league/draft/history/:season" element={<DraftDetailRoute />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
-          <Route path="/:league/value" element={<ValueRedirect />} />
           <Route path="/:league/dvi" element={<Dvi />} />
           <Route path="/:league/cvi" element={<Cvi />} />
           <Route path="/:league/player/:pid" element={<PlayerRoute />} />
@@ -202,6 +209,7 @@ function Shell() {
           <Route path="/:league/playoffs/:season" element={<PlayoffsRedirect />} />
 
           <Route path="/players/*" element={<LegacyRedirect />} />
+          <Route path="/stats/*" element={<LegacyRedirect />} />
           <Route path="/teams/*" element={<LegacyRedirect />} />
           <Route path="/weekly/*" element={<LegacyRedirect />} />
           <Route path="/draft" element={<LegacyRedirect />} />
@@ -219,18 +227,17 @@ function Shell() {
   );
 }
 
-/** /stats/<season> predates the lens control; the season lens replaced it.
- *  Kept as a redirect for one release — the address is already shared. */
-function StatsRedirect() {
+/**
+ * /players held both boards behind a lens control, so its old addresses split
+ * two ways: the market lens was a value measure and lands on Value, every
+ * season lens (including /players/all) lands on the matching Stats scope.
+ * Bare /players was the value lens at rest.
+ */
+function PlayersRedirect() {
   const { league } = useLeague();
-  const p = useParams();
-  return <Navigate replace to={`/${leagueSeg(league)}/players/${p.season}`} />;
-}
-
-/** /value collapsed into the leaderboard's value lens (its resting state) */
-function ValueRedirect() {
-  const { league } = useLeague();
-  return <Navigate replace to={`/${leagueSeg(league)}/players`} />;
+  const seg = useParams().season;
+  const to = !seg || seg === "market" ? "/value" : `/stats/${seg}`;
+  return <Navigate replace to={`/${leagueSeg(league)}${to}`} />;
 }
 
 /** /standings/<season> moved onto the Teams page's season spine.
