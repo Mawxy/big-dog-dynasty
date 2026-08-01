@@ -429,7 +429,12 @@ def main():
             wgames = _games(wb)
             stars = {}                 # pid -> {rid, wk: {week: pts while starting}}
             for g in wgames:
-                wf = load(sdir / "matchups" / f"week_{g['week']}.json") or []
+                # An upcoming season has a bracket but no played weeks, so the
+                # dump has no week file. Unplayed game = no starter points.
+                mf = sdir / "matchups" / f"week_{g['week']}.json"
+                if not mf.exists():
+                    continue
+                wf = load(mf) or []
                 by_rid = {t.get("roster_id"): t for t in wf}
                 for rid in (g["t1"], g["t2"]):
                     t = by_rid.get(rid)
