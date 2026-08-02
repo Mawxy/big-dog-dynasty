@@ -1434,6 +1434,51 @@ table.feed td.who .line { align-items: center; }
   .box-row .lbl, .axis .pad { flex-basis: 44px; }
   .card-row > * { flex: 1 1 100%; }
 
+  /* TEXT CELLS WRAP RATHER THAN OVERLAP.
+     A `table-layout: fixed` board hands each column its declared percentage
+     and nothing more, but `white-space: nowrap` with no clip lets a long
+     franchise name paint straight across the figures next door — and once the
+     identity cell is pinned it does that on top, because pinning gives it a
+     z-index. Wrapping is what fixes it rather than an ellipsis: "St. Brown
+     Catholic Church" truncated to "St. Brown Cath…" is the same collision
+     resolved by throwing the name away, and the name is the row's subject.
+     Numeric cells are untouched — a wrapped figure is a misread figure. */
+  thead th, tbody td.t, tbody td.name, tbody td.sub {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+  /* backstop: anything that still cannot fit its column is clipped there
+     instead of being drawn over its neighbour */
+  tbody td.t, tbody td.name, tbody td.sub { overflow: hidden; }
+  /* a wrapped header sits on two lines, so the label stops mid-column rather
+     than running into the next one */
+  thead th { vertical-align: bottom; }
+
+  /* GIVE A BOARD ENOUGH WIDTH FOR ITS OWN CONTENTS.
+     Column widths are percentages OF THE TABLE, so on a 375px phone a 6%
+     position column resolved to 24px — and the position badge, whose footprint
+     is deliberately fixed so RB1 and QB12 occupy the same box, hung 26px over
+     the figure beside it. Squeezing the badge alone would not fix it; the
+     column has to be able to hold one. A working minimum lets every percentage
+     resolve to something its contents fit, and the board then scrolls — which
+     on a phone it already does, with the identity pinned and the edge faded. */
+  .tscroll table { min-width: 640px; }
+
+  /* The badge also steps down to the size the system already uses for a badge
+     in a tight row (`.pos.sm`). Uniform footprint, existing size, no new
+     token — RB1 and QB12 still occupy the same box, just a smaller one. */
+  .pos { width: 34px; font-size: 11.5px; }
+  .pos.wide { width: 40px; }
+
+  /* The rank column is declared at 4–7%, which against a phone-width table is
+     30–45px — fine for "12", tight for the three-digit ranks the index boards
+     run to at 780 scored players. It is also the PINNED column, so anything it
+     cannot hold is drawn straight onto the name beside it. The numeral gives
+     back its side padding and a step of size, and the cell clips whatever is
+     still left rather than painting it on its neighbour. */
+  td.spine-cell .rank { padding-left: 4px; padding-right: 4px; font-size: 17px; }
+  td.spine-cell { overflow: hidden; }
+
   /* Touch targets. These controls were sized for a cursor: the position chips
      came out 25px tall and the search field 32px, against the ~44px a finger
      actually needs. Only the BOX grows — type size, tracking and the zero

@@ -5,6 +5,7 @@ import { ownerOf, rosterSeasonOf, POS_COLOR } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { PlayerLink } from "./PlayerLink";
 import { usePlayerFilters } from "./PlayerBoard";
+import TScroll from "./TScroll";
 
 /**
  * A 0–100 index leaderboard: rank, player, position, roster, one figure.
@@ -89,10 +90,14 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
         <span className="band-note">{note}</span>
       </div>
 
+      <TScroll>
       <table style={{ tableLayout: "fixed" }}>
         <thead>
           <tr>
-            <th className="c" style={{ width: "5%" }}>Rk</th>
+            {/* 7%, not 5%: this board runs to 780 scored players, so the rank
+                reaches three digits — and at 5% of a phone-width table that is
+                a ~30px column holding a ~43px figure, drawn over the name */}
+            <th className="c" style={{ width: "7%" }}>Rk</th>
             <th className="t">Player</th>
             <th className="c" style={{ width: "8%" }}>Pos</th>
             <th className="t hm" style={{ width: "22%" }}>Roster</th>
@@ -122,6 +127,7 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
           ))}
         </tbody>
       </table>
+      </TScroll>
 
       <div className="tnote screen">{footnote}</div>
     </>
