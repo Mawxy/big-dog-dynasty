@@ -1248,6 +1248,24 @@ tr.grpband th .tot { font: 600 13px/1 var(--cond); letter-spacing: .04em; color:
   display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
   overflow: hidden; white-space: normal; min-height: 2.9em; line-height: 1.45;
 }
+/* Where the two lines are a LABEL over a DETAIL — a franchise over what it
+   received, a week over its date — they are spans either side of a <br>, and
+   clamping the CELL to two lines is not the same as giving each of them one.
+   A franchise called "Baby Billys Bible Bonkers" took all three lines it
+   needed, the clamp cut the cell at two, and the detail underneath was gone:
+   the trade feed stopped saying what was actually traded, which is the one
+   thing it is there to say. A line each, ellipsed at the end, so the detail
+   survives any name. Cells holding a plain list have no spans and keep the
+   wrapping clamp — and the cell is still exactly two lines either way, which
+   is what keeps the two feed modules the same height. */
+.two-line > span {
+  display: inline-block;
+  max-width: 100%;
+  vertical-align: bottom;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 /* ---- quick-look panels + ownership events --------------------------------
    Promoted from the v1 layer (radius dropped): still used by the all-time
@@ -1516,6 +1534,9 @@ table.feed td.who .line { align-items: center; }
   /* The league feed modules are not boards and do not scroll — they are two
      stacked panels. Their Week column is declared 13%, which on a phone panel
      is 25px of content against a 33px "Week", so the header broke to "WEE/K".
+     22% is set by the WIDEST WEEK, not by the header: "25 W12" needs 51px, and
+     an ellipsis there does not cost a pixel of polish, it reports a different
+     week. The remaining width goes to the trade, which is what the row is for.
      Widened here only; on a desktop the panel is wide enough that 13% fits. */
   .feed-panel table thead th:first-child { width: 22% !important; }
 
