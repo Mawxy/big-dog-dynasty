@@ -1422,6 +1422,11 @@ table.feed td.who .line { align-items: center; }
      floor and forcing a full-width basis is what actually stacks them, and it
      is the whole of both screens' residual overflow. */
   .pick-tables > div, .pick-tables.wpa > div { min-width: 0; flex: 1 1 100%; }
+  /* Stacked they are full width, but still fixed-layout percentages against a
+     347px panel — an 8% Slot column is 15px of content against a 28px "Slot".
+     Same treatment the boards get: size to content, scroll the remainder. */
+  .pick-tables > div { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .pick-tables table { table-layout: auto; width: auto; min-width: 100%; }
   /* The week strip stays SEVEN cells across at every size — that is the whole
      point of it, two players' seasons comparing cell for cell — so the cells
      narrow rather than the row rewrapping into a different shape. */
@@ -1442,27 +1447,60 @@ table.feed td.who .line { align-items: center; }
      z-index. Wrapping is what fixes it rather than an ellipsis: "St. Brown
      Catholic Church" truncated to "St. Brown Cath…" is the same collision
      resolved by throwing the name away, and the name is the row's subject.
-     Numeric cells are untouched — a wrapped figure is a misread figure. */
+     Numeric cells are untouched — a wrapped figure is a misread figure.
+
+     `break-word`, NOT `anywhere`: the two wrap identically, but `anywhere`
+     also reduces a column's intrinsic MIN-CONTENT width to a single character,
+     so an auto-layout table collapses the column to that. It turned the
+     strengths-grid labels into one letter per line, split "2023" into "20/23"
+     and "WEEK" into "WEE/K". `break-word` leaves intrinsic sizing alone and
+     only breaks a word that genuinely cannot fit. */
   thead th, tbody td.t, tbody td.name, tbody td.sub {
     white-space: normal;
-    overflow-wrap: anywhere;
+    overflow-wrap: break-word;
   }
   /* backstop: anything that still cannot fit its column is clipped there
      instead of being drawn over its neighbour */
   tbody td.t, tbody td.name, tbody td.sub { overflow: hidden; }
+
+  /* The strengths grid is the exception: it is sized to its content and
+     scrolls in its own box, so nothing there can collide and wrapping only
+     costs it — auto layout takes a wrapped label down to min-content, which
+     stacked "value this season" over three lines beside a one-line figure. */
+  table.rankgrid th, table.rankgrid td.t { white-space: nowrap; }
   /* a wrapped header sits on two lines, so the label stops mid-column rather
      than running into the next one */
   thead th { vertical-align: bottom; }
 
-  /* GIVE A BOARD ENOUGH WIDTH FOR ITS OWN CONTENTS.
-     Column widths are percentages OF THE TABLE, so on a 375px phone a 6%
-     position column resolved to 24px — and the position badge, whose footprint
-     is deliberately fixed so RB1 and QB12 occupy the same box, hung 26px over
-     the figure beside it. Squeezing the badge alone would not fix it; the
-     column has to be able to hold one. A working minimum lets every percentage
-     resolve to something its contents fit, and the board then scrolls — which
-     on a phone it already does, with the identity pinned and the edge faded. */
-  .tscroll table { min-width: 640px; }
+  /* LET A PHONE BOARD SIZE ITSELF TO ITS CONTENTS.
+     A percentage column resolves against the table, so on a 375px phone a 6%
+     position column came out 24px and the position badge — whose footprint is
+     deliberately fixed so RB1 and QB12 occupy the same box — hung 26px over
+     the figure beside it.
+
+     Forcing a wider table does NOT fix that: under `table-layout: fixed` the
+     leftover width is redistributed across the columns, so a declared width
+     becomes a floor rather than a cap and the slack lands wherever it likes —
+     a 640px minimum blew the franchise column out to 313px and left the
+     identity block wider than the screen it was pinned to.
+
+     Auto layout instead. Every column takes what its own content needs, the
+     table ends up as wide as it actually has to be (405px on the league board,
+     not 640px), and `.tscroll` scrolls whatever is left over. The percentage
+     hints stay in the markup for the desktop, where they still apply. */
+  .tscroll table {
+    table-layout: auto !important;
+    width: auto !important;
+    min-width: 100% !important;
+  }
+
+  /* Auto layout would otherwise hand a long franchise name the whole board —
+     and that column is the PINNED one, so it would pin something wider than
+     the screen and leave no room for the figures it identifies. Capped so the
+     identity block keeps roughly a third and the board gets the rest; names
+     past the cap wrap, which is why they are allowed to. */
+  .tscroll.stuck thead tr:not(.grp) th:nth-child(2),
+  .tscroll.stuck tbody tr:not(.drawer-row) td.name { max-width: 165px; }
 
   /* The badge also steps down to the size the system already uses for a badge
      in a tight row (`.pos.sm`). Uniform footprint, existing size, no new
@@ -1470,14 +1508,16 @@ table.feed td.who .line { align-items: center; }
   .pos { width: 34px; font-size: 11.5px; }
   .pos.wide { width: 40px; }
 
-  /* The rank column is declared at 4–7%, which against a phone-width table is
-     30–45px — fine for "12", tight for the three-digit ranks the index boards
-     run to at 780 scored players. It is also the PINNED column, so anything it
-     cannot hold is drawn straight onto the name beside it. The numeral gives
-     back its side padding and a step of size, and the cell clips whatever is
-     still left rather than painting it on its neighbour. */
+  /* The rank numeral gives back its side padding and a step of size, so the
+     pinned rank column stays narrow even at the three digits the index boards
+     reach with 780 scored players. */
   td.spine-cell .rank { padding-left: 4px; padding-right: 4px; font-size: 17px; }
-  td.spine-cell { overflow: hidden; }
+
+  /* The league feed modules are not boards and do not scroll — they are two
+     stacked panels. Their Week column is declared 13%, which on a phone panel
+     is 25px of content against a 33px "Week", so the header broke to "WEE/K".
+     Widened here only; on a desktop the panel is wide enough that 13% fits. */
+  .feed-panel table thead th:first-child { width: 22% !important; }
 
   /* Touch targets. These controls were sized for a cursor: the position chips
      came out 25px tall and the search field 32px, against the ~44px a finger

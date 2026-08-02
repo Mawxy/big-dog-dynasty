@@ -557,6 +557,7 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-note">Trades live in their own section</span>
               </div>
               {!waiverTxs.length ? <div className="empty">No moves yet.</div> : (
+                <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
@@ -579,6 +580,7 @@ export default function FranchisePage({ rid, players, tab }:
                     ))}
                   </tbody>
                 </table>
+                </TScroll>
               )}
             </div>
           </div>

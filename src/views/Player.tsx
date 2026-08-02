@@ -305,6 +305,7 @@ export default function Player({ pid }: { pid: string }) {
                   <span className="band-label">Ownership</span>
                   <span className="band-note">Every roster event since the league began</span>
                 </div>
+                <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
@@ -332,6 +333,7 @@ export default function Player({ pid }: { pid: string }) {
                     })}
                   </tbody>
                 </table>
+                </TScroll>
               </div>
             )}
 
