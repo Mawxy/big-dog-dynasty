@@ -268,17 +268,18 @@ function BracketScope({ season, bracket, allWeeks, loaded }: {
   const champName = champ?.w != null ? bracket?.names[String(champ.w)] : null;
   return (
     <>
+      {/* One identity line, like every other screen: the title says WHAT you
+          are looking at and the season chip beside it says which year. This
+          used to be "Season" at 20px with a second 34px "Playoffs" block under
+          it — the only screen on the site with two titles. */}
       <div className="screen-head">
-        <span className="screen-title">Season</span>
+        <span className="screen-title">Playoffs</span>
         <SeasonPicker allTime={false} />
         {champName && (
           <span className="screen-note">
             champion <b style={{ color: "var(--acc)" }}>{champName}</b>
           </span>
         )}
-      </div>
-      <div style={{ padding: "2px var(--pad) 0" }}>
-        <div className="page-title">Playoffs</div>
       </div>
       {/* always show the chip here: it is the scope being viewed, and hiding
           it mid-refetch would make the active chip blink out on a season
@@ -321,14 +322,11 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
   return (
     <>
       <div className="screen-head">
-        <span className="screen-title">Season</span>
+        <span className="screen-title">Week {wk}{wk >= ps ? " · playoffs" : ""}</span>
         <SeasonPicker allTime={false} />
         <span className="screen-note">
           <b>{pairs.length}</b> matchups · click one for both lineups
         </span>
-      </div>
-      <div style={{ padding: "2px var(--pad) 0" }}>
-        <div className="page-title">Week {wk}{wk >= ps ? " · playoffs" : ""}</div>
       </div>
       {/* a playoff week is reached from a bracket link, not from the row —
           light the Playoffs chip so something in the row is still active */}
@@ -344,6 +342,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
             <span className="band-label">Top performers</span>
             <span className="band-note">Started for resolves from the week's actual lineups · WAR vs the best player left out of the startable pool</span>
           </div>
+          <div className="tscroll">
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr className="grp">
@@ -396,6 +395,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
               ))}
             </tbody>
           </table>
+          </div>
         </div>
       )}
 

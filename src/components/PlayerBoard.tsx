@@ -60,14 +60,14 @@ export function identityCols(opts: { nfl?: boolean } = {}): PlayerCol[] {
   const { nfl = true } = opts;
   return [
     {
-      id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "rank",
+      id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "spine-cell",
       cell: (r, _x, i) => <>
-        <span className="spine" style={{ background: POS_COLOR[r.pos] || "var(--rule)" }} />
-        <span className="fig">{i + 1}</span>
+        <span className="spine" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }} />
+        <span className="rank">{i + 1}</span>
       </>,
     },
     {
-      id: "nm", label: "Player", grp: 0, w: 0, align: "t", td: "name", asc: true,
+      id: "nm", label: "Player", grp: 0, w: 0, align: "t", td: "t name", asc: true,
       sort: r => r.nm, cell: r => <PlayerLink pid={r.id} name={r.nm} />,
     },
     {
@@ -79,7 +79,7 @@ export function identityCols(opts: { nfl?: boolean } = {}): PlayerCol[] {
       sort: (r: PlayerRow) => r.nfl, cell: (r: PlayerRow) => r.nfl || "—",
     } as PlayerCol] : []),
     {
-      id: "team", label: "Roster", grp: 0, w: 14, align: "t", hm: true, td: "sub hm",
+      id: "team", label: "Roster", grp: 0, w: 14, align: "t", hm: true, td: "t sub hm",
       sort: r => r.team, cell: r => r.team,
     },
   ];
@@ -107,11 +107,18 @@ export function BoardScope({ on }: { on: "value" | "stats" }) {
 }
 
 /**
- * Position chips and the name search, as one filter state both boards use.
- * Returned as state plus an element so the caller owns placement — Value and
- * Stats put their own scope chips in the row above it.
+ * Position chips and the name search, as one filter state every player board
+ * uses. Returned as state plus an element so the caller owns placement — Value
+ * and Stats put their own scope chips in the row above it.
+ *
+ * Generic over the row so the two index leaderboards (DVI, CVI) get literally
+ * this bar rather than a second, chips-only one of their own: filtering is the
+ * same affordance wherever a list of players is, and it only ever reads `pos`
+ * and `nm`.
  */
-export function usePlayerFilters(onChange?: () => void) {
+export function usePlayerFilters<T extends { pos: string; nm: string } = PlayerRow>(
+  onChange?: () => void,
+) {
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
 
@@ -130,7 +137,7 @@ export function usePlayerFilters(onChange?: () => void) {
    *  view. Memoised on pos/q because both boards list it as a useMemo dep for
    *  the whole row build — a fresh identity every render would rebuild the
    *  entire population on every keystroke anywhere on the page. */
-  const apply = useCallback((rows: PlayerRow[]) => {
+  const apply = useCallback((rows: T[]) => {
     let rs = rows;
     if (pos !== "ALL") rs = rs.filter(r => r.pos === pos);
     if (q) rs = rs.filter(r => r.nm.toLowerCase().includes(q.toLowerCase()));

@@ -236,6 +236,7 @@ export default function Player({ pid }: { pid: string }) {
                   <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
                   <span className="band-note">Composite blends the model with Sleeper's projection · range is the 80% band</span>
                 </div>
+                <div className="tscroll">
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr className="grp">
@@ -276,13 +277,14 @@ export default function Player({ pid }: { pid: string }) {
                         </td>
                         <td className="n last">
                           {proj.posFin?.[i]
-                            ? <span className="pos wide" style={{ background: POS_COLOR[pos] || "#2b3642" }}>{pos}{proj.posFin[i]}</span>
+                            ? <span className="pos wide" style={{ background: POS_COLOR[pos] || "var(--rule-2)" }}>{pos}{proj.posFin[i]}</span>
                             : <span className="fig quiet">—</span>}
                         </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+                </div>
               </div>
             )}
 
@@ -338,6 +340,7 @@ export default function Player({ pid }: { pid: string }) {
                   <span className="band-label">Market value · as of {vals?.fetched ?? "—"}</span>
                   <span className="band-note">Priced like = the rookie pick currently worth the same · implied WAR runs the price through the value-to-WAR curve</span>
                 </div>
+                <div className="tscroll">
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr className="grp">
@@ -380,6 +383,7 @@ export default function Player({ pid }: { pid: string }) {
                     ))}
                   </tbody>
                 </table>
+                </div>
                 <div className="tnote" style={{ padding: "0 22px 16px" }}>
                   A dash in a movement column means the daily snapshot history doesn't reach back that far yet.
                   Deltas are raw value, not rank.

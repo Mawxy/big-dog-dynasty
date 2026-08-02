@@ -159,6 +159,20 @@ export default function Stats() {
       </div>
       {bar}
 
+      {/* every board on the site names itself in a band and says what its
+          headline figure is measured against — this one had the screen title
+          and nothing else */}
+      <div className="band">
+        <span className="band-label">
+          {allTime ? "Career · every played season" : `Regular season · ${scope}`}
+        </span>
+        <span className="band-note">
+          {allTime
+            ? "Totals across every season played · career volatility is not a number anyone should read, so points take its column"
+            : "WAR vs the best player left out of the league's 108 startable slots · sub-45% of the season's max games filtered out"}
+        </span>
+      </div>
+
       {!data ? <div className="empty">Loading…</div>
         : empty ? (
           <div className="empty">
@@ -181,7 +195,7 @@ export default function Stats() {
               )} />
         )}
 
-      <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+      <div className="tnote screen">
         WAR = wins over the best player left out of the league's 108 startable slots ·
         {allTime
           ? " points and games are career totals across every played season"

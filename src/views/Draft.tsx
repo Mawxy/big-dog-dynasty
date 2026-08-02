@@ -370,41 +370,46 @@ export default function Draft() {
           </div>
         </div>
 
-        {/* (b) heat map */}
-        <div style={{ padding: "0 var(--pad) 0" }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 18, marginBottom: 11, flexWrap: "wrap" }}>
-            <div className="chart-label" style={{ marginBottom: 0 }}>
-              Median WAR per season by exact slot · {corpus.cellN}
-            </div>
-            <div className="heat-legend">
-              <span>{fmt(worstSlot)}</span>
-              <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
-              <span>{sgn(bestSlot)}</span>
-            </div>
+        {/* (b) heat map — a full-bleed band names it, like every other section
+            on the site; this was a bare .chart-label floating in a flex row.
+            The colour legend stays with the chart rather than going in the
+            band: a band is label-left/note-right and does not wrap, so a 280px
+            legend in it drags the page sideways on a phone. */}
+        <div className="band">
+          <span className="band-label">Median WAR by exact slot</span>
+          <span className="band-note">{corpus.cellN}</span>
+        </div>
+        <div className="heat-legend" style={{ justifyContent: "flex-end", padding: "10px var(--pad) 9px" }}>
+          <span>{fmt(worstSlot)}</span>
+          <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
+          <span>{sgn(bestSlot)}</span>
+        </div>
+        {/* twelve 40px cells plus a label is wider than a phone: the grid
+            scrolls in its own box, like the draft board and the bracket */}
+        <div className="dscroll">
+          <div className="heat-head" style={{ padding: "0 var(--pad)" }}>
+            <div className="pad" />
+            {Array.from({ length: 12 }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
           </div>
-        </div>
-        <div className="heat-head" style={{ padding: "0 var(--pad)" }}>
-          <div className="pad" />
-          {Array.from({ length: 12 }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
-        </div>
-        <div className="heat2">
-          {ROUNDS.map(rd => (
-            <div key={rd} className="heat-row">
-              <div className="lbl">RD {rd}</div>
-              {Array.from({ length: 12 }, (_, j) => {
-                const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
-                const m = corpus.slotMed[slot];
-                const ring = m != null && m === bestSlot ? "inset 0 0 0 2px rgba(255,255,255,.9)"
-                  : m != null && m === worstSlot ? "inset 0 0 0 2px #ffc9c9" : "none";
-                return (
-                  <div key={slot} className="cell"
-                    style={{ background: heatBg(m), color: heatFg(m), boxShadow: ring }}>
-                    {m == null ? "—" : sgn(m)}
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+          <div className="heat2">
+            {ROUNDS.map(rd => (
+              <div key={rd} className="heat-row">
+                <div className="lbl">RD {rd}</div>
+                {Array.from({ length: 12 }, (_, j) => {
+                  const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
+                  const m = corpus.slotMed[slot];
+                  const ring = m != null && m === bestSlot ? "inset 0 0 0 2px rgba(255,255,255,.9)"
+                    : m != null && m === worstSlot ? "inset 0 0 0 2px #ffc9c9" : "none";
+                  return (
+                    <div key={slot} className="cell"
+                      style={{ background: heatBg(m), color: heatFg(m), boxShadow: ring }}>
+                      {m == null ? "—" : sgn(m)}
+                    </div>
+                  );
+                })}
+              </div>
+            ))}
+          </div>
         </div>
         <div className="heat-note">
           <span>Rows are draft rounds, columns are the pick within the round — so column 01 is every team's first-up selection.</span>
@@ -415,13 +420,18 @@ export default function Draft() {
 
       {/* (c) returns by round -> tier -> pick */}
       {scope === "returns" && corpus && (
-        <div className="dwrap" style={{ paddingTop: 22 }}>
-          <div className="dhead">
-            <div className="chart-label" style={{ marginBottom: 0 }}>Returns by round, tier and pick</div>
+        <>
+          <div className="band" style={{ marginTop: 22 }}>
+            <span className="band-label">Returns by round, tier and pick</span>
+            <span className="band-note">
+              Every row is the median of its own picks, so a round is not the middle of the
+              three tiers under it
+            </span>
             <button type="button" className="dexpand" aria-expanded={allOpen} onClick={toggleAll}>
               {allOpen ? "Collapse all" : "Expand all"}
             </button>
           </div>
+          <div className="dwrap">
           <div className="dscroll">
             <table className="dtbl">
               <thead>
@@ -484,7 +494,8 @@ export default function Draft() {
             played then or since, scored as zero, distinct from playing at replacement level. Deeper
             years aren't available yet: too few classes have reached them.
           </div>
-        </div>
+          </div>
+        </>
       )}
 
       {/* (d) best / worst value over slot — our picks */}
@@ -525,7 +536,10 @@ export default function Draft() {
         ))}
       </div>
 
-      <div className="footnote">
+      {/* prose, so .tnote — `.footnote` is all-caps condensed and reserved for
+          a ONE-LINE methodology note (SKILL §6); at paragraph length it is
+          unreadable, which is what this was */}
+      <div className="tnote screen">
         {corpus && <>
           Slot value — the box plots, the heat map and the returns table — pools {corpus.picks.toLocaleString()} rookie
           picks from five 12-team superflex leagues ({corpus.classes}), every season calibrated to this league's WAR
@@ -584,7 +598,7 @@ function DraftBoards({ history }: { history: History }) {
           </div>
         );
       })}
-      <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+      <div className="tnote screen">
         Every draft this league has held, newest first — a row per round, cells
         coloured by position and labelled with their slot. The small line names the
         franchise that made the selection; an amber "via" line marks a pick acquired

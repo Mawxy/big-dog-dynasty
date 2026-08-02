@@ -110,18 +110,18 @@ interface BoardRow {
 
 const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
   {
-    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "rank",
+    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "spine-cell",
     cell: (_r, _x, i) => <>
-      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "#2b3642" }} />
-      <span className="fig">{i + 1}</span>
+      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
+      <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
     </>,
   },
   {
-    id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "name", asc: true,
+    id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "t name", asc: true,
     sort: r => r.name, cell: r => r.name,
   },
   {
-    id: "manager", label: "Manager", grp: 0, w: 9, align: "t", hm: true, td: "sub hm",
+    id: "manager", label: "Manager", grp: 0, w: 9, align: "t", hm: true, td: "t sub hm",
     sort: r => r.manager, cell: r => r.manager,
   },
   // Starter totals, bare figures — this table sorts by an index, so nothing
@@ -265,10 +265,17 @@ function RosterBoard() {
   if (!sorted) return <div className="empty">Loading rosters…</div>;
   return (
     <>
+      <div className="band">
+        <span className="band-label">Roster value · {rosterSeason}</span>
+        <span className="band-note">
+          Each index prices its own best legal lineup — the best dynasty nine and the best
+          win-now nine can differ · index points, not value
+        </span>
+      </div>
       <DataTable cols={BOARD_COLS} groups={groups} rows={sorted} ctx={{}}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))} />
-      <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+      <div className="tnote screen">
         Sorted by starters DVI — every header re-sorts, a row opens the franchise page.
         Starters DVI and CVI each price the roster's best legal lineup in their own
         index — the best dynasty nine and the best win-now nine can differ, so each gets
@@ -409,25 +416,36 @@ function SeasonStandings({ season }: { season: string }) {
 
   const cols = useMemo<Col<StandRow, StandCtx>[]>(() => [
     {
-      id: "seed", label: "Seed", grp: 0, w: 5, align: "c", td: "rank", asc: true,
+      id: "seed", label: "Seed", grp: 0, w: 5, align: "c", td: "spine-cell", asc: true,
       sort: r => r.seed,
       cell: r => <>
-        <span className="spine" style={{ background: r.seed <= 6 ? "var(--acc)" : "#2b3642" }} />
-        <span className="fig">{r.seed}</span>
+        <span className="spine" style={{ background: r.seed <= 6 ? "var(--acc)" : "var(--rule-2)" }} />
+        <span className={`rank${r.seed <= 6 ? " top" : ""}`}>{r.seed}</span>
       </>,
     },
     {
-      id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "name", asc: true,
+      id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "t name", asc: true,
       sort: r => r.team,
-      cell: r => (
-        <span className="tlink"
-          onClick={e => { e.stopPropagation(); nav(lp(`/franchise/${r.rid}`)); }}>
-          {r.team}
-        </span>
-      ),
+      // an anchor, like PlayerLink — keyboard-reachable and openable in a new
+      // tab, while a plain click stays an in-app navigation that doesn't also
+      // toggle the row's drawer
+      cell: r => {
+        const to = lp(`/franchise/${r.rid}`);
+        return (
+          <a className="tlink" href={`#${to}`}
+            onClick={e => {
+              e.stopPropagation();
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault();
+              nav(to);
+            }}>
+            {r.team}
+          </a>
+        );
+      },
     },
     {
-      id: "manager", label: "Manager", grp: 0, w: 11, align: "t", hm: true, td: "sub hm",
+      id: "manager", label: "Manager", grp: 0, w: 11, align: "t", hm: true, td: "t sub hm",
       sort: r => r.manager, cell: r => r.manager,
     },
     // a projected figure is dimmed, the same treatment an unplayed week's score
@@ -512,12 +530,21 @@ function SeasonStandings({ season }: { season: string }) {
 
   return (
     <>
+      <div className="band">
+        <span className="band-label">
+          {wholly ? `Projected standings · ${season}` : `Standings · ${season}`}
+        </span>
+        <span className="band-note">
+          Playoffs from week {ps}, top 6 seeds · lineup WAR sums each week's real starters
+          against the league-wide optimal pool
+        </span>
+      </div>
       <DataTable cols={cols} groups={groups} rows={sorted} ctx={ctx}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="seed" openKey={openRid != null ? String(openRid) : null}
         onRowClick={r => setOpenRid(openRid === r.rid ? null : r.rid)}
         renderDrawer={r => <TeamDrawer r={r} tnames={tnames} ps={ps} />} />
-      <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+      <div className="tnote screen">
         Playoffs from week {ps}, top 6 seeds. Vs median is the record against each
         week's league median score; luck is actual wins minus median wins. Lineup WAR
         sums each week's real starters, measured against the league-wide optimal pool.
@@ -576,18 +603,18 @@ interface HistRow {
 
 const HIST_COLS: Col<HistRow, Record<string, never>>[] = [
   {
-    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "rank",
+    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "spine-cell",
     cell: (_r, _x, i) => <>
-      <span className="spine" style={{ background: "#2b3642" }} />
-      <span className="fig">{i + 1}</span>
+      <span className="spine" style={{ background: "var(--rule-2)" }} />
+      <span className="rank">{i + 1}</span>
     </>,
   },
   {
-    id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "name", asc: true,
+    id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "t name", asc: true,
     sort: r => r.name, cell: r => r.name,
   },
   {
-    id: "manager", label: "Manager", grp: 0, w: 12, align: "t", hm: true, td: "sub hm",
+    id: "manager", label: "Manager", grp: 0, w: 12, align: "t", hm: true, td: "t sub hm",
     sort: r => r.manager, cell: r => r.manager,
   },
   {
@@ -676,10 +703,14 @@ function HistoryBoard() {
   if (!sorted) return <div className="empty">Loading history…</div>;
   return (
     <>
+      <div className="band">
+        <span className="band-label">All-time · every season played</span>
+        <span className="band-note">Win % counts a tie as half a win · a row opens the franchise page</span>
+      </div>
       <DataTable cols={HIST_COLS} groups={HIST_GROUPS} rows={sorted} ctx={{}}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))} />
-      <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+      <div className="tnote screen">
         All-time spans every season the franchise has played; win % counts a tie as
         half a win. Best is the franchise's best playoff finish and the year it
         happened. A row opens the franchise page — roster, strengths, picks and

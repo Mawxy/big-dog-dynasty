@@ -209,7 +209,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           <th colSpan={2} className="edge acc">Award</th>
         </tr>
         <tr>
-          <th className="t" style={{ width: "6%" }}>Rk</th>
+          <th className="c" style={{ width: "6%" }}>Rk</th>
           <th className="t" style={{ width: "27%" }}>Player</th>
           <th className="c" style={{ width: "7%" }}>Pos</th>
           <th className="t" style={{ width: "21%" }}>For</th>
@@ -226,18 +226,18 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           const [nm, pos] = pInfo(players, p.pid);
           return (
             <tr key={p.pid} className={i % 2 ? "zebra" : ""}>
-              <td className="rank">
+              <td className="spine-cell">
                 <span className="spine" style={{
-                  background: i === 0 ? "var(--acc)" : POS_COLOR[pos] || "#2b3642",
+                  background: i === 0 ? "var(--acc)" : POS_COLOR[pos] || "var(--rule-2)",
                 }} />
-                <span className="fig">{i + 1}</span>
+                <span className={`rank${i === 0 ? " top" : ""}`}>{i + 1}</span>
               </td>
-              <td className="name">
+              <td className="t name">
                 <PlayerLink pid={p.pid} name={nm} />
                 {i === 0 && <span className="name-note" style={{ color: "var(--acc)" }}>MVP</span>}
               </td>
               <td className="c"><span className={`pos ${pos}`}>{pos}</span></td>
-              <td className="sub">{nameOf(p.rid)}</td>
+              <td className="t sub">{nameOf(p.rid)}</td>
               {weeks.map(w => {
                 // MVP points — the weighted win share on the award scale.
                 // They add up to the MVP column, which IS their sum.
@@ -255,7 +255,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               <td className="fig n">
                 {p.war == null ? <span className="quiet">—</span> : wsgn2(p.war)}
               </td>
-              <td className="fig n key">
+              <td className="n fig">
                 <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
                   {p.mvp == null ? "—" : fmt(p.mvp, 1)}
                 </b>
@@ -394,7 +394,8 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
         </div>
       )}
 
-      <div className="footnote">
+      {/* prose belongs in .tnote; .footnote is the one-line all-caps form */}
+      <div className="tnote screen">
         MVP is the biggest round-weighted win-probability swing, not the most points: WAR
         doesn't extend to the postseason — it needs a replacement baseline and fungible wins,
         and weeks {weeks[0]}–{weeks[weeks.length - 1]} have neither once half the league stops

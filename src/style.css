@@ -22,6 +22,10 @@
   --zebra: #0f1318;
   --sel: #182029;
   --rule: #1b232c;
+  /* one step brighter than --rule: an inactive spine, a hover border, the
+     fallback behind a position colour that isn't one of the four. It was
+     written as a bare #2b3642 in nine components before it had a name. */
+  --rule-2: #2b3642;
   --hair: #11161c;
 
   --txt: #eef2f6;
@@ -266,6 +270,9 @@ thead th {
 }
 thead th.sortable { cursor: pointer; user-select: none; }
 thead th.sortable:hover { color: var(--txt); }
+/* a sortable header is keyboard-operable, so its focus has to be visible —
+   inset so the ring can't be clipped by the header row's own border */
+thead th.sortable:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 thead th.sorted { color: var(--acc); }
 thead th.key { color: var(--acc); font-weight: 700; }
 
@@ -285,22 +292,11 @@ tbody tr.zebra { background: var(--zebra); }
 tbody tr.click { cursor: pointer; }
 tbody tr.open { background: var(--sel); }
 
-/* rank cell with its position/seed spine */
-td.rank {
-  position: relative;
-  padding: 0;
-  text-align: center;
-}
-td.rank .spine {
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-}
-td.rank .fig {
-  font: 600 19px/1 var(--cond);
-  color: var(--dim);
-  padding: 9px 8px;
-}
+/* The rank cell and its position/seed spine live in ONE place now — see
+   `td.spine-cell` in the v4 block below. There used to be a second, older
+   anatomy here (`td.rank` with the numeral in a `.fig`) and the two drifted:
+   only the spine-cell version could mark a top rank in the accent, so the same
+   leaderboard idiom rendered differently on Teams than it did on League. */
 
 /* text cells */
 td.name { font: 600 14.5px/1.4 var(--sans); }
@@ -609,6 +605,12 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   font: inherit;
 }
 
+/* Wide content scrolls inside its own box; the page body never scrolls
+   sideways. `.dscroll` does this for the draft's returns table and `.rankwrap`
+   for the strengths grid — `.tscroll` is the same idiom for the shared
+   DataTable, whose ten-column boards want more width than a tablet has. */
+.tscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
 /* ---------- responsive -------------------------------------------------- */
 
 @media (max-width: 900px) {
@@ -710,6 +712,10 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 /* caption under the table — sits after the figure, out of the gap between the
    title and the first row. Matches .heat-note, the caption under the heat map. */
 .tnote { margin-top: 9px; font: 400 11.5px/1.5 var(--sans); color: var(--dim3); }
+/* the same caption closing out a whole screen rather than one block: it takes
+   the page gutter and sits directly under the table it explains. Eight screens
+   were carrying this as an identical inline style. */
+.tnote.screen { margin-top: 0; padding: 10px var(--pad) 22px; }
 .dscroll { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 .dtbl thead th { padding: 7px 10px; font-size: 12px; letter-spacing: .14em; color: var(--dim2); }
@@ -865,6 +871,11 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
 /* ---- section band: full-bleed strip, label left, note right -------------- */
 .band {
   display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  /* wrap so a band carrying a control as well as a label and a note (Draft's
+     expand-all, League's Standings link) folds on a phone instead of pushing
+     the page sideways. Never engages while the row fits, so desktop is
+     unchanged. */
+  flex-wrap: wrap;
   background: var(--deep);
   border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
   padding: 7px 22px;
@@ -1140,6 +1151,12 @@ button.dband:hover .band-label { color: var(--txt2); }
 }
 .h2h-side .star .snm { overflow: hidden; text-overflow: ellipsis; }
 .h2h-side .star .spts { color: var(--dim); font-variant-numeric: tabular-nums; }
+/* One matchup on its own page — the same unit the week grid draws, at full
+   board width. The detail screen used to have a second head-to-head of its own
+   (.mscore/.mside), so clicking a matchup changed how the matchup looked. */
+.h2h-grid.solo { grid-template-columns: 1fr; margin-bottom: 16px; }
+/* points left on the bench is a criticism, not a stat */
+.h2h-side .res .left { color: var(--bad); }
 
 /* ---- trade baskets -------------------------------------------------------- */
 .baskets { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; padding: 0 var(--pad); align-items: start; }
@@ -1175,6 +1192,18 @@ button.dband:hover .band-label { color: var(--txt2); }
 .meter-row .fig {
   flex: 0 0 auto; min-width: 54px; text-align: right;
   font: 600 16px/1 var(--cond); font-variant-numeric: tabular-nums;
+}
+/* Between the phone breakpoint (640px, where `.hm` drops columns) and a
+   comfortable desktop, the metered cell's fixed minimums — 36px of bar, 54px
+   of figure, 32px of padding — can add up to more than the column's share of a
+   fixed-layout table, and the surplus pushed the whole page sideways. The
+   figure IS the value and the bar is only the comparison, so the bar gives
+   ground first and nothing is ever clipped. */
+@media (max-width: 900px) {
+  .meter-row { gap: 6px; }
+  .meter-row .meter { min-width: 18px; }
+  .meter-row .fig { min-width: 44px; font-size: 15px; }
+  tbody td.last { padding-right: 10px; }
 }
 
 /* ---- rank cell with spine (same anatomy as td.rank, plan-named) ---------- */
@@ -1251,12 +1280,11 @@ table.wktbl { width: auto; background: transparent; }
 }
 
 /* ==========================================================================
-   v1 token aliases + shared helpers
-   The `.legacy` compatibility layer is gone — every surface renders in the
-   Broadcast system above. The aliases stay because inline styles still
-   resolve var(--card)/--line/--accent.
+   Shared helpers
+   The v1 token aliases (--card / --line / --accent) are gone with their last
+   two call sites: every surface now names the token it actually means, so
+   there is exactly one spelling of each colour on the board.
    ========================================================================== */
-:root { --card: var(--band); --line: var(--rule); --accent: var(--acc); }
 
 /* small shared helpers, safe everywhere */
 .num { font-variant-numeric: tabular-nums; }
@@ -1264,8 +1292,10 @@ table.wktbl { width: auto; background: transparent; }
 .num.bad, .bad { color: var(--bad); }
 .tlink { color: var(--acc); cursor: pointer; }
 .tlink:hover { text-decoration: underline; }
-.back { color: var(--acc); cursor: pointer; font-size: 14px; display: inline-block; margin: 10px 0; }
-.back:hover { text-decoration: underline; }
+.tlink:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+/* `.back` is gone: there are exactly two back affordances now — `.rail-back`
+   at the top of a split rail, and a `.chip` in the screen header on the
+   full-width screens that have no rail. */
 
 
 /* ---- league home: activity + movers feeds ------------------------------ */
@@ -1301,16 +1331,7 @@ table.feed td.who { padding: 7px 10px; }
 table.feed td.who .line { align-items: center; }
 
 /* ---- matchup detail ----------------------------------------------------- */
-.mscore { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 0 var(--pad) 16px; }
-.mside { background: var(--band); border-top: 3px solid var(--rule); padding: 12px 14px; }
-.mside.win { border-top-color: var(--acc); }
-.mside .nm { font: 600 14.5px/1.3 var(--sans); color: var(--txt2); }
-.mside.win .nm { color: var(--txt); }
-.mside .pts { font: 700 32px/1.1 var(--cond); font-variant-numeric: tabular-nums; }
-.mside.win .pts { color: var(--acc); }
-.mside .by { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
-/* points left on the bench is a criticism, not a stat — colour it */
-.mside .left { color: var(--bad); }
+/* the score blocks are .h2h, shared with the week grid — see above */
 .mlineups { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin: 0 var(--pad); }
 
 /* ---- weekly: per-team MVP line ----------------------------------------- */
@@ -1325,3 +1346,28 @@ table.feed td.who .line { align-items: center; }
 /* the league's best starter that week reads brighter than the rest */
 .mvp.top .who { color: var(--acc); font-weight: 600; }
 .mvp .pos.sm { font-size: 9px; padding: 1px 4px; }
+
+/* ==========================================================================
+   Narrow-viewport overrides — LAST in the file on purpose.
+   These relax pixel floors that only exist to hold a desktop layout open. Each
+   one targets a rule defined further up at the same specificity, so it has to
+   come after it to win; put back in the earlier @media block and they lose
+   silently, which is exactly how the page ended up scrolling sideways.
+   ========================================================================== */
+@media (max-width: 640px) {
+  /* The paired value tables carry a min-width so the two sit side by side on a
+     desktop. Below this breakpoint they have already stacked, so the floor is
+     no longer holding a column open — it is only pushing the page sideways. */
+  .pick-tables > div, .pick-tables.wpa > div { min-width: 0; }
+  /* The week strip stays SEVEN cells across at every size — that is the whole
+     point of it, two players' seasons comparing cell for cell — so the cells
+     narrow rather than the row rewrapping into a different shape. */
+  .weekgrid { grid-template-columns: repeat(7, minmax(40px, 1fr)); }
+  .weekcell { padding: 6px 4px 7px; }
+  .weekcell .wk { letter-spacing: 0; }
+  .weekcell .pts { font-size: 12.5px; }
+  .weekcell .war { font-size: 11px; }
+  /* the box-plot rails and the draft board's own gutter */
+  .box-row .lbl, .axis .pad { flex-basis: 44px; }
+  .card-row > * { flex: 1 1 100%; }
+}

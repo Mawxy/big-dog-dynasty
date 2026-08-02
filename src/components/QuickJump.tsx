@@ -62,11 +62,15 @@ export default function QuickJump() {
           else if (e.key === "Enter" && opts[sel]) go(opts[sel]);
           else if (e.key === "Escape") setOpen(false);
         }} />
+      {/* Real tokens, not the v1 --card/--line aliases, and no drop shadow:
+          nothing else on the board floats, so the site's one popover was also
+          its one piece of soft-shadowed chrome. The border and the raised
+          --band surface are what say "above the page" everywhere else. */}
       {open && opts.length > 0 && (
         <div style={{
           position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 30,
-          background: "var(--card)", border: "1px solid var(--line)",
-          minWidth: 235, maxWidth: 320, overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,.35)",
+          background: "var(--band)", border: "1px solid var(--rule)",
+          minWidth: 235, maxWidth: 320, overflow: "hidden",
         }}>
           {opts.map((o, i) => (
             // onMouseDown (not click) so it fires before the input's blur closes the list
@@ -75,7 +79,7 @@ export default function QuickJump() {
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",
                 cursor: "pointer", fontSize: 13, whiteSpace: "nowrap",
-                background: i === sel ? "var(--line)" : "transparent",
+                background: i === sel ? "var(--sel)" : "transparent",
               }}>
               {o.pos
                 ? <PosBadge pos={o.pos} />

@@ -101,21 +101,25 @@ export default function TeamStrengths({ rid }: { rid: number }) {
   if (!shape || !teams) return null;
   const n = teams.length;
 
+  // No box of its own: this renders inside the franchise page's "Strengths"
+  // band, and a bordered card inside a bordered board is the one nesting the
+  // system forbids — it also repeated the band's own heading a few pixels
+  // below it. The two grids carry their own captions; the band above says
+  // what they measure.
   return (
-    <div style={{ background: "var(--card)", border: "1px solid var(--line)", padding: "12px 16px", margin: "12px 0 4px" }}>
-      <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-        <b style={{ color: "var(--txt)", fontSize: 13.5 }}>Strengths &amp; weaknesses</b>
-        <span style={{ color: "var(--dim)", fontSize: 12 }}>rank of {n}, two currencies</span>
+    <>
+      <div className="rankcap" style={{ marginTop: 0 }}>
+        Rank of {n} <span>· two currencies, each seat optimised separately</span>
       </div>
 
       <Grid rows={shape.ranks} n={n} caption="Starters" />
       <Grid rows={shape.benchRanks} n={n} caption="Bench" />
 
-      <div style={{ color: "var(--dim)", fontSize: 11.5, marginTop: 8, lineHeight: 1.6 }}>
+      <div className="tnote">
         Each seat ranked against the same seat league-wide. Rows are optimised
         separately, so a seat can hold different players. Superflex reads as QB2;
         the flex is left out — it holds a different position on every roster.
       </div>
-    </div>
+    </>
   );
 }

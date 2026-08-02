@@ -266,7 +266,7 @@ export default function Home() {
           </>}
         </div>
 
-        <div className="panel" style={{ margin: 0, borderTopColor: "#2b3642" }}>
+        <div className="panel" style={{ margin: 0, borderTopColor: "var(--rule-2)" }}>
           <div className="chart-label">Title race · {rosterSeason} · top 4 by starter CVI</div>
           {!titleRace ? <div className="empty">Loading indices…</div> : titleRace.map((r, i) => (
             <div key={r.rid} onClick={() => nav(lp(`/franchise/${r.rid}`))}
@@ -302,6 +302,7 @@ export default function Home() {
           </button>
         </div>
         {!indexRows ? <div className="empty">Loading indices…</div> : (
+          <div className="tscroll">
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr>
@@ -323,7 +324,7 @@ export default function Home() {
                   <tr key={r.rid} className={`click ${i % 2 ? "zebra" : ""}`}
                     onClick={() => nav(lp(`/franchise/${r.rid}`))}>
                     <td className="spine-cell">
-                      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "#2b3642" }} />
+                      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
                       <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
                     </td>
                     <td className="t name">{r.name}</td>
@@ -349,6 +350,7 @@ export default function Home() {
               })}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 

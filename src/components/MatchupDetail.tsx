@@ -143,39 +143,60 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
   const margin = A.total - (B?.total ?? 0);
   const pA = B ? normCdf(margin / (sigma * Math.SQRT2)) : 1;
 
+  /** one side of the head-to-head; a missing opponent is a bye, drawn the same
+   *  way the week grid draws one */
+  const sideBlock = (s: Side | null, i: 0 | 1) => {
+    if (!s) return (
+      <div className="h2h-side">
+        <div className="nm">Bye</div>
+        <div className="score" style={{ color: "var(--dim3)" }}>—</div>
+        <div className="res">{" "}</div>
+      </div>
+    );
+    const win = played
+      ? s.total === Math.max(A.total, B?.total ?? 0)
+      : (i === 0 ? pA >= 0.5 : pA < 0.5);
+    return (
+      <div className={`h2h-side${win ? " win" : ""}`}>
+        <div className="nm">{s.name}</div>
+        <div className="score">{fmt(s.total, 1)}</div>
+        <div className="res">
+          {played ? <>
+            max {fmt(s.max, 1)}
+            {s.max > s.total + 0.05 &&
+              <span className="left"> · left {fmt(s.max - s.total, 1)} on the bench</span>}
+          </> : B ? `${fmt((i === 0 ? pA : 1 - pA) * 100, 0)}% to win` : " "}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <>
-      <span className="back" onClick={back}>← week {wk}</span>
-      <div className="screen-head" style={{ paddingLeft: 0 }}>
+      {/* the back control is a chip in the header, the same place and shape the
+          draft's own page puts it — it used to be a bare link sitting outside
+          the header with the whole block pulled flush to x=0, so this was the
+          one screen whose title didn't line up with the gutter */}
+      <div className="screen-head">
         <span className="screen-title">
           {A.name} {played ? "vs" : "at"} {B?.name ?? "bye"}
         </span>
+        <button type="button" className="chip" onClick={back}>‹ Week {wk}</button>
         <span className="screen-note">
-          Week {wk} · {season} · {played ? "final" : "projected"}
+          {season} · {played ? "final" : "projected"}
         </span>
       </div>
 
-      {/* headline: the two totals, and who is favoured when it hasn't happened */}
-      <div className="mscore">
-        {[A, B].filter(Boolean).map((sd, i) => {
-          const s = sd as Side;
-          const win = played
-            ? s.total === Math.max(A.total, B?.total ?? 0)
-            : (i === 0 ? pA >= 0.5 : pA < 0.5);
-          return (
-            <div key={s.rid} className={`mside${win ? " win" : ""}`}>
-              <div className="nm">{s.name}</div>
-              <div className="pts">{fmt(s.total, 1)}</div>
-              {played
-                ? <div className="by">
-                    max {fmt(s.max, 1)}
-                    {s.max > s.total + 0.05 &&
-                      <span className="left"> · left {fmt(s.max - s.total, 1)} on the bench</span>}
-                  </div>
-                : B && <div className="by">{fmt((i === 0 ? pA : 1 - pA) * 100, 0)}% to win</div>}
-            </div>
-          );
-        })}
+      {/* The headline is the SAME head-to-head unit the week grid draws, at
+          full board width. Opening a matchup used to swap it for a second
+          idiom of its own (.mscore/.mside), so the object changed shape purely
+          by being looked at more closely. */}
+      <div className="h2h-grid solo">
+        <div className="h2h">
+          {sideBlock(A, 0)}
+          <div className="h2h-spine">vs</div>
+          {sideBlock(B, 1)}
+        </div>
       </div>
 
       <div className="mlineups">
@@ -231,7 +252,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
         })}
       </div>
 
-      <div className="tnote">
+      <div className="tnote screen">
         {played
           ? "Actual starters and what they scored; WAR is that player's contribution in this week. Max is the best legal lineup from that week's roster — bench included."
           : `Lineups are the best legal eleven by projected points — rosters aren't set yet. Win probability from the projected margin against a league weekly sigma of ${fmt(sigma, 1)}.`}

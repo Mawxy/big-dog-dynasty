@@ -100,6 +100,15 @@ export default function DataTable<T, X>({
   const span = (g: number) => cols.filter(c => c.grp === g && !(mobile && c.hm)).length;
   const lastId = cols.length ? cols[cols.length - 1].id : "";
   return (
+    // AUTO layout, deliberately: every one of these tables opens with a
+    // group-band row whose cells are colSpans, and `table-layout: fixed` takes
+    // its widths from the first row — so fixing the layout throws away every
+    // percentage hint and splits the board into equal columns (SKILL §3).
+    //
+    // Which leaves content-driven widths, and a ten-column board can want more
+    // than a narrow viewport has. That is what `.tscroll` is for: the table
+    // scrolls inside its own box rather than dragging the whole page sideways.
+    <div className="tscroll">
     <table>
       <thead>
         <tr className="grp">
@@ -108,16 +117,27 @@ export default function DataTable<T, X>({
           ))}
         </tr>
         <tr>
-          {cols.map(c => (
-            <th key={c.id}
-              className={[c.align, c.hm ? "hm" : "", c.edge ? "edge" : "", c.keyCol ? "key" : "",
-                (c.id === homeCol || c.sort) ? "sortable" : "", sortId === c.id ? "sorted" : ""]
-                .filter(Boolean).join(" ")}
-              style={c.w ? { width: `${c.w}%` } : undefined}
-              onClick={() => onSort(c)}>
-              {c.label}{sortId === c.id ? (dir < 0 ? " ▼" : " ▲") : ""}
-            </th>
-          ))}
+          {cols.map(c => {
+            // A header that re-sorts is a control, so it has to be operable
+            // from the keyboard and has to announce which way it is sorted.
+            // Every leaderboard on the site was mouse-only before this.
+            const act = c.id === homeCol || !!c.sort;
+            return (
+              <th key={c.id}
+                className={[c.align, c.hm ? "hm" : "", c.edge ? "edge" : "", c.keyCol ? "key" : "",
+                  act ? "sortable" : "", sortId === c.id ? "sorted" : ""]
+                  .filter(Boolean).join(" ")}
+                style={c.w ? { width: `${c.w}%` } : undefined}
+                tabIndex={act ? 0 : undefined}
+                aria-sort={sortId === c.id ? (dir < 0 ? "descending" : "ascending") : undefined}
+                onClick={act ? () => onSort(c) : undefined}
+                onKeyDown={act ? e => {
+                  if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSort(c); }
+                } : undefined}>
+                {c.label}{sortId === c.id ? (dir < 0 ? " ▼" : " ▲") : ""}
+              </th>
+            );
+          })}
         </tr>
       </thead>
       <tbody>
@@ -142,5 +162,6 @@ export default function DataTable<T, X>({
         })}
       </tbody>
     </table>
+    </div>
   );
 }

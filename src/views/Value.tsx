@@ -185,6 +185,13 @@ export default function Value() {
       </div>
       {bar}
 
+      <div className="band">
+        <span className="band-label">Price · {rosterSeason} rosters</span>
+        <span className="band-note">
+          Three horizons side by side, never blended — where they disagree is the point
+        </span>
+      </div>
+
       {!ready ? <div className="empty">Loading…</div> : (
         <DataTable cols={COLS} groups={GROUPS} rows={rows} ctx={ctx} rowKey={r => r.id}
           sortId={sortId} dir={dir} onSort={onSort} homeCol="rk" openKey={openPid}
@@ -194,7 +201,7 @@ export default function Value() {
           )} />
       )}
 
-      <div className="tnote" style={{ padding: "10px var(--pad) 22px", marginTop: 0 }}>
+      <div className="tnote screen">
         DVI prices the dynasty horizon and CVI the coming season — both 0–100 indices,
         bare figures by design. Proj WAR is the model's composite for the coming season.
         KTC and FantasyCalc are dynasty market prices in their own currencies; ECR is the

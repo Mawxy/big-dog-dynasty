@@ -9,6 +9,9 @@ import IndexBoard from "../components/IndexBoard";
  */
 export default function Cvi() {
   return <IndexBoard file="cvi.json" pick="cvi" title="Contender Value Index"
-    footnote={<>A single 0–100 value for THIS SEASON only — half expert consensus, half production
-      and usage · unlike DVI it cannot see age, so it never discounts a producer for getting older</>} />;
+    note="Prices this season alone · a clamped 0–100 score, so it is a bare figure and never metered"
+    footnote={<>A single 0–100 value for this season only — half expert consensus, half production
+      and usage. Unlike DVI it cannot see age, so it never discounts a producer for getting
+      older. The position badge carries rank within position. Both indices side by side, with
+      the market beside them, are on Players → Value.</>} />;
 }

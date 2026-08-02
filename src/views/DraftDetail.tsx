@@ -111,15 +111,15 @@ export default function DraftDetail() {
 
   const cols = useMemo<Col<HistRow, YearCtx>[]>(() => [
     {
-      id: "pick", label: "Pick", grp: 0, w: 6, align: "c", td: "rank", asc: true,
+      id: "pick", label: "Pick", grp: 0, w: 6, align: "c", td: "spine-cell", asc: true,
       sort: r => r.pickNo,
       cell: r => <>
-        <span className="spine" style={{ background: POS_COLOR[r.pos] || "#2b3642" }} />
-        <span className="fig">{pickLabel(r)}</span>
+        <span className="spine" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }} />
+        <span className="rank">{pickLabel(r)}</span>
       </>,
     },
     {
-      id: "player", label: "Player", grp: 0, w: 0, align: "t", td: "name", asc: true,
+      id: "player", label: "Player", grp: 0, w: 0, align: "t", td: "t name", asc: true,
       sort: r => r.name, cell: r => <PlayerLink pid={r.pid} name={r.name} />,
     },
     {
@@ -127,7 +127,7 @@ export default function DraftDetail() {
       cell: r => <span className={`pos ${r.pos}`}>{r.pos}</span>,
     },
     {
-      id: "by", label: "Drafted by", grp: 0, w: 16, align: "t", hm: true, td: "sub hm",
+      id: "by", label: "Drafted by", grp: 0, w: 16, align: "t", hm: true, td: "t sub hm",
       sort: r => r.drafter,
       cell: r => <>{r.drafter}{r.via && <span className="name-note">via {r.via}</span>}</>,
     },
@@ -233,12 +233,11 @@ export default function DraftDetail() {
                       const pos = !isPick && a.pid ? pInfo(players, a.pid)[1] : "PICK";
                       return (
                         <div key={k} className="trade-asset">
-                          <span className="pos" style={{ width: 34, background: isPick ? "var(--rule)" : (POS_COLOR[pos] || "#2b3642"), color: isPick ? "var(--dim)" : "#fff" }}>
-                            {isPick ? "PICK" : pos}
-                          </span>
+                          <span className={`pos sm ${isPick ? "PICK" : pos}`}>{isPick ? "PK" : pos}</span>
                           <span className={`nm ${isPick && !ours ? "pick" : ""}`}
                             style={ours ? { color: "var(--txt)" } : undefined}>{a.label}</span>
-                          <span className="war" style={{ color: isPick ? "var(--dim3)" : a.war > 0.3 ? "var(--good)" : a.war < 0 ? "var(--bad)" : "var(--txt2)" }}>
+                          {/* both baskets in the same neutral ink — see Ledger */}
+                          <span className="war" style={{ color: isPick ? "var(--dim3)" : "var(--txt2)" }}>
                             {isPick ? "—" : fmt(a.war, 3)}
                           </span>
                         </div>
@@ -297,7 +296,8 @@ export default function DraftDetail() {
         </div>
       )}
 
-      <div className="footnote">
+      {/* prose belongs in .tnote; .footnote is the one-line all-caps form */}
+      <div className="tnote screen">
         The board reads left to right in draft-slot order{rookie ? "" : " — the startup snaked, so even rounds ran right to left"} ·
         WAR by season is measured vs replacement wherever the player suited up, not only on the drafting roster ·{" "}
         {value?.mode === "exp"

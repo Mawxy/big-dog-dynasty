@@ -193,7 +193,14 @@ export default function TradeCalc() {
 
   return (
     <>
-      <div className="baskets" style={{ marginTop: 4 }}>
+      <div className="band">
+        <span className="band-label">Build the two sides</span>
+        <span className="band-note">
+          Each column lists what that team sends away · both sides in the same neutral ink,
+          and index deltas are index points, not value
+        </span>
+      </div>
+      <div className="baskets" style={{ marginTop: 14 }}>
         {basket(0)}
         {basket(1)}
       </div>
