@@ -445,7 +445,10 @@ export default function Home() {
 
       {/* ---- module row 2: recent waivers + recent trades ---- */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
-        <div className="feed-panel">
+        {/* `feed-stack`: on a phone these two feeds put each row's cells on
+            their own line instead of side by side — a franchise name and what
+            it received cannot share 137px. See the mobile block in style.css. */}
+        <div className="feed-panel feed-stack">
           <div className="band" style={{ borderTop: "none" }}>
             <span className="band-label">Recent waivers</span>
             <span className="band-note">Adds and drops, league-wide</span>
@@ -488,7 +491,7 @@ export default function Home() {
                   </td>
                 </tr>
               ) : (
-                <tr key={`ew${i}`} className={i % 2 ? "zebra" : ""}>
+                <tr key={`ew${i}`} className={`pad-row ${i % 2 ? "zebra" : ""}`}>
                   {[0, 1, 2, 3].map(k => (
                     <td key={k} className={`t fig quiet${k === 3 ? " last" : ""}`}>
                       <div className="two-line">—</div>
@@ -500,7 +503,7 @@ export default function Home() {
           </table>
         </div>
 
-        <div className="feed-panel">
+        <div className="feed-panel feed-stack">
           <div className="band" style={{ borderTop: "none" }}>
             <span className="band-label">Recent trades</span>
             <span className="band-note">What each side received, both in the same ink</span>
@@ -545,7 +548,7 @@ export default function Home() {
                   })}
                 </tr>
               ) : (
-                <tr key={`et${i}`} className={i % 2 ? "zebra" : ""}>
+                <tr key={`et${i}`} className={`pad-row ${i % 2 ? "zebra" : ""}`}>
                   {[0, 1, 2].map(k => (
                     <td key={k} className={`t fig quiet${k === 2 ? " last" : ""}`}>
                       <div className="two-line">—</div>

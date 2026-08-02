@@ -1536,9 +1536,53 @@ table.feed td.who .line { align-items: center; }
      is 25px of content against a 33px "Week", so the header broke to "WEE/K".
      22% is set by the WIDEST WEEK, not by the header: "25 W12" needs 51px, and
      an ellipsis there does not cost a pixel of polish, it reports a different
-     week. The remaining width goes to the trade, which is what the row is for.
+     week. Applies to the two panels that stay tabular; the waiver and trade
+     feeds stack instead — see below.
      Widened here only; on a desktop the panel is wide enough that 13% fits. */
   .feed-panel table thead th:first-child { width: 22% !important; }
+
+  /* THE WAIVER AND TRADE FEEDS STACK.
+     A trade row is two sides, each a franchise over what it received. Side by
+     side on a 375px phone that is 137px each, which fits neither: the feed
+     showed "Baby Billys Bible B…" over "2028 4th (not yet draf…" and stopped
+     answering the only question it exists to answer.
+
+     No width setting fixes that — the longest franchise name alone needs
+     151px, so two of them cannot share a phone however the columns are cut.
+     The row gives up being a row instead: each cell takes its own line at the
+     panel's full width, which is what the Ledger already does with the same
+     content. Safe here because the two feed panels are a one-column grid at
+     this size — they are stacked, not side by side, so the fixed row count and
+     the two-line cell that keep them equal on a desktop have nothing left to
+     measure against. */
+  .feed-stack table, .feed-stack tbody, .feed-stack tr, .feed-stack td { display: block; width: auto; }
+  .feed-stack thead { display: none; }
+  .feed-stack tr { padding: 9px 10px 10px; border-bottom: 1px solid var(--hair); }
+  .feed-stack td { padding: 1px 0; border: 0; white-space: normal; }
+  .feed-stack td.last { padding-right: 0; }
+  /* the rows that only pad the module out to a fixed height for the desktop
+     grid — stacked, they would be columns of em dashes */
+  .feed-stack tr.pad-row { display: none; }
+  /* nothing is clamped or ellipsed once a cell has the full width to itself */
+  .feed-stack .two-line {
+    display: block; min-height: 0; overflow: visible; -webkit-line-clamp: none;
+  }
+  .feed-stack .two-line > span {
+    display: inline; max-width: none; white-space: normal;
+    overflow: visible; text-overflow: clip;
+  }
+  /* week over date is two lines for one timestamp; joined, it is one */
+  .feed-stack td:first-child br { display: none; }
+  .feed-stack td:first-child span:first-child::after {
+    content: " · "; color: var(--dim3);
+  }
+  /* Stacked, a trade is four lines alternating franchise and haul, which reads
+     as one list rather than two sides. A left rule marks where each side
+     starts — the same 2–3px rule the ledger's own trade blocks use, not a
+     border box: banding it would be a card inside a card. */
+  .feed-stack td + td {
+    margin-top: 5px; padding-left: 10px; border-left: 2px solid var(--rule);
+  }
 
   /* Touch targets. These controls were sized for a cursor: the position chips
      came out 25px tall and the search field 32px, against the ~44px a finger
