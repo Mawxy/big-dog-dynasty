@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./lib/types";
 import { j, jl, probeLeagueBase, setVersion } from "./lib/data";
@@ -151,7 +151,7 @@ function Shell() {
         </div>
       </header>
 
-      <nav className="tabs">
+      <TabBar>
         {VIEWS.map(v => (
           <button key={v} className={active === v ? "on" : ""}
             onClick={() => nav(GLOBAL_VIEWS.includes(v)
@@ -159,7 +159,7 @@ function Shell() {
             {LABEL(v)}
           </button>
         ))}
-      </nav>
+      </TabBar>
 
       <main>
         <Routes>
@@ -223,6 +223,35 @@ function Shell() {
         </Routes>
       </main>
       <SiteFooter />
+    </div>
+  );
+}
+
+/**
+ * The tab strip, plus the fact that it scrolls.
+ *
+ * Six tabs need 652px and a phone has 375, so Draft and Trade machine sat off
+ * the right edge with nothing indicating they existed — the bar looked like
+ * the whole of the site's navigation. The wrapper carries the same right-edge
+ * fade the boards use, dropped once the last tab is reached.
+ */
+function TabBar({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLElement>(null);
+  const [more, setMore] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () =>
+      setMore(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    el.addEventListener("scroll", measure, { passive: true });
+    return () => { ro.disconnect(); el.removeEventListener("scroll", measure); };
+  }, []);
+  return (
+    <div className={`tabwrap${more ? " more" : ""}`}>
+      <nav className="tabs" ref={ref}>{children}</nav>
     </div>
   );
 }

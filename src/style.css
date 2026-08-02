@@ -1348,6 +1348,65 @@ table.feed td.who .line { align-items: center; }
 .mvp .pos.sm { font-size: 9px; padding: 1px 4px; }
 
 /* ==========================================================================
+   Pinned identity block + scroll affordance on a board that overflows its box.
+
+   `.tscroll` already stops a wide table dragging the page sideways, but on a
+   phone that left the reader scrubbing a row of figures with the rank and the
+   name scrolled off — the row stopped saying whose numbers those were. The
+   first two cells are the identity block on every board (a `spine-cell` rank
+   and a `.name`), so pinning exactly those two keeps every figure attached to
+   its subject.
+
+   DataTable adds `.stuck` and measures `--stick` off the rank column, and only
+   when the table really is wider than its box — so nothing here fires on a
+   desktop board that fits.
+   ========================================================================== */
+
+.tscroll.stuck thead tr:not(.grp) th:first-child,
+.tscroll.stuck tbody tr:not(.drawer-row) td.spine-cell { position: sticky; left: 0; z-index: 2; }
+.tscroll.stuck thead tr:not(.grp) th:nth-child(2),
+.tscroll.stuck tbody tr:not(.drawer-row) td.name { position: sticky; left: var(--stick, 0px); z-index: 2; }
+
+/* A sticky cell is transparent by default, so the scrolling figures would run
+   underneath it. Each row state repaints its own background onto the two
+   pinned cells. */
+.tscroll.stuck tbody tr:not(.drawer-row) td.spine-cell,
+.tscroll.stuck tbody tr:not(.drawer-row) td.name { background: var(--bg); }
+.tscroll.stuck tbody tr.zebra td.spine-cell,
+.tscroll.stuck tbody tr.zebra td.name { background: var(--zebra); }
+.tscroll.stuck tbody tr.open td.spine-cell,
+.tscroll.stuck tbody tr.open td.name { background: var(--sel); }
+.tscroll.stuck thead tr:not(.grp) th:first-child,
+.tscroll.stuck thead tr:not(.grp) th:nth-child(2) { background: var(--band); }
+
+/* The rule closing the pinned block. A real `border-right` belongs to the
+   TABLE under `border-collapse: collapse`, not to the cell, so it does not
+   travel with a sticky cell; a 1px hard box-shadow is the same 1px line and
+   does. Not a soft shadow — no blur, no spread. */
+.tscroll.stuck thead tr:not(.grp) th:nth-child(2),
+.tscroll.stuck tbody tr:not(.drawer-row) td.name { box-shadow: 1px 0 0 var(--rule); }
+
+/* An open drawer belongs to the row, not to the board's full width. On a
+   pinned board that width is off the side of the phone, so the drawer is held
+   at the left edge and sized to what is actually visible. */
+.tscroll.stuck .drawer-fit { position: sticky; left: 0; width: var(--boxw, 100%); }
+
+/* the one-line note above a board that scrolls */
+.tscroll-hint { margin: 0; padding: 8px var(--pad) 0; color: var(--dim); }
+
+/* Right-edge fade marking that columns continue past the edge. Lives on a
+   wrapper rather than the scroller itself so it stays put while the table
+   moves under it, and it is dropped the moment the last column is reached —
+   a fade that never goes away stops meaning anything. */
+.tscroll-wrap { position: relative; }
+.tscroll-wrap.more::after {
+  content: "";
+  position: absolute; top: 0; bottom: 0; right: 0; width: 30px;
+  background: linear-gradient(to right, rgba(12, 15, 19, 0), var(--bg));
+  pointer-events: none;
+}
+
+/* ==========================================================================
    Narrow-viewport overrides — LAST in the file on purpose.
    These relax pixel floors that only exist to hold a desktop layout open. Each
    one targets a rule defined further up at the same specificity, so it has to
@@ -1356,9 +1415,13 @@ table.feed td.who .line { align-items: center; }
    ========================================================================== */
 @media (max-width: 640px) {
   /* The paired value tables carry a min-width so the two sit side by side on a
-     desktop. Below this breakpoint they have already stacked, so the floor is
-     no longer holding a column open — it is only pushing the page sideways. */
-  .pick-tables > div, .pick-tables.wpa > div { min-width: 0; }
+     desktop. Dropping the floor alone did NOT stack them, though — `flex: 1`
+     with nothing holding the basis open let both shrink and stay on one line,
+     so the Draft and Playoffs screens ran two 164px tables across a 375px
+     phone and their nowrap figures pushed the page sideways. Releasing the
+     floor and forcing a full-width basis is what actually stacks them, and it
+     is the whole of both screens' residual overflow. */
+  .pick-tables > div, .pick-tables.wpa > div { min-width: 0; flex: 1 1 100%; }
   /* The week strip stays SEVEN cells across at every size — that is the whole
      point of it, two players' seasons comparing cell for cell — so the cells
      narrow rather than the row rewrapping into a different shape. */
@@ -1370,4 +1433,31 @@ table.feed td.who .line { align-items: center; }
   /* the box-plot rails and the draft board's own gutter */
   .box-row .lbl, .axis .pad { flex-basis: 44px; }
   .card-row > * { flex: 1 1 100%; }
+
+  /* Touch targets. These controls were sized for a cursor: the position chips
+     came out 25px tall and the search field 32px, against the ~44px a finger
+     actually needs. Only the BOX grows — type size, tracking and the zero
+     radius are untouched, so the controls still read exactly as they do on a
+     desktop. */
+  .chip { padding: 12px 15px; }
+  .screen-head .season-chip { padding: 12px 11px; }
+  /* 16px is not a type choice — below it, iOS Safari zooms the page on focus
+     and the reader lands on a board they then have to pinch back out of */
+  input[type="search"] { padding: 11px 11px; font-size: 16px; }
+  .tabs button { padding: 14px 18px 13px; }
+  .dlink, .dexpand, .dmore { padding: 11px 14px; }
+  /* a row that opens a drawer is itself the control */
+  tbody tr.click td { padding-top: 11px; padding-bottom: 11px; }
+
+  /* The tab bar scrolls — six tabs need 652px — and nothing said so, which
+     left Draft and Trade machine invisible on a phone. Same right-edge fade
+     the boards use, on the same reasoning. */
+  .tabs { position: relative; }
+  .tabwrap { position: relative; }
+  .tabwrap.more::after {
+    content: "";
+    position: absolute; top: 0; bottom: 1px; right: 0; width: 34px;
+    background: linear-gradient(to right, rgba(17, 22, 28, 0), var(--band));
+    pointer-events: none;
+  }
 }

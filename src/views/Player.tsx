@@ -9,6 +9,7 @@ import { fmt, sgn, mean } from "../lib/stats";
 import { pInfo, POS_COLOR, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import PosBadge from "../components/PosBadge";
+import TScroll from "../components/TScroll";
 import WeekGrid from "../components/WeekGrid";
 import QuickJump from "../components/QuickJump";
 
@@ -236,7 +237,7 @@ export default function Player({ pid }: { pid: string }) {
                   <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
                   <span className="band-note">Composite blends the model with Sleeper's projection · range is the 80% band</span>
                 </div>
-                <div className="tscroll">
+                <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr className="grp">
@@ -284,7 +285,7 @@ export default function Player({ pid }: { pid: string }) {
                     ))}
                   </tbody>
                 </table>
-                </div>
+                </TScroll>
               </div>
             )}
 
@@ -340,7 +341,7 @@ export default function Player({ pid }: { pid: string }) {
                   <span className="band-label">Market value · as of {vals?.fetched ?? "—"}</span>
                   <span className="band-note">Priced like = the rookie pick currently worth the same · implied WAR runs the price through the value-to-WAR curve</span>
                 </div>
-                <div className="tscroll">
+                <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr className="grp">
@@ -383,7 +384,7 @@ export default function Player({ pid }: { pid: string }) {
                     ))}
                   </tbody>
                 </table>
-                </div>
+                </TScroll>
                 <div className="tnote" style={{ padding: "0 22px 16px" }}>
                   A dash in a movement column means the daily snapshot history doesn't reach back that far yet.
                   Deltas are raw value, not rank.

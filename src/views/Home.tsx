@@ -11,6 +11,7 @@ import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades, tradeWhen } from "../lib/trades";
 import { PlayerLink } from "../components/PlayerLink";
 import PosBadge from "../components/PosBadge";
+import TScroll from "../components/TScroll";
 
 const MODULE_ROWS = 5;
 const REG_WEEKS = 14;
@@ -302,7 +303,7 @@ export default function Home() {
           </button>
         </div>
         {!indexRows ? <div className="empty">Loading indices…</div> : (
-          <div className="tscroll">
+          <TScroll>
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr>
@@ -350,7 +351,7 @@ export default function Home() {
               })}
             </tbody>
           </table>
-          </div>
+          </TScroll>
         )}
       </div>
 

@@ -10,6 +10,7 @@ import { DEFAULT_LINEUP, optimalLineup, pInfo, SLOT_LABEL } from "../lib/league"
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades, tradeWhen } from "../lib/trades";
 import PosBadge from "./PosBadge";
+import TScroll from "./TScroll";
 import { PlayerLink } from "./PlayerLink";
 import QuickJump from "./QuickJump";
 import TeamStrengths from "./TeamStrengths";
@@ -319,7 +320,7 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-note">Best legal lineup by projected WAR, not the lineup as set</span>
               </div>
               {!roster ? <div className="empty">Loading roster…</div> : (
-                <div className="tscroll">
+                <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>{rosterHead}</thead>
                   <tbody>
@@ -343,7 +344,7 @@ export default function FranchisePage({ rid, players, tab }:
                     ))}
                   </tbody>
                 </table>
-                </div>
+                </TScroll>
               )}
             </div>
 
@@ -364,7 +365,7 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-label">Year by year</span>
                 <span className="band-note">Lineup WAR sums each week's actual starters against the league-wide optimal pool</span>
               </div>
-              <div className="tscroll">
+              <TScroll>
               <table style={{ tableLayout: "fixed" }}>
                 <thead>
                   <tr>
@@ -413,7 +414,7 @@ export default function FranchisePage({ rid, players, tab }:
                   })}
                 </tbody>
               </table>
-              </div>
+              </TScroll>
             </div>
 
             {/* ---- draft history ---- */}
@@ -423,7 +424,7 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-note">Rookie drafts only · vs = realized minus expected WAR for the slot, over the same seasons</span>
               </div>
               {!draftYears.length ? <div className="empty">No drafts yet.</div> : (
-                <div className="tscroll">
+                <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
@@ -489,7 +490,7 @@ export default function FranchisePage({ rid, players, tab }:
                     })}
                   </tbody>
                 </table>
-                </div>
+                </TScroll>
               )}
             </div>
 

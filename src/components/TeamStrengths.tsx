@@ -5,6 +5,7 @@ import { fmt, ord } from "../lib/stats";
 import { useLeague } from "../lib/context";
 import { DEFAULT_LINEUP } from "../lib/league";
 import { rosterShapes, type IndexEntry, type RankRow } from "../lib/rosterModel";
+import TScroll from "./TScroll";
 
 /** surnames only — the grid is ten columns wide and the full name is on hover */
 const surname = (name: string) => {
@@ -30,7 +31,7 @@ function Grid({ rows, n, caption }: { rows: RankRow[]; n: number; caption: strin
   return (
     <>
       <div className="rankcap">{caption}</div>
-      <div className="rankwrap">
+      <TScroll box="rankwrap" hint="The grid scrolls sideways — one column per lineup seat.">
         <table className="rankgrid">
           <thead><tr>
             <th className="t" />
@@ -52,7 +53,7 @@ function Grid({ rows, n, caption }: { rows: RankRow[]; n: number; caption: strin
             ))}
           </tbody>
         </table>
-      </div>
+      </TScroll>
     </>
   );
 }

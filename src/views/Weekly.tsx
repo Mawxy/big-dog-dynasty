@@ -6,6 +6,7 @@ import { jl } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo, POS_COLOR, weekIndex, seasonSeg } from "../lib/league";
 import PosBadge from "../components/PosBadge";
+import TScroll from "../components/TScroll";
 import { PlayerLink } from "../components/PlayerLink";
 import PlayerPanel from "../components/PlayerPanel";
 import MatchupDetail from "../components/MatchupDetail";
@@ -342,7 +343,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
             <span className="band-label">Top performers</span>
             <span className="band-note">Started for resolves from the week's actual lineups · WAR vs the best player left out of the startable pool</span>
           </div>
-          <div className="tscroll">
+          <TScroll>
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr className="grp">
@@ -395,7 +396,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
               ))}
             </tbody>
           </table>
-          </div>
+          </TScroll>
         </div>
       )}
 

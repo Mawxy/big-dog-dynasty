@@ -7,6 +7,7 @@ import { POS_COLOR } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
 import { buildHistory, type History } from "../lib/draftHistory";
 import DraftBoardGrid from "../components/DraftBoardGrid";
+import TScroll from "../components/TScroll";
 import { boxStats } from "../components/BoxMarks";
 const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const ROUNDS = [1, 2, 3, 4];
@@ -386,7 +387,7 @@ export default function Draft() {
         </div>
         {/* twelve 40px cells plus a label is wider than a phone: the grid
             scrolls in its own box, like the draft board and the bracket */}
-        <div className="dscroll">
+        <TScroll box="dscroll" hint="The heat map scrolls sideways — twelve picks per round.">
           <div className="heat-head" style={{ padding: "0 var(--pad)" }}>
             <div className="pad" />
             {Array.from({ length: 12 }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
@@ -410,7 +411,7 @@ export default function Draft() {
               </div>
             ))}
           </div>
-        </div>
+        </TScroll>
         <div className="heat-note">
           <span>Rows are draft rounds, columns are the pick within the round — so column 01 is every team's first-up selection.</span>
           <span className="end">Ringed cells: best and worst slot on record.</span>
@@ -432,7 +433,7 @@ export default function Draft() {
             </button>
           </div>
           <div className="dwrap">
-          <div className="dscroll">
+          <TScroll box="dscroll">
             <table className="dtbl">
               <thead>
                 <tr>
@@ -485,7 +486,7 @@ export default function Draft() {
                 })}
               </tbody>
             </table>
-          </div>
+          </TScroll>
           <div className="tnote">
             Median WAR a pick returned in each season since it was drafted — * marks a year the corpus has
             not scored yet. Hit % is the share of picks returning at

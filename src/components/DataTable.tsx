@@ -1,5 +1,6 @@
 import { type ReactNode } from "react";
 import { useMobile } from "../lib/useWidth";
+import TScroll from "./TScroll";
 
 /**
  * The site's one sortable table.
@@ -108,7 +109,7 @@ export default function DataTable<T, X>({
     // Which leaves content-driven widths, and a ten-column board can want more
     // than a narrow viewport has. That is what `.tscroll` is for: the table
     // scrolls inside its own box rather than dragging the whole page sideways.
-    <div className="tscroll">
+    <TScroll>
     <table>
       <thead>
         <tr className="grp">
@@ -155,13 +156,20 @@ export default function DataTable<T, X>({
             </tr>,
             open && renderDrawer ? (
               <tr key={`${k}-drawer`} className="drawer-row">
-                <td colSpan={cols.length}>{renderDrawer(r)}</td>
+                {/* The cell spans the whole table, which on a phone is wider
+                    than the screen — so an unwrapped drawer opened half off to
+                    the right. `.drawer-fit` is pinned to the left edge and
+                    sized to the VISIBLE box, so the drawer lands where the
+                    reader is looking however far the board is scrolled. */}
+                <td colSpan={cols.length}>
+                  <div className="drawer-fit">{renderDrawer(r)}</div>
+                </td>
               </tr>
             ) : null,
           ];
         })}
       </tbody>
     </table>
-    </div>
+    </TScroll>
   );
 }

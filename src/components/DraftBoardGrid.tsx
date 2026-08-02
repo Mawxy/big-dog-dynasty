@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { POS_COLOR } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
 import { nameSplit, pickLabel, type HistRow } from "../lib/draftHistory";
+import TScroll from "./TScroll";
 
 /**
  * One draft as a Sleeper-style board: rows are rounds, columns the draft
@@ -16,7 +17,7 @@ export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {
   const rounds = [...new Set(rows.map(r => r.round))].sort((a, b) => a - b);
   const bySlot = new Map(rows.map(r => [r.slot, r]));
   return (
-    <div className="dscroll">
+    <TScroll box="dscroll" hint="The board scrolls sideways — twelve draft slots, one column each.">
       <div className="dboard">
         {/* whose slot each column is: the ORIGINAL holder of the round-1
             pick at that position (via, if it was traded) */}
@@ -50,6 +51,6 @@ export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {
           }),
         ])}
       </div>
-    </div>
+    </TScroll>
   );
 }

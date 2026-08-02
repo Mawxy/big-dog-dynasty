@@ -2,6 +2,7 @@ import { useNavigate } from "react-router-dom";
 import type { BracketFile, BracketGame } from "../lib/types";
 import { fmt } from "../lib/stats";
 import { useLeaguePath } from "../lib/context";
+import TScroll from "./TScroll";
 
 /**
  * One season's bracket, drawn as a bracket: the quarterfinals on the left with
@@ -89,7 +90,7 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
 
   return (
     <>
-      <div className="dscroll">
+      <TScroll box="dscroll" hint="The bracket scrolls sideways — quarterfinals through the final.">
         <div className="pbr">
           <div className="pbr-lbl c1">Quarterfinals</div>
           <div className="pbr-lbl c2">Semifinals</div>
@@ -115,7 +116,7 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
             <div key={g.p} className={`pbr-plc c${colOf(g)}`}>{game(g, "plc")}</div>
           ))}
         </div>
-      </div>
+      </TScroll>
     </>
   );
 }
