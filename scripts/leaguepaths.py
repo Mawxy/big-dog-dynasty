@@ -31,6 +31,7 @@ GLOBAL_FILES = {
     "crawl_leagues.json",     # crawler state and corpora
     "league_signals.json",
     "draft_signals.json",
+    "draft_index.json",       # draft_id -> [league_id, season, kind]
     "rookie_pick_corpus.json",
     "trade_corpus.json",
 }

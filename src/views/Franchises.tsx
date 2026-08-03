@@ -9,6 +9,7 @@ import { fmt, mean, ord, pct, sd } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, rosterSeasonOf, seasonSeg, weekIndex } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { useSeasonData } from "../lib/useSeasonData";
+import { useMobile } from "../lib/useWidth";
 import DataTable, { applySort, sortCol, type Col, type Grp } from "../components/DataTable";
 
 /**
@@ -85,7 +86,7 @@ export default function FranchisesView() {
       {/* the year spine: its own row, because it re-scopes the standings board
           rather than switching which board you are on */}
       {!onValue && (
-        <div className="screen-head" style={{ paddingTop: 0 }}>
+        <div className="screen-head chiprow" style={{ paddingTop: 0 }}>
           {years.map(s => chip(s, `/teams/${seasonSeg(s)}`, scope === s))}
           {chip("All-time", "/teams/all", scope === "ALL")}
         </div>
@@ -108,9 +109,12 @@ interface BoardRow {
   ktc: number | null; fc: number | null;
 }
 
+// records-mode roles (MOBILE.md M5): headline is the resting sort (starters
+// DVI); the micros are starters CVI, the full-roster DVI and the market sum.
+// Age and the second market column live on the desktop row only.
 const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
   {
-    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "spine-cell",
+    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "spine-cell", role: "spine",
     cell: (_r, _x, i) => <>
       <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
       <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
@@ -118,7 +122,7 @@ const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
   },
   {
     id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "t name", asc: true,
-    sort: r => r.name, cell: r => r.name,
+    role: "identity", sort: r => r.name, cell: r => r.name,
   },
   {
     id: "manager", label: "Manager", grp: 0, w: 9, align: "t", hm: true, td: "t sub hm",
@@ -130,10 +134,11 @@ const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
   // IS the depth question, and you can only see it by ordering on each.
   {
     id: "dvi", label: "DVI", grp: 1, w: 8, align: "n", edge: true, keyCol: true, td: "n edge",
+    role: "headline", microKey: "DVI",
     sort: r => r.sDvi, cell: r => <span className="head-fig sm">{fmt(r.sDvi, 0)}</span>,
   },
   {
-    id: "cvi", label: "CVI", grp: 1, w: 8, align: "n", td: "n",
+    id: "cvi", label: "CVI", grp: 1, w: 8, align: "n", td: "n", role: "micro", microKey: "CVI",
     sort: r => r.sCvi, cell: r => <span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.sCvi, 0)}</span>,
   },
   // context, not a verdict — uncoloured; the League power table carries the
@@ -145,6 +150,7 @@ const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
   },
   {
     id: "rdvi", label: "DVI", grp: 2, w: 8, align: "n", edge: true, td: "n edge",
+    role: "micro", microKey: "Roster",
     sort: r => r.rDvi, cell: r => <span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.rDvi, 0)}</span>,
   },
   {
@@ -153,6 +159,7 @@ const BOARD_COLS: Col<BoardRow, Record<string, never>>[] = [
   },
   {
     id: "ktc", label: "KTC", grp: 3, w: 9, align: "n", edge: true, td: "n edge",
+    role: "micro", microKey: "KTC",
     sort: r => r.ktc,
     cell: r => r.ktc == null ? nul
       : <span className="head-fig src">{r.ktc.toLocaleString()}</span>,
@@ -274,7 +281,8 @@ function RosterBoard() {
       </div>
       <DataTable cols={BOARD_COLS} groups={groups} rows={sorted} ctx={{}}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
-        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))} />
+        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+        recordsOnMobile recordsClass="t3" />
       <div className="tnote screen">
         Sorted by starters DVI — every header re-sorts, a row opens the franchise page.
         Starters DVI and CVI each price the roster's best legal lineup in their own
@@ -312,7 +320,9 @@ interface StandRow {
   /** any week in this row's record is a projection, not a result */
   proj: boolean;
 }
-interface StandCtx { warMax: number }
+/** `records` is how a meter-drawing cell knows to return the bare figure on a
+ *  phone — the mode travels through ctx, never through `window` (MOBILE.md M1) */
+interface StandCtx { warMax: number; records: boolean }
 
 const luckStr = (l: number) => (l > 0 ? "+" : l < 0 ? "−" : "") + Math.abs(l);
 const luckColor = (l: number) => l === 0 ? "var(--dim)" : l > 0 ? "var(--good)" : "var(--bad)";
@@ -417,7 +427,7 @@ function SeasonStandings({ season }: { season: string }) {
   const cols = useMemo<Col<StandRow, StandCtx>[]>(() => [
     {
       id: "seed", label: "Seed", grp: 0, w: 5, align: "c", td: "spine-cell", asc: true,
-      sort: r => r.seed,
+      role: "spine", sort: r => r.seed,
       cell: r => <>
         <span className="spine" style={{ background: r.seed <= 6 ? "var(--acc)" : "var(--rule-2)" }} />
         <span className={`rank${r.seed <= 6 ? " top" : ""}`}>{r.seed}</span>
@@ -425,7 +435,7 @@ function SeasonStandings({ season }: { season: string }) {
     },
     {
       id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "t name", asc: true,
-      sort: r => r.team,
+      role: "identity", sort: r => r.team,
       // an anchor, like PlayerLink — keyboard-reachable and openable in a new
       // tab, while a plain click stays an in-app navigation that doesn't also
       // toggle the row's drawer
@@ -452,6 +462,7 @@ function SeasonStandings({ season }: { season: string }) {
     // gets on the Season tab — same fact, so the same visual weight
     {
       id: "rec", label: "Record", grp: 1, w: 9, align: "n", edge: true, td: "edge n",
+      role: "headline", microKey: "Rec",
       sort: r => r.wins * 10000 + r.fpts,
       cell: r => <span style={{
         font: "600 20px/1 var(--cond)", color: r.proj ? "var(--dim)" : undefined,
@@ -463,12 +474,14 @@ function SeasonStandings({ season }: { season: string }) {
     },
     {
       id: "luck", label: "Luck", grp: 1, w: 7, align: "n", td: "n",
+      role: "micro", microKey: "Luck",
       sort: r => r.luck,
       cell: r => r.luck == null ? nul
         : <span style={{ font: "600 15px/1.4 var(--cond)", color: luckColor(r.luck) }}>{luckStr(r.luck)}</span>,
     },
     {
       id: "ppg", label: "PPG", grp: 2, w: 8, align: "n", edge: true, td: "fig strong edge n",
+      role: "micro", microKey: "PPG",
       sort: r => r.ppg,
       cell: r => <span style={{ color: r.proj ? "var(--dim)" : undefined }}>{fmt(r.ppg, 1)}</span>,
     },
@@ -478,10 +491,12 @@ function SeasonStandings({ season }: { season: string }) {
     },
     {
       id: "war", label: "Lineup WAR", grp: 2, w: 16, align: "n", keyCol: true, td: "n",
+      role: "micro", microKey: "WAR",
       sort: r => r.war,
       // WAR is what the manager actually fielded, so there is nothing to show
-      // — and nothing to meter — until a week has been played
-      cell: (r, x) => r.war == null ? nul : (
+      // — and nothing to meter — until a week has been played. On a records
+      // line the meter goes too: the bare figure is the value.
+      cell: (r, x) => r.war == null ? nul : x.records ? <>{fmt(r.war, 3)}</> : (
         <div className="meter-row">
           <div className="meter"><i style={{ width: pct(Math.max(0, r.war), x.warMax) }} /></div>
           <span className="fig">{fmt(r.war, 3)}</span>
@@ -498,7 +513,8 @@ function SeasonStandings({ season }: { season: string }) {
     { id: 2, label: "Scoring & value", cls: "edge value" },
   ];
 
-  const ctx: StandCtx = { warMax: Math.max(0.01, ...rows.map(r => r.war ?? 0)) };
+  const mobile = useMobile();
+  const ctx: StandCtx = { warMax: Math.max(0.01, ...rows.map(r => r.war ?? 0)), records: mobile };
   const sorted = useMemo(
     () => applySort(rows, sortCol(cols, sortId, "seed"), dir), [rows, cols, sortId, dir]);
 
@@ -543,7 +559,8 @@ function SeasonStandings({ season }: { season: string }) {
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="seed" openKey={openRid != null ? String(openRid) : null}
         onRowClick={r => setOpenRid(openRid === r.rid ? null : r.rid)}
-        renderDrawer={r => <TeamDrawer r={r} tnames={tnames} ps={ps} />} />
+        renderDrawer={r => <TeamDrawer r={r} tnames={tnames} ps={ps} />}
+        recordsOnMobile recordsClass="t3" />
       <div className="tnote screen">
         Playoffs from week {ps}, top 6 seeds. Vs median is the record against each
         week's league median score; luck is actual wins minus median wins. Lineup WAR
@@ -601,9 +618,12 @@ interface HistRow {
   best: number | null; bestSeason: string | null; titles: number;
 }
 
+// records-mode roles: Win % is the resting sort so it is the headline; the
+// micros are the all-time record and the title count. Best keeps its two-line
+// cell on the desktop row only — the finish story is on the franchise page.
 const HIST_COLS: Col<HistRow, Record<string, never>>[] = [
   {
-    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "spine-cell",
+    id: "rk", label: "Rk", grp: 0, w: 4, align: "c", td: "spine-cell", role: "spine",
     cell: (_r, _x, i) => <>
       <span className="spine" style={{ background: "var(--rule-2)" }} />
       <span className="rank">{i + 1}</span>
@@ -611,7 +631,7 @@ const HIST_COLS: Col<HistRow, Record<string, never>>[] = [
   },
   {
     id: "team", label: "Franchise", grp: 0, w: 0, align: "t", td: "t name", asc: true,
-    sort: r => r.name, cell: r => r.name,
+    role: "identity", sort: r => r.name, cell: r => r.name,
   },
   {
     id: "manager", label: "Manager", grp: 0, w: 12, align: "t", hm: true, td: "t sub hm",
@@ -619,10 +639,12 @@ const HIST_COLS: Col<HistRow, Record<string, never>>[] = [
   },
   {
     id: "allrec", label: "All-time record", grp: 1, w: 12, align: "n", edge: true,
+    role: "micro", microKey: "Rec",
     td: "fig edge n", sort: r => r.winPct, cell: r => r.allRec,
   },
   {
     id: "winPct", label: "Win %", grp: 1, w: 8, align: "n", keyCol: true, td: "fig n",
+    role: "headline", microKey: "Win %",
     sort: r => r.winPct, cell: r => `${fmt(r.winPct * 100, 0)}%`,
   },
   {
@@ -641,6 +663,7 @@ const HIST_COLS: Col<HistRow, Record<string, never>>[] = [
   },
   {
     id: "titles", label: "Titles", grp: 2, w: 7, align: "n", td: "n",
+    role: "micro", microKey: "Titles",
     sort: r => r.titles,
     cell: r => r.titles
       ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{r.titles}</span> : nul,
@@ -709,7 +732,8 @@ function HistoryBoard() {
       </div>
       <DataTable cols={HIST_COLS} groups={HIST_GROUPS} rows={sorted} ctx={{}}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
-        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))} />
+        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+        recordsOnMobile recordsClass="t3" />
       <div className="tnote screen">
         All-time spans every season the franchise has played; win % counts a tie as
         half a win. Best is the franchise's best playoff finish and the year it

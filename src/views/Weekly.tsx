@@ -5,6 +5,7 @@ import type { BracketFile, MatchEntry, Matchups, PlayersMin, SeasonData, WeekOdd
 import { jl } from "../lib/data";
 import { fmt, sgn, clsOf } from "../lib/stats";
 import { pInfo, POS_COLOR, weekIndex, seasonSeg } from "../lib/league";
+import { useMobile } from "../lib/useWidth";
 import PosBadge from "../components/PosBadge";
 import TScroll from "../components/TScroll";
 import { PlayerLink } from "../components/PlayerLink";
@@ -55,6 +56,22 @@ function topStarterOf(ent: Record<string, MatchEntry>, weekly: WeeklyT, rid: num
   return top;
 }
 
+/** the MATCHUP's top scorer by points, across both sides' starters — the
+ *  stacked phone unit names one, where the desktop names one per side */
+function topScorerOf(ent: Record<string, MatchEntry>, weekly: WeeklyT, rids: (number | null)[], wk: number) {
+  let top: { pid: string; pts: number } | null = null;
+  for (const rid of rids) {
+    if (rid == null) continue;
+    const e = ent[String(rid)];
+    if (!e) continue;
+    for (const p of e[4]) {
+      const w = weekly[p]?.find(x => x[0] === wk);
+      if (w && (!top || w[1] > top.pts)) top = { pid: p, pts: w[1] };
+    }
+  }
+  return top;
+}
+
 /**
  * One week's matchups as a grid of head-to-head units. Winner takes the
  * accent rule, score and name; the spine holds `vs`; no margin figure — the
@@ -66,6 +83,10 @@ function MatchupGrid({ season, wk, mw, weekly, players, tnames, odds }: {
 }) {
   const nav = useNavigate();
   const lp = useLeaguePath();
+  // MOBILE.md M7 — at ≤640px the unit rotates: sides stack, the spine becomes
+  // a horizontal divider carrying the margin, and one footer line names the
+  // matchup's top scorer
+  const mobile = useMobile();
   const ps = mw.playoff_start || 15;
   const wkIdx = useMemo(() => weekIndex(weekly), [weekly]);
   const ent = weekEntries(mw, wk);
@@ -83,6 +104,63 @@ function MatchupGrid({ season, wk, mw, weekly, players, tnames, odds }: {
       {pairs.map(([a, ap, b, bp]) => {
         const scored = bp != null;
         const aw = scored && ap > bp!, bw = scored && bp! > ap;
+        if (mobile) {
+          const go = () => nav(lp(`/weekly/${seasonSeg(season)}/${wk}/${a}`));
+          const row = (rid: number | null, pts: number | null, win: boolean, lose: boolean) => {
+            if (rid == null) return (
+              <div className="h2h-row">
+                <span className="wl" />
+                <span className="nm" style={{ color: "var(--dim)" }}>Bye</span>
+                <span className="pts" style={{ color: "var(--dim3)" }}>—</span>
+              </div>
+            );
+            const od = odds?.weeks?.[String(wk)]?.[String(rid)];
+            const lw = scored && wk < ps ? lineupWar(rid) : null;
+            return (
+              <div className={`h2h-row${win ? " win" : ""}`}>
+                <span className="wl">{scored ? (win ? "W" : lose ? "L" : "T") : ""}</span>
+                <span className="nm">{tnames[rid] || `Roster ${rid}`}</span>
+                <span className="pts" style={!scored && od ? { color: "var(--dim)" } : undefined}>
+                  {scored ? fmt(pts ?? 0, 1) : od ? fmt(od.mu, 1) : !pts ? "—" : fmt(pts, 1)}
+                </span>
+                {/* the same second figure position on both sides: lineup WAR
+                    once played, the pregame line before */}
+                {lw != null
+                  ? <span className={`sub2 ${clsOf(lw)}`}>{sgn(lw, 2)}</span>
+                  : od?.wp != null
+                    ? <span className="sub2">{fmt(od.wp * 100, 0)}%</span>
+                    : <span className="sub2" />}
+              </div>
+            );
+          };
+          const top = scored ? topScorerOf(ent, weekly, [a, b], wk) : null;
+          return (
+            <div key={a} className="h2h m click" tabIndex={0} role="button"
+              onClick={go}
+              onKeyDown={e => {
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+              }}>
+              {row(a, ap, aw, bw)}
+              <div className="h2h-div">
+                <span className="ln" />
+                <span>vs</span>
+                <span className="ln" />
+                {/* the margin is a deliberate, documented exception to the
+                    desktop's no-margin rule: stacked, the two scores sit ~60px
+                    apart and the side-by-side subtraction is no longer free */}
+                {scored && b != null && <span className="by">by {fmt(Math.abs(ap - (bp ?? 0)), 1)}</span>}
+              </div>
+              {row(b, bp, bw, aw)}
+              {top && (
+                <div className="h2h-top">
+                  <span className="k">Top scorer</span>
+                  <span className="tnm">{pInfo(players, top.pid)[0]}</span>
+                  <span className="tpts">· {fmt(top.pts, 1)} pts</span>
+                </div>
+              )}
+            </div>
+          );
+        }
         const sideOf = (rid: number | null, pts: number | null, win: boolean, lose: boolean) => {
           if (rid == null) return (
             <div className="h2h-side">

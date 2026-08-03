@@ -1531,66 +1531,17 @@ table.feed td.who .line { align-items: center; }
      reach with 780 scored players. */
   td.spine-cell .rank { padding-left: 4px; padding-right: 4px; font-size: 17px; }
 
-  /* The league feed modules are not boards and do not scroll — they are two
-     stacked panels. Their Week column is declared 13%, which on a phone panel
-     is 25px of content against a 33px "Week", so the header broke to "WEE/K".
-     22% is set by the WIDEST WEEK, not by the header: "25 W12" needs 51px, and
-     an ellipsis there does not cost a pixel of polish, it reports a different
-     week. Applies to the two panels that stay tabular; the waiver and trade
-     feeds stack instead — see below.
-     Widened here only; on a desktop the panel is wide enough that 13% fits. */
-  .feed-panel table thead th:first-child { width: 22% !important; }
-
-  /* THE WAIVER AND TRADE FEEDS STACK.
-     A trade row is two sides, each a franchise over what it received. Side by
-     side on a 375px phone that is 137px each, which fits neither: the feed
-     showed "Baby Billys Bible B…" over "2028 4th (not yet draf…" and stopped
-     answering the only question it exists to answer.
-
-     No width setting fixes that — the longest franchise name alone needs
-     151px, so two of them cannot share a phone however the columns are cut.
-     The row gives up being a row instead: each cell takes its own line at the
-     panel's full width, which is what the Ledger already does with the same
-     content. Safe here because the two feed panels are a one-column grid at
-     this size — they are stacked, not side by side, so the fixed row count and
-     the two-line cell that keep them equal on a desktop have nothing left to
-     measure against. */
-  .feed-stack table, .feed-stack tbody, .feed-stack tr, .feed-stack td { display: block; width: auto; }
-  .feed-stack thead { display: none; }
-  .feed-stack tr { padding: 9px 10px 10px; border-bottom: 1px solid var(--hair); }
-  .feed-stack td { padding: 1px 0; border: 0; white-space: normal; }
-  .feed-stack td.last { padding-right: 0; }
-  /* the rows that only pad the module out to a fixed height for the desktop
-     grid — stacked, they would be columns of em dashes */
-  .feed-stack tr.pad-row { display: none; }
-  /* nothing is clamped or ellipsed once a cell has the full width to itself */
-  .feed-stack .two-line {
-    display: block; min-height: 0; overflow: visible; -webkit-line-clamp: none;
-  }
-  .feed-stack .two-line > span {
-    display: inline; max-width: none; white-space: normal;
-    overflow: visible; text-overflow: clip;
-  }
-  /* week over date is two lines for one timestamp; joined, it is one */
-  .feed-stack td:first-child br { display: none; }
-  .feed-stack td:first-child span:first-child::after {
-    content: " · "; color: var(--dim3);
-  }
-  /* Stacked, a trade is four lines alternating franchise and haul, which reads
-     as one list rather than two sides. A left rule marks where each side
-     starts — the same 2–3px rule the ledger's own trade blocks use, not a
-     border box: banding it would be a card inside a card. */
-  .feed-stack td + td {
-    margin-top: 5px; padding-left: 10px; border-left: 2px solid var(--rule);
-  }
+  /* The waiver and trade feeds — and every other League module — render as
+     .records at this size (see Home.tsx); the .feed-stack table surgery that
+     used to fake this is gone with its last call site. */
 
   /* Touch targets. These controls were sized for a cursor: the position chips
      came out 25px tall and the search field 32px, against the ~44px a finger
      actually needs. Only the BOX grows — type size, tracking and the zero
      radius are untouched, so the controls still read exactly as they do on a
      desktop. */
-  .chip { padding: 12px 15px; }
-  .screen-head .season-chip { padding: 12px 11px; }
+  .chip { padding: 14px 15px; }
+  .screen-head .season-chip { padding: 14px 11px; }
   /* 16px is not a type choice — below it, iOS Safari zooms the page on focus
      and the reader lands on a board they then have to pinch back out of */
   input[type="search"] { padding: 11px 11px; font-size: 16px; }
@@ -1610,4 +1561,219 @@ table.feed td.who .line { align-items: center; }
     background: linear-gradient(to right, rgba(17, 22, 28, 0), var(--band));
     pointer-events: none;
   }
+
+  /* ------------------------------------------------------------------------
+     RECORDS MODE (MOBILE.md M2). A phone shows either a real table or
+     two-line records — never a squeezed table. One .rec per row: line one is
+     identity plus the headline figure with its name beside it (a bare number
+     on a records line is a bug), line two the rest of the desktop row as
+     labelled micro-figures. Rendered by DataTable at ≤640px for tables that
+     opt in; the one panning table (Players) stays a table.
+     ------------------------------------------------------------------------ */
+  .rec { position: relative; padding: 10px 14px 11px; border-bottom: 1px solid var(--hair); }
+  .rec.zebra { background: var(--zebra); }
+  .rec.open { background: var(--sel); }
+  .rec.click { cursor: pointer; }
+  .rec:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+  /* the same 3px position/status bar the table rows carry, re-anchored to the
+     record (the cell renderer is reused verbatim, so the span arrives nested) */
+  .rec .spine { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+  .rec-l1 { display: flex; align-items: baseline; gap: 9px; }
+  .rec-rk {
+    flex: 0 0 18px;
+    font: 700 14px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--dim);
+  }
+  .rec-rk .rank { font: inherit; color: inherit; padding: 0; }
+  .rec-rk .rank.top { color: var(--acc); }
+  .rec-id {
+    flex: 1 1 auto; min-width: 0;
+    font: 600 14.5px/1.35 var(--sans); color: var(--txt);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  /* context (manager, NFL team, slot detail) joins the identity block as its
+     own line — it is context, not a figure */
+  .rec-id .rec-sub {
+    display: block; margin-top: 1px;
+    font: 400 11.5px/1.4 var(--sans); color: var(--dim);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .rec-fig {
+    flex: 0 0 auto;
+    font: 700 20px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--txt);
+  }
+  /* reused cell renderers arrive in their desktop sizes; the record steps
+     them to its own scale rather than re-implementing the cell */
+  .rec-fig .head-fig { font-size: 20px; font-weight: 700; color: inherit; }
+  .rec-key {
+    flex: 0 0 auto;
+    font: 600 10px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--dim);
+  }
+  /* GRID with declared columns, not flex-wrap: with flex the micro-figures
+     shift as values change width, so "Titles 2" and "Titles —" land in
+     different places and the column dissolves down the page. Columns are set
+     from the widest VALUE; surfaces override via .records.t3/.t4. */
+  .rec-l2 {
+    display: grid; grid-template-columns: 122px 92px 56px 1fr;
+    padding-left: 27px; margin-top: 6px;
+  }
+  .records.t3 .rec-l2 { grid-template-columns: 122px 92px 1fr; }
+  .mic { display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; }
+  .mk {
+    font: 600 9.5px/1.5 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--dim); flex: 0 0 auto;
+  }
+  /* micro VALUES are meaningful at this size, so --dim is the floor (never
+     --dim3 — that is 3.2:1, captions only) */
+  .mv {
+    font: 600 12.5px/1.5 var(--cond); font-variant-numeric: tabular-nums;
+    color: var(--txt2); overflow: hidden; text-overflow: ellipsis;
+  }
+  .mv .head-fig { font: inherit; color: inherit; }
+  /* a null is an em dash in the decorative grey — it is an absence, not a value */
+  .mv .quiet, .rec-fig .quiet { color: var(--dim3); font-weight: 400; }
+  /* the drawer opens inline, directly beneath its record; the renderer's own
+     .drawer block carries the 3px accent top rule */
+  .rec-drawer { border-bottom: 1px solid var(--rule); }
+
+  /* Feed records (League page): no rank column, so nothing to indent under —
+     and the second line can be prose (a waiver's adds, a trade side's haul)
+     rather than gridded figures. */
+  .records.flat .rec-l2, .records.flat .rec-line { padding-left: 0; }
+  .rec-line { display: block; margin-top: 3px; padding-left: 27px; font: 400 12.5px/1.45 var(--sans); }
+  /* a trade side: the same 2px left rule the ledger's trade blocks use — a
+     border box here would be a card inside a card */
+  .rec-side { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--rule); }
+  .rec-side .side-team {
+    font: 600 12px/1.45 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .rec-side .side-got { font: 400 12px/1.45 var(--sans); color: var(--txt2); }
+
+  /* A record whose "rank" is a label — a lineup slot (FLEX), a pick slot
+     (1.03), a season (2025) — needs more than the numeral's 18px. */
+  .records.wrk .rec-rk {
+    flex: 0 0 40px;
+    font: 600 11px/1.5 var(--cond); letter-spacing: .06em; text-transform: uppercase;
+    color: var(--dim);
+  }
+  .records.wrk .rec-l2, .records.wrk .rec-line { padding-left: 49px; }
+
+  /* ------------------------------------------------------------------------
+     FRANCHISE RAIL -> HEADER (MOBILE.md M6). At ≤640px the rail is a header
+     block: back link, name, subtitle, then the section nav as a horizontal
+     scrolling strip. The season ladder leaves the rail (it does not fit above
+     the roster on a phone) and reads as the Year-by-year records at the foot
+     of the page.
+     ------------------------------------------------------------------------ */
+  .rail { padding: 14px 14px 4px; }
+  .rail-name { font-size: 27px; }
+  .rail-nav {
+    flex-direction: row; overflow-x: auto; margin-top: 8px;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .rail-nav::-webkit-scrollbar { display: none; }
+  .rail-nav button { white-space: nowrap; padding: 13px 10px; flex: 0 0 auto; }
+
+  /* ------------------------------------------------------------------------
+     STACKED MATCHUP UNITS (MOBILE.md M7). The .h2h unit rotates: sides stack,
+     the vs spine becomes a horizontal divider carrying the margin — a
+     deliberate exception to the desktop's no-margin rule, because stacked
+     scores are ~60px apart — and one footer line names the matchup's top
+     scorer. Units stack in one column with an 11px gap.
+     ------------------------------------------------------------------------ */
+  .h2h-grid { grid-template-columns: 1fr; gap: 11px; }
+  /* any unit not rebuilt as .m (the matchup detail's solo unit) still stacks
+     rather than squeezing two sides into 362px */
+  .h2h { flex-direction: column; }
+  .h2h-spine { flex: 0 0 auto; padding: 4px 0; }
+  .h2h.m { display: block; }
+  .h2h.m:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+  .h2h.m .h2h-row {
+    display: flex; align-items: baseline; gap: 8px;
+    padding: 8px 12px 7px; border-top: 3px solid transparent;
+  }
+  .h2h.m .h2h-row.win { border-top-color: var(--acc); }
+  .h2h.m .wl { flex: 0 0 14px; font: 700 12px/1 var(--cond); color: var(--dim); }
+  .h2h.m .h2h-row.win .wl { color: var(--acc); }
+  .h2h.m .nm {
+    flex: 1 1 auto; min-width: 0;
+    font: 600 14px/1.35 var(--sans); color: var(--txt2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .h2h.m .h2h-row.win .nm { color: var(--txt); }
+  .h2h.m .pts { flex: 0 0 auto; font: 700 20px/1 var(--cond); font-variant-numeric: tabular-nums; }
+  .h2h.m .h2h-row.win .pts { color: var(--acc); }
+  .h2h.m .sub2 {
+    flex: 0 0 52px; text-align: right;
+    font: 600 12px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--dim);
+  }
+  .h2h.m .h2h-div {
+    display: flex; align-items: center; gap: 10px; padding: 0 12px;
+    font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--dim3);
+  }
+  .h2h.m .h2h-div .ln { flex: 1 1 auto; border-top: 1px solid var(--rule); }
+  .h2h.m .h2h-div .by { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .h2h.m .h2h-top {
+    display: flex; align-items: baseline; gap: 6px; margin-top: 7px;
+    padding: 7px 12px 9px; border-top: 1px solid var(--hair);
+    font: 400 12px/1.4 var(--sans); color: var(--txt2);
+    white-space: nowrap; overflow: hidden;
+  }
+  .h2h.m .h2h-top .k {
+    flex: 0 0 auto;
+    font: 600 9.5px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+    color: var(--dim);
+  }
+  .h2h.m .h2h-top .tnm { overflow: hidden; text-overflow: ellipsis; }
+  .h2h.m .h2h-top .tpts { flex: 0 0 auto; color: var(--dim); font-variant-numeric: tabular-nums; }
+
+  /* trade verdict: the two index deltas and the WAR delta as a 2-column grid */
+  .verdict-band .figs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
+  /* the basket asset's remove control, grown to a finger's target without
+     growing the line */
+  .rec-x {
+    flex: 0 0 auto; margin: -12px -8px -12px 0; padding: 12px 10px;
+    background: none; border: 0; cursor: pointer;
+    font: 600 15px/1 var(--sans); color: var(--dim);
+  }
+
+  /* ------------------------------------------------------------------------
+     BOARD CHROME (MOBILE.md M3). Board padding 22px -> 14px, one change for
+     the whole system; the figure strip regrids 2-up; section bands stack.
+     ------------------------------------------------------------------------ */
+  .board > .bpad { padding: 12px 14px 16px; }
+  .band { padding: 7px 14px; }
+  .verdict { margin: 14px; }
+  .verdict-band { padding: 12px 14px 14px; }
+
+  /* Section bands stack: label on line one, the note on line two — and the
+     note steps up to --dim, because at 390px it is often the only thing
+     saying what the figures are measured against. */
+  .band { flex-direction: column; align-items: flex-start; gap: 2px; }
+  .band-note { text-align: left; color: var(--dim); }
+
+  /* Figure strip: a 2-column grid of divided cells. border-left/-top keep the
+     divided-cells read; rail figures step 27px -> 24px. */
+  .figstrip { display: grid; grid-template-columns: 1fr 1fr; padding: 0 14px 12px; }
+  .figcell {
+    border-left: 1px solid var(--rule); border-top: 1px solid transparent;
+    padding: 10px 0 2px 14px; min-width: 0;
+  }
+  .figcell:nth-child(odd) { border-left: 0; padding-left: 0; }
+  .figcell:nth-child(n+3) { border-top-color: var(--rule); }
+  .figval { font-size: 24px; }
+  .figkey, .figsub { overflow: hidden; text-overflow: ellipsis; }
+
+  /* A chip row that must not wrap (season spine, position chips) scrolls the
+     same way the tab strip does — a visible scrollbar would paint over the
+     selected chip. */
+  .chiprow {
+    flex-wrap: nowrap; overflow-x: auto;
+    scrollbar-width: none; -webkit-overflow-scrolling: touch;
+  }
+  .chiprow::-webkit-scrollbar { display: none; }
+  .chiprow .chip { flex: 0 0 auto; }
+
 }

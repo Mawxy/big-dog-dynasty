@@ -6,9 +6,10 @@ import { ownerOf, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import PlayerPanel from "../components/PlayerPanel";
 import DataTable, { applySort, sortCol } from "../components/DataTable";
+import { useMobile } from "../lib/useWidth";
 import {
-  BoardScope, blankRow, identityCols, idxCell, srcCell, usePlayerFilters,
-  type BoardCtx, type PlayerCol, type PlayerRow,
+  BoardScope, blankRow, identityCols, idxCell, mobileCols, srcCell, TAIL_GRP,
+  usePlayerFilters, type BoardCtx, type PlayerCol, type PlayerRow,
 } from "../components/PlayerBoard";
 
 /**
@@ -113,6 +114,13 @@ export default function Value() {
   const [openPid, setOpenPid] = useState<string | null>(null);
   const { bar, apply } = usePlayerFilters(() => setOpenPid(null));
 
+  // MOBILE.md M4 — pan the board, on a six-column budget: the three model
+  // figures then Roster. The market columns are on the player page.
+  const mobile = useMobile();
+  const cols = useMemo(
+    () => mobile ? mobileCols(COLS, ["dvi", "cvi", "war1"]) : COLS, [mobile]);
+  const groups = mobile ? [...GROUPS, TAIL_GRP] : GROUPS;
+
   const { rows, count, ctx } = useMemo(() => {
     // union, not intersection: DVI scores players with no projection, and
     // dropping either side would make the board disagree with its source
@@ -193,7 +201,7 @@ export default function Value() {
       </div>
 
       {!ready ? <div className="empty">Loading…</div> : (
-        <DataTable cols={COLS} groups={GROUPS} rows={rows} ctx={ctx} rowKey={r => r.id}
+        <DataTable cols={cols} groups={groups} rows={rows} ctx={ctx} rowKey={r => r.id}
           sortId={sortId} dir={dir} onSort={onSort} homeCol="rk" openKey={openPid}
           onRowClick={r => setOpenPid(openPid === r.id ? null : r.id)}
           renderDrawer={r => (

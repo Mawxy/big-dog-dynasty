@@ -6,9 +6,10 @@ import type {
 } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt, sgn, clsOf, ord } from "../lib/stats";
-import { DEFAULT_LINEUP, optimalLineup, pInfo, SLOT_LABEL } from "../lib/league";
+import { DEFAULT_LINEUP, optimalLineup, pInfo, POS_COLOR, SLOT_LABEL } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades, tradeWhen } from "../lib/trades";
+import { useMobile } from "../lib/useWidth";
 import PosBadge from "./PosBadge";
 import TScroll from "./TScroll";
 import { PlayerLink } from "./PlayerLink";
@@ -46,6 +47,9 @@ export default function FranchisePage({ rid, players, tab }:
   const { meta, league } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
+  // MOBILE.md M6 — the rail becomes a header, the ladder reads at the foot of
+  // the page, and every table section renders as records
+  const mobile = useMobile();
   const rosterSeason = league.rosterSeason && league.seasons.includes(league.rosterSeason)
     ? league.rosterSeason : league.seasons[league.seasons.length - 1];
 
@@ -238,6 +242,49 @@ export default function FranchisePage({ rid, players, tab }:
     </tr>
   );
 
+  /* ---- records mode (MOBILE.md M6) ---------------------------------------
+     The roster as two-line records: slot label in the spine cell, Proj WAR as
+     the named headline, DVI · CVI spelled out on line two. Group bands keep
+     their totals — all three figures labelled, since a phone has no column
+     headers to name them. */
+  const groupTot = (rs: RosterRow[]) =>
+    `WAR ${fmt(rs.reduce((s, r) => s + r.war, 0), 2)}`
+    + ` · DVI ${fmt(rs.reduce((s, r) => s + (r.dvi ?? 0), 0), 0)}`
+    + ` · CVI ${fmt(rs.reduce((s, r) => s + (r.cvi ?? 0), 0), 0)}`;
+
+  const mBand = (label: string, note: string) => (
+    <div className="band">
+      <span className="band-label">{label}</span>
+      <span className="band-note">{note}</span>
+    </div>
+  );
+
+  const rosterRec = (r: RosterRow, slot: string, i: number) => (
+    <div key={r.id} className={`rec${i % 2 ? " zebra" : ""}`}>
+      <div className="rec-l1">
+        <span className="rec-rk">
+          <span className="spine" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }} />
+          {slot}
+        </span>
+        <span className="rec-id">
+          <PlayerLink pid={r.id} name={r.nm} />
+          {r.tag === "IR" && <span className="name-note">IR</span>}
+          <span className="rec-sub">
+            {r.pos} · {r.nfl || "—"}{r.age != null && <> · age {r.age}</>}
+          </span>
+        </span>
+        <span className="rec-fig">{fmt(r.war, 2)}</span>
+        <span className="rec-key">Proj WAR</span>
+      </div>
+      <div className="rec-l2">
+        <span className="mic"><span className="mk">DVI</span>
+          <span className="mv">{r.dvi == null ? <span className="quiet">—</span> : fmt(r.dvi, 1)}</span></span>
+        <span className="mic"><span className="mk">CVI</span>
+          <span className="mv">{r.cvi == null ? <span className="quiet">—</span> : fmt(r.cvi, 1)}</span></span>
+      </div>
+    </div>
+  );
+
   return (
     <>
       <div className="screen-head">
@@ -251,24 +298,29 @@ export default function FranchisePage({ rid, players, tab }:
             <div className="rail-name">{latest.name}</div>
             <div className="rail-sub">{latest.manager}</div>
 
-            <div className="rail-h">Seasons</div>
-            <div className="rail-ladder">
-              {seasons.slice().reverse().map(s => (
-                <div key={s.season}
-                  className={`rail-season${s.finish === 1 || s.season === rosterSeason ? " mark" : ""}`}>
-                  <div className="l1">
-                    <span className="yr">{s.season}</span>
-                    <span className="fin" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
-                      {s.finish === 1 ? "CHAMP" : s.finish != null ? ord(s.finish) : s.season === rosterSeason ? "live" : "—"}
-                    </span>
-                    <span className="rec">{s.wins}-{s.losses}{s.ties ? `-${s.ties}` : ""}</span>
+            {/* the ladder does not fit above the roster on a phone — its
+                content reads in the Year-by-year records at the foot */}
+            {!mobile && <>
+              <div className="rail-h">Seasons</div>
+              <div className="rail-ladder">
+                {seasons.slice().reverse().map(s => (
+                  <div key={s.season}
+                    className={`rail-season${s.finish === 1 || s.season === rosterSeason ? " mark" : ""}`}>
+                    <div className="l1">
+                      <span className="yr">{s.season}</span>
+                      <span className="fin" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
+                        {s.finish === 1 ? "CHAMP" : s.finish != null ? ord(s.finish) : s.season === rosterSeason ? "live" : "—"}
+                      </span>
+                      <span className="rec">{s.wins}-{s.losses}{s.ties ? `-${s.ties}` : ""}</span>
+                    </div>
+                    <div className="tname">{s.name}</div>
                   </div>
-                  <div className="tname">{s.name}</div>
-                </div>
-              ))}
-            </div>
+                ))}
+              </div>
+            </>}
 
-            <div className="rail-h">On this page</div>
+            {/* the horizontal section strip needs no header on a phone */}
+            {!mobile && <div className="rail-h">On this page</div>}
             <div className="rail-nav">
               {SECTIONS.map(([k, label]) => (
                 <button key={k} onClick={() => goto(k)}>{label}</button>
@@ -319,7 +371,26 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-label">Roster · {rosterSeason}</span>
                 <span className="band-note">Best legal lineup by projected WAR, not the lineup as set</span>
               </div>
-              {!roster ? <div className="empty">Loading roster…</div> : (
+              {!roster ? <div className="empty">Loading roster…</div> : mobile ? (
+                <div className="records wrk">
+                  {mBand("Starting lineup",
+                    groupTot(roster.slots.flatMap(s => s.player ? [s.player as RosterRow] : [])))}
+                  {roster.slots.map((s, i) => s.player
+                    ? rosterRec(s.player as RosterRow, SLOT_LABEL[s.slot] ?? s.slot, i)
+                    : (
+                      <div key={`${s.slot}-${i}`} className={`rec${i % 2 ? " zebra" : ""}`}>
+                        <div className="rec-l1">
+                          <span className="rec-rk">{SLOT_LABEL[s.slot] ?? s.slot}</span>
+                          <span className="rec-id" style={{ color: "var(--dim)", fontWeight: 400 }}>empty</span>
+                        </div>
+                      </div>
+                    ))}
+                  {mBand("Bench", groupTot(roster.bench))}
+                  {roster.bench.map((r, i) => rosterRec(r, "BN", i))}
+                  {roster.taxi.length > 0 && mBand("Taxi squad", groupTot(roster.taxi))}
+                  {roster.taxi.map((r, i) => rosterRec(r, "TX", i))}
+                </div>
+              ) : (
                 <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>{rosterHead}</thead>
@@ -365,6 +436,51 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-label">Year by year</span>
                 <span className="band-note">Lineup WAR sums each week's actual starters against the league-wide optimal pool</span>
               </div>
+              {mobile ? (
+                /* the season ladder's phone home: one record per season, the
+                   year in the spine cell, that year's team name as the
+                   identity — the rename history reads here */
+                <div className="records wrk t3">
+                  {seasons.slice().reverse().map((s, i) => {
+                    const played = s.wins + s.losses + (s.ties || 0) > 0;
+                    const mark = s.finish === 1 || s.season === rosterSeason;
+                    return (
+                      <div key={s.season} className={`rec${i % 2 ? " zebra" : ""}`}>
+                        <div className="rec-l1">
+                          <span className="rec-rk">
+                            {mark && <span className="spine" style={{ background: "var(--acc)" }} />}
+                            {s.season}
+                          </span>
+                          <span className="rec-id">
+                            {s.name}
+                            <span className="rec-sub">
+                              {s.manager}{s.season === rosterSeason && !played ? " · live" : ""}
+                            </span>
+                          </span>
+                          <span className="rec-fig">
+                            {played ? <>{s.wins}-{s.losses}{s.ties ? `-${s.ties}` : ""}</>
+                              : <span className="quiet">—</span>}
+                          </span>
+                          <span className="rec-key">Rec</span>
+                        </div>
+                        <div className="rec-l2">
+                          <span className="mic"><span className="mk">Fin</span>
+                            <span className="mv" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
+                              {s.finish == null ? <span className="quiet">—</span>
+                                : s.finish === 1 ? "CHAMP" : ord(s.finish)}
+                            </span></span>
+                          <span className="mic"><span className="mk">PPG</span>
+                            <span className="mv">{played ? fmt(s.ppg, 1) : <span className="quiet">—</span>}</span></span>
+                          <span className="mic"><span className="mk">WAR</span>
+                            <span className={`mv ${played ? clsOf(s.war) : ""}`}>
+                              {played ? fmt(s.war, 2) : <span className="quiet">—</span>}
+                            </span></span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
               <TScroll>
               <table style={{ tableLayout: "fixed" }}>
                 <thead>
@@ -415,6 +531,7 @@ export default function FranchisePage({ rid, players, tab }:
                 </tbody>
               </table>
               </TScroll>
+              )}
             </div>
 
             {/* ---- draft history ---- */}
@@ -423,7 +540,56 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-label">Draft history</span>
                 <span className="band-note">Rookie drafts only · vs = realized minus expected WAR for the slot, over the same seasons</span>
               </div>
-              {!draftYears.length ? <div className="empty">No drafts yet.</div> : (
+              {!draftYears.length ? <div className="empty">No drafts yet.</div> : mobile ? (
+                /* one records list per class under a season band carrying the
+                   class WAR — an unplayed class prints — for every pick AND
+                   for the total, never 0.00 */
+                <div className="records wrk">
+                  {draftYears.map(season => {
+                    const rows = bySeason.get(season) ?? [];
+                    const np = unplayed(season);
+                    return (
+                      <Fragment key={season}>
+                        <div className="band">
+                          <span className="band-label">{season} rookie draft</span>
+                          <span className="band-note">
+                            {kept(rows)} pick{kept(rows) === 1 ? "" : "s"}
+                            {rows.length - kept(rows) > 0 && ` · ${rows.length - kept(rows)} traded away`}
+                            {" · "}{np ? "not yet played" : `${fmt(keptTotal(rows), 2)} WAR returned`}
+                          </span>
+                        </div>
+                        {rows.length === 0 && <div className="empty">no picks — traded away</div>}
+                        {rows.map((p, i) => (
+                          <div key={`${p.season}-${p.pick_no}-${p.traded ? "t" : "m"}`}
+                            className={`rec${i % 2 ? " zebra" : ""}`}
+                            style={p.traded ? { opacity: 0.55 } : undefined}>
+                            <div className="rec-l1">
+                              <span className="rec-rk">
+                                <span className="spine" style={{ background: POS_COLOR[p.pos] || "var(--rule-2)" }} />
+                                {p.slot}
+                              </span>
+                              <span className="rec-id">
+                                <PlayerLink pid={p.pid} name={p.name} />
+                                <span className="rec-sub">{p.pos}{p.traded ? " · traded away" : ""}</span>
+                              </span>
+                              <span className="rec-fig">
+                                {np ? <span className="quiet">—</span> : fmt(p.war, 2)}
+                              </span>
+                              <span className="rec-key">WAR</span>
+                            </div>
+                            {!np && p.diff != null && (
+                              <div className="rec-l2">
+                                <span className="mic"><span className="mk">Vs slot</span>
+                                  <span className={`mv ${clsOf(p.diff)}`}>{sgn(p.diff, 2)}</span></span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </Fragment>
+                    );
+                  })}
+                </div>
+              ) : (
                 <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
@@ -491,7 +657,7 @@ export default function FranchisePage({ rid, players, tab }:
                   </tbody>
                 </table>
                 </TScroll>
-              )}
+              ) /* mobile branch above */}
             </div>
 
             {/* ---- trades ---- */}
@@ -556,7 +722,25 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-label">Waivers &amp; free agents</span>
                 <span className="band-note">Trades live in their own section</span>
               </div>
-              {!waiverTxs.length ? <div className="empty">No moves yet.</div> : (
+              {!waiverTxs.length ? <div className="empty">No moves yet.</div> : mobile ? (
+                <div className="records flat">
+                  {waiverTxs.map((t, i) => (
+                    <div key={`${t.ts}-${i}`} className={`rec${i % 2 ? " zebra" : ""}`}>
+                      <div className="rec-l1">
+                        <span className="rec-id" style={{ font: "600 11px/1.4 var(--cond)", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)" }}>
+                          {t.season} W{t.week} · {t.type === "waiver" ? "waiver" : "free agent"}
+                        </span>
+                      </div>
+                      {!!t.adds?.length && (
+                        <div className="rec-line" style={{ color: "var(--good)" }}>+ {t.adds.join(", ")}</div>
+                      )}
+                      {!!t.drops?.length && (
+                        <div className="rec-line" style={{ color: "var(--drop)" }}>− {t.drops.join(", ")}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              ) : (
                 <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>

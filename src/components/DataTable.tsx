@@ -38,6 +38,17 @@ export interface Col<T, X> {
   /** absent = not sortable. null/undefined values sort last in BOTH directions */
   sort?: (r: T) => number | string | null | undefined;
   cell: (r: T, x: X, i: number) => ReactNode;
+  /** Records mode (≤640px, tables that opt in via `recordsOnMobile`): what
+   *  this column becomes on the two-line record. `spine` is the rank cell,
+   *  `identity` the subject, `headline` the one big figure (the column the
+   *  list is sorted by), `micro` a labelled figure on line two (≤4), `sub`
+   *  context joining the identity block. A column with no role — and every
+   *  `hm` column — is dropped from the record; it lives on the subject's own
+   *  page. */
+  role?: "spine" | "identity" | "headline" | "micro" | "sub";
+  /** the short label naming the figure on a phone ("Rec", "PPG") — a bare
+   *  number on a records line is a bug; falls back to `label` */
+  microKey?: string;
 }
 
 export interface Grp { id: number; label: string; cls: string }
@@ -90,12 +101,26 @@ interface Props<T, X> {
   /** inline drawer: rendered in a full-width row DIRECTLY beneath the open row,
    *  inside the table flow — never after the table (SKILL.md §5) */
   renderDrawer?: (r: T) => ReactNode;
+  /** ≤640px, render as two-line records instead of a squeezed table. For the
+   *  pages that are a LIST OF SUBJECTS (standings, rosters, feeds) — the one
+   *  panning table on the site stays a table (MOBILE.md). */
+  recordsOnMobile?: boolean;
+  /** per-surface .rec-l2 grid variant ("t3", "t4") — the micro-figure columns
+   *  are declared once per surface so they hold the same x-positions down the
+   *  whole list */
+  recordsClass?: string;
 }
 
 export default function DataTable<T, X>({
   cols, groups, rows, ctx, rowKey, sortId, dir, onSort, homeCol, openKey, onRowClick, renderDrawer,
+  recordsOnMobile, recordsClass,
 }: Props<T, X>) {
   const mobile = useMobile();
+  if (mobile && recordsOnMobile) {
+    return <Records cols={cols} rows={rows} ctx={ctx} rowKey={rowKey}
+      openKey={openKey} onRowClick={onRowClick} renderDrawer={renderDrawer}
+      recordsClass={recordsClass} />;
+  }
   // a group spans only the columns actually on screen, so a group whose members
   // are all absent collapses instead of leaving an empty banner cell
   const span = (g: number) => cols.filter(c => c.grp === g && !(mobile && c.hm)).length;
@@ -171,5 +196,81 @@ export default function DataTable<T, X>({
       </tbody>
     </table>
     </TScroll>
+  );
+}
+
+/**
+ * Records mode: the ≤640px rendering of a subjects list. One `.rec` per row —
+ * line one is identity plus the headline figure with its name beside it, line
+ * two is the rest of the desktop row as labelled micro-figures on a declared
+ * grid. No horizontal scroll, no bare numbers (MOBILE.md).
+ *
+ * Cell renderers are reused verbatim; a renderer that draws a meter must
+ * return a bare figure in records mode — the page passes the mode through
+ * `ctx`, never branches on `window` inside a renderer.
+ */
+function Records<T, X>({ cols, rows, ctx, rowKey, openKey, onRowClick, renderDrawer, recordsClass }: {
+  cols: Col<T, X>[]; rows: T[]; ctx: X; rowKey: (r: T) => string;
+  openKey?: string | null; onRowClick?: (r: T) => void;
+  renderDrawer?: (r: T) => ReactNode; recordsClass?: string;
+}) {
+  // `hm` columns are dropped entirely on mobile, in both modes
+  const on = cols.filter(c => !c.hm);
+  const spine = on.find(c => c.role === "spine");
+  const identity = on.find(c => c.role === "identity");
+  const subs = on.filter(c => c.role === "sub");
+  const headline = on.find(c => c.role === "headline");
+  const micros = on.filter(c => c.role === "micro");
+  return (
+    <div className={recordsClass ? `records ${recordsClass}` : "records"}>
+      {rows.map((r, i) => {
+        const k = rowKey(r);
+        const open = openKey === k;
+        const act = !!onRowClick;
+        return [
+          // a .rec is the same control the <tr class="click"> was
+          <div key={k}
+            className={`rec${act ? " click" : ""}${open ? " open" : i % 2 ? " zebra" : ""}`}
+            tabIndex={act ? 0 : undefined}
+            role={act ? "button" : undefined}
+            aria-expanded={act && renderDrawer ? open : undefined}
+            onClick={act ? () => onRowClick!(r) : undefined}
+            onKeyDown={act ? e => {
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick!(r); }
+            } : undefined}>
+            <div className="rec-l1">
+              {spine && <span className="rec-rk">{spine.cell(r, ctx, i)}</span>}
+              <span className="rec-id">
+                {identity?.cell(r, ctx, i)}
+                {subs.length > 0 && (
+                  <span className="rec-sub">
+                    {subs.map((c, j) => <span key={c.id}>{j > 0 ? " · " : ""}{c.cell(r, ctx, i)}</span>)}
+                  </span>
+                )}
+              </span>
+              {headline && <>
+                <span className="rec-fig">{headline.cell(r, ctx, i)}</span>
+                <span className="rec-key">{headline.microKey ?? headline.label}</span>
+              </>}
+            </div>
+            {micros.length > 0 && (
+              <div className="rec-l2">
+                {micros.map(c => (
+                  <span key={c.id} className="mic">
+                    <span className="mk">{c.microKey ?? c.label}</span>
+                    <span className="mv">{c.cell(r, ctx, i)}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>,
+          // the drawer still opens inline, immediately after its .rec — the
+          // renderer already carries the .drawer accent top rule
+          open && renderDrawer ? (
+            <div key={`${k}-drawer`} className="rec-drawer">{renderDrawer(r)}</div>
+          ) : null,
+        ];
+      })}
+    </div>
   );
 }

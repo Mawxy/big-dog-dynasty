@@ -3,6 +3,8 @@ import type { CviFile, DviFile, PicksOwned, PickValues, ProjectionsFile } from "
 import { jl, jlDaily } from "../lib/data";
 import { fmt, sgn } from "../lib/stats";
 import { pickStream } from "../lib/rosterModel";
+import { POS_COLOR } from "../lib/league";
+import { useMobile } from "../lib/useWidth";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 
@@ -26,6 +28,9 @@ const ORD = ["1st", "2nd", "3rd", "4th"];
 const TIERS = ["Early", "Mid", "Late"];
 
 export default function TradeCalc() {
+  // MOBILE.md M7 — baskets stack and each asset is a two-line record with its
+  // figures named; each basket closes with its own labelled total band
+  const mobile = useMobile();
   const [proj, setProj] = useState<ProjectionsFile | null>(null);
   const [pv, setPv] = useState<PickValues | null>(null);
   const [owned, setOwned] = useState<PicksOwned | null>(null);
@@ -137,7 +142,47 @@ export default function TradeCalc() {
           <span>Side {i ? "B" : "A"} sends</span>
           <span className="n">{rows.length ? `${rows.length} asset${rows.length === 1 ? "" : "s"}` : "empty"}</span>
         </div>
-        {rows.length > 0 && (
+        {rows.length > 0 && mobile && (
+          <div className="records flat">
+            {rows.map((a, k) => (
+              <div key={a.key} className={`rec${k % 2 ? " zebra" : ""}`}>
+                <div className="rec-l1">
+                  <span className="spine" style={{
+                    background: a.kind === "player" ? POS_COLOR[a.pos!] ?? "var(--rule-2)" : "var(--rule-2)",
+                  }} />
+                  <span className="rec-id">
+                    {a.kind === "player" ? <PlayerLink pid={a.pid!} name={a.label} /> : a.label}
+                    <span className="rec-sub">
+                      {a.kind === "player"
+                        ? <>{a.pos}{a.age != null && <> · age {a.age}</>}</>
+                        : "rookie pick · no index until it converts"}
+                    </span>
+                  </span>
+                  <span className="rec-fig">
+                    {a.dvi == null ? <span className="quiet">—</span> : fmt(a.dvi, 1)}
+                  </span>
+                  <span className="rec-key">DVI</span>
+                  <button type="button" className="rec-x" title="remove"
+                    onClick={() => remove(i, a.key)}>×</button>
+                </div>
+                <div className="rec-l2">
+                  <span className="mic"><span className="mk">CVI</span>
+                    <span className="mv">{a.cvi == null ? <span className="quiet">—</span> : fmt(a.cvi, 1)}</span></span>
+                  <span className="mic"><span className="mk">Proj WAR</span>
+                    <span className="mv">{sgn(a.war, 2)}</span></span>
+                </div>
+              </div>
+            ))}
+            {/* the basket's own total band — every figure labelled */}
+            <div className="band">
+              <span className="band-label">Total</span>
+              <span className="band-note">
+                DVI {fmt(t.dvi, 1)} · CVI {fmt(t.cvi, 1)} · WAR {sgn(t.war, 2)}
+              </span>
+            </div>
+          </div>
+        )}
+        {rows.length > 0 && !mobile && (
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr>

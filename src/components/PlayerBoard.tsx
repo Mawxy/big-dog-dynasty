@@ -1,6 +1,6 @@
 import { useCallback, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { Col } from "./DataTable";
+import type { Col, Grp } from "./DataTable";
 import { POS_CHIPS, POS_COLOR } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
 import { PlayerLink } from "./PlayerLink";
@@ -79,10 +79,44 @@ export function identityCols(opts: { nfl?: boolean } = {}): PlayerCol[] {
       sort: (r: PlayerRow) => r.nfl, cell: (r: PlayerRow) => r.nfl || "—",
     } as PlayerCol] : []),
     {
-      id: "team", label: "Roster", grp: 0, w: 14, align: "t", hm: true, td: "t sub hm",
+      // in the phone budget (MOBILE.md M4): the roster is the affiliation a
+      // reader scans for, so it survives the pan — reordered after the
+      // figures by each board's mobile subset
+      id: "team", label: "Roster", grp: 0, w: 14, align: "t", td: "t sub",
       sort: r => r.team, cell: r => r.team,
     },
   ];
+}
+
+/**
+ * The phone column budget (MOBILE.md M4): Rk, Player, Pos, the board's three
+ * lens figures, then Roster. Ten columns at 390px is a 900px pan and the
+ * reader gives up — six is the budget, and the figures come before the roster
+ * so the pan reaches them sooner. Everything dropped here is on the player
+ * page; that is what the page is for.
+ *
+ * Roster moves BEHIND the figure groups, so it gets a trailing banner group of
+ * its own — without it the group spans would land over the wrong columns.
+ */
+export const TAIL_GRP: Grp = { id: 9, label: "", cls: "edge" };
+
+/** a column with its group-divider edge forced on or off, td classes included */
+function edged(c: PlayerCol, on: boolean): PlayerCol {
+  if (!!c.edge === on) return c;
+  const td = c.td.split(" ").filter(t => t && t !== "edge");
+  if (on) td.push("edge");
+  return { ...c, edge: on, td: td.join(" ") };
+}
+
+export function mobileCols(cols: PlayerCol[], figIds: string[]): PlayerCol[] {
+  const by = new Map(cols.map(c => [c.id, c]));
+  const team = by.get("team");
+  return [
+    ...["rk", "nm", "pos"].map(id => by.get(id)),
+    // the first figure starts its group, so it carries the divider
+    ...figIds.map((id, j) => by.get(id) && edged(by.get(id)!, j === 0)),
+    team && { ...edged(team, true), grp: TAIL_GRP.id },
+  ].filter((c): c is PlayerCol => !!c);
 }
 
 /**

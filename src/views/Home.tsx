@@ -9,6 +9,7 @@ import { fmt, sgn, mean, normCdf, normInv } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, pInfo } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades, tradeWhen } from "../lib/trades";
+import { useMobile } from "../lib/useWidth";
 import { PlayerLink } from "../components/PlayerLink";
 import PosBadge from "../components/PosBadge";
 import TScroll from "../components/TScroll";
@@ -31,6 +32,9 @@ export default function Home() {
   const { meta, players, league } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
+  // MOBILE.md M5 — the League page's lists render as records at ≤640px; the
+  // hero blocks stack and the equal-height pairing rules stop applying
+  const mobile = useMobile();
   const [fr, setFr] = useState<Franchises | null>(null);
   const [proj, setProj] = useState<ProjectionsFile | null>(null);
   const [teams, setTeams] = useState<Team[] | null>(null);
@@ -245,7 +249,7 @@ export default function Home() {
             </button>
           </div>
           {!champ ? <div className="empty">No completed season yet.</div> : <>
-            <div style={{ font: "700 40px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)", cursor: "pointer" }}
+            <div style={{ font: `700 ${mobile ? 32 : 40}px/1.05 var(--cond)`, letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)", cursor: "pointer" }}
               onClick={() => nav(lp(`/franchise/${champ.rid}`))}>
               {champ.s.name}
             </div>
@@ -311,7 +315,44 @@ export default function Home() {
             Standings
           </button>
         </div>
-        {!indexRows ? <div className="empty">Loading indices…</div> : (
+        {!indexRows ? <div className="empty">Loading indices…</div> : mobile ? (
+          /* records mode: headline starters DVI (the rank order), micros CVI,
+             last season's record and the projected one; age is on Teams */
+          <div className="records t3">
+            {indexRows.map((r, i) => {
+              const p = power?.get(r.rid);
+              return (
+                <div key={r.rid} className={`rec click${i % 2 ? " zebra" : ""}`}
+                  tabIndex={0} role="button"
+                  onClick={() => nav(lp(`/franchise/${r.rid}`))}
+                  onKeyDown={e => {
+                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nav(lp(`/franchise/${r.rid}`)); }
+                  }}>
+                  <div className="rec-l1">
+                    <span className="rec-rk">
+                      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
+                      <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
+                    </span>
+                    <span className="rec-id">
+                      {r.name}
+                      <span className="rec-sub">{r.manager}</span>
+                    </span>
+                    <span className="rec-fig">{fmt(r.sDvi, 0)}</span>
+                    <span className="rec-key">DVI</span>
+                  </div>
+                  <div className="rec-l2">
+                    <span className="mic"><span className="mk">CVI</span>
+                      <span className="mv">{fmt(r.sCvi, 0)}</span></span>
+                    <span className="mic"><span className="mk">{league.latest ?? "Last"}</span>
+                      <span className="mv" style={r.lastFin === 1 ? { color: "var(--acc)" } : undefined}>{r.lastRec}</span></span>
+                    <span className="mic"><span className="mk">Proj</span>
+                      <span className="mv">{p?.rec ?? "—"}</span></span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
           <TScroll>
           <table style={{ tableLayout: "fixed" }}>
             <thead>
@@ -371,40 +412,68 @@ export default function Home() {
             <span className="band-label">Value plays</span>
             <span className="band-note">Largest DVI-minus-CVI gaps, rostered players · index points, not value</span>
           </div>
-          <table style={{ tableLayout: "fixed" }}>
-            <thead>
-              <tr>
-                <th className="c" style={{ width: "14%" }}>Pos</th>
-                <th className="t" style={{ width: "42%" }}>Player</th>
-                <th className="n" style={{ width: "14%" }}>DVI</th>
-                <th className="n" style={{ width: "14%" }}>CVI</th>
-                <th className="n" style={{ width: "16%" }}>Gap</th>
-              </tr>
-            </thead>
-            {([["Sell high · dynasty premium", valuePlays?.sell], ["Buy low · win-now premium", valuePlays?.buy]] as const)
-              .map(([label, list]) => (
-                <tbody key={label}>
-                  {grpRow(label, 5)}
-                  {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
-                    <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
-                      <td className="c"><PosBadge pos={r.pos} /></td>
-                      <td className="t name"><PlayerLink pid={r.pid} name={r.name} /></td>
-                      <td className="n fig">{fmt(r.d, 1)}</td>
-                      <td className="n fig">{fmt(r.c, 1)}</td>
-                      <td className="n fig strong last">{sgn(r.gap, 1)}</td>
-                    </tr>
-                  ) : (
-                    <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
-                      <td className="c fig quiet">—</td>
-                      <td className="t fig quiet">—</td>
-                      <td className="n fig quiet">—</td>
-                      <td className="n fig quiet">—</td>
-                      <td className="n fig quiet last">—</td>
-                    </tr>
-                  ))}
-                </tbody>
-              ))}
-          </table>
+          {mobile ? (
+            <div className="records flat">
+              {([["Sell high · dynasty premium", valuePlays?.sell], ["Buy low · win-now premium", valuePlays?.buy]] as const)
+                .map(([label, list]) => (
+                  <div key={label}>
+                    <div className="band"><span className="band-label">{label}</span></div>
+                    {(list ?? []).map((r, i) => (
+                      <div key={r.pid} className={`rec${i % 2 ? " zebra" : ""}`}>
+                        <div className="rec-l1">
+                          <span className="rec-id">
+                            <PosBadge pos={r.pos} />{" "}
+                            <PlayerLink pid={r.pid} name={r.name} />
+                          </span>
+                          <span className="rec-fig">{sgn(r.gap, 1)}</span>
+                          <span className="rec-key">Gap</span>
+                        </div>
+                        <div className="rec-l2">
+                          <span className="mic"><span className="mk">DVI</span><span className="mv">{fmt(r.d, 1)}</span></span>
+                          <span className="mic"><span className="mk">CVI</span><span className="mv">{fmt(r.c, 1)}</span></span>
+                        </div>
+                      </div>
+                    ))}
+                    {!(list ?? []).length && <div className="empty">—</div>}
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <table style={{ tableLayout: "fixed" }}>
+              <thead>
+                <tr>
+                  <th className="c" style={{ width: "14%" }}>Pos</th>
+                  <th className="t" style={{ width: "42%" }}>Player</th>
+                  <th className="n" style={{ width: "14%" }}>DVI</th>
+                  <th className="n" style={{ width: "14%" }}>CVI</th>
+                  <th className="n" style={{ width: "16%" }}>Gap</th>
+                </tr>
+              </thead>
+              {([["Sell high · dynasty premium", valuePlays?.sell], ["Buy low · win-now premium", valuePlays?.buy]] as const)
+                .map(([label, list]) => (
+                  <tbody key={label}>
+                    {grpRow(label, 5)}
+                    {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
+                      <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
+                        <td className="c"><PosBadge pos={r.pos} /></td>
+                        <td className="t name"><PlayerLink pid={r.pid} name={r.name} /></td>
+                        <td className="n fig">{fmt(r.d, 1)}</td>
+                        <td className="n fig">{fmt(r.c, 1)}</td>
+                        <td className="n fig strong last">{sgn(r.gap, 1)}</td>
+                      </tr>
+                    ) : (
+                      <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
+                        <td className="c fig quiet">—</td>
+                        <td className="t fig quiet">—</td>
+                        <td className="n fig quiet">—</td>
+                        <td className="n fig quiet">—</td>
+                        <td className="n fig quiet last">—</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
+            </table>
+          )}
         </div>
 
         <div className="feed-panel">
@@ -412,38 +481,67 @@ export default function Home() {
             <span className="band-label">Market movers · 7 days</span>
             <span className="band-note">KeepTradeCut value change, rostered players</span>
           </div>
-          <table style={{ tableLayout: "fixed" }}>
-            <thead>
-              <tr>
-                <th className="c" style={{ width: "14%" }}>Pos</th>
-                <th className="t" style={{ width: "42%" }}>Player</th>
-                <th className="n" style={{ width: "22%" }}>Value</th>
-                <th className="n" style={{ width: "22%" }}>7d</th>
-              </tr>
-            </thead>
-            {([["Rising", movers?.up], ["Falling", movers?.down]] as const).map(([label, list]) => (
-              <tbody key={label}>
-                {grpRow(label, 4)}
-                {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
-                  <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
-                    <td className="c"><PosBadge pos={pInfo(players, r.pid)[1]} /></td>
-                    <td className="t name"><PlayerLink pid={r.pid} name={pInfo(players, r.pid)[0]} /></td>
-                    <td className="n fig">{r.val.toLocaleString("en-US")}</td>
-                    <td className="n fig strong last" style={{ color: r.d > 0 ? "var(--good)" : "var(--bad)" }}>
-                      {sgn(r.d, 0)}
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
-                    <td className="c fig quiet">—</td>
-                    <td className="t fig quiet">—</td>
-                    <td className="n fig quiet">—</td>
-                    <td className="n fig quiet last">—</td>
-                  </tr>
-                ))}
-              </tbody>
-            ))}
-          </table>
+          {mobile ? (
+            <div className="records flat">
+              {([["Rising", movers?.up], ["Falling", movers?.down]] as const).map(([label, list]) => (
+                <div key={label}>
+                  <div className="band"><span className="band-label">{label}</span></div>
+                  {(list ?? []).map((r, i) => (
+                    <div key={r.pid} className={`rec${i % 2 ? " zebra" : ""}`}>
+                      <div className="rec-l1">
+                        <span className="rec-id">
+                          <PosBadge pos={pInfo(players, r.pid)[1]} />{" "}
+                          <PlayerLink pid={r.pid} name={pInfo(players, r.pid)[0]} />
+                        </span>
+                        <span className="rec-fig" style={{ color: r.d > 0 ? "var(--good)" : "var(--bad)" }}>
+                          {sgn(r.d, 0)}
+                        </span>
+                        <span className="rec-key">7d</span>
+                      </div>
+                      <div className="rec-l2">
+                        <span className="mic"><span className="mk">Value</span>
+                          <span className="mv">{r.val.toLocaleString("en-US")}</span></span>
+                      </div>
+                    </div>
+                  ))}
+                  {!(list ?? []).length && <div className="empty">—</div>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <table style={{ tableLayout: "fixed" }}>
+              <thead>
+                <tr>
+                  <th className="c" style={{ width: "14%" }}>Pos</th>
+                  <th className="t" style={{ width: "42%" }}>Player</th>
+                  <th className="n" style={{ width: "22%" }}>Value</th>
+                  <th className="n" style={{ width: "22%" }}>7d</th>
+                </tr>
+              </thead>
+              {([["Rising", movers?.up], ["Falling", movers?.down]] as const).map(([label, list]) => (
+                <tbody key={label}>
+                  {grpRow(label, 4)}
+                  {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
+                    <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
+                      <td className="c"><PosBadge pos={pInfo(players, r.pid)[1]} /></td>
+                      <td className="t name"><PlayerLink pid={r.pid} name={pInfo(players, r.pid)[0]} /></td>
+                      <td className="n fig">{r.val.toLocaleString("en-US")}</td>
+                      <td className="n fig strong last" style={{ color: r.d > 0 ? "var(--good)" : "var(--bad)" }}>
+                        {sgn(r.d, 0)}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
+                      <td className="c fig quiet">—</td>
+                      <td className="t fig quiet">—</td>
+                      <td className="n fig quiet">—</td>
+                      <td className="n fig quiet last">—</td>
+                    </tr>
+                  ))}
+                </tbody>
+              ))}
+            </table>
+          )}
           {!vals && (
             <div className="tnote" style={{ padding: "8px 10px 10px" }}>
               Waiting on the nightly market pull — values fill in when the KeepTradeCut feed lands.
@@ -454,65 +552,88 @@ export default function Home() {
 
       {/* ---- module row 2: recent waivers + recent trades ---- */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
-        {/* `feed-stack`: on a phone these two feeds put each row's cells on
-            their own line instead of side by side — a franchise name and what
-            it received cannot share 137px. See the mobile block in style.css. */}
-        <div className="feed-panel feed-stack">
+        <div className="feed-panel">
           <div className="band" style={{ borderTop: "none" }}>
             <span className="band-label">Recent waivers</span>
             <span className="band-note">Adds and drops, league-wide</span>
           </div>
-          <table style={{ tableLayout: "fixed" }}>
-            <thead>
-              <tr>
-                <th className="t" style={{ width: "13%" }}>Week</th>
-                <th className="t" style={{ width: "27%" }}>Team</th>
-                <th className="t" style={{ width: "30%" }}>Added</th>
-                <th className="t" style={{ width: "30%" }}>Dropped</th>
-              </tr>
-            </thead>
-            <tbody>
-              {padTo(waivers, MODULE_ROWS).map((w, i) => w ? (
-                <tr key={`${w.ts}${i}`} className={i % 2 ? "zebra" : ""}>
-                  <td className="t">
-                    <div className="two-line">
-                      <span className="fig">{w.season.slice(2)} W{w.week}</span><br />
-                      <span style={{ font: "600 10.5px/1.45 var(--cond)", letterSpacing: ".12em", color: "var(--dim3)" }}>
-                        {w.type === "waiver" ? "WAIVER" : "FA"}
+          {mobile ? (
+            /* records: the team is the subject; the adds and drops each take
+               their own full-width line (this is what .feed-stack used to do) */
+            <div className="records flat">
+              {waivers.map((w, i) => (
+                <div key={`${w.ts}${i}`} className={`rec${i % 2 ? " zebra" : ""}`}>
+                  <div className="rec-l1">
+                    <span className="rec-id">
+                      {w.team}
+                      <span className="rec-sub">
+                        {w.manager} · {w.season.slice(2)} W{w.week} · {w.type === "waiver" ? "waiver" : "free agent"}
                       </span>
-                    </div>
-                  </td>
-                  <td className="t">
-                    <div className="two-line">
-                      <span style={{ font: "600 13px/1.45 var(--sans)" }}>{w.team}</span><br />
-                      <span style={{ font: "400 11.5px/1.45 var(--sans)", color: "var(--dim)" }}>{w.manager}</span>
-                    </div>
-                  </td>
-                  <td className="t sub">
-                    <div className="two-line" style={{ color: "var(--good)" }}>
-                      {w.adds?.length ? w.adds.join(", ") : "—"}
-                    </div>
-                  </td>
-                  <td className="t sub last">
-                    <div className="two-line" style={{ color: "var(--drop)" }}>
-                      {w.drops?.length ? w.drops.join(", ") : "—"}
-                    </div>
-                  </td>
-                </tr>
-              ) : (
-                <tr key={`ew${i}`} className={`pad-row ${i % 2 ? "zebra" : ""}`}>
-                  {[0, 1, 2, 3].map(k => (
-                    <td key={k} className={`t fig quiet${k === 3 ? " last" : ""}`}>
-                      <div className="two-line">—</div>
-                    </td>
-                  ))}
-                </tr>
+                    </span>
+                  </div>
+                  {!!w.adds?.length && (
+                    <div className="rec-line" style={{ color: "var(--good)" }}>+ {w.adds.join(", ")}</div>
+                  )}
+                  {!!w.drops?.length && (
+                    <div className="rec-line" style={{ color: "var(--drop)" }}>− {w.drops.join(", ")}</div>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
+              {!waivers.length && <div className="empty">—</div>}
+            </div>
+          ) : (
+            <table style={{ tableLayout: "fixed" }}>
+              <thead>
+                <tr>
+                  <th className="t" style={{ width: "13%" }}>Week</th>
+                  <th className="t" style={{ width: "27%" }}>Team</th>
+                  <th className="t" style={{ width: "30%" }}>Added</th>
+                  <th className="t" style={{ width: "30%" }}>Dropped</th>
+                </tr>
+              </thead>
+              <tbody>
+                {padTo(waivers, MODULE_ROWS).map((w, i) => w ? (
+                  <tr key={`${w.ts}${i}`} className={i % 2 ? "zebra" : ""}>
+                    <td className="t">
+                      <div className="two-line">
+                        <span className="fig">{w.season.slice(2)} W{w.week}</span><br />
+                        <span style={{ font: "600 10.5px/1.45 var(--cond)", letterSpacing: ".12em", color: "var(--dim3)" }}>
+                          {w.type === "waiver" ? "WAIVER" : "FA"}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="t">
+                      <div className="two-line">
+                        <span style={{ font: "600 13px/1.45 var(--sans)" }}>{w.team}</span><br />
+                        <span style={{ font: "400 11.5px/1.45 var(--sans)", color: "var(--dim)" }}>{w.manager}</span>
+                      </div>
+                    </td>
+                    <td className="t sub">
+                      <div className="two-line" style={{ color: "var(--good)" }}>
+                        {w.adds?.length ? w.adds.join(", ") : "—"}
+                      </div>
+                    </td>
+                    <td className="t sub last">
+                      <div className="two-line" style={{ color: "var(--drop)" }}>
+                        {w.drops?.length ? w.drops.join(", ") : "—"}
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={`ew${i}`} className={`pad-row ${i % 2 ? "zebra" : ""}`}>
+                    {[0, 1, 2, 3].map(k => (
+                      <td key={k} className={`t fig quiet${k === 3 ? " last" : ""}`}>
+                        <div className="two-line">—</div>
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
 
-        <div className="feed-panel feed-stack">
+        <div className="feed-panel">
           <div className="band" style={{ borderTop: "none" }}>
             <span className="band-label">Recent trades</span>
             <span className="band-note">What each side received, both in the same ink</span>
@@ -521,6 +642,33 @@ export default function Home() {
               Ledger
             </button>
           </div>
+          {mobile ? (
+            /* records: stacked, a trade reads as four lines alternating
+               franchise and haul — the left rule marks where each side starts */
+            <div className="records flat">
+              {recentTrades.map((t, i) => (
+                <div key={t.ts} className={`rec${i % 2 ? " zebra" : ""}`}>
+                  <div className="rec-l1">
+                    <span className="rec-id" style={{ font: "600 11px/1.4 var(--cond)", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)" }}>
+                      {t.season.slice(2)} W{t.week} · {tradeWhen(t.ts).replace(`, ${t.season}`, "").toUpperCase()}
+                    </span>
+                  </div>
+                  {[0, 1].map(k => {
+                    const sd = t.sides[k];
+                    return (
+                      <div key={k} className="rec-side">
+                        <div className="side-team">{sd?.team ?? "—"}</div>
+                        <div className="side-got">
+                          {sd?.got.map(a => a.label.split(" → ")[0]).join(" · ") || "—"}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {!recentTrades.length && <div className="empty">—</div>}
+            </div>
+          ) : (
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr>
@@ -567,6 +715,7 @@ export default function Home() {
               ))}
             </tbody>
           </table>
+          )}
         </div>
       </div>
 

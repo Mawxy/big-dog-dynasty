@@ -101,7 +101,15 @@ def counts_for_data(l, teams, require_sf):
     return True
 
 
-def extract_trade(tx, season):
+def extract_trade(tx, season, lid):
+    """One trade, flattened.
+
+    `lid` is the join key. Without it the corpus is a bag of anonymous trades:
+    a roster_id means nothing on its own, two trades can't be known to belong to
+    the same league, and no trade can be tied to an outcome (who won, who held
+    which picks). Every league-level question — do champions buy or sell picks,
+    does trading your own 1st help — needs this field and nothing else new.
+    """
     sides = {}
     def side(rid):
         return sides.setdefault(rid, {"roster_id": rid, "players": [], "picks": [], "faab": 0})
@@ -112,7 +120,7 @@ def extract_trade(tx, season):
             {"season": pk.get("season"), "round": pk.get("round"), "orig": pk.get("roster_id")})
     for wb in (tx.get("waiver_budget") or []):
         side(wb.get("receiver"))["faab"] += wb.get("amount", 0)
-    return {"tid": tx.get("transaction_id"), "season": season,
+    return {"tid": tx.get("transaction_id"), "lid": lid, "season": season,
             "week": tx.get("leg"), "sides": list(sides.values())}
 
 
@@ -393,7 +401,7 @@ def mode_trades(args, t0):
                         continue
                     tid = tx.get("transaction_id")
                     if tid and tid not in trades:
-                        trades[tid] = extract_trade(tx, args.season)
+                        trades[tid] = extract_trade(tx, args.season, lid)
             progress[lid] = time.time()
             n_done += 1
             if n_done % CHECKPOINT_EVERY == 0:
@@ -415,7 +423,15 @@ def mode_drafts(args, t0):
     sd = Path(args.state)
     progress = jload(sd / "progress.json", {})     # lid -> last_drafts ts
     contrib = jload(sd / "contrib.json", {})       # lid -> {ts, startup:{pid:[pno]}, rookie:{...}}
-    seen_drafts = set(jload(sd / "seen_drafts.json", []))
+    # did -> [league_id, season, kind] for every completed draft ever walked.
+    # This was a bare set used only for dedup, which threw away the one fact
+    # that makes the corpus joinable: WHICH league a draft belonged to. The
+    # aggregate rookie corpus stays keyed "season|pick|pid" (it must — see
+    # flush()), so this index is what lets a per-league question be asked of it
+    # later. One row per draft, not per pick.
+    raw_seen = jload(sd / "seen_drafts.json", {})
+    seen_drafts = ({d: None for d in raw_seen} if isinstance(raw_seen, list)
+                   else dict(raw_seen))          # migrate the old list form
     # rookie-pick corpus for Bridge A: "season|pick|pid" -> # drafts. Persistent
     # and NOT windowed — a completed rookie draft is a permanent historical fact.
     rookie_corpus = jload(sd / "rookie_corpus.json", {})
@@ -491,11 +507,16 @@ def mode_drafts(args, t0):
             corpus.append([int(season), int(pno), pid, m.get("name"), m.get("pos"), cnt])
         jdump(ROOT / args.rookie_out,
               {"generated": datetime.date.today().isoformat(), "picks": corpus})
+        # The draft -> league index. Published as well as kept in state so a
+        # consumer can join drafts to leagues without the CI cache.
+        jdump(ROOT / args.draft_index_out,
+              {"generated": datetime.date.today().isoformat(),
+               "drafts": {d: v for d, v in seen_drafts.items() if v}})
         jdump(sd / "rookie_corpus.json", rookie_corpus)
         jdump(sd / "seen_leagues.json", sorted(seen_leagues))
         jdump(sd / "progress.json", progress)
         jdump(sd / "contrib.json", contrib)
-        jdump(sd / "seen_drafts.json", list(seen_drafts))
+        jdump(sd / "seen_drafts.json", seen_drafts)
         return len(players)
 
     deadline = t0 + args.max_minutes * 60 if args.max_minutes else None
@@ -511,10 +532,11 @@ def mode_drafts(args, t0):
                     did = d.get("draft_id")
                     if not did or did in seen_drafts or d.get("status") != "complete":
                         continue
-                    seen_drafts.add(did)
                     rounds = (d.get("settings") or {}).get("rounds") or 0
                     startup = rounds >= STARTUP_MIN_ROUNDS
                     dseason = d.get("season")
+                    seen_drafts[did] = [clid, dseason,
+                                        "startup" if startup else "rookie"]
                     for pk in (get(f"/draft/{did}/picks") or []):
                         pid, pno = pk.get("player_id"), pk.get("pick_no")
                         if not (pid and pno):
@@ -567,6 +589,8 @@ def main():
     ap.add_argument("--leagues-out", default="data/crawl_leagues.json")
     ap.add_argument("--trades-out", default="data/trade_corpus.json")
     ap.add_argument("--drafts-out", default="data/draft_signals.json")
+    ap.add_argument("--draft-index-out", default="data/draft_index.json",
+                    help="drafts: draft_id -> [league_id, season, kind]")
     # separate flag so a bounded trial run can write somewhere harmless instead
     # of overwriting the committed corpus with a partial sample
     ap.add_argument("--rookie-out", default="data/rookie_pick_corpus.json")

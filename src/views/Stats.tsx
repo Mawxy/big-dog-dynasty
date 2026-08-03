@@ -7,8 +7,9 @@ import { useSeasonData } from "../lib/useSeasonData";
 import PlayerPanel from "../components/PlayerPanel";
 import AllTimePanel from "../components/AllTimePanel";
 import DataTable, { applySort, sortCol } from "../components/DataTable";
+import { useMobile } from "../lib/useWidth";
 import {
-  BoardScope, blankRow, identityCols, usePlayerFilters,
+  BoardScope, blankRow, identityCols, mobileCols, TAIL_GRP, usePlayerFilters,
   type BoardCtx, type PlayerCol, type PlayerRow,
 } from "../components/PlayerBoard";
 
@@ -97,7 +98,17 @@ export default function Stats() {
     setOpenPid(null);
   }, [scope]);
 
-  const cols = useMemo(() => seasonCols(allTime), [allTime]);
+  // MOBILE.md M4 — pan the board, six-column budget. WAR leads (it is the
+  // resting sort), then PPG and GP, then Roster; volatility and the per-game
+  // rates are on the player page.
+  const mobile = useMobile();
+  const cols = useMemo(() => {
+    const all = seasonCols(allTime);
+    return mobile ? mobileCols(all, ["war", "ppg", "gp"]) : all;
+  }, [allTime, mobile]);
+  // banner order follows the mobile column order (Wins added before
+  // Production), so the spans stay over their own columns
+  const groups = mobile ? [GROUPS[0], GROUPS[2], GROUPS[1], TAIL_GRP] : GROUPS;
 
   const { rows, count, ctx } = useMemo(() => {
     const owners = data ? ownerOf(data.teams) : {};
@@ -152,8 +163,9 @@ export default function Stats() {
         </span>
       </div>
       {/* the year spine: its own row, because it re-scopes the board rather
-          than switching which board you are on */}
-      <div className="screen-head" style={{ paddingTop: 0 }}>
+          than switching which board you are on. Chips-only, so on a phone it
+          scrolls rather than wrapping (MOBILE.md M3). */}
+      <div className="screen-head chiprow" style={{ paddingTop: 0 }}>
         {played.map(s => yearChip(s, `/stats/${seasonSeg(s)}`, scope === s))}
         {yearChip("All-time", "/stats/all", allTime)}
       </div>
@@ -180,7 +192,7 @@ export default function Stats() {
             and projections are on Value.
           </div>
         ) : (
-          <DataTable cols={cols} groups={GROUPS} rows={rows} ctx={ctx} rowKey={r => r.id}
+          <DataTable cols={cols} groups={groups} rows={rows} ctx={ctx} rowKey={r => r.id}
             sortId={sortId} dir={dir} onSort={onSort} homeCol="rk" openKey={openPid}
             onRowClick={r => setOpenPid(openPid === r.id ? null : r.id)}
             renderDrawer={r => allTime
