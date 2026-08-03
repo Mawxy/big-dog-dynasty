@@ -234,7 +234,16 @@ export default function Home() {
       {/* ---- hero: champion + title race ---- */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 18, padding: "2px var(--pad) 0" }}>
         <div className="panel" style={{ margin: 0 }}>
-          <div className="chart-label">Reigning champion · {league.latest ?? "—"}</div>
+          {/* the champion block is where a reader arrives asking "who won" —
+              so the year-by-year history hangs off it rather than off a band
+              of its own, which would sit above the power rankings band and
+              read as two headers with nothing between them */}
+          <div className="chart-label" style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
+            <span>Reigning champion · {league.latest ?? "—"}</span>
+            <button type="button" className="dlink" onClick={() => nav(lp("/history"))}>
+              League summary
+            </button>
+          </div>
           {!champ ? <div className="empty">No completed season yet.</div> : <>
             <div style={{ font: "700 40px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)", cursor: "pointer" }}
               onClick={() => nav(lp(`/franchise/${champ.rid}`))}>

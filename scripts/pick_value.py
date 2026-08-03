@@ -56,8 +56,21 @@ HIT_WAR = 1.0            # 3-yr raw total that counts as a "hit"
 OUT_MIN_CLASSES = 4      # classes that must complete year k before its
                          # out_rate publishes (deeper years are class-thin)
 # crawl rookie-pick corpus blend: ignore (slot, player) combos taken in fewer
-# than CRAWL_MIN leagues (flukes), and give each slot CRAWL_BUDGET weighted
-# observations split across its players by how often each was taken.
+# than CRAWL_MIN leagues (flukes), and give each slot EXACTLY CRAWL_BUDGET
+# weighted observations split across its players by how often each was taken.
+#
+# "Exactly" is load-bearing. The allocation used to be
+# `max(1, round(BUDGET * cnt / tot))`, and the floor of one broke the budget:
+# a median slot keeps ~54 distinct players, ~50 of whom round to zero share and
+# were each handed a rep anyway. Slots ran to ~78 reps against a budget of 40,
+# and the surplus was all noise tail. At 2023 1.01 that gave Bijan Robinson —
+# 88.9% of real league picks — only 47.4% of the model's weight, with 39 rarely
+# taken players carrying the rest. Across all 336 slots the modal pick held a
+# median 14.7% of real picks but 7.5% of model weight. Because rare picks are
+# on average worse players, every slot median was biased DOWN, worst at the top
+# of round one where consensus is strongest. Largest-remainder allocation with
+# no floor fixes it: the reps sum to CRAWL_BUDGET and a player nobody really
+# takes contributes nothing.
 CRAWL_MIN = 3
 CRAWL_BUDGET = 40
 
@@ -291,14 +304,32 @@ def main():
                     by_slot[(season, pick)].append((sid, name, pos, cnt))
         added = 0
         for (season, pick), es in by_slot.items():
-            tot = sum(c for *_, c in es)
+            # Resolve BEFORE allocating. Resolving inside the loop and skipping
+            # failures left the unresolvable player's count in the denominator,
+            # so a slot with a name we can't map silently spent part of its
+            # budget on nothing.
+            live = []
             for sid, name, pos, cnt in es:
                 gsis, st = resolve(name, pos, season)
-                if st != 'ok':
-                    continue
-                reps = max(1, round(CRAWL_BUDGET * cnt / tot))
-                picks.extend([(season, pick, sid, gsis)] * reps)
-                added += reps
+                if st == 'ok':
+                    live.append((sid, gsis, cnt))
+            tot = sum(c for *_, c in live)
+            if not tot:
+                continue
+            # Largest remainder: floor each player's exact quota, then hand the
+            # leftover reps to the largest fractional parts. Sums to exactly
+            # CRAWL_BUDGET, preserves proportions, and drops the tail without a
+            # floor. See the CRAWL_BUDGET note above for why the floor was wrong.
+            quota = [(CRAWL_BUDGET * cnt / tot, sid, gsis) for sid, gsis, cnt in live]
+            base = [(int(q), q - int(q), sid, gsis) for q, sid, gsis in quota]
+            left = CRAWL_BUDGET - sum(b for b, *_ in base)
+            order = sorted(range(len(base)), key=lambda i: -base[i][1])
+            bonus = set(order[:max(0, left)])
+            for i, (b, _, sid, gsis) in enumerate(base):
+                reps = b + (1 if i in bonus else 0)
+                if reps:
+                    picks.extend([(season, pick, sid, gsis)] * reps)
+                    added += reps
         print(f"  crawl corpus: +{added} weighted picks from {len(by_slot)} slots")
 
     # Fill every candidate year, then prune below by real observation counts.

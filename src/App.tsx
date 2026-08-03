@@ -14,6 +14,7 @@ import Draft from "./views/Draft";
 import DraftDetail from "./views/DraftDetail";
 import Trades from "./views/Trades";
 import Ledger from "./views/Ledger";
+import History from "./views/History";
 import Dvi from "./views/Dvi";
 import Cvi from "./views/Cvi";
 import FranchisePage from "./components/FranchisePage";
@@ -130,7 +131,7 @@ function Shell() {
   // "where am I": standings belongs to League; both player boards, the two
   // index pages and any player page to Players; franchise pages to Teams.
   const HUB_OF: Record<string, string> = {
-    standings: "teams", ledger: "home", value: "players", stats: "players",
+    standings: "teams", ledger: "home", history: "home", value: "players", stats: "players",
     dvi: "players", cvi: "players", player: "players", franchise: "teams",
     playoffs: "weekly",
   };
@@ -201,6 +202,9 @@ function Shell() {
           <Route path="/:league/draft/history/:season" element={<DraftDetailRoute />} />
           <Route path="/:league/trades" element={<Trades />} />
           <Route path="/:league/ledger" element={<Ledger />} />
+          {/* the year-by-year league story — off the tab bar, reached from the
+              League dashboard's summary band */}
+          <Route path="/:league/history" element={<History />} />
           <Route path="/:league/dvi" element={<Dvi />} />
           <Route path="/:league/cvi" element={<Cvi />} />
           <Route path="/:league/player/:pid" element={<PlayerRoute />} />
