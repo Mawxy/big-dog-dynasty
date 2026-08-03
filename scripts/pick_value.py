@@ -288,11 +288,22 @@ def main():
         picks.append((season, pick, r['sleeper_id'], gsis))
 
     csv_n = len(picks)                 # curated CSV observations
-    # --- Bridge A supplement: the crawled rookie-draft corpus (thousands of
-    #     superflex leagues). Per slot, distribute a fixed observation budget
-    #     across the players taken there, weighted by how many leagues took each,
-    #     so the modal pick dominates without swamping memory. Blends with the
-    #     curated CSV above. Absent (before the crawl) => no-op.
+    curated = picks                    # kept aside; used only as the fallback
+    picks = []
+    # --- Bridge A: the crawled rookie-draft corpus (thousands of superflex
+    #     leagues). Per slot, distribute a fixed observation budget across the
+    #     players taken there, weighted by how many leagues took each, so the
+    #     modal pick dominates without swamping memory.
+    #
+    #     This REPLACES the curated CSV rather than blending with it. Blending
+    #     weighted them at parity, which is indefensible in both directions:
+    #     one curated row is a single league's single pick, while one crawl rep
+    #     stands for 1/CRAWL_BUDGET of the global consensus at that slot (~2.5%
+    #     of what tens of thousands of leagues did). The CSV was also entirely
+    #     redundant on coverage — same 336 (season, slot) cells, same resolve()
+    #     path — so all it contributed was 7.4% of the weight sourced from five
+    #     hand-picked leagues. It stays as the fallback for a missing or empty
+    #     corpus, which is the job it was actually doing before the crawl.
     corpus_f = DATA / 'rookie_pick_corpus.json'
     raw_crawl = 0                      # actual rookie picks analyzed (all leagues)
     if corpus_f.exists():
@@ -330,7 +341,15 @@ def main():
                 if reps:
                     picks.extend([(season, pick, sid, gsis)] * reps)
                     added += reps
-        print(f"  crawl corpus: +{added} weighted picks from {len(by_slot)} slots")
+        print(f"  crawl corpus: {added} weighted picks from {len(by_slot)} slots")
+
+    # Fallback: no corpus (or one that produced nothing) => the curated CSV is
+    # the whole population, exactly as it was before the crawl existed.
+    source = 'crawl corpus'
+    if not picks:
+        picks = curated
+        source = 'curated CSV (no crawl corpus)'
+        print(f"  no crawl corpus — falling back to {len(picks)} curated picks")
 
     # Fill every candidate year, then prune below by real observation counts.
     candidates = list(range(1, MAX_YEARS + 1))
@@ -398,10 +417,18 @@ def main():
         'min_obs_by_round': MIN_OBS_BY_ROUND,
         'hit_threshold_war': HIT_WAR,
         'picks_used': len(picks), 'vets_excluded': vets,
-        # total real rookie-draft picks behind the values (curated CSV + every
-        # crawled league's pick), for the headline count — vs picks_used, which
-        # is the weighted/compressed sample the bands are actually built from.
+        # Three different quantities — do NOT headline picks_analyzed.
+        #   picks_analyzed  every drafting DECISION observed (one per league per
+        #                   pick). A coverage statistic, not a sample: 10k leagues
+        #                   taking Bijan at 1.01 is one fact about 1.01.
+        #   picks_used      rows fed to the aggregation, i.e. the weighted sample.
+        #                   Reps are deliberate duplicates that place the median.
+        #   picks_distinct  distinct (slot, player) rows behind those reps. This
+        #                   is the closest thing to an honest evidence count.
         'picks_analyzed': csv_n + raw_crawl,
+        'picks_distinct': len(set(picks)),
+        'population': source,
+        'curated_available': csv_n,
         'unmatched': len(unmatched),
         'source': 'real Big Dog WAR where available, calibrated NFL history otherwise',
     },
