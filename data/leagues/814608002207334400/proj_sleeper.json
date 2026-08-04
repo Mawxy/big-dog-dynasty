@@ -3,7 +3,7 @@
   "season": 2026,
   "league_id": "1312221243742621696",
   "league_games": 13,
-  "players": 3107,
+  "players": 3108,
   "note": "pts13 = league-scored projected points scaled to 13 games"
  },
  "players": {
@@ -12446,6 +12446,12 @@
    "raw_pts": 0.0
   },
   "147": {
+   "pos": "WR",
+   "pts13": 0.0,
+   "ppg": 0.0,
+   "raw_pts": 0.0
+  },
+  "14067": {
    "pos": "WR",
    "pts13": 0.0,
    "ppg": 0.0,
