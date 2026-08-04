@@ -43,7 +43,20 @@ HIST = ROOT / "nfl_history"
 
 # position -> WAR a season must clear to count. See the module docstring for
 # why TE is not at its rank-12 equivalent.
+#
+# This is a STARTER bar — roughly each position's 12th-ranked season, i.e. the
+# last player you'd start in a 12-team league. It is NOT "elite", and calling it
+# that overstates what it measures: at RB 0.70 it admits the 0.76-0.85 range
+# where Chuba Hubbard and James Conner live. Both are useful; neither is a
+# cornerstone.
 FRANCHISE_BAR = {"QB": 1.00, "RB": 0.70, "WR": 0.85, "TE": 0.50}
+
+# The tier above: roughly each position's 6th-ranked season, so a top-half-of-
+# starters player. TE sits at its rank-3 equivalent instead — rank 6 is 0.67,
+# barely clear of the starter bar, because the position runs out of value that
+# fast. Yields ~5-6 players a year at QB/RB/WR and ~3 at TE.
+ELITE_BAR = {"QB": 1.30, "RB": 1.10, "WR": 1.10, "TE": 1.00}
+
 MIN_SEASONS = 3
 
 # The corpus carries ONE position per player across his whole career (see

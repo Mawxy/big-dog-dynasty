@@ -373,3 +373,35 @@ export interface DraftPick {
   drafted_by?: number;
 }
 export type Drafts = Record<string, DraftPick[]>;
+
+/** data/benchmarks.json — cross-league championship benchmarks, merged from the
+ *  outcomes crawl by scripts/benchmarks.py. Every rate arrives with the sample
+ *  it was built on; `v` is null when that sample is below meta.min_n, so a null
+ *  means "not enough data yet", never zero. */
+export interface BenchFig { v: number | null; n: number; of?: number }
+export interface Benchmarks {
+  meta: {
+    generated: string; shards: number; league_seasons: number;
+    champions: number; rosters: number; horizon: number; min_n: number;
+    note: string;
+  };
+  slots: { slot: string; champ: BenchFig; field: BenchFig }[];
+  construction: Record<string, { champ: BenchFig; field: BenchFig }>;
+  picks: {
+    kept_own_1st: BenchFig; traded_own_1st: BenchFig;
+    r1_held: { champ: BenchFig; field: BenchFig };
+    net_picks: BenchFig; bought: BenchFig; sold: BenchFig;
+  };
+  by_league_year: {
+    year: number; league_seasons: number; champ: BenchFig; field: BenchFig;
+  }[];
+  playoffs: {
+    stayed: BenchFig; climbed: BenchFig;
+    climber_homegrown: BenchFig; stuck_homegrown: BenchFig;
+  };
+  turnaround: {
+    bottom_finishes: number; no_room: number;
+    within: { years: number; title: BenchFig; top_third: BenchFig }[];
+    avg_place_move: BenchFig;
+  };
+}

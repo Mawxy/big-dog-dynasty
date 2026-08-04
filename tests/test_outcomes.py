@@ -7,8 +7,13 @@ crawler would fetch, so a Sleeper shape change fails here first.
 """
 import importlib.util
 import json
+import sys
 import unittest
 from pathlib import Path
+
+# sleeper_crawl imports its sibling franchise_players; running it as a script
+# puts scripts/ on the path for free, loading it here does not.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 ROOT = Path(__file__).resolve().parent.parent
 RAW = ROOT / "sleeper_data" / "2024"
@@ -141,9 +146,78 @@ class PlacementsTest(unittest.TestCase):
 
 
 def mkrow(rid, place, *, w=7, l=7, fpts=1600, picks=(1, 1, 1, 1), kept=1,
-          hg=5, n=20, qb=3, rb=6, wr=8, te=3, exp_sum=60, exp_n=20):
-    return [rid, w, l, fpts, *picks, kept, hg, n, place, qb, rb, wr, te,
-            exp_sum, exp_n]
+          hg=5, n=20, qb=3, rb=6, wr=8, te=3, exp_sum=60, exp_n=20,
+          sqb=0, srb=0, swr=0, ste=0, eqb=0, erb=0, ewr=0, ete=0,
+          fqb=0, frb=0, fwr=0, fte=0, slots=None):
+    row = [rid, w, l, fpts, *picks, kept, hg, n, place, qb, rb, wr, te,
+           exp_sum, exp_n, sqb, srb, swr, ste, eqb, erb, ewr, ete,
+           fqb, frb, fwr, fte, *(slots or [0.0] * len(sc.SLOT_FIELDS))]
+    assert len(row) == len(sc.ROW_FIELDS), "fixture drifted from ROW_FIELDS"
+    return row
+
+
+class TierIndexTest(unittest.TestCase):
+    """The Sleeper <-> nflverse join. A name match silently loses the players
+    who decide titles, so this pins the key that doesn't."""
+
+    def test_last_name_strips_suffixes_and_punctuation(self):
+        self.assertEqual(sc._last("Amon-Ra St. Brown"), "brown")
+        self.assertEqual(sc._last("Odell Beckham Jr."), "beckham")
+        self.assertEqual(sc._last("Ja'Marr Chase"), "chase")
+
+    @unittest.skipUnless((ROOT / "nfl_history" / "players_meta.csv").exists(),
+                         "nfl_history/ not present")
+    def test_legal_name_mismatches_still_resolve(self):
+        """nflverse says Joshua Allen, Sleeper says Josh Allen. Keying on name
+        loses him, Brady, DK Metcalf, Deebo Samuel, Hockenson and Watson —
+        20% of elite seasons and the best players in the set."""
+        raw = json.loads((ROOT / "sleeper_data" / "players.json").read_text(encoding="utf-8")) \
+            if (ROOT / "sleeper_data" / "players.json").exists() else None
+        if not raw:
+            self.skipTest("sleeper_data/players.json not present")
+        pmeta = {pid: {"name": f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
+                       "pos": p.get("position"), "dob": p.get("birth_date")}
+                 for pid, p in raw.items() if isinstance(p, dict)}
+        idx, _became = sc.tier_index(pmeta)
+        self.assertGreater(len(idx), 400)
+        names = {pmeta[pid]["name"] for (_s, pid) in idx}
+        for who in ("Josh Allen", "Tom Brady", "Deebo Samuel"):
+            self.assertIn(who, names, who)
+
+    def test_slot_wars_take_the_best_n_at_each_position(self):
+        wars = {(2024, "a"): ("RB", 1.5), (2024, "b"): ("RB", 0.9),
+                (2024, "c"): ("RB", 0.3), (2024, "d"): ("QB", 2.0)}
+        got = sc.slot_wars(["a", "b", "c", "d"], wars, 2024)
+        slot = dict(zip(sc.SLOT_FIELDS, got))
+        self.assertEqual(slot["rb1_war"], 1.5)
+        self.assertEqual(slot["rb2_war"], 0.9)      # third-best RB is ignored
+        self.assertEqual(slot["qb1_war"], 2.0)
+
+    def test_an_unfilled_slot_is_zero_not_dropped(self):
+        """A superflex team carrying one QB really did field nothing in QB2.
+        Skipping it would flatter exactly the rosters that were short."""
+        got = sc.slot_wars(["d"], {(2024, "d"): ("QB", 2.0)}, 2024)
+        slot = dict(zip(sc.SLOT_FIELDS, got))
+        self.assertEqual(slot["qb1_war"], 2.0)
+        self.assertEqual(slot["qb2_war"], 0.0)
+        self.assertEqual(slot["te1_war"], 0.0)
+
+    def test_players_absent_from_history_contribute_nothing(self):
+        self.assertEqual(sc.slot_wars(["ghost"], {}, 2024),
+                         [0.0] * len(sc.SLOT_FIELDS))
+
+    def test_slots_mirror_a_superflex_lineup(self):
+        self.assertEqual(sc.LINEUP_SLOTS,
+                         [("QB", 1), ("QB", 2), ("RB", 1), ("RB", 2),
+                          ("WR", 1), ("WR", 2), ("WR", 3), ("TE", 1)])
+
+    def test_missing_history_yields_an_empty_index_not_a_crash(self):
+        real = sc.ROOT
+        try:
+            sc.ROOT = Path("/nonexistent")
+            self.assertEqual(sc.tier_index({}), ({}, {}))
+        finally:
+            sc.ROOT = real
 
 
 class SummarizeTest(unittest.TestCase):
@@ -182,6 +256,58 @@ class SummarizeTest(unittest.TestCase):
         self.assertEqual(s["field_roster_n"], 2)
         self.assertEqual(s["champ_rb_sum"], 6)
         self.assertEqual(s["field_rb_sum"], 12)
+
+    def test_each_tier_carries_both_halves_of_the_fraction(self):
+        s = sc.summarize_outcomes([self.row(1, [mkrow(1, 1, erb=2),
+                                                mkrow(2, 2, erb=0)])], 0, 1)["counts"]
+        self.assertEqual(s["rb_elite2_rosters"], 1)
+        self.assertEqual(s["rb_elite2_champs"], 1)
+        self.assertEqual(s["rb_elite0_rosters"], 1)
+        self.assertEqual(s.get("rb_elite0_champs", 0), 0)
+
+    def test_rows_from_an_older_schema_are_dropped_not_misread(self):
+        """State and CI caches outlive a column addition. A short row indexed
+        by F[...] silently reads the wrong field, so it must be discarded."""
+        good = mkrow(1, 1)
+        stale = good[:len(good) - 4]                 # written before the slots
+        rows = [self.row(1, [good, stale])]
+        s = sc.summarize_outcomes(rows, 0, 1)["counts"]
+        self.assertEqual(s["champ_slot_n"], 1)
+        self.assertEqual(s["field_slot_n"], 1)       # the stale row is gone
+
+    def test_a_season_of_only_stale_rows_is_skipped_entirely(self):
+        stale = mkrow(1, 1)[:5]
+        s = sc.summarize_outcomes([self.row(1, [stale])], 0, 1)["counts"]
+        self.assertEqual(s.get("league_seasons", 0), 0)
+
+    def test_slot_war_sums_are_integers_in_milli_war(self):
+        # stored x1000 so shard merges stay exact integer addition
+        row = mkrow(1, 1, slots=[1.234, 0.5, 0, 0, 0, 0, 0, 0])
+        s = sc.summarize_outcomes([self.row(1, [row])], 0, 1)["counts"]
+        self.assertEqual(s["champ_qb1_war_sum"], 1234)
+        self.assertEqual(s["champ_qb2_war_sum"], 500)
+        self.assertEqual(s["champ_slot_n"], 1)
+
+    def test_the_three_tiers_are_counted_separately(self):
+        # 4 starter-grade RBs, of whom 1 was elite, and 2 are career franchise
+        row = mkrow(1, 1, srb=4, erb=1, frb=2)
+        s = sc.summarize_outcomes([self.row(1, [row])], 0, 1)["counts"]
+        self.assertEqual(s[f"rb_start{sc.ELITE_CAP}_rosters"], 1)   # 4 capped to 3
+        self.assertEqual(s["rb_elite1_rosters"], 1)
+        self.assertEqual(s["rb_fran2_rosters"], 1)
+
+    def test_counts_are_capped_so_thin_buckets_dont_fragment(self):
+        s = sc.summarize_outcomes([self.row(1, [mkrow(1, 1, eqb=7)])], 0, 1)["counts"]
+        self.assertEqual(s[f"qb_elite{sc.ELITE_CAP}_rosters"], 1)
+
+    def test_every_roster_lands_in_exactly_one_bucket_per_position_and_tier(self):
+        rows = [self.row(1, [mkrow(1, 1, eqb=0), mkrow(2, 2, eqb=1),
+                             mkrow(3, 3, eqb=5)])]
+        s = sc.summarize_outcomes(rows, 0, 1)["counts"]
+        for tier in ("start", "elite", "fran"):
+            total = sum(v for k, v in s.items()
+                        if k.startswith(f"qb_{tier}") and k.endswith("_rosters"))
+            self.assertEqual(total, 3, tier)
 
     def test_a_season_with_no_champion_contributes_no_champ_counts(self):
         s = sc.summarize_outcomes([self.row(None, [mkrow(1, 1)])], 0, 1)["counts"]
@@ -248,6 +374,44 @@ class TurnaroundTest(unittest.TestCase):
         self.assertEqual(c["bottom_to_title"], 1)
         self.assertEqual(c["bottom_to_title_years"], 1)
 
+    def test_a_finish_with_no_future_seasons_cannot_be_a_failure(self):
+        """The newest season of a league has nowhere to recover TO. Counting
+        those in the denominator reported 6% on real data when the honest
+        answer was 'unknown for 136 of 348'."""
+        rows = self.league("L", {2025: {r: r for r in range(1, 13)}})
+        c = sc.summarize_outcomes(rows, 0, 1)["counts"]
+        self.assertEqual(c["bottom_finishes"], c["bottom_no_room"])
+        self.assertEqual(c.get("room_1", 0), 0)      # nothing enters any denominator
+
+    def test_room_denominators_only_count_finishes_that_had_the_years(self):
+        # 3 seasons: 2023 finishes have 2 years of room, 2024 have 1, 2025 none
+        rows = self.league("L", {y: {r: r for r in range(1, 13)}
+                                 for y in (2023, 2024, 2025)})
+        c = sc.summarize_outcomes(rows, 0, 1)["counts"]
+        bottom = 4                                    # places 9-12 of 12
+        self.assertEqual(c["room_1"], bottom * 2)     # 2023 and 2024 finishes
+        self.assertEqual(c["room_2"], bottom * 1)     # only 2023 has 2 ahead
+        self.assertEqual(c.get("room_3", 0), 0)
+        self.assertEqual(c["bottom_no_room"], bottom)
+
+    def test_within_k_is_cumulative(self):
+        # roster 12 finishes last in 2021, wins in 2023 — 2 years later
+        def yr(p12):
+            places, slot = {12: p12}, 1
+            for r in range(1, 12):
+                while slot == p12:
+                    slot += 1
+                places[r] = slot
+                slot += 1
+            return places
+        rows = self.league("L", {2021: yr(12), 2022: yr(6), 2023: yr(1),
+                                 2024: yr(6), 2025: yr(6)})
+        c = sc.summarize_outcomes(rows, 0, 1)["counts"]
+        self.assertEqual(c.get("to_title_within_1", 0), 0)
+        self.assertEqual(c["to_title_within_2"], 1)
+        self.assertEqual(c["to_title_within_3"], 1)   # stays counted, not re-counted
+        self.assertEqual(c["to_title_within_4"], 1)
+
     def test_a_bottom_team_that_never_recovers_is_censored_not_zero(self):
         rows = self.league("L", {
             2023: {r: r for r in range(1, 13)},
@@ -255,8 +419,12 @@ class TurnaroundTest(unittest.TestCase):
         })
         c = sc.summarize_outcomes(rows, 0, 1)["counts"]
         self.assertEqual(c.get("bottom_to_title", 0), 0)
-        self.assertEqual(c["bottom_to_title_censored"], c["bottom_finishes"])
         self.assertEqual(c.get("bottom_to_title_years", 0), 0)
+        # censored now means "had the chance and didn't take it" — the final
+        # season's finishes had no chance at all and sit in bottom_no_room
+        self.assertEqual(c["bottom_to_title_censored"] + c["bottom_no_room"],
+                         c["bottom_finishes"])
+        self.assertEqual(c["bottom_to_title_censored"], c["room_1"])
 
     def test_horizon_is_respected(self):
         # roster 12 finishes last ONCE (2020), sits mid-table for five seasons,

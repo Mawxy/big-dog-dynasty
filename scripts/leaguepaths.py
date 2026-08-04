@@ -36,6 +36,7 @@ GLOBAL_FILES = {
     "trade_corpus.json",
     "outcome_signals.json",   # league-wide benchmarks (sharded: _0.._3)
     "outcome_corpus.json",
+    "benchmarks.json",        # merged cross-league benchmarks (Insights tab)
 }
 
 

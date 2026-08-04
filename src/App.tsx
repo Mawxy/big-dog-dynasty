@@ -15,6 +15,7 @@ import DraftDetail from "./views/DraftDetail";
 import Trades from "./views/Trades";
 import Ledger from "./views/Ledger";
 import History from "./views/History";
+import Insights from "./views/Insights";
 import Dvi from "./views/Dvi";
 import Cvi from "./views/Cvi";
 import FranchisePage from "./components/FranchisePage";
@@ -28,9 +29,9 @@ import SiteFooter from "./components/SiteFooter";
  *  reader moves between them constantly. Standings, DVI and CVI keep their
  *  routes but live off the bar — a route without a tab is a destination; a
  *  tab is a starting point. */
-const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades"] as const;
+const VIEWS = ["home", "players", "teams", "weekly", "draft", "trades", "insights"] as const;
 /** views that aren't scoped to a season (no season picker, plain route) */
-const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "trades", "dvi", "cvi"];
+const GLOBAL_VIEWS = ["home", "players", "value", "teams", "draft", "trades", "dvi", "cvi", "insights"];
 const LABEL = (v: string) =>
   v === "dvi" || v === "cvi" ? v.toUpperCase()
     : v === "home" ? "League"
@@ -205,6 +206,7 @@ function Shell() {
           {/* the year-by-year league story — off the tab bar, reached from the
               League dashboard's summary band */}
           <Route path="/:league/history" element={<History />} />
+          <Route path="/:league/insights" element={<Insights />} />
           <Route path="/:league/dvi" element={<Dvi />} />
           <Route path="/:league/cvi" element={<Cvi />} />
           <Route path="/:league/player/:pid" element={<PlayerRoute />} />

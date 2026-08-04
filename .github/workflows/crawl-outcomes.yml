@@ -73,7 +73,8 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD
-            git add data/outcome_signals_${{ matrix.shard }}.json
+            python scripts/benchmarks.py || true
+            git add data/outcome_signals_${{ matrix.shard }}.json data/benchmarks.json
             git diff --cached --quiet && { echo "no changes"; exit 0; }
             git commit -m "Crawl outcomes shard ${{ matrix.shard }} $(date -u +%FT%H:%MZ)"
             git push origin HEAD:main && exit 0
