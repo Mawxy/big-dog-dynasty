@@ -39,6 +39,8 @@ import argparse, csv, json, re, statistics
 from collections import defaultdict
 from pathlib import Path
 from leaguepaths import DataDir
+# franchise bars live in one place — see METHODOLOGY.md "Franchise players"
+from franchise_players import FRANCHISE_BAR, MIN_SEASONS as FRANCHISE_SEASONS
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -169,7 +171,7 @@ def match_gsis(name, pos, season, meta):
     return None
 
 
-def summarize(order, cells, hits, years, outs, out_years, labels=None):
+def summarize(order, cells, hits, years, outs, out_years, fran=None, labels=None):
     """Aggregate sample lists into the JSON bucket rows (raw means only)."""
     rows = []
     for b in order:
@@ -190,6 +192,13 @@ def summarize(order, cells, hits, years, outs, out_years, labels=None):
                          for k in out_years if cells[b][k]},
             'hit_rate': round(sum(1 for x in h if x >= HIT_WAR) / len(h), 3) if h else None,
             'hit_n': len(h),
+            # share of matured picks at this slot that became a franchise
+            # player at their position. Replaces out_rate on the Draft page:
+            # "did it become a long-term starter" is the question a dynasty
+            # manager is actually asking of a pick.
+            'fran_rate': (round(fran[b][0] / fran[b][1], 3)
+                          if fran and fran.get(b) and fran[b][1] else None),
+            'fran_n': (fran[b][1] if fran and fran.get(b) else 0),
             'dist3': sorted(round(x, 2) for x in h),
             'dist': {k: sorted(round(x, 2) for x in cells[b][k])
                      for k in years if cells[b][k]},
@@ -285,7 +294,7 @@ def main():
         if st == 'vet':
             vets += 1
             continue
-        picks.append((season, pick, r['sleeper_id'], gsis))
+        picks.append((season, pick, r['sleeper_id'], gsis, r['pos']))
 
     csv_n = len(picks)                 # curated CSV observations
     curated = picks                    # kept aside; used only as the fallback
@@ -323,23 +332,24 @@ def main():
             for sid, name, pos, cnt in es:
                 gsis, st = resolve(name, pos, season)
                 if st == 'ok':
-                    live.append((sid, gsis, cnt))
-            tot = sum(c for *_, c in live)
+                    live.append((sid, gsis, cnt, pos))
+            tot = sum(c for _s, _g, c, _p in live)
             if not tot:
                 continue
             # Largest remainder: floor each player's exact quota, then hand the
             # leftover reps to the largest fractional parts. Sums to exactly
             # CRAWL_BUDGET, preserves proportions, and drops the tail without a
             # floor. See the CRAWL_BUDGET note above for why the floor was wrong.
-            quota = [(CRAWL_BUDGET * cnt / tot, sid, gsis) for sid, gsis, cnt in live]
-            base = [(int(q), q - int(q), sid, gsis) for q, sid, gsis in quota]
+            quota = [(CRAWL_BUDGET * cnt / tot, sid, gsis, pos)
+                     for sid, gsis, cnt, pos in live]
+            base = [(int(q), q - int(q), sid, gsis, pos) for q, sid, gsis, pos in quota]
             left = CRAWL_BUDGET - sum(b for b, *_ in base)
             order = sorted(range(len(base)), key=lambda i: -base[i][1])
             bonus = set(order[:max(0, left)])
-            for i, (b, _, sid, gsis) in enumerate(base):
+            for i, (b, _, sid, gsis, pos) in enumerate(base):
                 reps = b + (1 if i in bonus else 0)
                 if reps:
-                    picks.extend([(season, pick, sid, gsis)] * reps)
+                    picks.extend([(season, pick, sid, gsis, pos)] * reps)
                     added += reps
         print(f"  crawl corpus: {added} weighted picks from {len(by_slot)} slots")
 
@@ -359,7 +369,14 @@ def main():
     pouts = {b: {k: 0 for k in candidates} for b in PICK_ORDER}
     bouts = {b: {k: 0 for k in candidates} for b in BAND_ORDER}
     phits, bhits = defaultdict(list), defaultdict(list)
-    for season, pick, sid, gsis in picks:
+    # franchise hit: did the pick become a FRANCHISE PLAYER at his position —
+    # FRANCHISE_SEASONS seasons clearing FRANCHISE_BAR[pos]. Unlike hit_rate
+    # (a 3-year WAR total against one flat bar) this asks the dynasty question:
+    # did this pick turn into a long-term starter at a position where that is
+    # hard? The bar is position-specific because a flat one measures the shape
+    # of the positions rather than the players — see METHODOLOGY.md.
+    pfran, bfran = defaultdict(lambda: [0, 0]), defaultdict(lambda: [0, 0])
+    for season, pick, sid, gsis, pos in picks:
         pk, bk = pick_key(pick), band_key(pick)
         for k in candidates:
             yr = season + k - 1
@@ -378,6 +395,22 @@ def main():
             if all(t is not None for t in tot):
                 phits[pk].append(sum(v for v, _ in tot))
                 bhits[bk].append(sum(v for v, _ in tot))
+            # Franchise status needs the SAME maturity gate: a class with fewer
+            # than FRANCHISE_SEASONS finished years cannot have cleared the bar
+            # that many times, and counting it would read as a miss rather than
+            # as "not yet". Every season the player has had is examined, so a
+            # 2019 pick gets all seven.
+            bar = FRANCHISE_BAR.get(pos)
+            if bar is not None:
+                good = 0
+                for yr in range(season, last + 1):
+                    r = war_of(sid, gsis, yr)
+                    if r is not None and r[0] >= bar:
+                        good += 1
+                hit = 1 if good >= FRANCHISE_SEASONS else 0
+                for store, key in ((pfran, pk), (bfran, bk)):
+                    store[key][0] += hit
+                    store[key][1] += 1
 
     # Publish year k only if EVERY slot clears its round's bar. The thinnest
     # slot governs, so a published column is honest everywhere on the board.
@@ -416,6 +449,8 @@ def main():
         'years_published': years,
         'min_obs_by_round': MIN_OBS_BY_ROUND,
         'hit_threshold_war': HIT_WAR,
+        'franchise_bars': FRANCHISE_BAR,
+        'franchise_seasons': FRANCHISE_SEASONS,
         'picks_used': len(picks), 'vets_excluded': vets,
         # Three different quantities — do NOT headline picks_analyzed.
         #   picks_analyzed  every drafting DECISION observed (one per league per
@@ -432,8 +467,8 @@ def main():
         'unmatched': len(unmatched),
         'source': 'real Big Dog WAR where available, calibrated NFL history otherwise',
     },
-        'picks': summarize(PICK_ORDER, pcells, phits, years, pouts, out_years),
-        'bands': summarize(BAND_ORDER, bcells, bhits, years, bouts, out_years,
+        'picks': summarize(PICK_ORDER, pcells, phits, years, pouts, out_years, pfran),
+        'bands': summarize(BAND_ORDER, bcells, bhits, years, bouts, out_years, bfran,
                            labels=(band_label, band_slots)),
     }
 

@@ -50,6 +50,8 @@ interface TreeNode {
   med: number | null;
   hit: number | null;
   hitN: number;
+  fran: number | null;
+  franN: number;
   /** share of deepest-year observations that are out-of-league zeros */
   out: number | null;
   children: TreeNode[];
@@ -117,6 +119,12 @@ export default function Draft() {
     // (which, with three tiers, just reprinted the middle one). Same picks,
     // two answers. Pooling at every level is the rule now; the footnote says so.
     const hitOf = (b?: PickBucket) => ({ hit: b?.hit_rate ?? null, hitN: b?.hit_n ?? 0 });
+    const franOf = (b?: PickBucket) => ({ fran: b?.fran_rate ?? null, franN: b?.fran_n ?? 0 });
+    /** pooled the same way as hit: matured picks summed, never a mean of rates */
+    const poolFran = (bs: PickBucket[]) => {
+      const franN = bs.reduce((a, b) => a + (b.fran_n ?? 0), 0);
+      return { franN, fran: franN ? bs.reduce((a, b) => a + (b.fran_rate ?? 0) * (b.fran_n ?? 0), 0) / franN : null };
+    };
     /** pooled hit rate — matured picks summed, never an average of percentages */
     const poolHit = (bs: PickBucket[]) => {
       const hitN = bs.reduce((a, b) => a + (b.hit_n ?? 0), 0);
@@ -137,14 +145,15 @@ export default function Draft() {
     const mkNode = (
       key: string, depth: 0 | 1 | 2, label: string, sub: string | undefined,
       distFor: (y: string) => number[], hit: { hit: number | null; hitN: number },
-      out: number | null, children: TreeNode[],
+      fran: { fran: number | null; franN: number }, out: number | null,
+      children: TreeNode[],
     ): TreeNode => {
       const cells = [
         ...years.map(y => ({ v: med(distFor(y)), pending: false })),
         ...pendingAges.map(() => ({ v: null, pending: true })),
       ];
       return {
-        key, depth, label, sub, children, ...hit, out, cells,
+        key, depth, label, sub, children, ...hit, ...fran, out, cells,
         med: med(cells.filter(c => !c.pending).map(c => c.v)),
       };
     };
@@ -162,10 +171,11 @@ export default function Draft() {
       const bands = (pv.bands ?? []).filter(b => +b.bucket[0] === rd);
       const tierNodes = bands.map(b => mkNode(
         b.bucket, 1, b.label ?? b.bucket, b.slots,
-        y => b.dist[y] ?? [], hitOf(b), outOf(b),
+        y => b.dist[y] ?? [], hitOf(b), franOf(b), outOf(b),
         bandSlots(b).map(s => mkNode(
           s, 2, s, undefined,
-          y => bySlot.get(s)?.dist[y] ?? [], hitOf(bySlot.get(s)), outOf(bySlot.get(s)), [],
+          y => bySlot.get(s)?.dist[y] ?? [], hitOf(bySlot.get(s)), franOf(bySlot.get(s)),
+          outOf(bySlot.get(s)), [],
         )),
       ));
       const rdBuckets = bands.length ? bands
@@ -173,7 +183,7 @@ export default function Draft() {
       return mkNode(
         String(rd), 0, `RD ${rd}`, undefined,
         y => rdSlots.flatMap(s => bySlot.get(s)?.dist[y] ?? []),
-        poolHit(rdBuckets), poolOut(rdBuckets),
+        poolHit(rdBuckets), poolFran(rdBuckets), poolOut(rdBuckets),
         tierNodes,
       );
     });
@@ -444,7 +454,7 @@ export default function Draft() {
                   ))}
                   <th className="n med" style={{ width: `${W_MED}%` }}>Median</th>
                   <th className="n" style={{ width: `${W_HIT}%` }}>Hit %</th>
-                  <th className="n" style={{ width: `${W_OUT}%` }}>Out yr {corpus.lastAge}</th>
+                  <th className="n" style={{ width: `${W_OUT}%` }}>Franchise %</th>
                 </tr>
               </thead>
               <tbody>
@@ -477,8 +487,9 @@ export default function Draft() {
                         <span className="v hit">{n.hit == null ? "—" : `${Math.round(n.hit * 100)}%`}</span>
                       </td>
                       <td className="n">
-                        <span className="v" style={{ color: n.out == null ? "var(--dim3)" : n.out >= 0.15 ? "var(--warn)" : "var(--dim)" }}>
-                          {n.out == null ? "—" : `${Math.round(n.out * 100)}%`}
+                        <span className="v" title={n.franN ? `n = ${n.franN.toLocaleString("en-US")}` : undefined}
+                          style={{ color: n.fran == null ? "var(--dim3)" : n.fran >= 0.2 ? "var(--acc)" : "var(--txt2)" }}>
+                          {n.fran == null ? "—" : `${Math.round(n.fran * 100)}%`}
                         </span>
                       </td>
                     </tr>
@@ -491,9 +502,11 @@ export default function Draft() {
             Median WAR a pick returned in each season since it was drafted — * marks a year the corpus has
             not scored yet. Hit % is the share of picks returning at
             least {fmt(corpus.hitThreshold, 0)} WAR across their first three seasons.
-            Out yr {corpus.lastAge} is the share of picks out of the NFL for good by then — no season
-            played then or since, scored as zero, distinct from playing at replacement level. Deeper
-            years aren't available yet: too few classes have reached them.
+            Franchise % is the share that became a franchise player at their own position —
+            three seasons clearing that position's bar (QB 1.00, RB 0.70, WR 0.85, TE 0.50 WAR).
+            The bars differ by position on purpose: one flat threshold measures the shape of the
+            positions rather than the players in them. Both rates count only classes with three
+            finished seasons, so a recent class reads as "not yet", never as a miss.
           </div>
           </div>
         </>

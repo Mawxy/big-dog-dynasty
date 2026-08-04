@@ -126,6 +126,12 @@ export interface PickBucket {
   out_rate?: Record<string, number>;
   hit_rate: number | null;
   hit_n: number;
+  /** share of matured picks at this slot that became a FRANCHISE PLAYER at
+   *  their position — 3 seasons clearing that position's bar. Replaces
+   *  out_rate on the Draft page: "did it become a long-term starter" is the
+   *  dynasty question, where out_rate only said "did he disappear". */
+  fran_rate?: number | null;
+  fran_n?: number;
   /** sorted raw 3-yr WAR totals of matured picks (box-plot sample) */
   dist3: number[];
   /** year-since-draft -> sorted per-season WAR samples (box-plot / trajectory) */
