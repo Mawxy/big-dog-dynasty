@@ -34,6 +34,8 @@ GLOBAL_FILES = {
     "draft_index.json",       # draft_id -> [league_id, season, kind]
     "rookie_pick_corpus.json",
     "trade_corpus.json",
+    "outcome_signals.json",   # league-wide benchmarks (sharded: _0.._3)
+    "outcome_corpus.json",
 }
 
 

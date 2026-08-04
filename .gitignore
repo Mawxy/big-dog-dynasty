@@ -10,6 +10,10 @@ vite.config.*.timestamp-*.mjs
 # raw trade corpus can be tens of MB at scale — kept as a CI artifact, not committed
 data/trade_corpus.json
 data/trade_corpus_*.json
+# per-roster outcome rows: ~200 MB at full crawl scale. The committed file is
+# data/outcome_signals_<shard>.json, which is the aggregate of these.
+data/outcome_corpus.json
+data/outcome_corpus_*.json
 data/leagues/*/blended_values.json
 data/leagues/*/cvi_detail.json
 

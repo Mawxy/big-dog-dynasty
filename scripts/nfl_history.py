@@ -75,6 +75,51 @@ SCORING = {
 }
 ROSTER_POSITIONS = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX"]
 CORE = {"QB", "RB", "WR", "TE"}
+
+# ---------------------------------------------------------------------------
+# Position is CURRENT-STATE and applied to every season.
+#
+# nflverse's players table carries one position per player — whatever he is
+# listed as now — and this file used it for all seasons. The consequence is
+# invisible in the output (no player in the corpus ever changes position) but
+# real in two places: score_row() applies the TE premium off `pos`, and
+# assign_slots()/the replacement baseline rank a player inside that position's
+# pool. A player who changed eligibility is therefore scored and pooled under
+# his LAST role for his whole career.
+#
+# Measured blast radius: 9 of 914 players disagree between nflverse and Sleeper
+# (1.0%), and only one of those ever cleared 0.5 WAR. The temporal problem is
+# rarer still. Removing the one contaminating case below moves TE6 by -0.015
+# and TE12 by -0.009 across 2012-2025, and moves TE1/TE3 not at all — so this
+# is a correctness fix, not a numbers fix.
+#
+# Overrides are (gsis_id -> [(first_season, last_season, position), ...]),
+# earliest first; a season outside every range falls back to nflverse. Pinning
+# a player whose sources already agree is deliberate: it stops a future
+# nflverse reclassification from silently rewriting his history.
+POS_OVERRIDE = {
+    # WR for Philadelphia through 2016 — his only productive years, and the
+    # ones that put him in TE tables he never belonged in. Listed TE later,
+    # which is where nflverse and Sleeper both leave him.
+    "00-0031299": [(2012, 2016, "WR")],                  # Jordan Matthews
+    # Fantasy-eligible TE for his whole career whatever he lines up as, which
+    # is the eligibility the league actually scores. Pinned, not changed.
+    "00-0033357": [(2012, 2100, "TE")],                  # Taysom Hill
+    # Converted QB; the 2014 QB season is noise and everything that matters is
+    # at tight end. Pinned.
+    "00-0031280": [(2012, 2100, "TE")],                  # Logan Thomas
+    # NOT overridden, deliberately: Cordarrelle Patterson and Ty Montgomery
+    # were genuinely startable at two positions for years, so neither label is
+    # wrong and picking one would assert a precision the data doesn't have.
+}
+
+
+def pos_for(players_pos, pid, season):
+    """Position for one player in ONE season, overrides first."""
+    for lo, hi, pos in POS_OVERRIDE.get(pid, ()):
+        if lo <= season <= hi:
+            return pos
+    return players_pos.get(pid)
 N_TEAMS = 12
 LAST_WEEK = 14          # league regular season = weeks 1-14 (playoffs wk 15+)
 SIGMA_COEF = 0.160      # weekly sigma = SIGMA_COEF * mean synthetic team score.
@@ -244,7 +289,9 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
         points, positions, played = {}, {}, {}
         pids = {p for w, p in stat_by if w == wk} | {p for w, p in snap_by if w == wk}
         for pid in pids:
-            pos = players_pos.get(pid)
+            # season-aware: the override has to reach score_row() and the pool
+            # assignment below, not just the label written to the CSV
+            pos = pos_for(players_pos, pid, season)
             if pos not in CORE:
                 continue
             srow = stat_by.get((wk, pid))

@@ -1,0 +1,82 @@
+name: Crawl - outcomes (4-way sharded benchmarks)
+# Reads data/crawl_leagues.json (published by the signals crawl), walks each
+# league's previous_league_id chain, and records per league-season: who won,
+# what picks each roster held for the next rookie draft, and how much of each
+# roster it drafted itself.
+#
+# Two outputs, deliberately different in kind:
+#   data/outcome_signals_<shard>.json  small, COMMITTED — additive counters, the
+#                                      benchmark numbers the site reads. Shards
+#                                      merge by summing (tests/test_outcomes.py
+#                                      locks that property).
+#   data/outcome_corpus_<shard>.json   large, ARTIFACT ONLY — the per-roster rows
+#                                      behind those counters, for re-analysis.
+#
+# Cadence is lower than trades because a completed season never changes: the
+# only new rows come from leagues finishing, or from chains not yet walked.
+on:
+  schedule:
+    - cron: "0 3,15 * * *"          # two hours after signals, list is fresh
+  workflow_dispatch:
+permissions:
+  contents: write                   # commits the signals files
+jobs:
+  outcomes:
+    runs-on: ubuntu-latest
+    # 350 vs --max-minutes 300: the trades job left 15 minutes for checkout,
+    # cache save and artifact upload and could be cancelled mid-save, which
+    # loses the cache as well as the run. 50 is the margin that mistake earned.
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    concurrency:
+      group: crawl-outcomes-${{ matrix.shard }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore/persist shard state
+        uses: actions/cache@v4
+        with:
+          path: .crawl-state/outcomes-${{ matrix.shard }}
+          key: crawl-outcomes-${{ matrix.shard }}-${{ github.run_id }}
+          restore-keys: crawl-outcomes-${{ matrix.shard }}-
+      - name: Crawl outcomes (shard ${{ matrix.shard }} of 4)
+        run: |
+          python scripts/sleeper_crawl.py --mode outcomes \
+            --state .crawl-state/outcomes-${{ matrix.shard }} \
+            --shard ${{ matrix.shard }} --nshards 4 \
+            --cooldown-days 14 --max-minutes 300
+      - name: Upload row corpus
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: outcome-corpus-shard-${{ matrix.shard }}
+          path: data/outcome_corpus_${{ matrix.shard }}.json
+          retention-days: 90
+          # warn, not ignore: a missing corpus means the run died before its
+          # first checkpoint, and that should be visible in the run summary
+          # rather than showing green with nothing uploaded.
+          if-no-files-found: warn
+      - name: Commit benchmark signals
+        if: always()
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rebase --abort 2>/dev/null || true
+          # RE-PARENT, never rebase — see crawl-signals.yml. Generated files are
+          # rewritten whole, so a replayed commit always conflicts.
+          for i in 1 2 3 4 5; do
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            git add data/outcome_signals_${{ matrix.shard }}.json
+            git diff --cached --quiet && { echo "no changes"; exit 0; }
+            git commit -m "Crawl outcomes shard ${{ matrix.shard }} $(date -u +%FT%H:%MZ)"
+            git push origin HEAD:main && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1

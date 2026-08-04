@@ -24,6 +24,7 @@ premium, superflex). No figure here re-scores anything by hand.
 | [DVI](#dvi-dynasty-value-index) | What is he worth in a dynasty trade? | `blend_values.py` |
 | [CVI](#cvi-contender-value-index) | What is he worth for THIS season? | `contender_index.py` |
 | [Bridge A / Bridge B](#pick-values-bridge-a-and-bridge-b) | What is a draft pick worth? | `pick_value.py`, `value_bridge.py` |
+| [Franchise players](#franchise-players) | Who was a real starter, repeatedly? | `franchise_players.py` |
 
 ---
 
@@ -366,6 +367,78 @@ observation bar, so a published column is honest everywhere on the board.
 market value to projected 3-year composite WAR, applied to the market's own
 pick values. Position-agnostic on purpose: picks have no position, so the
 bridge must not either.
+
+---
+
+## Franchise players
+
+**Owner:** `scripts/franchise_players.py` · **Scope:** `nfl_history/waa_war_<season>.csv`, 2012 onward
+
+A **franchise player** cleared his position's bar in at least **three separate
+seasons**. Seasons need not be consecutive.
+
+| Position | Bar | Its rank-12 season value |
+|---|---|---|
+| QB | 1.00 | 1.003 |
+| RB | 0.70 | 0.693 |
+| WR | 0.85 | 0.845 |
+| TE | **0.50** | 0.290 |
+
+The bars are position-specific on purpose. A flat 1.0 WAR test returns 23 QBs
+and 5 TEs, which measures the shape of the positions rather than the players
+inside them. Three of the four sit at their position's twelfth-rank season
+value, so "franchise" means the same thing at each: a genuine starter, three
+times over.
+
+**Tight end is a judgement, and is documented as one.** At its rank-12
+equivalent of 0.29 the bar admits fringe starters, and no threshold produces a
+QB-comparable count — the position averages 0.034 WAR by TE20 and is negative
+by TE22, so the players simply do not exist. 0.50 is set where the admitted
+players are ones a manager would actually have wanted. It returns 14 against
+23–25 elsewhere. **That gap is the finding, not an artefact to tune away**:
+tight end produces roughly half as many franchise players as any other
+position, and one of them (Kelce, 11 qualifying seasons) accounts for more than
+the bottom five combined.
+
+### Position is current-state, and applied to every season
+
+`nfl_history.py` reads one position per player from nflverse's players table —
+whatever he is listed as now — and uses it for his whole career. Nothing in the
+output reveals this: **no player in the corpus ever changes position.**
+
+It is not only a label. `pos` drives `score_row()`, which applies the TE
+premium, and the pool a player is ranked inside, which sets his replacement
+baseline. A player whose eligibility changed is therefore *scored* and *pooled*
+under his final role for every season he ever played.
+
+The measured scale is small. Nine of 914 players disagree between nflverse and
+Sleeper (1.0%), and only one of those ever cleared 0.5 WAR. Correcting the one
+case that reached a published table — Jordan Matthews, a WR through 2016 who
+finished his career listed at TE — moves TE6 by −0.015 and TE12 by −0.009
+across 2012–2025, and moves TE1 and TE3 not at all.
+
+Known cases are corrected at the source in `nfl_history.POS_OVERRIDE`, which is
+season-ranged so a correction reaches scoring and pooling, not just the CSV
+label. Two kinds of entry live there:
+
+- **Corrections.** Matthews is WR through 2016, then falls back to the source.
+- **Pins.** Taysom Hill and Logan Thomas are fixed at TE because that is the
+  eligibility the league actually scores, whatever they line up as. Pinning
+  players whose sources already agree stops a future nflverse reclassification
+  from silently rewriting their history.
+
+Deliberately **not** overridden: Cordarrelle Patterson and Ty Montgomery were
+genuinely startable at two positions for years. Either label is defensible and
+choosing one would assert precision the data does not have.
+
+The limitation that remains: for any player whose eligibility changed and who
+is not in the override map, the whole career is scored under today's label.
+The live league data uses the same current-state rule, so the two sets agree
+with each other — but a reader comparing a 2014 tight end list against
+contemporary reality will find names that were never tight ends.
+
+An override only takes effect on a rebuild: `nfl_history.py` regenerates
+`waa_war_<season>.csv`, and every figure downstream of it moves with them.
 
 ---
 

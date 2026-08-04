@@ -567,9 +567,343 @@ def mode_drafts(args, t0):
     hb("done")
 
 
+# ----------------------------------------------------------- mode: outcomes ---
+def champ_of(bracket):
+    """(champion_roster_id, runner_up_roster_id) from a winners bracket.
+
+    The title game is the one carrying placement 1. Sleeper marks it `p: 1`;
+    everything else in the bracket is an earlier round or a consolation
+    placement. A bracket still in progress has no winner on that game yet.
+    """
+    for g in bracket or []:
+        if g.get("p") == 1:
+            return g.get("w"), g.get("l")
+    return None, None
+
+
+def placements_of(winners, ranked):
+    """{roster_id: place}, 1 = champion. PLAYOFF RESULT, THEN REGULAR SEASON.
+
+    The winners bracket decides the top: a game with `p: n` places its winner
+    nth and its loser (n+1)th. Everyone who missed the playoffs is ordered
+    underneath by record — `ranked` is roster_ids by wins then points, Sleeper's
+    own standings tiebreak.
+
+    The consolation bracket is deliberately NOT read, so this does not always
+    equal `finish` in franchises.json, which does read it. That is a definition,
+    not a bug. `place` exists to answer "how bad was this roster", and many
+    leagues seed the toilet bowl in reverse for draft position or never contest
+    it, so its result is noise against the question. A 5-9 team that wins the
+    consolation bracket was not the 7th best roster in the league.
+
+    It also saves one API call per league-season across ~76k leagues.
+    """
+    place = {}
+    for g in winners or []:
+        p = g.get("p")
+        if not p:
+            continue
+        if g.get("w"):
+            place.setdefault(g["w"], p)
+        if g.get("l"):
+            place.setdefault(g["l"], p + 1)
+    nxt = max(place.values()) + 1 if place else 1
+    for rid in ranked:
+        if rid not in place:
+            place[rid] = nxt
+            nxt += 1
+    return place
+
+
+def pick_holdings(rids, traded, nxt, rounds=4):
+    """Who holds which of next season's rookie picks, and who sold their own 1st.
+
+    /traded_picks reports only picks that MOVED, as
+    {season, round, roster_id: original owner, owner_id: holder now}. So start
+    everyone with their own pick in every round and apply the moves: the
+    original owner loses it, the current holder gains it. A roster that flipped
+    the same pick twice appears once, already resolved to its final owner.
+    """
+    held = {rid: {r: 1 for r in range(1, rounds + 1)} for rid in rids}
+    sold_own_1st = {rid: False for rid in rids}
+    for tp in traded or []:
+        try:
+            if int(tp.get("season") or 0) != nxt:
+                continue
+        except (TypeError, ValueError):
+            continue
+        rd, orig, now = tp.get("round"), tp.get("roster_id"), tp.get("owner_id")
+        if not rd or rd > rounds or orig not in held or now not in held:
+            continue
+        held[orig][rd] -= 1
+        held[now][rd] += 1
+        if rd == 1 and orig != now:
+            sold_own_1st[orig] = True
+    return held, sold_own_1st
+
+
+def mode_outcomes(args, t0):
+    """Per league-season: who won, what each roster held, what it drafted.
+
+    Why aggregate rather than dump rows: the raw join — every pick and every
+    trade tagged with its league — is ~200 MB of JSON at full crawl scale, which
+    is a database, not a repo file. So this mode answers the questions in the
+    crawler and ships counters, the same trade `mode_signals` already makes.
+    The cost is that a NEW question means re-crawling rather than re-querying;
+    the questions baked in are the ones in ROW_FIELDS below.
+
+    A chain is walked oldest-first so `drafted_by` accumulates forward: a 2025
+    roster's homegrown share correctly counts a player it drafted in 2022.
+    """
+    sd = Path(args.state)
+    progress = jload(sd / "progress.json", {})       # entry lid -> last ts
+    rows = jload(sd / "rows.json", {})               # "lid|season" -> row
+    pmeta = load_player_meta(sd)                     # {pid: {exp, name, pos}}
+    league_list = jload(ROOT / args.leagues_out, {}).get("leagues", [])
+    mine = [lid for lid in league_list
+            if shard_of(lid, args.nshards) == args.shard
+            and not fresh(progress.get(lid), args.cooldown_days)]
+    n_done = 0
+    counters = lambda: {"shard": f"{args.shard}/{args.nshards}",
+                        "todo": len(mine) - n_done, "done": n_done,
+                        "league_seasons": len(rows)}
+    hb = make_heartbeat(t0, counters)
+    print(f"[outcomes] shard {args.shard}/{args.nshards}: {len(mine)} leagues due "
+          f"of {len(league_list)}", file=sys.stderr, flush=True)
+
+    def flush():
+        jdump(sd / "progress.json", progress)
+        jdump(sd / "rows.json", rows)
+        jdump(ROOT / (args.outcomes_out.replace(".json", f"_{args.shard}.json")),
+              {"generated": datetime.date.today().isoformat(), "shard": args.shard,
+               "nshards": args.nshards, "rows": list(rows.values())})
+        jdump(ROOT / (args.outcome_signals_out.replace(".json", f"_{args.shard}.json")),
+              summarize_outcomes(rows.values(), args.shard, args.nshards))
+        return len(rows)
+
+    deadline = t0 + args.max_minutes * 60 if args.max_minutes else None
+    last_log = t0
+    for lid in mine:
+        if deadline and time.time() >= deadline:
+            break
+        try:
+            # walk back to the founding league, newest first, then reverse
+            chain, guard, node = [], set(), lid
+            while node and node not in guard and len(chain) < MAX_CHAIN:
+                guard.add(node)
+                lg = get(f"/league/{node}")
+                if not lg:
+                    break
+                chain.append((node, lg))
+                if int(lg.get("season") or 0) <= FIRST_CLASS:
+                    break
+                node = lg.get("previous_league_id")
+            # The FRANCHISE key. A league_id is one season, so a chain's seasons
+            # all carry different ids — grouping rows by `lid` gives one season
+            # per group and no cross-season sequence can ever form (this is why
+            # the first trial reported zero turnarounds in a league that had a
+            # 12th-to-1st). The founding id is the oldest node: stable across
+            # seasons and across runs, since a new season prepends to the chain.
+            founding = chain[-1][0] if chain else lid
+            drafted_by = {}                          # pid -> roster_id, chain-wide
+            for node, lg in reversed(chain):
+                season = int(lg.get("season") or 0)
+                # harvest drafts first: they feed this season AND later ones
+                for d in (get(f"/league/{node}/drafts") or []):
+                    did = d.get("draft_id")
+                    if not did or d.get("status") != "complete":
+                        continue
+                    for pk in (get(f"/draft/{did}/picks") or []):
+                        pid, rid = pk.get("player_id"), pk.get("roster_id")
+                        if pid and rid:
+                            drafted_by.setdefault(pid, rid)
+                if lg.get("status") != "complete":
+                    continue                         # in-progress: no outcome yet
+                rosters = get(f"/league/{node}/rosters") or []
+                if not rosters:
+                    continue
+                rids = [r.get("roster_id") for r in rosters if r.get("roster_id")]
+                bracket = get(f"/league/{node}/winners_bracket")
+                cw, cl = champ_of(bracket)
+                rec = {r.get("roster_id"): (r.get("settings") or {}) for r in rosters}
+                ranked = sorted(rids, key=lambda i: (-(rec[i].get("wins") or 0),
+                                                     -float(rec[i].get("fpts") or 0)))
+                place = placements_of(bracket, ranked)
+                held, sold1 = pick_holdings(
+                    rids, get(f"/league/{node}/traded_picks"), season + 1)
+                out = []
+                for r in rosters:
+                    rid = r.get("roster_id")
+                    if not rid:
+                        continue
+                    st = r.get("settings") or {}
+                    players = [p for p in (r.get("players") or [])]
+                    own = sum(1 for p in players if drafted_by.get(p) == rid)
+                    h = held.get(rid, {})
+                    # roster construction: shape and age, both from the cached
+                    # player map, so they cost no extra calls
+                    pos = defaultdict(int)
+                    exp_sum = exp_n = 0
+                    for p in players:
+                        m = pmeta.get(p) or {}
+                        if m.get("pos"):
+                            pos[m["pos"]] += 1
+                        if m.get("exp") is not None:
+                            exp_sum += m["exp"]
+                            exp_n += 1
+                    out.append([rid, st.get("wins", 0), st.get("losses", 0),
+                                round(float(st.get("fpts", 0) or 0)),
+                                h.get(1, 0), h.get(2, 0), h.get(3, 0), h.get(4, 0),
+                                0 if sold1.get(rid) else 1, own, len(players),
+                                place.get(rid, 0),
+                                pos["QB"], pos["RB"], pos["WR"], pos["TE"],
+                                exp_sum, exp_n])
+                rows[f"{node}|{season}"] = {
+                    "lid": node, "chain": founding, "season": season,
+                    "teams": lg.get("total_rosters"),
+                    "sf": is_superflex(lg), "champ": cw, "runner": cl,
+                    "rosters": out,
+                }
+            progress[lid] = time.time()
+            n_done += 1
+            if n_done % CHECKPOINT_EVERY == 0:
+                flush()
+        except RuntimeError:
+            raise
+        except Exception as e:
+            print(f"  skip {lid}: {e}", file=sys.stderr, flush=True)
+        if time.time() - last_log >= args.log_every:
+            hb(); last_log = time.time()
+    flush()
+    hb("done")
+    print(f"[outcomes] shard {args.shard}: {n_done} leagues, {len(rows)} league-seasons",
+          file=sys.stderr, flush=True)
+
+
+# roster row layout, so a consumer never indexes by magic number
+ROW_FIELDS = ["rid", "wins", "losses", "fpts",
+              "held_r1", "held_r2", "held_r3", "held_r4",
+              "kept_own_1st", "homegrown_n", "roster_n", "place",
+              "qb", "rb", "wr", "te", "exp_sum", "exp_n"]
+F = {name: i for i, name in enumerate(ROW_FIELDS)}
+TURN_HORIZON = 5          # seasons to look ahead from a bottom-third finish
+
+
+def summarize_outcomes(rows, shard, nshards):
+    """The benchmark answers, small enough to commit.
+
+    EVERYTHING here is a count or a sum, never a rate. The four shards are
+    merged by adding their counters, and a mean of means is not a mean — so a
+    consumer divides at the end. `<x>_sum` over `<x>_n` is the pattern.
+
+    Grouping by league is shard-safe: shard_of() keys on league_id, so every
+    season of a league lands in the same shard and no cross-season sequence is
+    ever split across two files.
+    """
+    agg = defaultdict(int)
+    # Keyed on the FRANCHISE chain, never `lid` — one league_id is one season.
+    by_league = defaultdict(dict)          # chain -> {season: {rid: row}}
+    for row in rows:
+        rs = row.get("rosters") or []
+        champ = row.get("champ")
+        if not rs:
+            continue
+        chain = row.get("chain") or row.get("lid")
+        by_league[chain][row.get("season")] = {r[F["rid"]]: r for r in rs}
+        if champ is None:
+            continue
+        agg["league_seasons"] += 1
+        c = {r[F["rid"]]: r for r in rs}.get(champ)
+        if not c:
+            continue
+        agg["champs"] += 1
+        agg["champ_kept_own_1st"] += c[F["kept_own_1st"]]
+        agg["champ_r1_held"] += c[F["held_r1"]]
+        agg["field_r1_held"] += sum(r[F["held_r1"]] for r in rs)
+        agg["field_rosters"] += len(rs)
+        picks = sum(c[F["held_r1"]:F["held_r4"] + 1])
+        agg["champ_net_picks"] += picks - 4
+        agg["champ_bought"] += 1 if picks > 4 else 0
+        agg["champ_sold"] += 1 if picks < 4 else 0
+        # --- roster construction: champion vs the field it beat ---------------
+        for tag, group in (("champ", [c]), ("field", rs)):
+            for r in group:
+                agg[f"{tag}_roster_sum"] += r[F["roster_n"]]
+                agg[f"{tag}_roster_n"] += 1
+                agg[f"{tag}_homegrown_sum"] += r[F["homegrown_n"]]
+                for p in ("qb", "rb", "wr", "te"):
+                    agg[f"{tag}_{p}_sum"] += r[F[p]]
+                agg[f"{tag}_exp_sum"] += r[F["exp_sum"]]
+                agg[f"{tag}_exp_n"] += r[F["exp_n"]]
+    # --- turnaround: how long from the bottom third to the top ---------------
+    # For every roster-season finishing in the bottom third, look forward up to
+    # TURN_HORIZON seasons and record when it first reached a title / the top
+    # third. A run that never gets there inside the horizon is censored, not
+    # zero — counted separately so a consumer can report "x% within n years"
+    # instead of silently averaging away the failures.
+    for lid, seasons in by_league.items():
+        yrs = sorted(seasons)
+        n_teams = max((len(seasons[y]) for y in yrs), default=0)
+        # Thirds are meaningless below four teams, so the bottom-third analysis
+        # is skipped there — but place movement is not, and used to be skipped
+        # with it because both sat under the same guard.
+        bottom, top = ((n_teams - n_teams // 3, n_teams // 3) if n_teams >= 4
+                       else (n_teams + 1, 0))
+        for i, y in enumerate(yrs):
+            for rid, r in seasons[y].items():
+                pl = r[F["place"]]
+                if not pl or pl <= bottom:
+                    continue
+                agg["bottom_finishes"] += 1
+                won = topped = 0
+                for k in range(1, TURN_HORIZON + 1):
+                    if i + k >= len(yrs):
+                        break
+                    nxt = seasons[yrs[i + k]].get(rid)
+                    if not nxt or not nxt[F["place"]]:
+                        continue
+                    if not topped and nxt[F["place"]] <= top:
+                        topped = k
+                    if not won and nxt[F["place"]] == 1:
+                        won = k
+                    if won:
+                        break
+                if won:
+                    agg["bottom_to_title"] += 1
+                    agg["bottom_to_title_years"] += won
+                    if won == 1:
+                        agg["last_to_first"] += 1
+                else:
+                    agg["bottom_to_title_censored"] += 1
+                if topped:
+                    agg["bottom_to_top"] += 1
+                    agg["bottom_to_top_years"] += topped
+                else:
+                    agg["bottom_to_top_censored"] += 1
+        # one-year place movement, for the distribution of ordinary swings
+        for i in range(len(yrs) - 1):
+            a, b = seasons[yrs[i]], seasons[yrs[i + 1]]
+            for rid, r in a.items():
+                nxt = b.get(rid)
+                if not nxt or not r[F["place"]] or not nxt[F["place"]]:
+                    continue
+                agg["move_n"] += 1
+                agg["move_abs_sum"] += abs(r[F["place"]] - nxt[F["place"]])
+                agg["move_up_sum"] += max(0, r[F["place"]] - nxt[F["place"]])
+    return {
+        "generated": datetime.date.today().isoformat(),
+        "shard": shard, "nshards": nshards,
+        "horizon": TURN_HORIZON,
+        "counts": dict(agg),
+        "row_fields": ROW_FIELDS,
+        "note": "counts and sums only — merge shards by adding, divide last",
+    }
+
+
 def main():
     ap = argparse.ArgumentParser(description="stateful sharded dynasty crawler")
-    ap.add_argument("--mode", choices=["signals", "trades", "drafts"], required=True)
+    ap.add_argument("--mode", choices=["signals", "trades", "drafts", "outcomes"],
+                    required=True)
     ap.add_argument("--state", required=True, help="state dir (persisted via CI cache)")
     ap.add_argument("seeds", nargs="*", help="signals: seed league_ids (default: Big Dog chain)")
     ap.add_argument("--season")
@@ -591,6 +925,9 @@ def main():
     ap.add_argument("--drafts-out", default="data/draft_signals.json")
     ap.add_argument("--draft-index-out", default="data/draft_index.json",
                     help="drafts: draft_id -> [league_id, season, kind]")
+    # raw rows are artifact-only (large); the signals file is the committed one
+    ap.add_argument("--outcomes-out", default="data/outcome_corpus.json")
+    ap.add_argument("--outcome-signals-out", default="data/outcome_signals.json")
     # separate flag so a bounded trial run can write somewhere harmless instead
     # of overwriting the committed corpus with a partial sample
     ap.add_argument("--rookie-out", default="data/rookie_pick_corpus.json")
@@ -602,7 +939,8 @@ def main():
     if not args.season:
         sys.exit("could not resolve season; pass --season")
     t0 = time.time()
-    {"signals": mode_signals, "trades": mode_trades, "drafts": mode_drafts}[args.mode](args, t0)
+    {"signals": mode_signals, "trades": mode_trades, "drafts": mode_drafts,
+     "outcomes": mode_outcomes}[args.mode](args, t0)
 
 
 if __name__ == "__main__":
