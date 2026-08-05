@@ -14,8 +14,8 @@ For each rostered player:
   4. Report three streams, plus p20/p80 bands:
        natural   — the rate, i.e. a full healthy 13-game season
        composite — natural blended with Sleeper's year-1 projection aged along
-                   the natural path's decay shape (80/20 yr1, 50/50 yr2,
-                   20/80 yr3); falls back to pure natural if no projection
+                   the natural path's decay shape (90/10 yr1, 50/50 yr2,
+                   10/90 yr3); falls back to pure natural if no projection
        expected  — natural x availability, i.e. discounted for injury
      Composite carries NO injury discount; only `expected` does.
 
@@ -33,7 +33,12 @@ from leaguepaths import DataDir
 ROOT = Path(__file__).resolve().parent.parent
 DATA = DataDir(ROOT / "data")
 RECENCY = [0.5, 0.4, 0.1]            # recency weights (rate over volume; not games-weighted)
-BLEND_W = [0.8, 0.5, 0.2]            # composite: projected weight by year (math = 1 - this)
+BLEND_W = [0.9, 0.5, 0.1]            # composite: projected weight by year (math = 1 - this)
+                                     # Deliberately steep. Sleeper knows THIS year's
+                                     # role and knows nothing about 2028, so year 1 is
+                                     # handed to it almost whole and year 3 almost not
+                                     # at all. There is no separate Sleeper stream: the
+                                     # near-year composite IS the points read.
 ELITE_WAR = 1.2                      # a season at/above this counts toward durability
 DUR_STEP = 0.15                     # durability pull per elite season beyond 3
 DUR_MAX = 0.30                      # cap: proven perennials (4+ elite yrs, ~84% retention
@@ -349,7 +354,7 @@ def main():
         # composite: blend the math path with a "projected path" (Sleeper's
         # year-1 number aged forward along the math's decay shape), weighting
         # the projection heavily near-term and handing off to the math:
-        # yr1 80/20, yr2 50/50, yr3 20/80.  Falls back to pure math if no projection.
+        # yr1 90/10, yr2 50/50, yr3 10/90.  Falls back to pure math if no projection.
         sp = sproj.get(pid)
         # pts13 == 0 means Sleeper has no projection for this player (2542/3103
         # of the file); treat that as absent, not a real 0-point projection —
@@ -418,7 +423,7 @@ def main():
         'horizon': H, 'years': proj_years, 'players': len(rows),
         'model': 'per-13 rate + capital-shrinkage + availability; three streams: '
                  'natural(if healthy) / composite(natural blended with Sleeper '
-                 'projection, 80/50/20 by year) / expected(natural x availability)',
+                 'projection, 90/50/10 by year) / expected(natural x availability)',
     }, 'players': rows}
     # compact separators: the site fetches this on the landing page and
     # indentation was 40% of its bytes

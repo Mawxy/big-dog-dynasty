@@ -170,6 +170,7 @@ export interface Projection {
   bye?: number | null;
   /** projected positional finish per projected year (composite, e.g. WR6) */
   posFin?: number[];
+  /** year-1 WAR implied by Sleeper's projected points alone (pts_to_war fit) */
   proj_ext: number | null;
   total: number; total_exp: number; total_comp: number;
 }

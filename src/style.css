@@ -221,6 +221,26 @@ a:hover { text-decoration: underline; }
   border-color: var(--acc);
   color: var(--acc-ink);
 }
+
+/* lens control — one segmented row, selected segment filled --acc. Segments
+   butt against each other on a shared 1px rule so the group reads as a single
+   control rather than as loose chips. */
+.lens { display: flex; gap: 0; padding: 10px var(--pad) 0; flex-wrap: wrap; }
+.lens .seg {
+  font: 600 12px/1 var(--cond);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  padding: 6px 14px;
+  background: var(--band);
+  color: var(--dim);
+  border: 1px solid var(--rule);
+  margin-left: -1px;
+  cursor: pointer;
+}
+.lens .seg:first-child { margin-left: 0; }
+.lens .seg:hover:not(:disabled) { color: var(--txt); }
+.lens .seg.on { position: relative; background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
+.lens .seg:disabled { color: var(--dim3); cursor: not-allowed; }
 input[type="search"] {
   background: var(--band);
   border: 1px solid var(--rule);
@@ -1094,6 +1114,16 @@ button.dband:hover .band-label { color: var(--txt2); }
 .rail-war .bar { height: 7px; }
 .rail-war .bar i { display: block; height: 100%; }
 .rail-war .v { font: 600 12.5px/1 var(--cond); text-align: right; color: var(--txt2); font-variant-numeric: tabular-nums; }
+/* played seasons pick the week grid below; projected years have no weeks and
+   stay inert. `mark` is the season showing, matching the franchise ladder. */
+.rail-war.pick { cursor: pointer; }
+.rail-war.pick:hover { background: var(--zebra); }
+.rail-war.pick:focus-visible { outline: 1px solid var(--acc); outline-offset: -1px; }
+.rail-war.mark { position: relative; }
+.rail-war.mark::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--acc);
+}
+.rail-war.mark .yr { color: var(--acc); }
 
 /* on-this-page nav */
 .rail-nav { display: flex; flex-direction: column; }

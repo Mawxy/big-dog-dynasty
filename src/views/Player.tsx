@@ -16,6 +16,24 @@ import QuickJump from "../components/QuickJump";
 const num = (n: number) => n.toLocaleString("en-US");
 const WINDOWS = ["7", "14", "30"] as const;
 
+/** The projection streams, restored as a lens. Every one is a full 3-year path
+ *  in projections.json; the control picks which is the headline and whose 80%
+ *  band the Range column draws. All three stay visible as columns — the lens
+ *  changes emphasis, not what you are allowed to see.
+ *
+ *  There is deliberately no separate Sleeper stream. Composite is 90% Sleeper
+ *  in year 1, so the near-year figure already IS the points read; a fourth
+ *  column would have restated it within a rounding error. */
+const STREAMS = [
+  { key: "composite", label: "Composite", line: "composite", lo: "comp_low", hi: "comp_high",
+    desc: "Sleeper's points blended into the model — 90/50/10 by year" },
+  { key: "proj", label: "Age curve", line: "proj", lo: "nat_low", hi: "nat_high",
+    desc: "the model alone, if healthy — a full 13-game season" },
+  { key: "expected", label: "Adjusted", line: "expected", lo: "adj_low", hi: "adj_high",
+    desc: "the model × availability — carries injury risk" },
+] as const;
+type StreamKey = typeof STREAMS[number]["key"];
+
 /**
  * Player page (3A): split rail. The rail carries identity and the career WAR
  * ladder — projected years above played ones, so decline is visible in the
@@ -35,9 +53,15 @@ export default function Player({ pid }: { pid: string }) {
   const [vals, setVals] = useState<Values | null>(null);
   /** league-season WAR by year — the ladder fallback when there's no shard */
   const [leagueCareer, setLeagueCareer] = useState<[number, number][] | null>(null);
+  /** which projection stream leads the table (the restored lens) */
+  const [stream, setStream] = useState<StreamKey>("composite");
+  /** which PLAYED season the week grid shows — the career ladder sets it */
+  const [weekSeason, setWeekSeason] = useState<string | null>(null);
 
   const last = meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : meta.seasons[meta.seasons.length - 1];
+  /** the ladder's pick, falling back to the newest played season */
+  const wkSeason = weekSeason && meta.seasons.includes(weekSeason) ? weekSeason : last;
 
   useEffect(() => {
     let live = true;
@@ -59,16 +83,16 @@ export default function Player({ pid }: { pid: string }) {
     jlDaily<DviFile>("dvi.json").then(d => { if (live) setDvi(d.players[pid] ?? null); }).catch(() => {});
     jlDaily<CviFile>("cvi.json").then(d => { if (live) setCvi(d.players[pid] ?? null); }).catch(() => {});
     jl<Ownership>("ownership.json").then(o => { if (live) setOwn(o); }).catch(() => {});
-    jl<Weekly>(`${last}/weekly.json`)
+    jl<Weekly>(`${wkSeason}/weekly.json`)
       .then(w => { if (live) setWks((w[pid] || []).slice().sort((a, b) => a[0] - b[0])); })
       .catch(() => { if (live) setWks([]); });
-    jl<Absences>(`${last}/absence.json`)
-      .then(a => { if (live) setAbs(a[pid] || {}); }).catch(() => {});
+    jl<Absences>(`${wkSeason}/absence.json`)
+      .then(a => { if (live) setAbs(a[pid] || {}); }).catch(() => { if (live) setAbs({}); });
     jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`)
       .then(t => { if (live) setTeams(t); }).catch(() => {});
     jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
     return () => { live = false; };
-  }, [pid, last, league, meta]);
+  }, [pid, last, wkSeason, league, meta]);
 
   const refs = {
     projection: useRef<HTMLDivElement>(null),
@@ -105,9 +129,12 @@ export default function Player({ pid }: { pid: string }) {
     }));
   }, [v, vals]);
 
-  if (shard === undefined || wks === null) return <div className="empty">Loading player…</div>;
+  if (shard === undefined) return <div className="empty">Loading player…</div>;
 
-  const reg = wks.filter(w => w[0] <= 14);
+  // wks goes null again whenever the ladder picks a new season. That is a
+  // reload of ONE section, not of the page — gating the whole render on it
+  // flashed "Loading player…" over everything on every click.
+  const reg = (wks ?? []).filter(w => w[0] <= 14);
   const lastWar = reg.length ? reg.reduce((s, w) => s + w[5], 0) : null;
 
   /** ladder rows, newest first: projected years above played ones */
@@ -142,7 +169,13 @@ export default function Player({ pid }: { pid: string }) {
     };
   })() : null;
 
-  const rangeMax = proj ? Math.max(0.001, ...proj.comp_high) : 1;
+  const st = STREAMS.find(s => s.key === stream) ?? STREAMS[0];
+  /** the selected stream's path; Sleeper is absent for most of the file */
+  const stLine: number[] | null = proj ? (proj[st.line] as number[]) : null;
+  const stLo = proj ? (proj[st.lo] as number[]) : null;
+  const stHi = proj ? (proj[st.hi] as number[]) : null;
+  // the axis has to hold whichever band is showing, not always the composite's
+  const rangeMax = proj ? Math.max(0.001, ...(stHi ?? proj.comp_high)) : 1;
 
   return (
     <>
@@ -169,8 +202,25 @@ export default function Player({ pid }: { pid: string }) {
               <div className="rail-ladder">
                 {ladder.map(([y, w]) => {
                   const isProj = projected.some(([py]) => py === y);
+                  // A projected year has no weeks to show, so it stays inert.
+                  // Only played seasons are pickable, and the one showing below
+                  // takes the accent — the same rule as the franchise ladder.
+                  const on = !isProj && String(y) === wkSeason;
                   return (
-                    <div key={y} className={`rail-war${isProj ? " proj" : ""}`}>
+                    <div key={y} role={isProj ? undefined : "button"}
+                      tabIndex={isProj ? undefined : 0}
+                      title={isProj ? undefined : `Show ${y} week by week`}
+                      className={`rail-war${isProj ? " proj" : " pick"}${on ? " mark" : ""}`}
+                      onClick={isProj ? undefined : () => {
+                        setWeekSeason(String(y));
+                        setWks(null);
+                        refs.lastSeason.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+                      }}
+                      onKeyDown={isProj ? undefined : e => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault(); setWeekSeason(String(y)); setWks(null);
+                        }
+                      }}>
                       <span className="yr">{y}</span>
                       <span className="bar">
                         <i style={{
@@ -188,7 +238,7 @@ export default function Player({ pid }: { pid: string }) {
             <div className="rail-h">On this page</div>
             <div className="rail-nav">
               {proj && <button onClick={() => goto("projection")}>Projection</button>}
-              <button onClick={() => goto("lastSeason")}>Last season</button>
+              <button onClick={() => goto("lastSeason")}>Week by week</button>
               {events.length > 0 && <button onClick={() => goto("ownership")}>Ownership</button>}
               {market.length > 0 && <button onClick={() => goto("market")}>Market value</button>}
             </div>
@@ -207,9 +257,10 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="figsub">{cvi ? `#${cvi.rank} this season · ${pos}${cvi.pos_rank}` : "no index"}</div>
               </div>
               <div className="figcell">
-                <div className="figkey">{last} WAR</div>
-                <div className="figval">{lastWar == null ? "—" : fmt(lastWar, 2)}</div>
-                <div className="figsub">{lastWar == null ? `did not play ${last}` : "regular season"}</div>
+                <div className="figkey">{wkSeason} WAR</div>
+                <div className="figval">{wks === null ? "—" : lastWar == null ? "—" : fmt(lastWar, 2)}</div>
+                <div className="figsub">{wks === null ? "loading"
+                  : lastWar == null ? `did not play ${wkSeason}` : "regular season"}</div>
               </div>
               <div className="figcell">
                 <div className="figkey">Career WAR</div>
@@ -235,23 +286,32 @@ export default function Player({ pid }: { pid: string }) {
               <div ref={refs.projection}>
                 <div className="band">
                   <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
-                  <span className="band-note">Composite blends the model with Sleeper's projection · range is the 80% band</span>
+                  <span className="band-note">{st.desc} · range is the 80% band</span>
+                </div>
+                <div className="lens">
+                  {STREAMS.map(s => (
+                    <button key={s.key} type="button" title={s.desc}
+                      className={`seg${s.key === stream ? " on" : ""}`}
+                      onClick={() => setStream(s.key)}>{s.label}</button>
+                  ))}
                 </div>
                 <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr className="grp">
                       <th colSpan={2}></th>
-                      <th className="edge" colSpan={2}>Paths</th>
-                      <th className="edge value" colSpan={3}>Composite view</th>
+                      <th className="edge" colSpan={3}>Paths</th>
+                      <th className="edge value" colSpan={2}>{st.label} view</th>
                     </tr>
                     <tr>
                       <th className="t" style={{ width: "9%" }}>Season</th>
                       <th className="n" style={{ width: "7%" }}>Age</th>
-                      <th className="n edge" style={{ width: "11%" }}>Model</th>
+                      {/* every path is named for what it is; the lens only
+                          decides which one carries the accent */}
+                      <th className="n edge" style={{ width: "11%" }}>Composite</th>
                       <th className="n" style={{ width: "11%" }}>Age curve</th>
-                      <th className="n key edge" style={{ width: "13%" }}>Composite</th>
-                      <th className="t" style={{ width: "35%" }}>Range</th>
+                      <th className="n" style={{ width: "11%" }}>Adjusted</th>
+                      <th className="t key edge" style={{ width: "37%" }}>Range</th>
                       <th className="n" style={{ width: "14%" }}>Position finish</th>
                     </tr>
                   </thead>
@@ -260,20 +320,28 @@ export default function Player({ pid }: { pid: string }) {
                       <tr key={y} className={i % 2 ? "zebra" : ""}>
                         <td className="t fig strong">{y}</td>
                         <td className="n fig quiet">{proj.age + i}</td>
-                        <td className="n fig edge">{fmt(proj.expected[i] ?? 0, 2)}</td>
-                        <td className="n fig quiet">{fmt(proj.proj[i] ?? 0, 2)}</td>
-                        <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(proj.composite[i] ?? 0, 2)}</span></td>
-                        <td className="t" style={{ whiteSpace: "normal" }}>
+                        {STREAMS.map((s, k) => {
+                          const v = (proj[s.line] as number[])[i];
+                          const on = s.key === stream;
+                          return (
+                            <td key={s.key} className={`n${k === 0 ? " edge" : ""}${on ? "" : " fig quiet"}`}>
+                              {v == null ? <span className="fig quiet">—</span>
+                                : on ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(v, 2)}</span>
+                                  : fmt(v, 2)}
+                            </td>
+                          );
+                        })}
+                        <td className="t edge" style={{ whiteSpace: "normal" }}>
                           <div className="range-band">
                             <div className="fill" style={{
-                              left: `${(Math.max(0, proj.comp_low[i] ?? 0) / rangeMax * 100).toFixed(1)}%`,
-                              width: `${(Math.max(0, (proj.comp_high[i] ?? 0) - Math.max(0, proj.comp_low[i] ?? 0)) / rangeMax * 100).toFixed(1)}%`,
+                              left: `${(Math.max(0, stLo?.[i] ?? 0) / rangeMax * 100).toFixed(1)}%`,
+                              width: `${(Math.max(0, (stHi?.[i] ?? 0) - Math.max(0, stLo?.[i] ?? 0)) / rangeMax * 100).toFixed(1)}%`,
                             }} />
-                            <div className="tick" style={{ left: `${(Math.max(0, proj.composite[i] ?? 0) / rangeMax * 100).toFixed(1)}%` }} />
+                            <div className="tick" style={{ left: `${(Math.max(0, stLine?.[i] ?? 0) / rangeMax * 100).toFixed(1)}%` }} />
                           </div>
                           <div className="range-ends">
-                            <span>{fmt(proj.comp_low[i] ?? 0, 2)}</span>
-                            <span>{fmt(proj.comp_high[i] ?? 0, 2)}</span>
+                            <span>{fmt(stLo?.[i] ?? 0, 2)}</span>
+                            <span>{fmt(stHi?.[i] ?? 0, 2)}</span>
                           </div>
                         </td>
                         <td className="n last">
@@ -291,11 +359,15 @@ export default function Player({ pid }: { pid: string }) {
 
             <div ref={refs.lastSeason}>
               <div className="band">
-                <span className="band-label">Last season · {last}</span>
+                <span className="band-label">
+                  {wkSeason === last ? "Last season" : "Season"} · {wkSeason}
+                </span>
                 <span className="band-note">Regular-season weeks · WAR vs the best player left out of the startable pool</span>
               </div>
               <div style={{ padding: "14px 22px 18px" }}>
-                <WeekGrid weeks={reg} absent={abs} />
+                {wks === null ? <div className="tnote">Loading {wkSeason}…</div>
+                  : reg.length ? <WeekGrid weeks={reg} absent={abs} />
+                    : <div className="tnote">No scored weeks in {wkSeason} — the player was not in the league that season.</div>}
               </div>
             </div>
 
