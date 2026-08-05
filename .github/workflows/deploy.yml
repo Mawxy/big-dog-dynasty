@@ -2,6 +2,22 @@ name: Build & deploy site
 on:
   push:
     branches: [main]
+    # Crawler commits that only touch files the site never fetches don't need
+    # a deploy — they were triggering ~30 full rebuild+publish cycles a day,
+    # and (with the old build-id cache busting) invalidating every visitor's
+    # cache each time. Anything the site DOES read (benchmarks.json,
+    # values.json, data/leagues/**) still deploys: a commit deploys unless
+    # EVERY changed path is listed here.
+    paths-ignore:
+      - "data/trade_corpus*.json"
+      - "data/rookie_pick_corpus.json"
+      - "data/crawl_leagues.json"
+      - "data/league_signals.json"
+      - "data/draft_signals.json"
+      - "data/draft_index.json"
+      - "data/outcome_signals_*.json"
+      - "data/outcome_corpus*.json"
+      - "data/values_history.json"
   workflow_dispatch:
   workflow_call:      # lets the data-refresh workflow trigger a deploy when it commits new data
 permissions:

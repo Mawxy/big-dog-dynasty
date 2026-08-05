@@ -19,7 +19,10 @@ concurrency:
 jobs:
   signals:
     runs-on: ubuntu-latest
-    timeout-minutes: 345          # backstop; the crawler self-stops at 330 min
+    # 350 vs --max-minutes 300: same margin as crawl-outcomes — 15 minutes was
+    # not enough for checkout + commit + cache save and could cancel mid-save,
+    # losing the cache as well as the run.
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -38,7 +41,7 @@ jobs:
           EXTRA=""
           [ -n "$MAX" ] && EXTRA="--max-leagues $MAX"
           python scripts/sleeper_crawl.py --mode signals \
-            --state .crawl-state/signals --max-minutes 330 --commit-every 1000 $EXTRA
+            --state .crawl-state/signals --max-minutes 300 --commit-every 1000 $EXTRA
       - name: Commit signals + league list
         if: always()
         run: |

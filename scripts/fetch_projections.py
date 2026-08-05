@@ -137,7 +137,7 @@ def main():
                        "league_games": LEAGUE_GAMES, "players": len(out),
                        "note": "pts13 = league-scored projected points scaled to 13 games"},
               "players": out}
-    dest.write_text(json.dumps(result, indent=1), encoding="utf-8")
+    dest.write_text(json.dumps(result, separators=(",", ":")), encoding="utf-8")
     print(f"wrote {dest}  ({len(out)} players, season {season})")
 
 

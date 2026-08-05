@@ -5,7 +5,7 @@ import type {
   WeekOdds, Weekly,
 } from "../lib/types";
 import { jDaily, jl, jlDaily } from "../lib/data";
-import { fmt, mean, ord, pct, sd } from "../lib/stats";
+import { fmt, mean, meterWidth, ord, sd } from "../lib/stats";
 import { DEFAULT_LINEUP, optimalLineup, rosterSeasonOf, seasonSeg, weekIndex } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { useSeasonData } from "../lib/useSeasonData";
@@ -498,7 +498,7 @@ function SeasonStandings({ season }: { season: string }) {
       // line the meter goes too: the bare figure is the value.
       cell: (r, x) => r.war == null ? nul : x.records ? <>{fmt(r.war, 3)}</> : (
         <div className="meter-row">
-          <div className="meter"><i style={{ width: pct(Math.max(0, r.war), x.warMax) }} /></div>
+          <div className="meter"><i style={{ width: meterWidth(Math.max(0, r.war), x.warMax) }} /></div>
           <span className="fig">{fmt(r.war, 3)}</span>
         </div>
       ),

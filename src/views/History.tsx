@@ -4,7 +4,7 @@ import type {
   Drafts, Franchises, Matchups, Trade, TradesPayload, Weekly,
 } from "../lib/types";
 import { jl } from "../lib/data";
-import { fmt } from "../lib/stats";
+import { fmt, ord, rate } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades } from "../lib/trades";
@@ -62,11 +62,6 @@ type SeasonStory = {
   homegrown: number | null;            // champion's own-draft share, 0..1
   champStarterWar: number | null;
   champBought: { pid: string; war: number; from: string }[];
-};
-
-const ORD = (n: number) => {
-  const s = ["th", "st", "nd", "rd"], v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
 export default function History() {
@@ -247,8 +242,6 @@ export default function History() {
   if (err) return <div className="empty">No league history yet.</div>;
   if (!fr || !stories.length) return <div className="empty">Loading league history…</div>;
 
-  const pct = (v: number | null) => v == null ? "—" : `${Math.round(v * 100)}%`;
-
   return (
     <>
       <div className="screen-head">
@@ -305,7 +298,7 @@ export default function History() {
         return (
           <div key={s.season}>
             <div className="band" style={{ marginTop: i ? 26 : 8 }}>
-              <span className="band-label">{s.season} · {ORD(i + 1)} season</span>
+              <span className="band-label">{s.season} · {ord(i + 1)} season</span>
               <span className="band-note">
                 {s.champ.name} took the title · {s.trades} trades, {s.picksMoved} pick assets moved
               </span>
@@ -326,7 +319,7 @@ export default function History() {
                 <div style={{ font: "400 14px/1.4 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", marginTop: 5 }}>
                   {s.champ.manager} · {s.champ.wins}-{s.champ.losses}
                   {s.champ.ties ? `-${s.champ.ties}` : ""} · {fmt(s.champ.ppg, 1)} ppg
-                  {s.champ.seed ? ` · ${ORD(s.champ.seed)} seed` : ""}
+                  {s.champ.seed ? ` · ${ord(s.champ.seed)} seed` : ""}
                 </div>
                 <div style={{ display: "flex", marginTop: 14 }}>
                   <div className="figcell">
@@ -337,7 +330,7 @@ export default function History() {
                   <div className="figcell">
                     <div className="figkey">Homegrown</div>
                     <div className="figval" style={{ color: s.homegrown == null ? "var(--dim3)" : "var(--acc)" }}>
-                      {pct(s.homegrown)}
+                      {rate(s.homegrown) ?? "—"}
                     </div>
                     <div className="figsub">of starter WAR, own picks</div>
                   </div>
@@ -361,17 +354,17 @@ export default function History() {
                     {s.champ.ties ? `-${s.champ.ties}` : ""}, {fmt(s.champ.ppg, 1)} points a week
                     {s.runnerUp ? `, over ${s.runnerUp.name} in the final` : ""}.
                     {s.bestRecord.rid !== s.champ.rid && (
-                      ` ${s.bestRecord.name} had the best regular season at ${s.bestRecord.wins}-${s.bestRecord.losses} and finished ${ORD(s.bestRecord.finish)}.`
+                      ` ${s.bestRecord.name} had the best regular season at ${s.bestRecord.wins}-${s.bestRecord.losses} and finished ${ord(s.bestRecord.finish)}.`
                     )}
                     {s.homegrown != null && (
-                      ` ${pct(s.homegrown)} of the champion's starter WAR came from players he drafted himself.`
+                      ` ${rate(s.homegrown) ?? "—"} of the champion's starter WAR came from players he drafted himself.`
                     )}
                   </p>
                   {(s.riser || s.faller) && (
                     <p style={{ margin: "0 0 9px" }}>
-                      {s.riser && `${s.riser.manager} made the year's biggest climb — ${ORD(s.riser.prev!)} to ${ORD(s.riser.finish)}, ${climb} places.`}
+                      {s.riser && `${s.riser.manager} made the year's biggest climb — ${ord(s.riser.prev!)} to ${ord(s.riser.finish)}, ${climb} places.`}
                       {s.riser && s.faller ? " " : ""}
-                      {s.faller && `${s.faller.manager} fell the furthest, ${ORD(s.faller.prev!)} to ${ORD(s.faller.finish)}.`}
+                      {s.faller && `${s.faller.manager} fell the furthest, ${ord(s.faller.prev!)} to ${ord(s.faller.finish)}.`}
                     </p>
                   )}
                   {!!s.champBought.length && (

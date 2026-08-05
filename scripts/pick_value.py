@@ -26,7 +26,7 @@ Method (settled with Max 2026-07-17):
     >= MIN_CLASSES draft classes have completed that season. Year 4 unlocks
     automatically after the 2026 season — just rerun, no code change.
   * hit%% = share of picks (classes with 3 finished seasons) whose 3-year
-    raw WAR total >= 1.0.  dist3 = those raw totals, for box plots.
+    raw WAR total >= 1.0.
   * Round 5 excluded (one league, tiny n).
 
 Matching: name+pos+draft-class against players_meta, nickname fixups,
@@ -199,7 +199,6 @@ def summarize(order, cells, hits, years, outs, out_years, fran=None, labels=None
             'fran_rate': (round(fran[b][0] / fran[b][1], 3)
                           if fran and fran.get(b) and fran[b][1] else None),
             'fran_n': (fran[b][1] if fran and fran.get(b) else 0),
-            'dist3': sorted(round(x, 2) for x in h),
             'dist': {k: sorted(round(x, 2) for x in cells[b][k])
                      for k in years if cells[b][k]},
         }
@@ -452,7 +451,10 @@ def main():
         'franchise_bars': FRANCHISE_BAR,
         'franchise_seasons': FRANCHISE_SEASONS,
         'picks_used': len(picks), 'vets_excluded': vets,
-        # Three different quantities — do NOT headline picks_analyzed.
+        # Three different quantities. The Draft page headlines picks_analyzed
+        # by Max's explicit call (2026-08-04) — the scale of the crawl is the
+        # point — but it must always be LABELED a coverage number ("picks
+        # analyzed", never bare "picks"), with picks_distinct named beside it.
         #   picks_analyzed  every drafting DECISION observed (one per league per
         #                   pick). A coverage statistic, not a sample: 10k leagues
         #                   taking Bijan at 1.01 is one fact about 1.01.
@@ -473,7 +475,9 @@ def main():
     }
 
     dest = DATA / 'pick_values.json'
-    dest.write_text(json.dumps(out, indent=1), encoding='utf-8')
+    # compact separators: the site fetches this file, and indentation was 52%
+    # of its bytes — gzip hides the transfer but not the JSON.parse cost
+    dest.write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
 
     print(f"picks {len(picks)}  vets excluded {vets}  unmatched {len(unmatched)}")
     for u in unmatched:

@@ -6,10 +6,22 @@ const FILL = "#1e6fd933", STROKE = "#1e6fd9";
 
 export interface BoxStats { mn: number; q1: number; md: number; q3: number; mx: number }
 
+/** What the whiskers reach for.
+ *  "minmax"  — the literal extremes. Honest for a small hand-checked sample.
+ *  "p5p95"   — the 5th/95th percentile. Use on pooled corpora, where the
+ *              extremes are one lucky player-season replicated across cells
+ *              and so read identically in every group. The draft round chart
+ *              had all three of rounds 2-4 capped at +2.42, which was Jalen
+ *              Hurts' 2022 landing in each round's slots across the crawl. */
+export type Whisker = "minmax" | "p5p95";
+
 /** Five-number summary. Sorts a copy, so callers can pass raw values. */
-export function boxStats(values: number[]): BoxStats {
+export function boxStats(values: number[], whisker: Whisker = "minmax"): BoxStats {
   const v = [...values].sort((a, b) => a - b);
-  return { mn: v[0], q1: quart(v, .25), md: quart(v, .5), q3: quart(v, .75), mx: v[v.length - 1] };
+  const [lo, hi] = whisker === "p5p95"
+    ? [quart(v, .05), quart(v, .95)]
+    : [v[0], v[v.length - 1]];
+  return { mn: lo, q1: quart(v, .25), md: quart(v, .5), q3: quart(v, .75), mx: hi };
 }
 
 /** Integer gridline positions spanning [lo, hi]. */

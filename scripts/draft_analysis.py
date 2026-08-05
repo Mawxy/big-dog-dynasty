@@ -183,7 +183,7 @@ def main():
     if not out and load(DATA / "drafts.json"):
         sys.exit(f"built 0 picks but {DATA / 'drafts.json'} is non-empty — "
                  "draft dumps missing? refusing to overwrite")
-    (DATA / "drafts.json").write_text(json.dumps(out), encoding="utf-8")
+    (DATA / "drafts.json").write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
     n = sum(len(v) for v in out.values())
     print(f"wrote {DATA/'drafts.json'} — {n} picks across {len(out)} franchises")
 

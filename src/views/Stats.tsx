@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { pct, fmt } from "../lib/stats";
+import { meterWidth, fmt } from "../lib/stats";
 import { ownerOf, pInfo, seasonSeg } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { useSeasonData } from "../lib/useSeasonData";
@@ -50,7 +50,7 @@ const seasonCols = (allTime: boolean): PlayerCol[] => [
     td: "n edge", sort: r => r.war,
     cell: (r, x) => (
       <div className="meter-row">
-        <div className="meter"><i style={{ width: pct(Math.max(0, r.war), x.warMax) }} /></div>
+        <div className="meter"><i style={{ width: meterWidth(Math.max(0, r.war), x.warMax) }} /></div>
         <span className="fig">{fmt(r.war, 3)}</span>
       </div>
     ),

@@ -208,11 +208,11 @@ def main():
                     trends[str(d)] = cur - base
             if trends:
                 e[name + "T"] = trends
-    hist_path.write_text(json.dumps(hist))
+    hist_path.write_text(json.dumps(hist, separators=(",", ":")))
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "fetched": time.strftime("%Y-%m-%d", time.gmtime()),
-        "sources": ok, "picks": picks, "players": vals}))
+        "sources": ok, "picks": picks, "players": vals}, separators=(",", ":")))
     print(f"wrote {out_path} ({len(vals)} players; fresh: {', '.join(ok)})")
 
 if __name__ == "__main__":

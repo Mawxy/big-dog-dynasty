@@ -2,14 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
-import { fmt } from "../lib/stats";
+import { fmt, sgn, warInk } from "../lib/stats";
 import { POS_COLOR } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
 import { buildHistory, type History } from "../lib/draftHistory";
 import DraftBoardGrid from "../components/DraftBoardGrid";
 import TScroll from "../components/TScroll";
 import { boxStats } from "../components/BoxMarks";
-const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const ROUNDS = [1, 2, 3, 4];
 const SLOTS = ROUNDS.flatMap(rd => Array.from({ length: 12 }, (_, i) => `${rd}.${String(i + 1).padStart(2, "0")}`));
 
@@ -60,12 +59,16 @@ interface TreeNode {
 /**
  * Two sources, deliberately separated:
  *
- *  - "What is a pick at this slot worth?" (box plots, heat map, career-year
- *    table) reads `pick_values.json` — 1,065 rookie picks across five 12-team
- *    superflex leagues, 2019-2025, every observation already calibrated to this
- *    league's WAR scale. Big Dog alone has three graded classes, which puts
- *    exactly ONE pick behind each slot at career year 3; 14 of 48 slots came
- *    back empty and the rest were a median of one.
+ *  - "What is a pick at this slot worth?" (box plots, heat map, returns
+ *    table) reads `pick_values.json` — the crawled rookie-draft corpus:
+ *    thousands of 12-team superflex leagues distilled to a fixed budget of
+ *    weighted reps per slot, every observation calibrated to this league's
+ *    WAR scale. meta carries three counts (see pick_value.py); the page
+ *    headlines picks_analyzed — the coverage number, by Max's explicit call:
+ *    the scale of the crawl is the point. It is always labeled "analyzed"
+ *    (never bare "picks"), and the footer names picks_distinct, the honest
+ *    evidence count, beside it. The five hand-curated leagues are only the
+ *    fallback when the corpus is missing.
  *
  *  - "What did WE do with our picks?" (best / worst value over slot) reads
  *    `drafts.json`, because that table names our players and our franchises.
@@ -103,7 +106,10 @@ export default function Draft() {
 
     const byRound = ROUNDS.map(rd => {
       const d = SLOTS.filter(s => s.startsWith(`${rd}.`)).flatMap(pool);
-      return { round: rd, n: d.length, s: d.length >= 2 ? boxStats(d) : null };
+      // p5/p95 whiskers, not min/max: this is a pooled corpus, so a single
+      // outlier season recurs across every slot a player was ever taken at
+      // and min/max read the same in three of the four rounds. See boxStats.
+      return { round: rd, n: d.length, s: d.length >= 2 ? boxStats(d, "p5p95") : null };
     });
 
     const ages = years.map(Number);
@@ -193,12 +199,20 @@ export default function Draft() {
       tree, hitThreshold: pv.meta.hit_threshold_war,
       lastAge: outYears.length ? Number(lastY) : null,
       slotMed, byRound, ages, pendingAges,
-      // observed extremes — the box-plot axis sits exactly 0.1 outside these
-      lo: Math.min(...SLOTS.flatMap(pool)),
-      hi: Math.max(...SLOTS.flatMap(pool)),
+      // The axis spans what is actually DRAWN, not what was observed. Since
+      // the whiskers stop at p5/p95 the corpus extremes (−1.49 / +2.42) are
+      // off-plot, and keeping them as the domain left a full unit of empty
+      // gutter past the longest whisker.
+      lo: Math.min(...byRound.flatMap(b => b.s ? [b.s.mn] : [])),
+      hi: Math.max(...byRound.flatMap(b => b.s ? [b.s.mx] : [])),
       cellN: ns.length ? (Math.min(...ns) === Math.max(...ns)
         ? `n=${ns[0]} per cell` : `n=${Math.min(...ns)}–${Math.max(...ns)} per cell`) : "",
+      // Max's call (2026-08-04): headline the COVERAGE number — the scale of
+      // the crawl is the point of the page. It always renders labeled
+      // "picks analyzed", never bare "picks", and the footer carries
+      // picks_distinct (the evidence count) alongside it.
       picks: pv.meta.picks_analyzed ?? pv.meta.picks_used,
+      distinct: pv.meta.picks_distinct ?? null,
       classes: pv.meta.classes,
     };
   }, [pv]);
@@ -256,8 +270,9 @@ export default function Draft() {
   const LO = +(Math.floor((corpus?.lo ?? 0) / step) * step).toFixed(2);
   const HI = +(Math.ceil((corpus?.hi ?? 0) / step) * step).toFixed(2);
   const sx = (v: number) => Math.max(0, Math.min(W, ((v - LO) / (HI - LO)) * W));
-  const pct = (v: number) => (v - LO) / (HI - LO) * 100;
-  const pctX = (v: number) => pct(v).toFixed(2) + "%";
+  /** axis position 0-100 — NOT the shared rate/meterWidth helpers */
+  const axisPct = (v: number) => (v - LO) / (HI - LO) * 100;
+  const pctX = (v: number) => axisPct(v).toFixed(2) + "%";
   const TICKS: number[] = [];
   for (let t = LO; t <= HI + 1e-9; t += step) TICKS.push(+t.toFixed(2));
 
@@ -279,9 +294,6 @@ export default function Draft() {
   const legend = [-1, -0.66, -0.33, -0.08, 0, 0.12, 0.3, 0.5, 0.72, 0.88, 1]
     .map(u => heatBg(u * (u < 0 ? hiNeg : hiPos)));
 
-  /** every signed WAR figure on this screen resolves to the same pair */
-  const ink = (v: number | null) => v == null ? "var(--dim3)"
-    : v > 0.02 ? "var(--war-pos)" : v < -0.02 ? "var(--war-neg)" : "var(--dim)";
   const roundMed = (rd: number) => corpus?.byRound.find(b => b.round === rd)?.s?.md ?? null;
 
   const yearCols = corpus ? [...corpus.ages.map(a => ({ label: `Yr ${a}`, pending: false })),
@@ -319,7 +331,7 @@ export default function Draft() {
         {chip("History", "/draft/history", scope === "history")}
         {scope === "returns" && (
           <span className="screen-note">
-            {corpus && <><b>{corpus.picks.toLocaleString()}</b> picks, {corpus.classes} · </>}
+            {corpus && <><b>{corpus.picks.toLocaleString()}</b> picks analyzed, {corpus.classes} · </>}
             <b>{league.n}</b> of ours graded
             {league.pendingClasses.length ? ` · ${league.pendingClasses.join(", ")} not yet scored` : ""}
           </span>
@@ -335,7 +347,7 @@ export default function Draft() {
         <div style={{ padding: "0 var(--pad) 20px" }}>
           <div className="panel" style={{ margin: 0 }}>
             <div className="chart-label">
-              WAR per season since drafted — box is the middle 50%, <span style={{ color: "var(--acc)" }}>line is the median</span>
+              WAR per season since drafted — box is the middle 50%, whiskers the 5th–95th percentile, <span style={{ color: "var(--acc)" }}>line is the median</span>
             </div>
             <div className="box-rows">
               {corpus.byRound.map(b => (
@@ -361,9 +373,9 @@ export default function Draft() {
                       </>}
                     </svg>
                     {b.s && <>
-                      <Lab cls="end" pct={pct(b.s.mn)} text={sgn(b.s.mn)} />
-                      <Lab cls="med" pct={pct(b.s.md)} text={sgn(b.s.md)} />
-                      <Lab cls="end" pct={pct(b.s.mx)} text={sgn(b.s.mx)} />
+                      <Lab cls="end" pct={axisPct(b.s.mn)} text={sgn(b.s.mn, 2)} />
+                      <Lab cls="med" pct={axisPct(b.s.md)} text={sgn(b.s.md, 2)} />
+                      <Lab cls="end" pct={axisPct(b.s.mx)} text={sgn(b.s.mx, 2)} />
                     </>}
                   </div>
                 </div>
@@ -391,9 +403,9 @@ export default function Draft() {
           <span className="band-note">{corpus.cellN}</span>
         </div>
         <div className="heat-legend" style={{ justifyContent: "flex-end", padding: "10px var(--pad) 9px" }}>
-          <span>{fmt(worstSlot)}</span>
+          <span>{sgn(worstSlot, 2)}</span>
           <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
-          <span>{sgn(bestSlot)}</span>
+          <span>{sgn(bestSlot, 2)}</span>
         </div>
         {/* twelve 40px cells plus a label is wider than a phone: the grid
             scrolls in its own box, like the draft board and the bracket */}
@@ -414,7 +426,7 @@ export default function Draft() {
                   return (
                     <div key={slot} className="cell"
                       style={{ background: heatBg(m), color: heatFg(m), boxShadow: ring }}>
-                      {m == null ? "—" : sgn(m)}
+                      {m == null ? "—" : sgn(m, 2)}
                     </div>
                   );
                 })}
@@ -473,14 +485,14 @@ export default function Draft() {
                       </td>
                       {n.cells.map((c, i) => (
                         <td key={i} className="n">
-                          <span className="v" style={{ color: c.pending || c.v == null ? "var(--dim3)" : ink(c.v) }}>
-                            {c.v == null ? "—" : sgn(c.v)}
+                          <span className="v" style={{ color: c.pending || c.v == null ? "var(--dim3)" : warInk(c.v) }}>
+                            {c.v == null ? "—" : sgn(c.v, 2)}
                           </span>
                         </td>
                       ))}
                       <td className="n med">
-                        <span className="v" style={{ color: n.med == null ? "var(--dim3)" : ink(n.med) }}>
-                          {n.med == null ? "—" : sgn(n.med)}
+                        <span className="v" style={{ color: n.med == null ? "var(--dim3)" : warInk(n.med) }}>
+                          {n.med == null ? "—" : sgn(n.med, 2)}
                         </span>
                       </td>
                       <td className="n">
@@ -539,9 +551,9 @@ export default function Draft() {
                       </div>
                       <div className="by">{r.drafter}</div>
                     </td>
-                    <td className="n sub">{r.expected == null ? "—" : sgn(r.expected)}</td>
-                    <td className="n raw">{sgn(r.war)}</td>
-                    <td className="n vs" style={{ color: ink(r.diff ?? 0) }}>{sgn(r.diff ?? 0)}</td>
+                    <td className="n sub">{r.expected == null ? "—" : sgn(r.expected, 2)}</td>
+                    <td className="n raw">{sgn(r.war, 2)}</td>
+                    <td className="n vs" style={{ color: warInk(r.diff ?? 0) }}>{sgn(r.diff ?? 0, 2)}</td>
                   </tr>
                 ))}
               </tbody>
@@ -555,10 +567,11 @@ export default function Draft() {
           unreadable, which is what this was */}
       <div className="tnote screen">
         {corpus && <>
-          Slot value — the box plots, the heat map and the returns table — pools {corpus.picks.toLocaleString()} rookie
-          picks from five 12-team superflex leagues ({corpus.classes}), every season calibrated to this league's WAR
-          scale · a first-round pick has returned a median {roundMed(1) != null ? sgn(roundMed(1) as number) : "—"} WAR
-          per season, a third-rounder {roundMed(3) != null ? sgn(roundMed(3) as number) : "—"} · every row of the
+          Slot value — the box plots, the heat map and the returns table — draws on {corpus.picks.toLocaleString()} drafting
+          decisions analyzed across crawled 12-team superflex leagues ({corpus.classes}), weighted by how often real leagues
+          made each pick{corpus.distinct ? ` — ${corpus.distinct.toLocaleString()} distinct slot-player observations behind the weights` : ""}, every
+          season calibrated to this league's WAR scale · a first-round pick has returned a median {roundMed(1) != null ? sgn(roundMed(1) as number, 2) : "—"} WAR
+          per season, a third-rounder {roundMed(3) != null ? sgn(roundMed(3) as number, 2) : "—"} · every row of the
           returns table is the median of its own picks, so a round is not the middle of the three tiers under it ·{" "}
         </>}
         The value tables are our own {league.gradedClasses.join("–")} picks only · every pick is divided

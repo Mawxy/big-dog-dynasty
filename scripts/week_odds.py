@@ -157,7 +157,7 @@ def snapshot_projections(season, ld, sproj, week, teams):
     if not snap:
         return False
     hist[str(week)] = snap
-    f.write_text(json.dumps(hist), encoding="utf-8")
+    f.write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
     return True
 
 
@@ -332,7 +332,7 @@ def main():
         print(f"  {s}: {len(wks)} weeks ({len(wks) - npro} played, {npro} projected)")
         if args.probe:
             continue
-        (ld / s / "odds.json").write_text(json.dumps(got), encoding="utf-8")
+        (ld / s / "odds.json").write_text(json.dumps(got, separators=(",", ":")), encoding="utf-8")
         n += 1
     print(f"\n{'probe: nothing written' if args.probe else f'wrote {n} odds.json'}")
 

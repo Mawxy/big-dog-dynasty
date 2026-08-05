@@ -232,7 +232,7 @@ def main():
                   "note": "war = realized while starting for the acquiring team; "
                           "future = discounted expected WAR still to come for assets "
                           "that team still holds; total = war + future"},
-         "trades": trades}), encoding="utf-8")
+         "trades": trades}, separators=(",", ":")), encoding="utf-8")
     zero = sum(1 for t in trades if all(abs(s["total"]) < 1e-9 for s in t["sides"]))
     print(f"wrote {DATA/'trades.json'} — {len(trades)} trades, delta {delta}, "
           f"{zero} still scoring 0-0")

@@ -16,7 +16,8 @@ import { DEFAULT_LINEUP, optimalLineup } from "./league";
  */
 
 export const NEUTRAL: number[] = [1, 0.9, 0.81];   // no team context: pure decay
-export const ORD = ["1st", "2nd", "3rd", "4th"];
+/** round names for pick labels — TradeCalc used to carry its own copy */
+export const ROUND_ORD = ["1st", "2nd", "3rd", "4th"];
 
 /** weight for team-year n (0-based); beyond the horizon decay 0.9/yr */
 export const wAt = (w: number[], n: number) =>
@@ -39,7 +40,7 @@ export const tierFor = (postures: Posture[], orig: number) => {
 };
 export const pickLabel = (postures: Posture[],
   pk: { season: number; round: number; orig: number }) =>
-  `${pk.season} ${tierFor(postures, pk.orig)} ${ORD[pk.round - 1]}`;
+  `${pk.season} ${tierFor(postures, pk.orig)} ${ROUND_ORD[pk.round - 1]}`;
 
 const optStream = (pv: PickValues, label: string): number[] => {
   const b = pv.bands.find(x => x.label === label);
@@ -74,9 +75,9 @@ function pickTable(pv: PickValues): Map<string, number[]> {
   const entries: { key: string; stream: number[]; total: number }[] = [];
   for (let r = 1; r <= 4; r++)
     for (const tier of TIER_ORDER) {
-      const stream = optStream(pv, `${tier} ${ORD[r - 1]}`)
+      const stream = optStream(pv, `${tier} ${ROUND_ORD[r - 1]}`)
         .map((x, i) => Math.max(0, x - (base[i] ?? 0)));
-      entries.push({ key: `${tier} ${ORD[r - 1]}`, stream,
+      entries.push({ key: `${tier} ${ROUND_ORD[r - 1]}`, stream,
         total: stream.reduce((a, b) => a + b, 0) });
     }
   // PAV, non-increasing in board order
@@ -104,7 +105,7 @@ function pickTable(pv: PickValues): Map<string, number[]> {
   return t;
 }
 export const pickStream = (pv: PickValues, tier: string, round: number): number[] =>
-  pickTable(pv).get(`${tier} ${ORD[round - 1]}`) ?? [0, 0, 0];
+  pickTable(pv).get(`${tier} ${ROUND_ORD[round - 1]}`) ?? [0, 0, 0];
 
 interface PoolP { id: string; pos: string; comp: number[]; age?: number }
 

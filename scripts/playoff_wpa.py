@@ -579,7 +579,7 @@ def main():
                 "mvp_avg": round(mvp_avg, 4),
                 "mvp_avg_seasons": sorted(season_best),
             }
-            f.write_text(json.dumps(b), encoding="utf-8")
+            f.write_text(json.dumps(b, separators=(",", ":")), encoding="utf-8")
             n += 1
     print(f"\n{'probe: nothing written' if args.probe else f'wrote {n} bracket.json'}")
 

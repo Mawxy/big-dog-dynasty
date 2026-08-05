@@ -12,7 +12,8 @@ permissions:
 jobs:
   trades:
     runs-on: ubuntu-latest
-    timeout-minutes: 345
+    # 350 vs --max-minutes 300: same margin as crawl-outcomes (see its comment)
+    timeout-minutes: 350
     strategy:
       fail-fast: false
       matrix:
@@ -35,7 +36,7 @@ jobs:
         run: |
           python scripts/sleeper_crawl.py --mode trades \
             --state .crawl-state/trades-${{ matrix.shard }} \
-            --shard ${{ matrix.shard }} --nshards 4 --max-minutes 330
+            --shard ${{ matrix.shard }} --nshards 4 --max-minutes 300
       - name: Upload corpus shard
         if: always()
         uses: actions/upload-artifact@v4

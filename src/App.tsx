@@ -1,26 +1,29 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./lib/types";
-import { j, jl, probeLeagueBase, setVersion } from "./lib/data";
+import { j, jl, setLeagueBase, setVersion } from "./lib/data";
 import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
 import { seasonSeg } from "./lib/league";
 import Home from "./views/Home";
-import Stats from "./views/Stats";
-import Value from "./views/Value";
-import FranchisesView from "./views/Franchises";
-import WeeklyView from "./views/Weekly";
-import Draft from "./views/Draft";
-import DraftDetail from "./views/DraftDetail";
-import Trades from "./views/Trades";
-import Ledger from "./views/Ledger";
-import History from "./views/History";
-import Insights from "./views/Insights";
-import Dvi from "./views/Dvi";
-import Cvi from "./views/Cvi";
-import FranchisePage from "./components/FranchisePage";
-import Player from "./views/Player";
 import SiteFooter from "./components/SiteFooter";
+// Every route off the landing page loads lazily: one eager chunk held all 14
+// views, so a first-time visitor downloaded and parsed the whole site to
+// render the dashboard. Home stays eager — it IS the landing page.
+const Stats = lazy(() => import("./views/Stats"));
+const Value = lazy(() => import("./views/Value"));
+const FranchisesView = lazy(() => import("./views/Franchises"));
+const WeeklyView = lazy(() => import("./views/Weekly"));
+const Draft = lazy(() => import("./views/Draft"));
+const DraftDetail = lazy(() => import("./views/DraftDetail"));
+const Trades = lazy(() => import("./views/Trades"));
+const Ledger = lazy(() => import("./views/Ledger"));
+const History = lazy(() => import("./views/History"));
+const Insights = lazy(() => import("./views/Insights"));
+const Dvi = lazy(() => import("./views/Dvi"));
+const Cvi = lazy(() => import("./views/Cvi"));
+const FranchisePage = lazy(() => import("./components/FranchisePage"));
+const Player = lazy(() => import("./views/Player"));
 
 /** The tab bar. Players is ONE tab holding two boards — Value (what a player
  *  is worth now) and Stats (what he did in a given year). They are separate
@@ -79,20 +82,25 @@ export default function App() {
     (async () => {
       // The registry comes FIRST and is global — it is what tells us where the
       // rest of this league's data lives. Everything after it is league-scoped
-      // and goes through jl(), which falls back to the flat layout while the
-      // files are still being moved.
+      // and goes through jl().
       const reg = await j<Leagues>("data/leagues.json")
         .catch(() => null as Leagues | null);
-      if (reg) {
-        const l = resolveLeague(reg);
-        await probeLeagueBase(l.key);
-        setLeague(l);
-      }
-      const m = await jl<Meta>("meta.json");
+      // Point jl() straight at the league layout. The probe request that used
+      // to confirm the layout existed cost a serial round trip (and fetched
+      // meta.json a second time, outside the cache); jl()'s own per-file
+      // fallback already covers anything missing.
+      if (reg) setLeagueBase(resolveLeague(reg).key);
+      // meta and players_min don't depend on each other — one round trip.
+      // players_min is fetched before setVersion and so carries no ?v= — it
+      // rides the same short max-age meta.json does, an accepted staleness.
+      const [m, pl] = await Promise.all([
+        jl<Meta>("meta.json"),
+        jl<PlayersMin>("players_min.json"),
+      ]);
       setVersion(m.updated);
       // data built before the registry existed: synthesise an entry from meta
-      if (!reg) setLeague(resolveLeague(legacyRegistry(m)));
-      setPlayers(await jl<PlayersMin>("players_min.json"));
+      setLeague(resolveLeague(reg ?? legacyRegistry(m)));
+      setPlayers(pl);
       setMeta(m);
     })().catch(e => setErr(String(e)));
   }, []);
@@ -164,6 +172,7 @@ function Shell() {
       </TabBar>
 
       <main>
+        <Suspense fallback={<div className="empty">Loading…</div>}>
         <Routes>
           {/* league-first. A static first segment outranks the dynamic
               :league, so the legacy block below can never be shadowed. */}
@@ -227,6 +236,7 @@ function Shell() {
 
           <Route path="*" element={<Navigate to={base} replace />} />
         </Routes>
+        </Suspense>
       </main>
       <SiteFooter />
     </div>

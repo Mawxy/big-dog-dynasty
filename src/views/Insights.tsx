@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Benchmarks, Franchises, Matchups, Weekly } from "../lib/types";
 import { j, jl } from "../lib/data";
-import { fmt, sgn } from "../lib/stats";
+import { fmt, rate, sgn } from "../lib/stats";
 import { useLeague } from "../lib/context";
 import TScroll from "../components/TScroll";
 
@@ -19,8 +19,6 @@ import TScroll from "../components/TScroll";
 /** a rate or per-unit figure with the sample behind it */
 type F = { v: number | null; n: number; of?: number };
 
-const pct = (f?: F) => (f?.v == null ? null : `${Math.round(f.v * 100)}%`);
-
 /** the one renderer for "figure or not enough data" */
 function Fig({ f, as = "pct", d = 2 }: { f?: F; as?: "pct" | "num"; d?: number }) {
   if (!f || f.v == null) {
@@ -28,7 +26,7 @@ function Fig({ f, as = "pct", d = 2 }: { f?: F; as?: "pct" | "num"; d?: number }
   }
   return (
     <span className="fig" title={`n = ${f.n.toLocaleString("en-US")}`}>
-      {as === "pct" ? pct(f) : fmt(f.v, d)}
+      {as === "pct" ? rate(f.v) : fmt(f.v, d)}
     </span>
   );
 }

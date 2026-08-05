@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Drafts, Franchises, Trade, TradesPayload } from "../lib/types";
 import { jl } from "../lib/data";
-import { fmt } from "../lib/stats";
+import { fmt, sgn, warInk } from "../lib/stats";
 import { pInfo, POS_COLOR } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { buildHistory, pickLabel, type HistRow } from "../lib/draftHistory";
@@ -10,7 +10,6 @@ import DraftBoardGrid from "../components/DraftBoardGrid";
 import { PlayerLink } from "../components/PlayerLink";
 import DataTable, { applySort, sortCol, type Col, type Grp } from "../components/DataTable";
 
-const sgn = (v: number, d = 2) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 const nul = <span className="fig quiet">—</span>;
 
 /** summary.json rows are [pid, pos, gp, pts, ppg, waa, war, ...] */
@@ -106,9 +105,6 @@ export default function DraftDetail() {
     return { mode: "med" as const, best: scored.slice(0, 8), worst: scored.slice(-8).reverse() };
   }, [rows, rookie]);
 
-  const ink = (v: number | null) => v == null ? "var(--dim3)"
-    : v > 0.02 ? "var(--good)" : v < -0.02 ? "var(--bad)" : "var(--dim)";
-
   const cols = useMemo<Col<HistRow, YearCtx>[]>(() => [
     {
       id: "pick", label: "Pick", grp: 0, w: 6, align: "c", td: "spine-cell", asc: true,
@@ -137,14 +133,14 @@ export default function DraftDetail() {
       sort: r => warBy?.[r.pid]?.[y],
       cell: r => {
         const v = warBy?.[r.pid]?.[y];
-        return v == null ? nul : <span style={{ color: ink(v) }}>{sgn(v)}</span>;
+        return v == null ? nul : <span style={{ color: warInk(v) }}>{sgn(v, 2)}</span>;
       },
     })),
     {
       id: "tot", label: "Total", grp: 1, w: 9, align: "n", keyCol: true, td: "n",
       sort: r => r.years > 0 ? r.war : null,
       cell: r => r.years > 0 || played.length
-        ? <span className="fig" style={{ color: ink(r.war) }}>{sgn(r.war)}</span> : nul,
+        ? <span className="fig" style={{ color: warInk(r.war) }}>{sgn(r.war, 2)}</span> : nul,
     },
   ], [played, warBy]);
 
@@ -284,9 +280,9 @@ export default function DraftDetail() {
                         </div>
                         <div className="by">{r.drafter}</div>
                       </td>
-                      <td className="n sub">{r.expected == null ? "—" : sgn(r.expected)}</td>
-                      <td className="n raw">{sgn(r.war)}</td>
-                      <td className="n vs" style={{ color: ink(r.diff ?? 0) }}>{sgn(r.diff ?? 0)}</td>
+                      <td className="n sub">{r.expected == null ? "—" : sgn(r.expected, 2)}</td>
+                      <td className="n raw">{sgn(r.war, 2)}</td>
+                      <td className="n vs" style={{ color: warInk(r.diff ?? 0) }}>{sgn(r.diff ?? 0, 2)}</td>
                     </tr>
                   ))}
                 </tbody>

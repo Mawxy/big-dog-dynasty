@@ -1,18 +1,20 @@
-declare const __BUILD_ID__: string;
-
 const cache = new Map<string, Promise<unknown>>();
-// Cache-bust key: the build id changes on every deploy (guarantees a refetch
-// when new data ships), combined with the data version when it's known.
-let ver = __BUILD_ID__;
-export function setVersion(v: string) { ver = `${__BUILD_ID__}.${v}`; }
+// Cache-bust key: the data version (meta.updated), set once meta.json loads.
+// Fetches made before then (leagues.json, meta.json itself) carry no ?v= and
+// ride GitHub Pages' short max-age — at most ~10 minutes stale, fine for data
+// that refreshes weekly. A per-build id was deliberately dropped: it
+// invalidated every JSON URL on all ~30 daily deploys, most of which shipped
+// no new site data at all.
+let ver = "";
+export function setVersion(v: string) { ver = v; }
 
-/** fetch JSON once per path per page load (cache-busted by build + data version).
+/** fetch JSON once per path per page load (cache-busted by data version).
  *  A failed fetch is evicted so the next caller retries rather than inheriting
  *  the cached rejection for the life of the page. */
 export function j<T>(path: string): Promise<T> {
   if (!cache.has(path)) {
     const sep = path.includes("?") ? "&" : "?";
-    const p = fetch(`${path}${sep}v=${encodeURIComponent(ver)}`).then(r => {
+    const p = fetch(ver ? `${path}${sep}v=${encodeURIComponent(ver)}` : path).then(r => {
       if (!r.ok) throw new Error(`failed to load ${path}`);
       return r.json();
     });
@@ -34,22 +36,6 @@ export function jDaily<T>(path: string): Promise<T> {
 let leagueBase = "";
 export function setLeagueBase(key: string) {
   leagueBase = key ? `data/leagues/${key}/` : "";
-}
-
-/**
- * Point the base at the league layout only if it is actually there.
- *
- * Without this every jl() call pays a 404 before falling back, which during the
- * transition is ~20 wasted requests per page load. One probe answers it for the
- * whole session; if the files haven't moved yet the base clears and jl() goes
- * straight to the flat layout.
- */
-export async function probeLeagueBase(key: string): Promise<void> {
-  if (!key) return setLeagueBase("");
-  setLeagueBase(key);
-  const ok = await fetch(`${leagueBase}meta.json?v=${encodeURIComponent(ver)}`)
-    .then(r => r.ok).catch(() => false);
-  if (!ok) setLeagueBase("");
 }
 
 /**

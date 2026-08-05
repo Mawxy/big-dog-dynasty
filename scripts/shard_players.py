@@ -70,7 +70,7 @@ def main():
             "years": years,
             "proj": proj.get(pid),
             "sproj": sproj.get(pid),
-        }), encoding="utf-8")
+        }, separators=(",", ":")), encoding="utf-8")
 
     print(f"wrote {len(wanted)} player shards to {pdir}/ "
           f"({len(proj)} projected, {len(sproj)} with Sleeper projections, "

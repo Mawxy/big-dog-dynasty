@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { CviFile, DviFile, PicksOwned, PickValues, ProjectionsFile } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt, sgn } from "../lib/stats";
-import { pickStream } from "../lib/rosterModel";
+import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 import { POS_COLOR } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
 import PosBadge from "./PosBadge";
@@ -24,7 +24,6 @@ interface Asset {
   war: number;
 }
 
-const ORD = ["1st", "2nd", "3rd", "4th"];
 const TIERS = ["Early", "Mid", "Late"];
 
 export default function TradeCalc() {
@@ -42,7 +41,9 @@ export default function TradeCalc() {
 
   useEffect(() => {
     jl<ProjectionsFile>("projections.json").then(setProj).catch(() => {});
-    jl<PickValues>("pick_values.json").then(setPv).catch(() => {});
+    // jlDaily, NOT jl: Draft.tsx fetches this file via jlDaily and the cache
+    // keys on the path string — a bare jl here made two 1.4 MB downloads
+    jlDaily<PickValues>("pick_values.json").then(setPv).catch(() => {});
     jl<PicksOwned>("picks_owned.json").then(setOwned).catch(() => {});
     jlDaily<DviFile>("dvi.json").then(setDvi).catch(() => {});
     jlDaily<CviFile>("cvi.json").then(setCvi).catch(() => {});
@@ -80,7 +81,7 @@ export default function TradeCalc() {
         for (let r = 0; r < 4; r++)
           for (const tier of TIERS)
             out.push({
-              key: `k${y} ${tier} ${ORD[r]}`, label: `${y} ${tier} ${ORD[r]}`, kind: "pick",
+              key: `k${y} ${tier} ${ROUND_ORD[r]}`, label: `${y} ${tier} ${ROUND_ORD[r]}`, kind: "pick",
               age: null, dvi: null, cvi: null,
               war: sum(pickStream(pv, tier, r + 1)),
             });

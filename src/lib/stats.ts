@@ -25,7 +25,11 @@ export function normInv(p: number): number {
   return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q /
     (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1);
 }
-export const sgn = (v: number, d = 3) => (v > 0 ? "+" : "") + fmt(v, d);
+/** signed figure with a true minus sign (−, not the ASCII hyphen toFixed
+ *  emits). The ONE sgn — Draft, DraftDetail and PlayoffPanel carried local
+ *  copies that disagreed on glyph and decimals. */
+export const sgn = (v: number, d = 3) =>
+  (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
 
 /** 1 -> "1st", 12 -> "12th" — teens handled (11th/12th/13th) */
 export const ord = (n: number) => {
@@ -33,9 +37,21 @@ export const ord = (n: number) => {
   return n + (s[(v - 20) % 10] || s[v] || s[0]);
 };
 
-/** meter-fill width: share of `max`, clamped so a negative value reads 0% */
-export const pct = (v: number, max: number) =>
+/** meter-fill width: share of `max`, clamped so a negative value reads 0%
+ *  (was exported as `pct`, a name five files reused for four other things) */
+export const meterWidth = (v: number, max: number) =>
   Math.round((Math.max(0, v) / max) * 100) + "%";
+
+/** a 0-1 rate as a whole-number percent string; null in, null out — callers
+ *  pick their own null glyph (`rate(v) ?? "—"`) */
+export const rate = (v: number | null | undefined): string | null =>
+  v == null ? null : Math.round(v * 100) + "%";
+
+/** ink for a signed WAR-over-expectation figure. One pair site-wide: Draft
+ *  used --war-pos/--war-neg while DraftDetail used --good/--bad for the same
+ *  quantity on linked pages. */
+export const warInk = (v: number | null) => v == null ? "var(--dim3)"
+  : v > 0.02 ? "var(--war-pos)" : v < -0.02 ? "var(--war-neg)" : "var(--dim)";
 export const clsOf = (n: number) => n > 0.0005 ? "num good" : n < -0.0005 ? "num bad" : "num";
 export const mean = (a: number[]) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
 

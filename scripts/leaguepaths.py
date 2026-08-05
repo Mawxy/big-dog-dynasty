@@ -37,6 +37,8 @@ GLOBAL_FILES = {
     "outcome_signals.json",   # league-wide benchmarks (sharded: _0.._3)
     "outcome_corpus.json",
     "benchmarks.json",        # merged cross-league benchmarks (Insights tab)
+    "slot_values.json",       # lineup-slot pricing from the outcome corpus —
+                              # cross-league, like benchmarks.json
 }
 
 

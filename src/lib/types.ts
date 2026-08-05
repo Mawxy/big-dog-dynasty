@@ -132,8 +132,6 @@ export interface PickBucket {
    *  dynasty question, where out_rate only said "did he disappear". */
   fran_rate?: number | null;
   fran_n?: number;
-  /** sorted raw 3-yr WAR totals of matured picks (box-plot sample) */
-  dist3: number[];
   /** year-since-draft -> sorted per-season WAR samples (box-plot / trajectory) */
   dist: Record<string, number[]>;
 }
@@ -141,7 +139,12 @@ export interface PickValues {
   meta: {
     generated_for_season: number; classes: string; years_published: number[];
     min_obs_by_round: Record<string, number>; hit_threshold_war: number;
-    picks_used: number; picks_analyzed?: number; vets_excluded: number; unmatched: number; source: string;
+    /** picks_analyzed counts drafting decisions (coverage — the headline, by
+     *  Max's call, always labeled "analyzed"); picks_distinct is the honest
+     *  evidence count named beside it; picks_used the weighted reps — see the
+     *  meta comment in pick_value.py */
+    picks_used: number; picks_analyzed?: number; picks_distinct?: number;
+    vets_excluded: number; unmatched: number; source: string;
   };
   /** every slot individually: 1.01 … 4.12 */
   picks: PickBucket[];

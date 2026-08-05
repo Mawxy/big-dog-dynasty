@@ -272,7 +272,7 @@ def main():
         sys.exit("no formats fetched — refusing to write")
     # a player stripped from his last remaining format is an empty record
     out["players"] = {pid: rec for pid, rec in out["players"].items() if rec}
-    Path(args.out).write_text(json.dumps(out))
+    Path(args.out).write_text(json.dumps(out, separators=(",", ":")))
     print(f"\nwrote {args.out} · {len(out['players'])} players across "
           f"{len(out['formats'])} format(s)")
 

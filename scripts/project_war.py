@@ -413,7 +413,9 @@ def main():
                  'natural(if healthy) / composite(natural blended with Sleeper '
                  'projection, 80/50/20 by year) / expected(natural x availability)',
     }, 'players': rows}
-    (DATA / 'projections.json').write_text(json.dumps(out, indent=1), encoding='utf-8')
+    # compact separators: the site fetches this on the landing page and
+    # indentation was 40% of its bytes
+    (DATA / 'projections.json').write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
 
     print(f"seed {seed}  rosters {roster_season}  projected {len(rows)}  "
           f"skipped no-history {skipped}  age-default {age_def}  "

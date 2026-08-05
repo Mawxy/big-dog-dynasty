@@ -1,14 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { BracketFile, BracketGame } from "../lib/types";
-import { fmt } from "../lib/stats";
+import { fmt, sgn } from "../lib/stats";
 import { pInfo, POS_COLOR } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import PlayoffBracket from "./PlayoffBracket";
 import { PlayerLink } from "./PlayerLink";
-
-const wsgn = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), 3);
-const wsgn2 = (v: number) => (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), 2);
 
 interface Perf {
   pid: string; rid: number; pts: number;
@@ -178,7 +175,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   // `fig`, not `sub`: sub carries text-overflow:ellipsis, which
                   // clipped these to "+0…" in a half-width table
                   <td key={w} className="fig quiet n">
-                    {v == null ? (started ? "·" : "—") : wsgn(v)}
+                    {v == null ? (started ? "·" : "—") : sgn(v)}
                   </td>
                 );
               })}
@@ -187,7 +184,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   : (p.wpa ?? 0) < -0.005 ? "var(--bad)" : "var(--dim)",
                 font: "700 17px/1 var(--cond)",
               }}>
-                {p.wpa == null ? "—" : wsgn(p.wpa)}
+                {p.wpa == null ? "—" : sgn(p.wpa)}
               </td>
             </tr>
           );
@@ -253,7 +250,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               })}
               {/* production, not the award: this one counts in a loss too */}
               <td className="fig n">
-                {p.war == null ? <span className="quiet">—</span> : wsgn2(p.war)}
+                {p.war == null ? <span className="quiet">—</span> : sgn(p.war, 2)}
               </td>
               <td className="n fig">
                 <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
@@ -300,7 +297,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                 // MVP+ is the figure worth carrying here: the season score is
                 // always 100 for whoever leads it, so it says nothing on its own
                 ? `${mvp.mvpp != null ? `${fmt(mvp.mvpp, 0)} MVP+ · ` : ""}`
-                  + `${wsgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
+                  + `${sgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
                 : `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}`],
         ].map(([k, v, sub]) => (
           <div key={k} className="figcell">

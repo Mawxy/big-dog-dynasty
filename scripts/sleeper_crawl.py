@@ -402,6 +402,7 @@ def mode_signals(args, t0):
 
     deadline = t0 + args.max_minutes * 60 if args.max_minutes else None
     last_log = t0
+    rate_limited = None
     while frontier and n_visited < args.max_leagues:
         if deadline and time.time() >= deadline:
             break
@@ -460,13 +461,21 @@ def mode_signals(args, t0):
                     git_push([args.signals_out, args.leagues_out],
                              f"Crawl signals (partial, {n_counted} leagues) "
                              f"{datetime.date.today().isoformat()}")
-        except RuntimeError:
-            raise
+        except RuntimeError as e:
+            # Rate-limit exhaustion. Do NOT re-raise: an escaping exception
+            # skips the flush below AND fails the job, and a failed job skips
+            # the actions/cache post-step save — losing the whole run's state,
+            # not just this league. Flush, report, and exit 0 so the cache
+            # persists; the next scheduled run resumes from here.
+            rate_limited = e
+            break
         except Exception as e:
             print(f"  skip {lid}: {e}", file=sys.stderr, flush=True)
         if time.time() - last_log >= args.log_every:
             hb(); last_log = time.time()
     n = flush()
+    if rate_limited:
+        print(f"[signals] stopped early: {rate_limited}", file=sys.stderr, flush=True)
     hb("done" if not frontier else "stopped")
     print(f"[signals] {n_counted} counted this run, {n} leagues in window, "
           f"{len(seen_users)} users", file=sys.stderr, flush=True)
@@ -501,6 +510,7 @@ def mode_trades(args, t0):
 
     deadline = t0 + args.max_minutes * 60 if args.max_minutes else None
     last_log = t0
+    rate_limited = None
     for lid in mine:
         if deadline and time.time() >= deadline:
             break
@@ -516,13 +526,17 @@ def mode_trades(args, t0):
             n_done += 1
             if n_done % CHECKPOINT_EVERY == 0:
                 flush()
-        except RuntimeError:
-            raise
+        except RuntimeError as e:
+            # see mode_signals: flush + exit 0, or the CI cache save is lost
+            rate_limited = e
+            break
         except Exception as e:
             print(f"  skip {lid}: {e}", file=sys.stderr, flush=True)
         if time.time() - last_log >= args.log_every:
             hb(); last_log = time.time()
     flush()
+    if rate_limited:
+        print(f"[trades] stopped early: {rate_limited}", file=sys.stderr, flush=True)
     hb("done")
     print(f"[trades] shard {args.shard}: pulled {n_done} leagues, {len(trades)} trades",
           file=sys.stderr, flush=True)
@@ -631,6 +645,7 @@ def mode_drafts(args, t0):
 
     deadline = t0 + args.max_minutes * 60 if args.max_minutes else None
     last_log = t0
+    rate_limited = None
     for lid in mine:
         if deadline and time.time() >= deadline:
             break
@@ -667,13 +682,17 @@ def mode_drafts(args, t0):
                 git_push([args.drafts_out],
                          f"Crawl drafts (partial, {n_done} leagues) "
                          f"{datetime.date.today().isoformat()}")
-        except RuntimeError:
-            raise
+        except RuntimeError as e:
+            # see mode_signals: flush + exit 0, or the CI cache save is lost
+            rate_limited = e
+            break
         except Exception as e:
             print(f"  skip {lid}: {e}", file=sys.stderr, flush=True)
         if time.time() - last_log >= args.log_every:
             hb(); last_log = time.time()
     flush()
+    if rate_limited:
+        print(f"[drafts] stopped early: {rate_limited}", file=sys.stderr, flush=True)
     hb("done")
 
 
@@ -796,6 +815,7 @@ def mode_outcomes(args, t0):
 
     deadline = t0 + args.max_minutes * 60 if args.max_minutes else None
     last_log = t0
+    rate_limited = None
     for lid in mine:
         if deadline and time.time() >= deadline:
             break
@@ -907,13 +927,17 @@ def mode_outcomes(args, t0):
             n_done += 1
             if n_done % CHECKPOINT_EVERY == 0:
                 flush()
-        except RuntimeError:
-            raise
+        except RuntimeError as e:
+            # see mode_signals: flush + exit 0, or the CI cache save is lost
+            rate_limited = e
+            break
         except Exception as e:
             print(f"  skip {lid}: {e}", file=sys.stderr, flush=True)
         if time.time() - last_log >= args.log_every:
             hb(); last_log = time.time()
     flush()
+    if rate_limited:
+        print(f"[outcomes] stopped early: {rate_limited}", file=sys.stderr, flush=True)
     hb("done")
     print(f"[outcomes] shard {args.shard}: {n_done} leagues, {len(rows)} league-seasons",
           file=sys.stderr, flush=True)

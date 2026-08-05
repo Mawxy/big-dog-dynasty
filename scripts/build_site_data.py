@@ -48,7 +48,9 @@ def guard_write(path, obj, content=None):
                 f"refusing to overwrite non-empty {path} with empty output — "
                 "did sleeper_pull.py / sleeper_war.py run against this --data "
                 "dir? (--allow-empty to override)")
-    Path(path).write_text(json.dumps(obj))
+    # compact separators everywhere: these files are fetched by the site, and
+    # the default ", "/": " separators were 10-14% of their bytes
+    Path(path).write_text(json.dumps(obj, separators=(",", ":")))
 
 def main():
     global ALLOW_EMPTY
@@ -237,7 +239,7 @@ def main():
                     "teams": mws}
         if sched:
             mpayload["schedule"] = sched
-        (sout / "matchups.json").write_text(json.dumps(mpayload))
+        (sout / "matchups.json").write_text(json.dumps(mpayload, separators=(",", ":")))
 
         # --- absences: label each missing regular-season week BYE / DNP / NR ---
         ps_wk = league.get("settings", {}).get("playoff_week_start", 15)
@@ -457,7 +459,7 @@ def main():
                 "seeds": {str(t["roster_id"]): seed.get(t["roster_id"]) for t in teams},
                 "names": {str(t["roster_id"]): t["team"] for t in teams},
                 "winners": wgames, "losers": _games(lb),
-                "stars": stars}))
+                "stars": stars}, separators=(",", ":")))
         for t in teams:
             rid = t["roster_id"]
             g = t["wins"] + t["losses"] + t["ties"]

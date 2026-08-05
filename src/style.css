@@ -475,9 +475,13 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   margin: 0 var(--pad) 20px;
 }
 .box-rows { display: flex; flex-direction: column; gap: 7px; }
-.box-row { display: flex; align-items: center; gap: 12px; }
+/* single definition — a "draft:" section further down used to re-declare
+   .box-row, .box-row .lbl and .axis .scale with overriding values; the
+   winning (later) values are folded in here */
+.box-row { display: flex; align-items: stretch; gap: 12px; }
 .box-row .lbl {
   flex: 0 0 56px;
+  display: flex; flex-direction: column; justify-content: center; gap: 2px;
   font: 700 16px/1 var(--cond);
   letter-spacing: .1em;
 }
@@ -485,7 +489,7 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
    so the labels stay selectable and inherit the type stack */
 .axis { display: flex; gap: 12px; margin-top: 6px; }
 .axis .pad { flex: 0 0 56px; }
-.axis .scale { position: relative; flex: 0 0 800px; height: 18px; }
+.axis .scale { position: relative; flex: 1 1 auto; min-width: 0; height: 18px; }
 .axis .scale span {
   position: absolute;
   transform: translateX(-50%);
@@ -515,9 +519,10 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   text-transform: uppercase;
   padding: 7px 0 8px;
 }
-.pick-title.best  { color: var(--good); }
-.pick-title.worst { color: var(--bad); }
-.pick-tables table { background: var(--band); }
+/* .pick-title.best/.worst are defined ONCE, in the signed-WAR block further
+   down (--war-pos/--war-neg). A --good/--bad pair here shadowed by that one
+   is what taught Draft and DraftDetail two different ink colors. */
+.pick-tables table { background: var(--band); table-layout: fixed; }
 .pick-tables thead th { padding: 6px 10px; font-size: 12px; letter-spacing: .14em; color: var(--dim2); }
 .pick-tables tbody td { padding: 7px 10px; border-bottom: 1px solid var(--bg); }
 
@@ -648,12 +653,8 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
    Every signed WAR figure on this screen resolves to these two. */
 :root { --war-pos: #43d783; --war-neg: #e8757f; }
 
-/* ---- draft: box-plot rows (fluid svg between fixed rails) ---------------- */
-.box-row { align-items: stretch; }
-.box-row .lbl {
-  flex: 0 0 56px;
-  display: flex; flex-direction: column; justify-content: center; gap: 2px;
-}
+/* ---- draft: box-plot rows (fluid svg between fixed rails) ----------------
+   .box-row / .box-row .lbl / .axis .scale live with the base block above */
 .box-row .lbl .n {
   font: 400 10.5px/1 var(--sans); letter-spacing: 0; color: var(--dim3);
   font-variant-numeric: tabular-nums;
@@ -672,7 +673,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 .box-row .plot .lab { top: 0; }
 .box-row .plot .lab.med { font: 700 13px/1 var(--cond); color: var(--acc); }
 .box-row .plot .lab.end { font: 400 11px/1 var(--sans); color: var(--dim); }
-.axis .scale { flex: 1 1 auto; min-width: 0; }
 
 /* ---- draft: slot heat map ------------------------------------------------ */
 .heat-head { display: flex; gap: 2px; margin-bottom: 3px; }
@@ -821,8 +821,8 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
 .rankcap:first-of-type { margin-top: 8px; }
 .rankcap span { font-weight: 400; font-size: 12px; color: var(--dim); }
 
-/* ---- draft: best / worst value over slot -------------------------------- */
-.pick-tables table { table-layout: fixed; }
+/* ---- draft: best / worst value over slot --------------------------------
+   (.pick-tables table itself is styled once, in the base block) */
 .pick-tables td.who { padding: 7px 10px; overflow: hidden; }
 .pick-tables td.who .line { display: flex; align-items: center; gap: 7px; min-width: 0; }
 .pick-tables td.who .line .nm {
@@ -1330,8 +1330,7 @@ table.feed td.sub, table.feed .by { color: var(--dim); font: 400 11.5px/1.45 var
 table.feed .nm { font: 600 13.5px/1.35 var(--sans); color: var(--txt); }
 table.feed .line { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 1px 0; }
 table.feed .line .nm { flex: 0 0 auto; }
-table.feed .line .by { flex: 1 1 auto; }
-table.feed .line .by { white-space: normal; }
+table.feed .line .by { flex: 1 1 auto; white-space: normal; }
 table.feed .arrow { color: var(--good); font-size: 10px; }
 table.feed .arrow.alt { color: var(--wr); }
 table.feed .add { color: var(--good); }

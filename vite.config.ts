@@ -2,10 +2,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 // base "./" so the built site works at https://<user>.github.io/<repo>/
-// __BUILD_ID__ changes every build, so data fetches are cache-busted on every
-// deploy regardless of whether meta.updated bumped (see src/lib/data.ts).
+// Data cache-busting comes from meta.updated (src/lib/data.ts setVersion),
+// NOT a per-build id: a build-time id inlined into the bundle changed the JS
+// content hash on every deploy — ~30/day from crawl commits — so returning
+// visitors always cold-loaded. The bundle now busts only when its content
+// actually changes.
 export default defineConfig({
   base: "./",
   plugins: [react()],
-  define: { __BUILD_ID__: JSON.stringify(Date.now().toString(36)) },
 });
