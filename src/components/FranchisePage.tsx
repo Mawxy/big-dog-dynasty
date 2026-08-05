@@ -2,7 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   CviFile, DraftPick, Drafts, DviFile, Franchise, Franchises, Insights,
-  PlayersMin, ProjectionsFile, SleeperProjFile, Team, Trade, TradesPayload,
+  PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload,
 } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt, sgn, clsOf, ord } from "../lib/stats";
@@ -61,6 +61,10 @@ export default function FranchisePage({ rid, players, tab }:
   const [team, setTeam] = useState<Team | null>(null);
   const [proj, setProj] = useState<Map<string, { war: number; age: number }> | null>(null);
   const [sppg, setSppg] = useState<Map<string, number>>(new Map());
+  /** which season's roster the Roster band shows — the ladder sets it */
+  const [viewSeason, setViewSeason] = useState<string>(rosterSeason);
+  /** played-season actuals for viewSeason; null while on the roster season */
+  const [actual, setActual] = useState<Map<string, { war: number; ppg: number }> | null>(null);
   const [dvi, setDvi] = useState<DviFile | null>(null);
   const [cvi, setCvi] = useState<CviFile | null>(null);
 
@@ -81,9 +85,17 @@ export default function FranchisePage({ rid, players, tab }:
     jl<TradesPayload>("trades.json")
       .then(p => { if (live) setTrades(readTrades(p).trades.filter(t => t.sides.some(s => s.rid === rid))); })
       .catch(() => { if (live) setTrades([]); });
-    jl<Team[]>(`${rosterSeason}/teams.json`)
+    jl<Team[]>(`${viewSeason}/teams.json`)
       .then(ts => { if (live) setTeam(ts.find(t => t.roster_id === rid) ?? null); })
-      .catch(() => {});
+      .catch(() => { if (live) setTeam(null); });
+    // A past roster is priced in what those players ACTUALLY did that year, not
+    // in today's projection: 2022's roster carries 2022 WAR and 2022 PPG. DVI
+    // and CVI are current-market indices with no historical series, so they
+    // read — - see the Roster band's note.
+    if (viewSeason === rosterSeason) setActual(null);
+    else jl<SummaryRow[]>(`${viewSeason}/summary.json`)
+      .then(rows => { if (live) setActual(new Map(rows.map(r => [r[0], { war: r[6], ppg: r[4] }]))); })
+      .catch(() => { if (live) setActual(new Map()); });
     Promise.all([
       jl<ProjectionsFile>("projections.json"),
       jl<SleeperProjFile>("proj_sleeper.json").catch(() => ({ players: {} } as SleeperProjFile)),
@@ -95,7 +107,7 @@ export default function FranchisePage({ rid, players, tab }:
     jlDaily<DviFile>("dvi.json").then(d => { if (live) setDvi(d); }).catch(() => {});
     jlDaily<CviFile>("cvi.json").then(c => { if (live) setCvi(c); }).catch(() => {});
     return () => { live = false; };
-  }, [rid, rosterSeason]);
+  }, [rid, rosterSeason, viewSeason]);
 
   const refs = useRef<Record<SectionKey, HTMLDivElement | null>>({
     roster: null, strengths: null, years: null, draft: null, trades: null, waivers: null,
@@ -113,14 +125,24 @@ export default function FranchisePage({ rid, players, tab }:
   /** roster rows with everything a row needs, priced in every currency */
   const roster = useMemo(() => {
     if (!team) return null;
+    // teams.json and summary.json land on separate promises; without this the
+    // table flashes one season's roster priced in the other season's numbers
+    if (viewSeason !== rosterSeason && !actual) return null;
     const rows: RosterRow[] = team.players.map(pid => {
       const [nm, pos, nfl] = pInfo(players, pid);
       const pj = proj?.get(pid);
+      const act = actual?.get(pid);
+      // projections.json ages to the roster season, so a past roster walks the
+      // age BACK to the season being viewed rather than printing today's
+      const back = Number(rosterSeason) - Number(viewSeason);
       return {
         id: pid, nm, pos, nfl,
-        age: pj?.age ?? null, ppg: sppg.get(pid) ?? null,
-        dvi: dvi?.players[pid]?.dvi ?? null, cvi: cvi?.players[pid]?.cvi ?? null,
-        war: pj?.war ?? 0,
+        age: pj?.age == null ? null : pj.age - (actual ? back : 0),
+        ppg: (actual ? act?.ppg : sppg.get(pid)) ?? null,
+        // no historical index series exists — never fabricate one
+        dvi: actual ? null : dvi?.players[pid]?.dvi ?? null,
+        cvi: actual ? null : cvi?.players[pid]?.cvi ?? null,
+        war: (actual ? act?.war : pj?.war) ?? 0,
         tag: team.taxi.includes(pid) ? "TAXI" : team.reserve.includes(pid) ? "IR" : "",
       };
     });
@@ -135,7 +157,7 @@ export default function FranchisePage({ rid, players, tab }:
     const startTot = slots.reduce((s, x) => s + (x.player?.war ?? 0), 0);
     const warMax = Math.max(0.01, ...rows.map(r => r.war));
     return { rows, slots, bench, taxi, startTot, warMax };
-  }, [team, players, proj, sppg, dvi, cvi, meta]);
+  }, [team, players, proj, sppg, dvi, cvi, meta, actual, rosterSeason, viewSeason]);
 
   /** starters/roster totals in an index currency (lineup optimised in it) */
   const indexTotals = useMemo(() => {
@@ -226,7 +248,8 @@ export default function FranchisePage({ rid, players, tab }:
       <th className="n" style={{ width: "8%" }}>PPG</th>
       <th className="n edge" style={{ width: "9%" }}>DVI</th>
       <th className="n" style={{ width: "9%" }}>CVI</th>
-      <th className="n key edge" style={{ width: "24%" }}>Proj WAR</th>
+      {/* a header must label its own column: a played season is realised WAR */}
+      <th className="n key edge" style={{ width: "24%" }}>{actual ? `${viewSeason} WAR` : "Proj WAR"}</th>
     </tr>
   );
 
@@ -274,7 +297,7 @@ export default function FranchisePage({ rid, players, tab }:
           </span>
         </span>
         <span className="rec-fig">{fmt(r.war, 2)}</span>
-        <span className="rec-key">Proj WAR</span>
+        <span className="rec-key">{actual ? `${viewSeason} WAR` : "Proj WAR"}</span>
       </div>
       <div className="rec-l2">
         <span className="mic"><span className="mk">DVI</span>
@@ -304,8 +327,13 @@ export default function FranchisePage({ rid, players, tab }:
               <div className="rail-h">Seasons</div>
               <div className="rail-ladder">
                 {seasons.slice().reverse().map(s => (
-                  <div key={s.season}
-                    className={`rail-season${s.finish === 1 || s.season === rosterSeason ? " mark" : ""}`}>
+                  // The accent rule marks WHERE YOU ARE, nothing else. It used
+                  // to mark champions too, which made a title indistinguishable
+                  // from the selected row — the CHAMP tag already says champion.
+                  <div key={s.season} role="button" tabIndex={0}
+                    className={`rail-season pick${s.season === viewSeason ? " mark" : ""}`}
+                    onClick={() => setViewSeason(s.season)}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewSeason(s.season); } }}>
                     <div className="l1">
                       <span className="yr">{s.season}</span>
                       <span className="fin" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
@@ -341,9 +369,9 @@ export default function FranchisePage({ rid, players, tab }:
                 <div className="figsub">{champYears.length ? champYears.join(" · ") : "none yet"}</div>
               </div>
               <div className="figcell">
-                <div className="figkey">{rosterSeason} lineup WAR</div>
+                <div className="figkey">{viewSeason} lineup WAR</div>
                 <div className="figval">{roster ? fmt(roster.startTot, 2) : "—"}</div>
-                <div className="figsub">projected, best legal lineup</div>
+                <div className="figsub">{actual ? "realised, best legal lineup" : "projected, best legal lineup"}</div>
               </div>
               <div className="figcell">
                 <div className="figkey">Starters DVI</div>
@@ -368,8 +396,10 @@ export default function FranchisePage({ rid, players, tab }:
             {/* ---- roster ---- */}
             <div ref={el => { refs.current.roster = el; }}>
               <div className="band">
-                <span className="band-label">Roster · {rosterSeason}</span>
-                <span className="band-note">Best legal lineup by projected WAR, not the lineup as set</span>
+                <span className="band-label">Roster · {viewSeason}</span>
+                <span className="band-note">{actual
+                  ? `Best legal lineup by WAR actually produced in ${viewSeason}, not the lineup as set · DVI and CVI are current-market indices with no historical series`
+                  : "Best legal lineup by projected WAR, not the lineup as set"}</span>
               </div>
               {!roster ? <div className="empty">Loading roster…</div> : mobile ? (
                 <div className="records wrk">

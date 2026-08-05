@@ -223,9 +223,15 @@ class TierIndexTest(unittest.TestCase):
 class SummarizeTest(unittest.TestCase):
     """Counts must be additive so the four shards merge by summing."""
 
-    def row(self, champ, rosters, lid="x", season=2025):
+    def row(self, champ, rosters, lid="x", season=2025, playoff_teams=None):
+        # `playoff_teams` decides who counts as the field — the rest of the
+        # BRACKET, not the rest of the league. Fixtures default to a bracket
+        # wide enough to hold every roster they define, so a test that does not
+        # care about the distinction behaves as it always did.
         return {"lid": lid, "season": season, "teams": len(rosters),
-                "champ": champ, "runner": None, "rosters": rosters}
+                "champ": champ, "runner": None, "rosters": rosters,
+                "playoff_teams": len(rosters) if playoff_teams is None
+                else playoff_teams}
 
     def test_counts_are_additive_across_shards(self):
         a = self.row(1, [mkrow(1, 1, w=10, l=4, picks=(2, 1, 1, 1)),
@@ -249,13 +255,37 @@ class SummarizeTest(unittest.TestCase):
         s = sc.summarize_outcomes(
             [self.row(1, [mkrow(1, 1, hg=5, n=20), mkrow(2, 2, hg=15, n=20)])],
             0, 1)["counts"]
-        # champion: 5 of 20 homegrown; field: 20 of 40 across both rosters
+        # champion: 5 of 20 homegrown. The field is the OTHER bracket roster —
+        # the champion is not part of the group it is being compared against.
         self.assertEqual((s["champ_homegrown_sum"], s["champ_roster_sum"]), (5, 20))
-        self.assertEqual((s["field_homegrown_sum"], s["field_roster_sum"]), (20, 40))
+        self.assertEqual((s["field_homegrown_sum"], s["field_roster_sum"]), (15, 20))
         self.assertEqual(s["champ_roster_n"], 1)
-        self.assertEqual(s["field_roster_n"], 2)
+        self.assertEqual(s["field_roster_n"], 1)
         self.assertEqual(s["champ_rb_sum"], 6)
-        self.assertEqual(s["field_rb_sum"], 12)
+        self.assertEqual(s["field_rb_sum"], 6)
+
+    def test_the_field_is_the_bracket_not_the_league(self):
+        """A title is won against the playoff teams. Rosters that missed the
+        bracket are not the comparison, and neither is the champion itself."""
+        rosters = [mkrow(1, 1, hg=5, n=20),      # champion
+                   mkrow(2, 2, hg=15, n=20),     # made the 4-team bracket
+                   mkrow(3, 4, hg=15, n=20),     # made it, last seed
+                   mkrow(4, 9, hg=1, n=20)]      # missed — must not count
+        s = sc.summarize_outcomes(
+            [self.row(1, rosters, playoff_teams=4)], 0, 1)["counts"]
+        self.assertEqual(s["field_roster_n"], 2)
+        self.assertEqual(s["field_homegrown_sum"], 30)
+        self.assertEqual(s["champ_roster_n"], 1)
+        # the missed-the-bracket roster still feeds the league-wide stacking
+        # denominators, which ask a different question
+        self.assertEqual(s["rb_start0_rosters"], 4)
+
+    def test_a_season_with_no_bracket_records_no_field(self):
+        s = sc.summarize_outcomes(
+            [self.row(1, [mkrow(1, 1), mkrow(2, 2)], playoff_teams=0)],
+            0, 1)["counts"]
+        self.assertEqual(s["champ_roster_n"], 1)
+        self.assertEqual(s.get("field_roster_n", 0), 0)
 
     def test_each_tier_carries_both_halves_of_the_fraction(self):
         s = sc.summarize_outcomes([self.row(1, [mkrow(1, 1, erb=2),
@@ -269,8 +299,9 @@ class SummarizeTest(unittest.TestCase):
         """State and CI caches outlive a column addition. A short row indexed
         by F[...] silently reads the wrong field, so it must be discarded."""
         good = mkrow(1, 1)
-        stale = good[:len(good) - 4]                 # written before the slots
-        rows = [self.row(1, [good, stale])]
+        opp = mkrow(2, 2)                            # the field, full width
+        stale = mkrow(3, 3)[:len(good) - 4]          # written before the slots
+        rows = [self.row(1, [good, opp, stale], playoff_teams=3)]
         s = sc.summarize_outcomes(rows, 0, 1)["counts"]
         self.assertEqual(s["champ_slot_n"], 1)
         self.assertEqual(s["field_slot_n"], 1)       # the stale row is gone

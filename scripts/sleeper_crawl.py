@@ -996,10 +996,26 @@ def summarize_outcomes(rows, shard, nshards):
         if not c:
             continue
         agg["champs"] += 1
+        # THE FIELD IS THE REST OF THE PLAYOFF BRACKET — not the league, and not
+        # the league including the champion. It used to be `rs`, every roster,
+        # champion included, which answered "how does a title team compare to a
+        # random team" when the question being asked is "what beat the teams it
+        # actually had to beat". Including the champion in its own comparison
+        # also damps every edge toward zero, and the damping is worst in the
+        # small-slot figures where one roster is a meaningful share of the mean.
+        # `place` orders playoff teams first (see placements_of), so a roster
+        # made the bracket iff place <= playoff_teams — `place` alone cannot say
+        # it, since 6th is in a 6-team field and out of a 4.
+        n_pt = playoff_teams.get((chain, row.get("season"))) or 0
+        # An empty field (no bracket recorded) contributes nothing to the field
+        # counters, but must NOT skip the champion or the position-stacking
+        # denominators below — those are league-wide questions.
+        field = [r for r in rs
+                 if r[F["rid"]] != champ and n_pt and r[F["place"]] <= n_pt]
         agg["champ_kept_own_1st"] += c[F["kept_own_1st"]]
         agg["champ_r1_held"] += c[F["held_r1"]]
-        agg["field_r1_held"] += sum(r[F["held_r1"]] for r in rs)
-        agg["field_rosters"] += len(rs)
+        agg["field_r1_held"] += sum(r[F["held_r1"]] for r in field)
+        agg["field_rosters"] += len(field)
         picks = sum(c[F["held_r1"]:F["held_r4"] + 1])
         agg["champ_net_picks"] += picks - 4
         agg["champ_bought"] += 1 if picks > 4 else 0
@@ -1019,13 +1035,13 @@ def summarize_outcomes(rows, shard, nshards):
         # --- what a title lineup was worth, slot by slot ----------------------
         # Sums and counts so shards add; the consumer divides. Champion and
         # field share the denominator convention so the two are comparable.
-        for tag, group in (("champ", [c]), ("field", rs)):
+        for tag, group in (("champ", [c]), ("field", field)):
             for r in group:
                 for i, key in enumerate(SLOT_FIELDS):
                     agg[f"{tag}_{key}_sum"] += round(r[F[key]] * 1000)
                 agg[f"{tag}_slot_n"] += 1
         # --- roster construction: champion vs the field it beat ---------------
-        for tag, group in (("champ", [c]), ("field", rs)):
+        for tag, group in (("champ", [c]), ("field", field)):
             for r in group:
                 agg[f"{tag}_roster_sum"] += r[F["roster_n"]]
                 agg[f"{tag}_roster_n"] += 1
@@ -1045,8 +1061,17 @@ def summarize_outcomes(rows, shard, nshards):
             year = min(i + 1, LEAGUE_YEAR_CAP)
             champ = champ_of_season.get((chain, y))
             pt = playoff_teams.get((chain, y)) or 0
+            # Same "field" as the slot and construction blocks above: the rest
+            # of the bracket. The Insights table puts these two columns side by
+            # side as champion-vs-field, so they have to mean the same thing in
+            # both. A season with no bracket contributes neither column.
             for rid, r in seasons[y].items():
-                tag = "champ" if rid == champ else "field"
+                if rid == champ:
+                    tag = "champ"
+                elif pt and r[F["place"]] <= pt:
+                    tag = "field"
+                else:
+                    continue
                 agg[f"y{year}_{tag}_homegrown_sum"] += r[F["homegrown_n"]]
                 agg[f"y{year}_{tag}_roster_sum"] += r[F["roster_n"]]
                 agg[f"y{year}_{tag}_n"] += 1

@@ -1069,9 +1069,15 @@ button.dband:hover .band-label { color: var(--txt2); }
 /* franchise ladder: one season per row, rename history on the second line */
 .rail-season { position: relative; padding: 6px 8px 7px; border-top: 1px solid var(--hair); }
 .rail-season:first-child { border-top: 0; }
+/* the accent rule is the SELECTED season and nothing else — a champion is a
+   CHAMP tag, not a second thing wearing the same gold */
 .rail-season.mark::before {
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--acc);
 }
+.rail-season.pick { cursor: pointer; }
+.rail-season.pick:hover { background: var(--zebra); }
+.rail-season.pick:focus-visible { outline: 1px solid var(--acc); outline-offset: -1px; }
+.rail-season.mark .yr { color: var(--acc); }
 .rail-season .l1 { display: flex; align-items: baseline; gap: 8px; }
 .rail-season .yr { font: 700 14px/1 var(--cond); letter-spacing: .04em; }
 .rail-season .fin { font: 600 11px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim); }

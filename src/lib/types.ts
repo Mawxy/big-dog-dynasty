@@ -155,6 +155,8 @@ export interface PickValues {
 /** data/projections.json — 3-year forward WAR per rostered player */
 export interface Projection {
   pid: string; name: string; pos: string; team: string;
+  /** age on Sep 1 of meta.roster_season — the FIRST projected year, so the
+   *  player page's per-year column is `age + i`, not `age + 1 + i` */
   age: number; pick: number; exp: number | null;
   war25: number; level: number;
   /** full-career WAR by season [season, war] (real league + NFL history) */
@@ -394,6 +396,9 @@ export interface Benchmarks {
     champions: number; rosters: number; horizon: number; min_n: number;
     note: string;
   };
+  /** `field` throughout is the REST OF THE BRACKET that season — the playoff
+   *  teams the champion had to beat, excluding the champion itself. It is not
+   *  the whole league, and it is not the league-including-the-champion. */
   slots: { slot: string; champ: BenchFig; field: BenchFig }[];
   construction: Record<string, { champ: BenchFig; field: BenchFig }>;
   picks: {

@@ -380,7 +380,14 @@ def main():
         pw0 = prior_weight(exp0, L0 if L0 is not None else 0.0)
         rows.append({
             'pid': pid, 'name': nm, 'pos': pos, 'team': owner[pid],
-            'age': base_age, 'age_src': asrc, 'pick': pick, 'exp': exp0,
+            # PUBLISHED age is the roster season's, not the seed's. base_age is
+            # deliberately seed-anchored because the aging curve walks forward
+            # from it (age = base_age + (frm - seed)), but the site renders this
+            # field next to a 2026 roster, so shipping the 2025 number aged
+            # every player on the team page a year young — Saquon Barkley
+            # (b. 1997-02-09) read 28 through the 2026 offseason.
+            'age': base_age + (roster_season - seed), 'age_src': asrc,
+            'pick': pick, 'exp': exp0,
             'elite': elite, 'war25': round(war_s[pid].get(seed, 0.0), 3), 'career': career,
             'availAdj': round(av_delta, 3),
             'level': round((1 - pw0) * (L0 if L0 is not None else prior) + pw0 * prior, 3),

@@ -51,11 +51,30 @@ HIST = ROOT / "nfl_history"
 # cornerstone.
 FRANCHISE_BAR = {"QB": 1.00, "RB": 0.70, "WR": 0.85, "TE": 0.50}
 
-# The tier above: roughly each position's 6th-ranked season, so a top-half-of-
-# starters player. TE sits at its rank-3 equivalent instead — rank 6 is 0.67,
-# barely clear of the starter bar, because the position runs out of value that
-# fast. Yields ~5-6 players a year at QB/RB/WR and ~3 at TE.
-ELITE_BAR = {"QB": 1.30, "RB": 1.10, "WR": 1.10, "TE": 1.00}
+# The tier above: roughly each position's 3rd-ranked season. TE was ALWAYS at
+# its rank-3 equivalent (rank 6 is 0.67, barely clear of the starter bar,
+# because the position runs out of value that fast); the other three used to
+# sit at rank 6 and have been moved to match it.
+#
+#   mean WAR by positional rank, 2012-2025
+#          r1     r2     r3     r6     r12
+#     QB  1.99   1.76   1.60   1.33   1.00
+#     RB  1.93   1.61   1.47   1.09   0.69
+#     WR  1.82   1.54   1.37   1.10   0.84
+#     TE  1.48   1.12   0.98   0.67   0.29
+#
+# Rank, not percentile. A percentile bar is a function of how many replacement
+# backs logged a carry that year rather than of how good the good ones were:
+# p98 lands on rank 2 at QB (70 players) but rank 5 at WR (224), and at TE it
+# comes out at 0.90 — BELOW this table's starter-adjacent TE bar, loosening the
+# one position where the scarcity is real. Per-season p98 for RB also swings
+# 0.80 to 1.78 across these years. Rank holds its meaning; percentile does not.
+#
+# QB/RB/WR are rounded down off rank 3 rather than taken literally: 1.60 / 1.30
+# / 1.30 against 1.60 / 1.47 / 1.37. RB and WR carry the wider give on purpose —
+# both had a rank-3 season under 1.20 inside this window, and a bar set at the
+# mean would have minted zero elite backs in a year one clearly existed.
+ELITE_BAR = {"QB": 1.60, "RB": 1.30, "WR": 1.30, "TE": 1.00}
 
 MIN_SEASONS = 3
 

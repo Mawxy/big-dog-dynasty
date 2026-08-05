@@ -143,7 +143,7 @@ export default function Insights() {
             <tr>
               <th className="t" style={{ width: "14%" }}>Slot</th>
               <th className="n key edge" style={{ width: "15%" }}>Champion</th>
-              <th className="n" style={{ width: "13%" }}>Field</th>
+              <th className="n" style={{ width: "13%" }}>Playoff field</th>
               <th className="n" style={{ width: "13%" }}>Edge</th>
               <th className="t" style={{ width: "27%" }}>Champion vs field</th>
               <th className="n edge hm" style={{ width: "18%" }}>{league.name}</th>
@@ -181,7 +181,7 @@ export default function Insights() {
         </table>
       </TScroll>
       <div className="tnote screen">
-        Edge is champion minus field in WAR; the bar shows the same as a multiple. The
+        Edge is champion minus playoff field in WAR; the bar shows the same as a multiple. The field is the other teams in that season’s bracket — the ones the title team actually had to beat — and excludes the champion itself. The
         {" "}{league.name} column averages this league's own title teams, so a single season
         moves it — read it as a comparison, not a benchmark.
       </div>
@@ -201,7 +201,7 @@ export default function Insights() {
               <th className="t" style={{ width: "16%" }}>League year</th>
               <th className="n" style={{ width: "20%" }}>League-seasons</th>
               <th className="n key edge" style={{ width: "20%" }}>Champion drafted</th>
-              <th className="n" style={{ width: "20%" }}>Field drafted</th>
+              <th className="n" style={{ width: "20%" }}>Playoff field drafted</th>
               <th className="n" style={{ width: "24%" }}>Difference</th>
             </tr>
           </thead>
@@ -241,7 +241,7 @@ export default function Insights() {
                 ["Were net buyers of picks", <Fig key="c" f={b.picks.bought} />],
                 ["Were net sellers of picks", <Fig key="d" f={b.picks.sold} />],
                 ["1sts held — champion", <Fig key="e" f={b.picks.r1_held.champ} as="num" />],
-                ["1sts held — field", <Fig key="f" f={b.picks.r1_held.field} as="num" />],
+                ["1sts held — playoff field", <Fig key="f" f={b.picks.r1_held.field} as="num" />],
               ].map(([label, node], i) => (
                 <tr key={String(label)} className={i % 2 ? "zebra" : ""}>
                   <td className="t">{label as string}</td>
