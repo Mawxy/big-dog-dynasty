@@ -3,7 +3,7 @@ import { fmt, sgn, clsOf } from "../lib/stats";
 
 /**
  * The fixed 14-cell season strip, 7 per row: week + points on the top line, a
- * points meter, then the week's WAR coloured by sign. Cells are built
+ * points meter, then the week's WAR colored by sign. Cells are built
  * positionally (weeks 1–14, never from the rows that happen to exist), so any
  * two players' seasons compare cell for cell.
  *

@@ -209,7 +209,7 @@ export function rankingLineup(lineup: string[]): string[] {
 export interface IndexEntry { value: number; posRank: number }
 const NO_ENTRY: IndexEntry = { value: 0, posRank: 0 };
 
-/** one seat in an optimised lineup and whoever holds it */
+/** one seat in an optimized lineup and whoever holds it */
 export interface SlotRow {
   slot: string; label: string;
   pid: string | null; name: string; pos: string;
@@ -279,7 +279,7 @@ export function rosterShapes(
   // without a projection, who correctly reads as no win-now value at all.
   const cviOf = (id: string) => idx.cvi[id] ?? NO_ENTRY;
 
-  /** Optimise every roster in ONE currency and keep the resulting seats and
+  /** Optimize every roster in ONE currency and keep the resulting seats and
    *  bench. Run twice: each row of the grid is that currency's own best nine,
    *  so the DVI row is the most valuable legal lineup rather than the win-now
    *  lineup re-priced. A slot can therefore hold different players in the two
@@ -293,7 +293,7 @@ export function rosterShapes(
     for (const t of teams) {
       const pool = poolFor ? poolFor.get(t.roster_id) ?? [] : poolOf(t, byPid);
       const { slots, starters } = optimalLineup(
-        // `war` is just optimalLineup's name for the quantity being maximised;
+        // `war` is just optimalLineup's name for the quantity being maximized;
         // here it carries a CVI or DVI index value, never WAR
         pool.map(p => ({ id: p.id, pos: p.pos, war: val(p) })), lineup);
       // Seats are numbered within their position and the numbering CONTINUES
@@ -320,7 +320,7 @@ export function rosterShapes(
   const byCvi = buildLineup(cviVal);
   const byDvi = buildLineup(dviVal);
   // second string: the same seats again, filled from whoever missed the first
-  // cut, labelled onward from where the starters left off
+  // cut, labeled onward from where the starters left off
   const seatsPerPos: Record<string, number> = {};
   for (const s of lineup) seatsPerPos[s] = (seatsPerPos[s] ?? 0) + 1;
   const benchCvi = buildLineup(cviVal, byCvi.benchOf, seatsPerPos);
@@ -336,7 +336,7 @@ export function rosterShapes(
   // Slot i is compared against slot i on every other roster, so "RB2 4th" means
   // the fourth-best second running back in the league, not the fourth-best RB.
   // optimalLineup fills repeated dedicated slots best-first, so slot order is
-  // consistent across teams. Each row uses its OWN optimised lineup and bench.
+  // consistent across teams. Each row uses its OWN optimized lineup and bench.
   const series = (
     key: RankRow["key"], label: string, note: string,
     L: { slotsOf: Map<number, SlotRow[]> }, entryOf: (s: SlotRow) => IndexEntry,

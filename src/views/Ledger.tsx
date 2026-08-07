@@ -88,7 +88,7 @@ export default function Ledger() {
                     </div>
                   </div>
                   {/* the same asset row the franchise page draws, and
-                      deliberately the same neutral ink on both sides: colouring
+                      deliberately the same neutral ink on both sides: coloring
                       each basket's figures green and red made every asset argue
                       for a winner, which is the verdict line's job (SKILL §5) */}
                   {side.got.map((a, k) => {

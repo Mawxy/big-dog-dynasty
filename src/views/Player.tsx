@@ -1,17 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   Absences, CviFile, DviFile, Ownership, PlayerShard,
   SummaryRow, Team, Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jDaily, jl, jlDaily } from "../lib/data";
-import { fmt, sgn, mean } from "../lib/stats";
+import { fmt, mean } from "../lib/stats";
 import { pInfo, POS_COLOR, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import PosBadge from "../components/PosBadge";
 import TScroll from "../components/TScroll";
 import WeekGrid from "../components/WeekGrid";
 import QuickJump from "../components/QuickJump";
+import HonorMarks, { HonorLegend, HonorSprite } from "../components/HonorMarks";
+import {
+  honorTotals, loadCareer, loadHonors, ownerSplits, playerHonors, yearSpan,
+  type CareerSeason, type HonorIndex, type OwnerSplit,
+} from "../lib/honors";
 
 const num = (n: number) => n.toLocaleString("en-US");
 const WINDOWS = ["7", "14", "30"] as const;
@@ -57,11 +62,18 @@ export default function Player({ pid }: { pid: string }) {
   const [stream, setStream] = useState<StreamKey>("composite");
   /** which PLAYED season the week grid shows — the career ladder sets it */
   const [weekSeason, setWeekSeason] = useState<string | null>(null);
+  /** league-wide honor index — loaded once per page load, shared by every player */
+  const [honors, setHonors] = useState<HonorIndex | null>(null);
+  /** this player's league seasons — the career table's rows */
+  const [career, setCareer] = useState<CareerSeason[] | null>(null);
+  /** career split by the franchise that held him — the table's footer */
+  const [splits, setSplits] = useState<OwnerSplit[]>([]);
 
   const last = meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : meta.seasons[meta.seasons.length - 1];
-  /** the ladder's pick, falling back to the newest played season */
-  const wkSeason = weekSeason && meta.seasons.includes(weekSeason) ? weekSeason : last;
+  /** the open career row. Null means every row is collapsed — the week grid is
+   *  a drawer now, so nothing is fetched until a season is actually opened. */
+  const wkSeason = weekSeason && meta.seasons.includes(weekSeason) ? weekSeason : null;
 
   useEffect(() => {
     let live = true;
@@ -83,20 +95,30 @@ export default function Player({ pid }: { pid: string }) {
     jlDaily<DviFile>("dvi.json").then(d => { if (live) setDvi(d.players[pid] ?? null); }).catch(() => {});
     jlDaily<CviFile>("cvi.json").then(d => { if (live) setCvi(d.players[pid] ?? null); }).catch(() => {});
     jl<Ownership>("ownership.json").then(o => { if (live) setOwn(o); }).catch(() => {});
-    jl<Weekly>(`${wkSeason}/weekly.json`)
-      .then(w => { if (live) setWks((w[pid] || []).slice().sort((a, b) => a[0] - b[0])); })
-      .catch(() => { if (live) setWks([]); });
-    jl<Absences>(`${wkSeason}/absence.json`)
-      .then(a => { if (live) setAbs(a[pid] || {}); }).catch(() => { if (live) setAbs({}); });
+    if (wkSeason) {
+      jl<Weekly>(`${wkSeason}/weekly.json`)
+        .then(w => { if (live) setWks((w[pid] || []).slice().sort((a, b) => a[0] - b[0])); })
+        .catch(() => { if (live) setWks([]); });
+      jl<Absences>(`${wkSeason}/absence.json`)
+        .then(a => { if (live) setAbs(a[pid] || {}); }).catch(() => { if (live) setAbs({}); });
+    }
     jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`)
       .then(t => { if (live) setTeams(t); }).catch(() => {});
     jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
+    loadHonors(meta.seasons).then(h => { if (live) setHonors(h); }).catch(() => {});
+    loadCareer(meta.seasons).then(c => {
+      if (!live) return;
+      const rows = c[pid] ?? [];
+      setCareer(rows);
+      // splits fetch weekly data only for seasons he changed hands in
+      ownerSplits(rows).then(s => { if (live) setSplits(s); }).catch(() => {});
+    }).catch(() => {});
     return () => { live = false; };
   }, [pid, last, wkSeason, league, meta]);
 
   const refs = {
     projection: useRef<HTMLDivElement>(null),
-    lastSeason: useRef<HTMLDivElement>(null),
+    career: useRef<HTMLDivElement>(null),
     ownership: useRef<HTMLDivElement>(null),
     market: useRef<HTMLDivElement>(null),
   };
@@ -131,11 +153,34 @@ export default function Player({ pid }: { pid: string }) {
 
   if (shard === undefined) return <div className="empty">Loading player…</div>;
 
-  // wks goes null again whenever the ladder picks a new season. That is a
-  // reload of ONE section, not of the page — gating the whole render on it
+  // wks goes null again whenever a different season is opened. That is a
+  // reload of ONE drawer, not of the page — gating the whole render on it
   // flashed "Loading player…" over everything on every click.
   const reg = (wks ?? []).filter(w => w[0] <= 14);
-  const lastWar = reg.length ? reg.reduce((s, w) => s + w[5], 0) : null;
+  /** newest league season, for the figure strip. Read from the career rows
+   *  rather than the week fetch, so the strip no longer depends on a drawer
+   *  being open. */
+  const lastRow = career?.find(r => r.season === last) ?? career?.[0] ?? null;
+
+  /** the career table's totals row. PPG is points over games, not the mean of
+   *  the per-season averages — a four-game season should not weigh as much as
+   *  a full one. */
+  const tot = career?.length ? {
+    seasons: career.length,
+    gp: career.reduce((s, r) => s + r.gp, 0),
+    pts: career.reduce((s, r) => s + r.pts, 0),
+    war: career.reduce((s, r) => s + r.war, 0),
+  } : null;
+
+  /** open a season's drawer and bring it into view; clicking the open one closes it */
+  const openSeason = (s: string, scroll = false) => {
+    setWeekSeason(prev => {
+      if (prev === s) return null;
+      setWks(null);
+      return s;
+    });
+    if (scroll) refs.career.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   /** ladder rows, newest first: projected years above played ones */
   const played: [number, number][] = proj?.career ?? leagueCareer ?? [];
@@ -149,6 +194,11 @@ export default function Player({ pid }: { pid: string }) {
 
   const barColor = (w: number) =>
     w >= 1.5 ? "var(--acc)" : w >= 0.75 ? "var(--acc-dim)" : "var(--dim)";
+
+  /** career honors: the rail row is the total, the ladder carries the seasons */
+  const honorRows = playerHonors(honors, pid);
+  const honorBySeason = new Map(honorRows.map(r => [r.season, r.keys]));
+  const honorCareer = honorTotals(honorRows);
 
   /** verdict prose — generated from the payload, never hand-written */
   const verdict = proj && years.length >= 3 ? (() => {
@@ -183,8 +233,12 @@ export default function Player({ pid }: { pid: string }) {
         <span className="screen-title">Player</span>
         <QuickJump />
       </div>
+      <HonorSprite />
       <div className="board" style={{ marginTop: 0 }}>
-        <div className="split">
+        {/* the position tint is declared once here, not on the rail: the career
+            table needs it too, and scoping it to the rail left every crown and
+            gem in the table falling back to gray */}
+        <div className={`split pos-mark-${pos}`}>
           <div className="rail">
             <span className="rail-back" onClick={() => nav(-1)}>← Back</span>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
@@ -197,30 +251,43 @@ export default function Player({ pid }: { pid: string }) {
               {owner ?? "free agent"}
             </div>
 
+            {honorCareer.length > 0 && (
+              <>
+                {/* Scoped on purpose: honors are league seasons only, and the
+                    ladder above runs back further than the league does. */}
+                <div className="rail-h">Honors · in league</div>
+                <div className="rail-honors">
+                  <HonorMarks marks={honorCareer} />
+                </div>
+              </>
+            )}
+
             {ladder.length > 0 && <>
               <div className="rail-h">Career WAR</div>
               <div className="rail-ladder">
                 {ladder.map(([y, w]) => {
                   const isProj = projected.some(([py]) => py === y);
-                  // A projected year has no weeks to show, so it stays inert.
-                  // Only played seasons are pickable, and the one showing below
-                  // takes the accent — the same rule as the franchise ladder.
-                  const on = !isProj && String(y) === wkSeason;
+                  // Three kinds of row, and only one of them is pickable.
+                  // A projected year has no weeks. A season before the league
+                  // existed has no career row to open and no honors to earn —
+                  // it is career context, not league history, and it says so by
+                  // sitting back. Leaving it clickable pointed at a row that
+                  // was never rendered.
+                  const inLeague = meta.seasons.includes(String(y));
+                  const pick = !isProj && inLeague;
+                  const on = pick && String(y) === wkSeason;
                   return (
-                    <div key={y} role={isProj ? undefined : "button"}
-                      tabIndex={isProj ? undefined : 0}
-                      title={isProj ? undefined : `Show ${y} week by week`}
-                      className={`rail-war${isProj ? " proj" : " pick"}${on ? " mark" : ""}`}
-                      onClick={isProj ? undefined : () => {
-                        setWeekSeason(String(y));
-                        setWks(null);
-                        refs.lastSeason.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-                      }}
-                      onKeyDown={isProj ? undefined : e => {
+                    <div key={y} role={pick ? "button" : undefined}
+                      tabIndex={pick ? 0 : undefined}
+                      title={pick ? `Open ${y} in the career table`
+                        : isProj ? undefined : `${y} — before the league began`}
+                      className={`rail-war${isProj ? " proj" : pick ? " pick" : " pre"}${on ? " mark" : ""}`}
+                      onClick={pick ? () => openSeason(String(y), true) : undefined}
+                      onKeyDown={pick ? e => {
                         if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault(); setWeekSeason(String(y)); setWks(null);
+                          e.preventDefault(); openSeason(String(y), true);
                         }
-                      }}>
+                      } : undefined}>
                       <span className="yr">{y}</span>
                       <span className="bar">
                         <i style={{
@@ -238,7 +305,7 @@ export default function Player({ pid }: { pid: string }) {
             <div className="rail-h">On this page</div>
             <div className="rail-nav">
               {proj && <button onClick={() => goto("projection")}>Projection</button>}
-              <button onClick={() => goto("lastSeason")}>Week by week</button>
+              <button onClick={() => goto("career")}>Career</button>
               {events.length > 0 && <button onClick={() => goto("ownership")}>Ownership</button>}
               {market.length > 0 && <button onClick={() => goto("market")}>Market value</button>}
             </div>
@@ -257,10 +324,11 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="figsub">{cvi ? `#${cvi.rank} this season · ${pos}${cvi.pos_rank}` : "no index"}</div>
               </div>
               <div className="figcell">
-                <div className="figkey">{wkSeason} WAR</div>
-                <div className="figval">{wks === null ? "—" : lastWar == null ? "—" : fmt(lastWar, 2)}</div>
-                <div className="figsub">{wks === null ? "loading"
-                  : lastWar == null ? `did not play ${wkSeason}` : "regular season"}</div>
+                <div className="figkey">{lastRow?.season ?? last} WAR</div>
+                <div className="figval">{lastRow ? fmt(lastRow.war, 2) : "—"}</div>
+                <div className="figsub">{lastRow
+                  ? `${pos}${lastRow.posRank ?? "—"} · ${lastRow.gp} games`
+                  : `did not play ${last}`}</div>
               </div>
               <div className="figcell">
                 <div className="figkey">Career WAR</div>
@@ -357,18 +425,144 @@ export default function Player({ pid }: { pid: string }) {
               </div>
             )}
 
-            <div ref={refs.lastSeason}>
+            <div ref={refs.career}>
               <div className="band">
-                <span className="band-label">
-                  {wkSeason === last ? "Last season" : "Season"} · {wkSeason}
-                </span>
-                <span className="band-note">Regular-season weeks · WAR vs the best player left out of the startable pool</span>
+                <span className="band-label">Career · league seasons</span>
+                <span className="band-note">Open a season for its week grid · WAR vs the best player left out of the startable pool</span>
               </div>
-              <div style={{ padding: "14px 22px 18px" }}>
-                {wks === null ? <div className="tnote">Loading {wkSeason}…</div>
-                  : reg.length ? <WeekGrid weeks={reg} absent={abs} />
-                    : <div className="tnote">No scored weeks in {wkSeason} — the player was not in the league that season.</div>}
-              </div>
+              {career === null ? <div className="tnote" style={{ padding: "14px 22px 18px" }}>Loading career…</div>
+                : career.length === 0 ? <div className="tnote" style={{ padding: "14px 22px 18px" }}>
+                  No league seasons — this player has never been scored in the league.
+                </div> : <>
+                  <TScroll>
+                  <table style={{ tableLayout: "fixed" }}>
+                    <thead>
+                      <tr>
+                        <th className="t" style={{ width: "9%" }}>Season</th>
+                        <th className="t" style={{ width: "30%" }}>Held by</th>
+                        <th className="n" style={{ width: "7%" }}>GP</th>
+                        <th className="n" style={{ width: "10%" }}>Points</th>
+                        <th className="n" style={{ width: "9%" }}>PPG</th>
+                        <th className="n key edge" style={{ width: "11%" }}>WAR</th>
+                        <th className="n" style={{ width: "10%" }}>Finish</th>
+                        <th className="t edge" style={{ width: "14%" }}>Honors</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {career.map((r, i) => {
+                        const on = r.season === wkSeason;
+                        return (
+                          <Fragment key={r.season}>
+                            <tr className={`${i % 2 ? "zebra " : ""}click${on ? " open" : ""}`}
+                              onClick={() => openSeason(r.season)}
+                              title={`${on ? "Close" : "Open"} ${r.season} week by week`}>
+                              <td className="t fig strong">{r.season}</td>
+                              <td className="t name quiet"
+                                title={r.owners.map(o => o.from
+                                  ? `${o.team} · W${o.from}${o.to > o.from ? `–${o.to}` : ""}`
+                                  : o.team).join("  →  ")}>
+                                {r.owners.length
+                                  ? r.owners.map((o, k) => (
+                                    <Fragment key={`${o.team}-${o.from}`}>
+                                      {k > 0 && <span className="held-arrow">→</span>}
+                                      {o.team}
+                                    </Fragment>
+                                  ))
+                                  : <span className="fig quiet">—</span>}
+                              </td>
+                              <td className="n fig quiet">{r.gp}</td>
+                              <td className="n fig">{num(Math.round(r.pts))}</td>
+                              <td className="n fig">{fmt(r.ppg, 1)}</td>
+                              <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(r.war, 2)}</span></td>
+                              <td className="n fig">
+                                {r.posRank
+                                  ? <span className="pos wide" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }}>{r.pos}{r.posRank}</span>
+                                  : <span className="fig quiet">—</span>}
+                              </td>
+                              <td className="t last edge">
+                                {r.keys.length
+                                  ? <HonorMarks marks={r.keys} size={17} showCounts={false} />
+                                  : <span className="fig quiet">—</span>}
+                              </td>
+                            </tr>
+                            {on && (
+                              <tr className="drawer-row">
+                                <td colSpan={8}>
+                                  <div style={{ padding: "14px 22px 18px" }}>
+                                    {wks === null ? <div className="tnote">Loading {r.season}…</div>
+                                      : reg.length ? <WeekGrid weeks={reg} absent={abs} />
+                                        : <div className="tnote">No scored weeks in {r.season}.</div>}
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                          </Fragment>
+                        );
+                      })}
+                    </tbody>
+                    {tot && (
+                      <tfoot>
+                        {/* One label cell spanning the season and Held by
+                            columns. Split across two, a franchise name had 30%
+                            of the table and clipped to a single letter. */}
+                        <tr className="tot">
+                          <td className="t fig strong" colSpan={2}>
+                            Career<span className="tot-yrs">{tot.seasons} {tot.seasons === 1 ? "yr" : "yrs"}</span>
+                          </td>
+                          <td className="n fig">{tot.gp}</td>
+                          <td className="n fig">{num(Math.round(tot.pts))}</td>
+                          <td className="n fig">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
+                          <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(tot.war, 2)}</span></td>
+                          {/* Finish is a per-season rank and does not add up.
+                              Best-of is a different statistic wearing this
+                              column's header, so the career row leaves it. */}
+                          <td className="n fig quiet">—</td>
+                          <td className="t last edge">
+                            {honorCareer.length
+                              ? <HonorMarks marks={honorCareer} size={17} />
+                              : <span className="fig quiet">—</span>}
+                          </td>
+                        </tr>
+                        <tr className="tot sub">
+                          <td className="t fig quiet" colSpan={2}>Average season</td>
+                          <td className="n fig quiet">{fmt(tot.gp / tot.seasons, 1)}</td>
+                          <td className="n fig quiet">{num(Math.round(tot.pts / tot.seasons))}</td>
+                          <td className="n fig quiet">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
+                          <td className="n fig quiet edge">{fmt(tot.war / tot.seasons, 2)}</td>
+                          <td className="n fig quiet">—</td>
+                          <td className="t last edge"><span className="fig quiet">—</span></td>
+                        </tr>
+                        {splits.length > 1 && splits.map(s => (
+                          <tr key={s.rid} className="tot owner">
+                            {/* the manager, not the team name — a franchise
+                                renames itself most years and the splits have
+                                to survive that */}
+                            <td className="t name quiet" colSpan={2}
+                              title={`${s.manager} — most recently ${s.team.trim()}`}>
+                              {s.manager}
+                              {/* the seasons themselves, not just how many:
+                                  a count cannot tell you WHICH years were his */}
+                              <span className="tot-yrs">{yearSpan(s.years)}</span>
+                            </td>
+                            <td className="n fig quiet">{s.gp}</td>
+                            <td className="n fig quiet">{num(Math.round(s.pts))}</td>
+                            <td className="n fig quiet">{s.gp ? fmt(s.pts / s.gp, 1) : "—"}</td>
+                            <td className="n fig edge">{fmt(s.war, 2)}</td>
+                            <td className="n fig quiet">—</td>
+                            <td className="t last edge"><span className="fig quiet">—</span></td>
+                          </tr>
+                        ))}
+                      </tfoot>
+                    )}
+                  </table>
+                  </TScroll>
+                  <HonorLegend />
+                  <div className="tnote" style={{ padding: "12px 22px 16px" }}>
+                    The crown and the gem carry the position's color. Honors cover league seasons
+                    only, and held by is the roster at season end — a player traded in November
+                    shows his new team, with the moves themselves in the ownership table below.
+                  </div>
+                </>}
             </div>
 
             {events.length > 0 && (

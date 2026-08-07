@@ -98,7 +98,7 @@ export default function App() {
         jl<PlayersMin>("players_min.json"),
       ]);
       setVersion(m.updated);
-      // data built before the registry existed: synthesise an entry from meta
+      // data built before the registry existed: synthesize an entry from meta
       setLeague(resolveLeague(reg ?? legacyRegistry(m)));
       setPlayers(pl);
       setMeta(m);

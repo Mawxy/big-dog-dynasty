@@ -27,7 +27,7 @@ function mix(a: string, b: string, t: number): string {
   const h = (v: number) => Math.round(v).toString(16).padStart(2, "0");
   return "#" + h(r1 + (r2 - r1) * t) + h(g1 + (g2 - g1) * t) + h(b1 + (b2 - b1) * t);
 }
-/** relative luminance, for picking ink off the cell's own colour */
+/** relative luminance, for picking ink off the cell's own color */
 function lum(hex: string): number {
   const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
     .map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4));
@@ -264,7 +264,7 @@ export default function Draft() {
   // rounded outward to the next 0.5. Padding to an arbitrary offset left the
   // plot running past its own last tick, which reads as a broken scale.
   // Returns are lopsided (best season well past +2, worst around −1.5), so the
-  // axis is not symmetric about zero — zero keeps its emphasised gridline.
+  // axis is not symmetric about zero — zero keeps its emphasized gridline.
   const W = 800;
   const step = ((corpus?.hi ?? 0) - (corpus?.lo ?? 0)) <= 6 ? 0.5 : 1;
   const LO = +(Math.floor((corpus?.lo ?? 0) / step) * step).toFixed(2);
@@ -384,7 +384,7 @@ export default function Draft() {
             <div className="axis">
               <div className="pad" />
               <div className="scale">
-                {/* every tick label centres on its tick, including the two on
+                {/* every tick label centers on its tick, including the two on
                     the plot edges — they overhang into the panel's padding,
                     which is why .panel keeps 20px of it */}
                 {TICKS.map(t => <span key={t} style={{ left: pctX(t) }}>{sgn(t, 1)}</span>)}
@@ -395,7 +395,7 @@ export default function Draft() {
 
         {/* (b) heat map — a full-bleed band names it, like every other section
             on the site; this was a bare .chart-label floating in a flex row.
-            The colour legend stays with the chart rather than going in the
+            The color legend stays with the chart rather than going in the
             band: a band is label-left/note-right and does not wrap, so a 280px
             legend in it drags the page sideways on a phone. */}
         <div className="band">
@@ -627,7 +627,7 @@ function DraftBoards({ history }: { history: History }) {
       })}
       <div className="tnote screen">
         Every draft this league has held, newest first — a row per round, cells
-        coloured by position and labelled with their slot. The small line names the
+        colored by position and labeled with their slot. The small line names the
         franchise that made the selection; an amber "via" line marks a pick acquired
         by trade and names the franchise that originally held it. Open a draft’s
         page for returns by year, the trades in its picks and its value tables.
@@ -638,7 +638,7 @@ function DraftBoards({ history }: { history: History }) {
 
 /**
  * A figure sitting above the box plot, positioned as a percentage of the plot
- * width so it stays registered to the chart at any size. Centred on its mark,
+ * width so it stays registered to the chart at any size. Centered on its mark,
  * except within a whisker's width of either end, where it tucks in rather than
  * overflowing the panel.
  */

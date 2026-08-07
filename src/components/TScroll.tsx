@@ -10,7 +10,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 
  * away with everything else, so a row on a phone became figures with nothing
  * saying whose they were.
  *
- * Two behaviours, both conditional on the table ACTUALLY being wider than its
+ * Two behaviors, both conditional on the table ACTUALLY being wider than its
  * box rather than on a breakpoint — a desktop board that fits is untouched,
  * and one that doesn't gets the same treatment a phone gets:
  *

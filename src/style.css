@@ -23,7 +23,7 @@
   --sel: #182029;
   --rule: #1b232c;
   /* one step brighter than --rule: an inactive spine, a hover border, the
-     fallback behind a position colour that isn't one of the four. It was
+     fallback behind a position color that isn't one of the four. It was
      written as a bare #2b3642 in nine components before it had a name. */
   --rule-2: #2b3642;
   --hair: #11161c;
@@ -43,12 +43,34 @@
   --good: #2bd07a;
   --bad: #ff5a5a;
   --drop: #bd7b81;      /* roster removal — holds 4.5:1 on --bg; do not darken */
-  --warn: #e8a35a;      /* caution, ageing, "pushing" states */
+  --warn: #e8a35a;      /* caution, aging, "pushing" states */
 
   --qb: #9333ea;
   --rb: #1f7a4d;
   --wr: #1e6fd9;
   --te: #c2571c;
+
+  /* honor marks ------------------------------------------------------------
+     Four bands, and the band IS the tier: gold for the team title, crimson for
+     the individual league best, position tint for positional honors, gray for
+     the qualifying bar. Gold is not shared — a second gold thing would stop the
+     trophy reading as the top.
+
+     --honor-mvp sits deliberately clear of --bad (#ff5a5a): deeper, darker,
+     less coral. The collision risk is low because --bad and --drop only ever
+     appear as text and numerals, never as a filled shape. */
+  --honor-champ: var(--acc);
+  --honor-mvp: #e03a4e;
+  --honor-bar: #5c6874;
+
+  /* Position tints for MARKS ONLY. The badge and spine colors above are 3–4:1
+     on --bg, which is fine behind badge text and fine as a 3px spine, and not
+     fine as a 20px filled silhouette. These clear ~7:1 and stay the same hue.
+     Do not use them for badges or spines; do not use those for marks. */
+  --qb-mark: #b57bf0;
+  --rb-mark: #2fb877;
+  --wr-mark: #4a94e8;
+  --te-mark: #e8813a;
 
   --sans: Archivo, system-ui, -apple-system, sans-serif;
   --cond: "Saira Condensed", "Archivo Narrow", system-ui, sans-serif;
@@ -373,7 +395,7 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 
 /* ---------- bars --------------------------------------------------------
    A figure that matters gets a bar beside it, never behind it. The track is
-   always the same colour; only length carries meaning.
+   always the same color; only length carries meaning.
    ----------------------------------------------------------------------- */
 
 .meter {
@@ -741,7 +763,7 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 .dtbl thead th { padding: 7px 10px; font-size: 12px; letter-spacing: .14em; color: var(--dim2); }
 .dtbl thead th.med { color: var(--dim2); border-left: 1px solid var(--rule); padding-right: 14px; }
 /* Three depths in one table: round, Early/Mid/Late tier, exact pick. Depth is
-   carried by indent + label weight rather than by colour alone, so it survives
+   carried by indent + label weight rather than by color alone, so it survives
    the horizontal scroll on mobile where the first column is what stays put. */
 .dtbl tr.lvl0 { background: #0d1218; border-top: 2px solid var(--rule); }
 .dtbl tr.lvl1 { background: #111820; }
@@ -756,7 +778,7 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 .dtbl tr.lvl2 td.lbl { padding-left: 46px; font-weight: 600; font-size: 15px; letter-spacing: .06em; color: #8b96a5; }
 /* leaf caret is a spacer, so every label at a depth starts on the same x */
 .dtbl tr.lvl2 td.lbl .caret { color: transparent; }
-/* One visual treatment, three behaviours — split so the job is readable at the
+/* One visual treatment, three behaviors — split so the job is readable at the
    call site and the semantics can differ: .dlink navigates to another route,
    .dexpand expands content in place (a <button aria-expanded>), .dmore toggles
    row count. Zero radius like everything else on the board. */
@@ -786,8 +808,8 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 /* ---- team page: slot rank grid ------------------------------------------ */
 /* No new palette here on purpose. Rank reads as a condensed figure over a
    value-as-bar meter — the same two idioms the Teams and Weekly screens
-   already use — so the only colour is --acc on the fill. A green/amber/red
-   pill set would have been a third signed-colour vocabulary on a board that
+   already use — so the only color is --acc on the fill. A green/amber/red
+   pill set would have been a third signed-color vocabulary on a board that
    already carries two (--good/--bad and --war-pos/--war-neg). */
 
 .rankwrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
@@ -912,7 +934,7 @@ button.dband:hover .band-label { color: var(--txt2); }
 
 /* Sleeper-style draft board: rows are rounds, columns the pick within the
    round. Cells are tinted 16% by position over --bg — the one background the
-   position colours are allowed, because the board is a position map with no
+   position colors are allowed, because the board is a position map with no
    figures on it — with the standard 3px position spine as the primary
    encoding. Zero radius, as everywhere. */
 .dboard {
@@ -964,7 +986,7 @@ button.dband:hover .band-label { color: var(--txt2); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 /* playoff bracket: round 1 (byes + games) feeding semis, semis feeding the
-   final, each round centred against what feeds it. Connectors are drawn off
+   final, each round centered against what feeds it. Connectors are drawn off
    the cells so the shape holds at any column width. Winner takes the accent
    score; no margin figure — the two scores already state it. */
 .pbr {
@@ -1107,6 +1129,101 @@ button.dband:hover .band-label { color: var(--txt2); }
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 
+/* ---------- honor marks -------------------------------------------------- */
+
+/* The ancestor declares which position tint is in play, so the crown and the
+   gem both resolve --pos-mark from one place instead of per mark. */
+.pos-mark-QB { --pos-mark: var(--qb-mark); }
+.pos-mark-RB { --pos-mark: var(--rb-mark); }
+.pos-mark-WR { --pos-mark: var(--wr-mark); }
+.pos-mark-TE { --pos-mark: var(--te-mark); }
+
+.hmark { flex: none; display: block; color: var(--dim); }
+.hmark--champ { color: var(--honor-champ); }
+.hmark--mvp   { color: var(--honor-mvp); }
+.hmark--king  { color: var(--pos-mark, var(--rule-2)); }
+.hmark--elite { color: var(--pos-mark, var(--rule-2)); }
+.hmark--bar   { color: var(--honor-bar); }
+
+/* One baseline, rarity order, no rotation and no overlap. The pile was the
+   first idea and it does not survive a long career — it wraps, and once it
+   wraps the ordering stops being readable. */
+.hmark-row { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.hmark-item { display: flex; align-items: center; gap: 1px; }
+.hmark-x {
+  font: 700 12px/1 var(--cond); color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- table footer ------------------------------------------------------- */
+
+/* Every base cell rule in this file is scoped to `tbody td` — padding, nowrap,
+   the hairline, the edge divider. A <tfoot> inherited none of it, so footer
+   cells had no width discipline and long franchise names wrapped a totals row
+   into four lines. The footer gets the same anatomy as a body row; only the
+   background and weight differ. */
+tfoot td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--hair);
+  white-space: nowrap;
+}
+tfoot td.edge { border-left: 1px solid var(--hair); }
+tfoot td.last { padding-right: 22px; }
+/* a franchise name longer than its column is clipped, never wrapped — the
+   figures beside it have to stay on the totals line */
+tfoot td.t, tfoot td.name { overflow: hidden; text-overflow: ellipsis; }
+
+/* the season count that follows a footer label, quiet and set back a little so
+   "Armed Rodgery 2 yrs" reads as one label rather than two columns */
+.tot-yrs {
+  margin-left: 9px;
+  font: 600 11px/1 var(--cond); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--dim2);
+}
+
+/* career table footer: the totals row, the per-season average, then one row
+   per franchise that held him. The split block is separated by a heavier rule
+   rather than a gap row — a blank <tr> would be a cell with nothing in it. */
+tfoot tr.tot > td { background: var(--band); padding-top: 10px; padding-bottom: 10px; }
+tfoot tr.tot:first-child > td { border-top: 1px solid var(--rule); }
+tfoot tr.tot.sub > td { background: var(--zebra); }
+/* `owner`, not `split` — `.split` is the page shell's rail-plus-content class
+   and carries `display: flex`. On a <tr> that stops the cells being table
+   cells at all: they became flex items, sized themselves to their content, and
+   the per-franchise rows laid out to a different grid than the totals above
+   them inside the same tfoot. */
+tfoot tr.tot.owner > td { background: var(--deep); }
+tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
+
+/* a mid-season handover in the career table's Held by cell */
+.held-arrow { color: var(--dim3); margin: 0 7px; font-size: 12px; }
+
+/* the key, under the career table: a divided strip, one cell per mark, the
+   same anatomy as .figstrip. Definitions live in the cell's tooltip — printed
+   under every label they made the key louder than the table it explains. */
+.hmark-legend {
+  display: flex; flex-wrap: wrap;
+  background: var(--deep);
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+}
+.hmark-leg {
+  flex: 1 1 152px; display: flex; align-items: center; justify-content: center;
+  gap: 9px; padding: 11px 12px; cursor: help;
+}
+.hmark-leg + .hmark-leg { border-left: 1px solid var(--rule); }
+.hmark-leg .lb {
+  font: 600 11px/1 var(--cond); letter-spacing: .14em;
+  text-transform: uppercase; color: var(--dim); white-space: nowrap;
+}
+
+/* career strip under the rail identity block.
+   These deliberately do NOT go in the ladder. Per-season marks were tried
+   there and cut: five marks in a monster season crush the WAR bar, the row
+   turns into five competing colors next to a gold bar, and every pre-league
+   season on the ladder wears nothing, which reads as broken rather than as
+   out of scope. */
+.rail-honors { margin-top: 4px; }
+
 /* player ladder: year, bar scaled to the player's own max, WAR figure */
 .rail-war { display: grid; grid-template-columns: 36px 1fr 44px; align-items: center; gap: 8px; padding: 4px 8px; }
 .rail-war.proj { background: var(--zebra); }
@@ -1124,6 +1241,17 @@ button.dband:hover .band-label { color: var(--txt2); }
   content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--acc);
 }
 .rail-war.mark .yr { color: var(--acc); }
+
+/* Seasons before the league existed. They are real NFL production and belong
+   on a career ladder, but they carry no honors and open no career row, so
+   they sit back rather than reading as league seasons that returned nothing.
+   Opacity is the right tool here and not on a figure elsewhere: it dims the
+   whole row as one object — year, bar and value together — which is exactly
+   the "this block is context" signal. A hairline marks where the league starts. */
+.rail-war.pre { opacity: .42; }
+/* the ladder runs newest first, so the boundary is the first pre-league row
+   after the last league one — not the other way round */
+.rail-war.pick + .rail-war.pre { border-top: 1px solid var(--rule); }
 
 /* on-this-page nav */
 .rail-nav { display: flex; flex-direction: column; }
@@ -1337,7 +1465,7 @@ table.wktbl { width: auto; background: transparent; }
    Shared helpers
    The v1 token aliases (--card / --line / --accent) are gone with their last
    two call sites: every surface now names the token it actually means, so
-   there is exactly one spelling of each colour on the board.
+   there is exactly one spelling of each color on the board.
    ========================================================================== */
 
 /* small shared helpers, safe everywhere */
@@ -1371,8 +1499,8 @@ table.feed .arrow { color: var(--good); font-size: 10px; }
 table.feed .arrow.alt { color: var(--wr); }
 table.feed .add { color: var(--good); }
 table.feed .drop { color: var(--bad); }
-/* group bands inside a feed: left-aligned and coloured by direction, unlike
-   the centred column bands the wide tables use */
+/* group bands inside a feed: left-aligned and colored by direction, unlike
+   the centered column bands the wide tables use */
 table.feed tr.grp th {
   padding: 6px 10px 5px; text-align: left; letter-spacing: .16em;
   border-bottom: 1px solid var(--rule);
@@ -1512,6 +1640,10 @@ table.feed td.who .line { align-items: center; }
     white-space: normal;
     overflow-wrap: break-word;
   }
+  /* the footer's franchise names stay on one line and clip. A totals row that
+     wraps stops lining up with the seasons it totals, which is the only thing
+     it is there to do. */
+  tfoot td.t, tfoot td.name { white-space: nowrap; }
   /* backstop: anything that still cannot fit its column is clipped there
      instead of being drawn over its neighbour */
   tbody td.t, tbody td.name, tbody td.sub { overflow: hidden; }
@@ -1602,7 +1734,7 @@ table.feed td.who .line { align-items: center; }
      two-line records — never a squeezed table. One .rec per row: line one is
      identity plus the headline figure with its name beside it (a bare number
      on a records line is a bug), line two the rest of the desktop row as
-     labelled micro-figures. Rendered by DataTable at ≤640px for tables that
+     labeled micro-figures. Rendered by DataTable at ≤640px for tables that
      opt in; the one panning table (Players) stays a table.
      ------------------------------------------------------------------------ */
   .rec { position: relative; padding: 10px 14px 11px; border-bottom: 1px solid var(--hair); }
@@ -1665,7 +1797,7 @@ table.feed td.who .line { align-items: center; }
     color: var(--txt2); overflow: hidden; text-overflow: ellipsis;
   }
   .mv .head-fig { font: inherit; color: inherit; }
-  /* a null is an em dash in the decorative grey — it is an absence, not a value */
+  /* a null is an em dash in the decorative gray — it is an absence, not a value */
   .mv .quiet, .rec-fig .quiet { color: var(--dim3); font-weight: 400; }
   /* the drawer opens inline, directly beneath its record; the renderer's own
      .drawer block carries the 3px accent top rule */

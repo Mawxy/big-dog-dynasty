@@ -168,7 +168,7 @@ export function usePlayerFilters<T extends { pos: string; nm: string } = PlayerR
   );
 
   /** Applied AFTER sorting and position-ranking, so RB4 stays RB4 in an RB-only
-   *  view. Memoised on pos/q because both boards list it as a useMemo dep for
+   *  view. Memoized on pos/q because both boards list it as a useMemo dep for
    *  the whole row build — a fresh identity every render would rebuild the
    *  entire population on every keystroke anywhere on the page. */
   const apply = useCallback((rows: T[]) => {

@@ -370,7 +370,7 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
       {/* (c) biggest upset */}
       {secBand("upset", "Biggest upset", upsets.length
         ? `${upsets.length} ${upsets.length === 1 ? "game was" : "games were"} won against the odds`
-        : "every game went to the favourite")}
+        : "every game went to the favorite")}
       {openSec.upset && (upsets.length ? (
         <div className="card-row">
           {upsets.slice(0, 3).map((u, i) => (
@@ -378,7 +378,7 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
           ))}
         </div>
       ) : (
-        <div className="empty">Every game went to the pregame favourite.</div>
+        <div className="empty">Every game went to the pregame favorite.</div>
       ))}
 
       {/* (d) superlatives */}

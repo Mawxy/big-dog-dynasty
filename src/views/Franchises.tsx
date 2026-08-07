@@ -200,7 +200,7 @@ function RosterBoard() {
   }, [rosterSeason]);
 
   /**
-   * Starters = the roster's best legal lineup optimised IN that currency, not
+   * Starters = the roster's best legal lineup optimized IN that currency, not
    * the lineup as set. Each index gets its own optimal lineup: the best
    * win-now nine and the best dynasty nine can differ, and pricing one lineup
    * in the other's currency would understate every roster whose veterans and

@@ -41,7 +41,7 @@ export interface Col<T, X> {
   /** Records mode (≤640px, tables that opt in via `recordsOnMobile`): what
    *  this column becomes on the two-line record. `spine` is the rank cell,
    *  `identity` the subject, `headline` the one big figure (the column the
-   *  list is sorted by), `micro` a labelled figure on line two (≤4), `sub`
+   *  list is sorted by), `micro` a labeled figure on line two (≤4), `sub`
    *  context joining the identity block. A column with no role — and every
    *  `hm` column — is dropped from the record; it lives on the subject's own
    *  page. */
@@ -202,7 +202,7 @@ export default function DataTable<T, X>({
 /**
  * Records mode: the ≤640px rendering of a subjects list. One `.rec` per row —
  * line one is identity plus the headline figure with its name beside it, line
- * two is the rest of the desktop row as labelled micro-figures on a declared
+ * two is the rest of the desktop row as labeled micro-figures on a declared
  * grid. No horizontal scroll, no bare numbers (MOBILE.md).
  *
  * Cell renderers are reused verbatim; a renderer that draws a meter must

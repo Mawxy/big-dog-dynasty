@@ -28,7 +28,7 @@ const TIERS = ["Early", "Mid", "Late"];
 
 export default function TradeCalc() {
   // MOBILE.md M7 — baskets stack and each asset is a two-line record with its
-  // figures named; each basket closes with its own labelled total band
+  // figures named; each basket closes with its own labeled total band
   const mobile = useMobile();
   const [proj, setProj] = useState<ProjectionsFile | null>(null);
   const [pv, setPv] = useState<PickValues | null>(null);
@@ -174,7 +174,7 @@ export default function TradeCalc() {
                 </div>
               </div>
             ))}
-            {/* the basket's own total band — every figure labelled */}
+            {/* the basket's own total band — every figure labeled */}
             <div className="band">
               <span className="band-label">Total</span>
               <span className="band-note">

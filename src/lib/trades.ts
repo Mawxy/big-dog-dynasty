@@ -1,6 +1,6 @@
 import type { TradesPayload } from "./types";
 
-/** Normalise either trades.json shape into { trades, delta }. */
+/** Normalize either trades.json shape into { trades, delta }. */
 export function readTrades(p: TradesPayload) {
   return Array.isArray(p)
     ? { trades: p, delta: null as number | null }

@@ -110,14 +110,14 @@ export default function TeamStrengths({ rid }: { rid: number }) {
   return (
     <>
       <div className="rankcap" style={{ marginTop: 0 }}>
-        Rank of {n} <span>· two currencies, each seat optimised separately</span>
+        Rank of {n} <span>· two currencies, each seat optimized separately</span>
       </div>
 
       <Grid rows={shape.ranks} n={n} caption="Starters" />
       <Grid rows={shape.benchRanks} n={n} caption="Bench" />
 
       <div className="tnote">
-        Each seat ranked against the same seat league-wide. Rows are optimised
+        Each seat ranked against the same seat league-wide. Rows are optimized
         separately, so a seat can hold different players. Superflex reads as QB2;
         the flex is left out — it holds a different position on every roster.
       </div>

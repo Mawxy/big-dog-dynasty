@@ -159,7 +159,7 @@ export default function FranchisePage({ rid, players, tab }:
     return { rows, slots, bench, taxi, startTot, warMax };
   }, [team, players, proj, sppg, dvi, cvi, meta, actual, rosterSeason, viewSeason]);
 
-  /** starters/roster totals in an index currency (lineup optimised in it) */
+  /** starters/roster totals in an index currency (lineup optimized in it) */
   const indexTotals = useMemo(() => {
     if (!team) return null;
     const priced = (idx: Record<string, { pos: string }> | undefined, of: (pid: string) => number) => {
@@ -248,7 +248,7 @@ export default function FranchisePage({ rid, players, tab }:
       <th className="n" style={{ width: "8%" }}>PPG</th>
       <th className="n edge" style={{ width: "9%" }}>DVI</th>
       <th className="n" style={{ width: "9%" }}>CVI</th>
-      {/* a header must label its own column: a played season is realised WAR */}
+      {/* a header must label its own column: a played season is realized WAR */}
       <th className="n key edge" style={{ width: "24%" }}>{actual ? `${viewSeason} WAR` : "Proj WAR"}</th>
     </tr>
   );
@@ -268,7 +268,7 @@ export default function FranchisePage({ rid, players, tab }:
   /* ---- records mode (MOBILE.md M6) ---------------------------------------
      The roster as two-line records: slot label in the spine cell, Proj WAR as
      the named headline, DVI · CVI spelled out on line two. Group bands keep
-     their totals — all three figures labelled, since a phone has no column
+     their totals — all three figures labeled, since a phone has no column
      headers to name them. */
   const groupTot = (rs: RosterRow[]) =>
     `WAR ${fmt(rs.reduce((s, r) => s + r.war, 0), 2)}`
@@ -371,7 +371,7 @@ export default function FranchisePage({ rid, players, tab }:
               <div className="figcell">
                 <div className="figkey">{viewSeason} lineup WAR</div>
                 <div className="figval">{roster ? fmt(roster.startTot, 2) : "—"}</div>
-                <div className="figsub">{actual ? "realised, best legal lineup" : "projected, best legal lineup"}</div>
+                <div className="figsub">{actual ? "realized, best legal lineup" : "projected, best legal lineup"}</div>
               </div>
               <div className="figcell">
                 <div className="figkey">Starters DVI</div>

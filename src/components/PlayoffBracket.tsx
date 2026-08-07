@@ -6,8 +6,8 @@ import TScroll from "./TScroll";
 
 /**
  * One season's bracket, drawn as a bracket: the quarterfinals on the left with
- * the top seeds' byes in their own slots, the semifinals centred against the
- * pairs that feed them, the final centred against both. Connectors are drawn in CSS
+ * the top seeds' byes in their own slots, the semifinals centered against the
+ * pairs that feed them, the final centered against both. Connectors are drawn in CSS
  * off each cell, so the shape survives any column width.
  *
  * The placement games (3rd, 5th) are NOT part of that tree — they decide

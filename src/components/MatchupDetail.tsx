@@ -29,7 +29,7 @@ interface Side {
  * points and WAR out of weekly.json. Unplayed weeks have no starters at all —
  * the roster hasn't been set — so the lineup is the OPTIMAL one by projected
  * points, which is a forecast of the manager's decision as much as the result.
- * The two are labelled differently for that reason.
+ * The two are labeled differently for that reason.
  */
 /** how many of the best benched players to name */
 const BENCH_SHOWN = 5;
