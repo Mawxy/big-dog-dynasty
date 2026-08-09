@@ -147,14 +147,17 @@ def main():
 
     out = {"fetched": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
            "source": "FantasyPros ECR", "formats": {}, "players": {}}
+    prev_fetched = None
     if not args.probe and Path(args.out).exists():
         try:                                   # keep formats fetched previously
             old = json.loads(Path(args.out).read_text(encoding="utf-8"))
             out["formats"] = old.get("formats", {})
             out["players"] = old.get("players", {})
+            prev_fetched = old.get("fetched")
         except ValueError:
             pass
 
+    fresh = []                                 # formats that actually returned rows
     for n, key in enumerate(args.formats):
         slug, _ = FORMATS[key]
         url = BASE + slug
@@ -253,6 +256,7 @@ def main():
             "updated": data.get("last_updated"),
             "ranked": len(rows), "matched": matched,
         }
+        fresh.append(key)
         print(f"  {len(rows)} ranked · {matched} matched to sleeper ids · "
               f"{unmatched} unmatched ({data.get('total_experts')} experts, "
               f"updated {data.get('last_updated')})")
@@ -270,9 +274,17 @@ def main():
         return
     if not out["formats"]:
         sys.exit("no formats fetched — refusing to write")
+    if not fresh:
+        # Every format failed and everything in `out` was carried over from the
+        # previous file. Stamping today's date on it would make week-old data
+        # read as fetched-just-now, which is the one thing this timestamp is
+        # for. Keep the old one — each format's own `updated` is unchanged too.
+        out["fetched"] = prev_fetched or out["fetched"]
+        print("\n!! no format fetched — carried data kept, `fetched` left at "
+              f"{out['fetched']}")
     # a player stripped from his last remaining format is an empty record
     out["players"] = {pid: rec for pid, rec in out["players"].items() if rec}
-    Path(args.out).write_text(json.dumps(out, separators=(",", ":")))
+    Path(args.out).write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
     print(f"\nwrote {args.out} · {len(out['players'])} players across "
           f"{len(out['formats'])} format(s)")
 

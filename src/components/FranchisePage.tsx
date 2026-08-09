@@ -182,7 +182,11 @@ export default function FranchisePage({ rid, players, tab }:
   if (fr === undefined) return <div className="empty">Loading franchise…</div>;
   if (!fr) return <div className="empty">No franchise history found.</div>;
 
-  const seasons = fr.seasons;
+  // A franchise row with no seasons is a legal shape in franchises.json (an
+  // expansion entry, a roster added mid-offseason) and every read below assumes
+  // a last one — `latest.name` on undefined threw and took the SPA with it.
+  const seasons = fr.seasons ?? [];
+  if (!seasons.length) return <div className="empty">No seasons recorded for this franchise yet.</div>;
   const latest = seasons[seasons.length - 1];
   const all = seasons.reduce(
     (a, s) => ({ w: a.w + s.wins, l: a.l + s.losses, t: a.t + (s.ties || 0) }),
@@ -240,22 +244,22 @@ export default function FranchisePage({ rid, players, tab }:
 
   const rosterHead = (
     <tr>
-      <th className="t" style={{ width: "6%" }}>Slot</th>
-      <th className="t" style={{ width: "24%" }}>Player</th>
-      <th className="c" style={{ width: "7%" }}>Pos</th>
-      <th className="c" style={{ width: "7%" }}>NFL</th>
-      <th className="n" style={{ width: "6%" }}>Age</th>
-      <th className="n" style={{ width: "8%" }}>PPG</th>
-      <th className="n edge" style={{ width: "9%" }}>DVI</th>
-      <th className="n" style={{ width: "9%" }}>CVI</th>
+      <th scope="col" className="t" style={{ width: "6%" }}>Slot</th>
+      <th scope="col" className="t" style={{ width: "24%" }}>Player</th>
+      <th scope="col" className="c" style={{ width: "7%" }}>Pos</th>
+      <th scope="col" className="c" style={{ width: "7%" }}>NFL</th>
+      <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
+      <th scope="col" className="n" style={{ width: "8%" }}>PPG</th>
+      <th scope="col" className="n edge" style={{ width: "9%" }}>DVI</th>
+      <th scope="col" className="n" style={{ width: "9%" }}>CVI</th>
       {/* a header must label its own column: a played season is realized WAR */}
-      <th className="n key edge" style={{ width: "24%" }}>{actual ? `${viewSeason} WAR` : "Proj WAR"}</th>
+      <th scope="col" className="n key edge" style={{ width: "24%" }}>{actual ? `${viewSeason} WAR` : "Proj WAR"}</th>
     </tr>
   );
 
   const grpband = (label: string, note: string | null, tot: string | null) => (
     <tr className="grpband">
-      <th colSpan={9}>
+      <th scope="colgroup" colSpan={9}>
         <div>
           <span>{label}</span>
           {note && <span className="note">{note}</span>}
@@ -515,15 +519,15 @@ export default function FranchisePage({ rid, players, tab }:
               <table style={{ tableLayout: "fixed" }}>
                 <thead>
                   <tr>
-                    <th className="t" style={{ width: "7%" }}>Season</th>
-                    <th className="t" style={{ width: "21%" }}>Team</th>
-                    <th className="n" style={{ width: "8%" }}>Record</th>
-                    <th className="n hm" style={{ width: "6%" }}>Seed</th>
-                    <th className="n" style={{ width: "9%" }}>Finish</th>
-                    <th className="n" style={{ width: "7%" }}>PPG</th>
-                    <th className="n edge" style={{ width: "10%" }}>Lineup WAR</th>
-                    <th className="t hm" style={{ width: "16%" }}>Top WAR</th>
-                    <th className="t hm" style={{ width: "16%" }}>Low starter</th>
+                    <th scope="col" className="t" style={{ width: "7%" }}>Season</th>
+                    <th scope="col" className="t" style={{ width: "21%" }}>Team</th>
+                    <th scope="col" className="n" style={{ width: "8%" }}>Record</th>
+                    <th scope="col" className="n hm" style={{ width: "6%" }}>Seed</th>
+                    <th scope="col" className="n" style={{ width: "9%" }}>Finish</th>
+                    <th scope="col" className="n" style={{ width: "7%" }}>PPG</th>
+                    <th scope="col" className="n edge" style={{ width: "10%" }}>Lineup WAR</th>
+                    <th scope="col" className="t hm" style={{ width: "16%" }}>Top WAR</th>
+                    <th scope="col" className="t hm" style={{ width: "16%" }}>Low starter</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -624,14 +628,14 @@ export default function FranchisePage({ rid, players, tab }:
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
-                      <th className="t" style={{ width: "8%" }}>Pick</th>
-                      <th className="t" style={{ width: "24%" }}>Player</th>
-                      <th className="c" style={{ width: "7%" }}>Pos</th>
-                      <th className="n" style={{ width: "9%" }}>WAR</th>
-                      <th className="n hm" style={{ width: "10%" }}>On roster</th>
-                      <th className="n hm" style={{ width: "10%" }}>Expected</th>
-                      <th className="n" style={{ width: "8%" }}>Vs</th>
-                      <th className="t hm" style={{ width: "24%" }}>Better available</th>
+                      <th scope="col" className="t" style={{ width: "8%" }}>Pick</th>
+                      <th scope="col" className="t" style={{ width: "24%" }}>Player</th>
+                      <th scope="col" className="c" style={{ width: "7%" }}>Pos</th>
+                      <th scope="col" className="n" style={{ width: "9%" }}>WAR</th>
+                      <th scope="col" className="n hm" style={{ width: "10%" }}>On roster</th>
+                      <th scope="col" className="n hm" style={{ width: "10%" }}>Expected</th>
+                      <th scope="col" className="n" style={{ width: "8%" }}>Vs</th>
+                      <th scope="col" className="t hm" style={{ width: "24%" }}>Better available</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -641,7 +645,7 @@ export default function FranchisePage({ rid, players, tab }:
                       return (
                         <Fragment key={season}>
                           <tr className="grpband">
-                            <th colSpan={8}>
+                            <th scope="colgroup" colSpan={8}>
                               <div>
                                 <span>{season} rookie draft</span>
                                 <span className="note">
@@ -775,10 +779,10 @@ export default function FranchisePage({ rid, players, tab }:
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
-                      <th className="t" style={{ width: "10%" }}>When</th>
-                      <th className="t" style={{ width: "9%" }}>Type</th>
-                      <th className="t" style={{ width: "40%" }}>Added</th>
-                      <th className="t" style={{ width: "41%" }}>Dropped</th>
+                      <th scope="col" className="t" style={{ width: "10%" }}>When</th>
+                      <th scope="col" className="t" style={{ width: "9%" }}>Type</th>
+                      <th scope="col" className="t" style={{ width: "40%" }}>Added</th>
+                      <th scope="col" className="t" style={{ width: "41%" }}>Dropped</th>
                     </tr>
                   </thead>
                   <tbody>

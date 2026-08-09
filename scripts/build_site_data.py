@@ -12,7 +12,7 @@ Outputs:
   data/<season>/teams.json      fantasy teams: manager, record, roster
   data/<season>/weekly.json     player_id -> [[week, pts, pAA, pAR, WAA, WAR], ...]
 """
-import argparse, csv, json, re, statistics, time
+import argparse, csv, json, os, re, statistics, tempfile, time
 from pathlib import Path
 
 from leaguepaths import DataDir
@@ -50,7 +50,25 @@ def guard_write(path, obj, content=None):
                 "dir? (--allow-empty to override)")
     # compact separators everywhere: these files are fetched by the site, and
     # the default ", "/": " separators were 10-14% of their bytes
-    Path(path).write_text(json.dumps(obj, separators=(",", ":")))
+    atomic_write(path, json.dumps(obj, separators=(",", ":")))
+
+def atomic_write(path, text):
+    """Write via a temp file in the SAME directory, then os.replace.
+
+    A plain write_text truncates first, so an interrupted run (or a crash
+    mid-serialize) leaves a half-written JSON file where the site expects a
+    committed one. os.replace is atomic within a filesystem, which is why the
+    temp file has to be beside the target rather than in the system temp dir."""
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
+            f.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 def main():
     global ALLOW_EMPTY
@@ -220,7 +238,7 @@ def main():
         # schedule feed; project_war attaches each player's bye to projections
         bf = sdir / "byes.json"
         if bf.exists():
-            (sout / "byes.json").write_text(bf.read_text())
+            atomic_write(sout / "byes.json", bf.read_text(encoding="utf-8"))
 
         # future-week pairings (sleeper_pull's schedule/ dir): lets the site
         # project records against the real schedule before any games are scored
@@ -239,7 +257,7 @@ def main():
                     "teams": mws}
         if sched:
             mpayload["schedule"] = sched
-        (sout / "matchups.json").write_text(json.dumps(mpayload, separators=(",", ":")))
+        atomic_write(sout / "matchups.json", json.dumps(mpayload, separators=(",", ":")))
 
         # --- absences: label each missing regular-season week BYE / DNP / NR ---
         ps_wk = league.get("settings", {}).get("playoff_week_start", 15)
@@ -450,11 +468,13 @@ def main():
                         continue
                     pp = t.get("players_points") or {}
                     for pid in (t.get("starters") or []):
+                        if not pid or str(pid) == "0":
+                            continue     # Sleeper's empty-slot placeholder
                         rec = stars.setdefault(str(pid), {"rid": rid, "wk": {}})
                         rec["rid"] = rid
                         rec["wk"][str(g["week"])] = round(float(pp.get(str(pid), 0.0)), 2)
 
-            (sout / "bracket.json").write_text(json.dumps({
+            atomic_write(sout / "bracket.json", json.dumps({
                 "playoff_start": ps_start,
                 "seeds": {str(t["roster_id"]): seed.get(t["roster_id"]) for t in teams},
                 "names": {str(t["roster_id"]): t["team"] for t in teams},

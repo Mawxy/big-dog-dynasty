@@ -24,6 +24,10 @@ BASE = "https://api.sleeper.app/v1"
 DELAY = 0.15          # seconds between calls; keeps well under Sleeper's ~1000/min limit
 RETRIES = 3
 RATE_LIMIT_TRIES = 10   # 429s get their own budget, separate from error retries
+# Say who we are. urllib's default agent is anonymous and looks exactly like a
+# scraper, which is the wrong thing to look like against a free read-only API —
+# same string style as fetch_values.py.
+UA = {"User-Agent": "big-dog-dynasty-warboard/2.0 (github.com/Mawxy/big-dog-dynasty)"}
 
 def get(path):
     """GET a Sleeper endpoint, return parsed JSON (None ONLY on 404/null)."""
@@ -32,7 +36,8 @@ def get(path):
     while True:
         try:
             time.sleep(DELAY)
-            with urllib.request.urlopen(url, timeout=30) as r:
+            with urllib.request.urlopen(
+                    urllib.request.Request(url, headers=UA), timeout=30) as r:
                 body = r.read().decode("utf-8")
             return json.loads(body) if body and body != "null" else None
         except urllib.error.HTTPError as e:

@@ -312,10 +312,17 @@ export default function History() {
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 18, padding: "16px var(--pad) 4px" }}>
               <div className="panel" style={{ margin: 0, borderLeft: "3px solid var(--acc)" }}>
                 <div className="chart-label" style={{ color: "var(--acc)" }}>Champion</div>
-                <div style={{ font: "700 34px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase", cursor: "pointer" }}
-                  onClick={() => nav(lp(`/franchise/${s.champ.rid}`))}>
+                {/* an anchor, not a div with a handler: the champion's name is
+                    the panel's one navigation and has to be keyboard-reachable */}
+                <a className="blocklink" href={`#${lp(`/franchise/${s.champ.rid}`)}`}
+                  style={{ font: "700 34px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase" }}
+                  onClick={e => {
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    e.preventDefault();
+                    nav(lp(`/franchise/${s.champ.rid}`));
+                  }}>
                   {s.champ.name}
-                </div>
+                </a>
                 <div style={{ font: "400 14px/1.4 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", marginTop: 5 }}>
                   {s.champ.manager} · {s.champ.wins}-{s.champ.losses}
                   {s.champ.ties ? `-${s.champ.ties}` : ""} · {fmt(s.champ.ppg, 1)} ppg
@@ -386,17 +393,18 @@ export default function History() {
             </div>
 
             <TScroll>
-              <table style={{ tableLayout: "fixed", marginTop: 10 }}>
+              <table style={{ tableLayout: "fixed", marginTop: 10 }}
+                aria-label={`${s.season} final standings`}>
                 <thead>
                   <tr>
-                    <th className="c" style={{ width: "6%" }}>Fin</th>
-                    <th className="t" style={{ width: "26%" }}>Franchise</th>
-                    <th className="t hm" style={{ width: "14%" }}>Manager</th>
-                    <th className="n edge" style={{ width: "12%" }}>Record</th>
-                    <th className="n" style={{ width: "11%" }}>PPG</th>
-                    <th className="n" style={{ width: "12%" }}>Lineup WAR</th>
-                    <th className="n edge" style={{ width: "9%" }}>Prev</th>
-                    <th className="n" style={{ width: "10%" }}>Move</th>
+                    <th scope="col" className="c" style={{ width: "6%" }}>Fin</th>
+                    <th scope="col" className="t" style={{ width: "26%" }}>Franchise</th>
+                    <th scope="col" className="t hm" style={{ width: "14%" }}>Manager</th>
+                    <th scope="col" className="n edge" style={{ width: "12%" }}>Record</th>
+                    <th scope="col" className="n" style={{ width: "11%" }}>PPG</th>
+                    <th scope="col" className="n" style={{ width: "12%" }}>Lineup WAR</th>
+                    <th scope="col" className="n edge" style={{ width: "9%" }}>Prev</th>
+                    <th scope="col" className="n" style={{ width: "10%" }}>Move</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -409,7 +417,18 @@ export default function History() {
                           <span className="spine" style={{ background: k < 4 ? "var(--acc)" : "var(--rule-2)" }} />
                           <span className={`rank${k ? "" : " top"}`}>{r.finish}</span>
                         </td>
-                        <td className="t name" style={k ? undefined : { color: "var(--acc)" }}>{r.name}</td>
+                        {/* the row opens the franchise on click; the name is
+                            the anchor that gets a keyboard there, without the
+                            row becoming a second tab stop over it */}
+                        <td className="t name" style={k ? undefined : { color: "var(--acc)" }}>
+                          <a className="blocklink" href={`#${lp(`/franchise/${r.rid}`)}`}
+                            onClick={e => {
+                              e.stopPropagation();
+                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                              e.preventDefault();
+                              nav(lp(`/franchise/${r.rid}`));
+                            }}>{r.name}</a>
+                        </td>
                         <td className="t sub hm">{r.manager}</td>
                         <td className="n fig edge">
                           {r.wins}-{r.losses}{r.ties ? `-${r.ties}` : ""}

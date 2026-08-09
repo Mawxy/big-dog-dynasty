@@ -145,12 +145,13 @@ def main():
             prev_picks = prev_all.get("picks", {})
         except Exception:
             pass
-    vals, picks, ok = {}, {}, []
-    for name, fn in (("FantasyCalc", lambda: fetch_fantasycalc(vals, picks)),
-                     ("KeepTradeCut", lambda: fetch_ktc(vals, picks, players))):
+    vals, picks, ok, fresh = {}, {}, [], set()
+    for name, key, fn in (("FantasyCalc", "fc", lambda: fetch_fantasycalc(vals, picks)),
+                          ("KeepTradeCut", "ktc", lambda: fetch_ktc(vals, picks, players))):
         try:
             fn()
             ok.append(name)
+            fresh.add(key)
         except Exception as e:
             print(f"WARNING: {name} fetch failed: {e}")
     if not vals:
@@ -184,12 +185,26 @@ def main():
             pass
     today = date.today().isoformat()
     cutoffs = {d: (date.today() - timedelta(days=d)).isoformat() for d in (7, 14, 30)}
+    # A SOURCE THAT FAILED RECORDS None HERE, never the number carried forward
+    # from `prev` above. Carrying it into values.json is right — the site should
+    # still show a price — but writing yesterday's number under today's date
+    # makes the delta loop below compare a value against itself, so every 7/14/
+    # 30-day delta silently flattens to ~0 and stays there. The scan skips
+    # nulls (it walks back to the newest row that has a real number), so a gap
+    # is honest and heals itself on the next successful fetch.
     for pid, e in vals.items():
-        if e.get("ktc") is None and e.get("fc") is None:
+        ktc = e.get("ktc") if "ktc" in fresh else None
+        fc = e.get("fc") if "fc" in fresh else None
+        if ktc is None and fc is None:
             continue
         h = hist.setdefault(pid, [])
-        entry = [today, e.get("ktc"), e.get("fc")]
+        entry = [today, ktc, fc]
         if h and h[-1][0] == today:
+            # a second run on the same day must not blank a source that
+            # succeeded on the first
+            for i in (1, 2):
+                if entry[i] is None and len(h[-1]) > i:
+                    entry[i] = h[-1][i]
             h[-1] = entry
         else:
             h.append(entry)
@@ -208,11 +223,12 @@ def main():
                     trends[str(d)] = cur - base
             if trends:
                 e[name + "T"] = trends
-    hist_path.write_text(json.dumps(hist, separators=(",", ":")))
+    hist_path.write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps({
         "fetched": time.strftime("%Y-%m-%d", time.gmtime()),
-        "sources": ok, "picks": picks, "players": vals}, separators=(",", ":")))
+        "sources": ok, "picks": picks, "players": vals}, separators=(",", ":")),
+        encoding="utf-8")
     print(f"wrote {out_path} ({len(vals)} players; fresh: {', '.join(ok)})")
 
 if __name__ == "__main__":

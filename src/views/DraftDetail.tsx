@@ -198,6 +198,7 @@ export default function DraftDetail() {
           : "no seasons played yet")}
       {openSec.returns && (played.length ? (
         <DataTable cols={cols} groups={groups} rows={sorted} ctx={{ years: played }}
+          label={`Returns by pick · ${season} draft`}
           rowKey={r => `${r.slot}|${r.pid}`} sortId={sortId} dir={dir}
           onSort={onSort} homeCol="pick" />
       ) : (
@@ -209,8 +210,10 @@ export default function DraftDetail() {
         `${pickTrades.length} trades included a ${season} pick`)}
       {openSec.trades && (pickTrades.length ? (
         <div className="ledger">
-          {pickTrades.map(t => (
-            <div key={t.ts} className="trade">
+          {/* two trades processed in one Sleeper batch share a ts — key on the
+              pair, the way the franchise page's trade list already does */}
+          {pickTrades.map((t, i) => (
+            <div key={`${t.ts}-${i}`} className="trade">
               <div className="trade-head">
                 <span className="trade-wk">{t.season} · WEEK {t.week}</span>
               </div>
@@ -263,11 +266,11 @@ export default function DraftDetail() {
               <div className={`pick-title ${cls}`}>{title}</div>
               <table>
                 <thead><tr>
-                  <th className="t" style={{ width: "12%" }}>Pick</th>
-                  <th className="t" style={{ width: "40%" }}>Player</th>
-                  <th className="n" style={{ width: "16%" }}>{value.mode === "exp" ? "Exp" : "Rd med"}</th>
-                  <th className="n" style={{ width: "14%" }}>WAR</th>
-                  <th className="n key" style={{ width: "18%" }}>{value.mode === "exp" ? "Vs exp" : "Vs med"}</th>
+                  <th scope="col" className="t" style={{ width: "12%" }}>Pick</th>
+                  <th scope="col" className="t" style={{ width: "40%" }}>Player</th>
+                  <th scope="col" className="n" style={{ width: "16%" }}>{value.mode === "exp" ? "Exp" : "Rd med"}</th>
+                  <th scope="col" className="n" style={{ width: "14%" }}>WAR</th>
+                  <th scope="col" className="n key" style={{ width: "18%" }}>{value.mode === "exp" ? "Vs exp" : "Vs med"}</th>
                 </tr></thead>
                 <tbody>
                   {list.map(r => (

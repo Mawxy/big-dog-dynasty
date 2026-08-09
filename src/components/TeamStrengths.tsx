@@ -34,8 +34,8 @@ function Grid({ rows, n, caption }: { rows: RankRow[]; n: number; caption: strin
       <TScroll box="rankwrap" hint="The grid scrolls sideways — one column per lineup seat.">
         <table className="rankgrid">
           <thead><tr>
-            <th className="t" />
-            {rows[0].cells.map((c, i) => <th key={i}>{c.label}</th>)}
+            <th scope="col" className="t" />
+            {rows[0].cells.map((c, i) => <th key={i} scope="col">{c.label}</th>)}
           </tr></thead>
           <tbody>
             {rows.map(r => (

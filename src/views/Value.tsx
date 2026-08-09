@@ -121,7 +121,12 @@ export default function Value() {
     () => mobile ? mobileCols(COLS, ["dvi", "cvi", "war1"]) : COLS, [mobile]);
   const groups = mobile ? [...GROUPS, TAIL_GRP] : GROUPS;
 
-  const { rows, count, ctx } = useMemo(() => {
+  // The expensive half — merge six sources, sort the whole population, rank
+  // within position off that order. Keyed on the DATA and the SORT only: the
+  // query lives in `apply`, and while it was a dep of this memo every
+  // keystroke re-merged ~800 rows, re-sorted them and re-ranked them to show
+  // a list of seven. The filter is its own memo below.
+  const { population, ctx } = useMemo(() => {
     // union, not intersection: DVI scores players with no projection, and
     // dropping either side would make the board disagree with its source
     const byId = new Map<string, PlayerRow>();
@@ -168,9 +173,16 @@ export default function Value() {
       counters[r.pos] = (counters[r.pos] ?? 0) + 1;
       r.posRank = counters[r.pos];
     });
-    const rs = apply(sorted);
-    return { rows: rs, count: rs.length, ctx };
-  }, [projs, dvi, cvi, vals, ecr, curTeams, players, sortId, dir, apply]);
+    return { population: sorted, ctx };
+    // `players` was listed here and read nowhere in the body — every row's name
+    // and position come from projections/dvi/cvi. It only forced re-runs.
+  }, [projs, dvi, cvi, vals, ecr, curTeams, sortId, dir]);
+
+  // …and the cheap half: the position chips and the name box, over a list that
+  // is already built, sorted and ranked. Ranks are read off the row objects, so
+  // filtering cannot change them — RB4 is still RB4 in the RB-only view.
+  const rows = useMemo(() => apply(population), [population, apply]);
+  const count = rows.length;
 
   const onSort = (c: PlayerCol) => {
     if (c.id === "rk") { setSortId("dvi"); setDir(-1); return; }
@@ -202,6 +214,7 @@ export default function Value() {
 
       {!ready ? <div className="empty">Loading…</div> : (
         <DataTable cols={cols} groups={groups} rows={rows} ctx={ctx} rowKey={r => r.id}
+          label={`Player value · ${rosterSeason} rosters`}
           sortId={sortId} dir={dir} onSort={onSort} homeCol="rk" openKey={openPid}
           onRowClick={r => setOpenPid(openPid === r.id ? null : r.id)}
           renderDrawer={r => (

@@ -39,7 +39,7 @@ export default function AllTimePanel({ pid, data, seasons, teams, players }: Pro
           {rows.length ? (
             <div className="wkwrap">
               <table className="wktbl">
-                <thead><tr><th>Season</th><th>GP</th><th>Pts</th><th>PPG</th><th>WAA</th><th>WAR</th></tr></thead>
+                <thead><tr><th scope="col">Season</th><th scope="col">GP</th><th scope="col">Pts</th><th scope="col">PPG</th><th scope="col">WAA</th><th scope="col">WAR</th></tr></thead>
                 <tbody>
                   {rows.map(r => (
                     <tr key={r[0]}>

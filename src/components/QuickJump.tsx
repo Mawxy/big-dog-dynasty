@@ -1,8 +1,7 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { jl } from "../lib/data";
-import { seasonSeg } from "../lib/league";
 import type { Franchises } from "../lib/types";
 import PosBadge from "./PosBadge";
 
@@ -12,7 +11,7 @@ interface Opt { key: string; label: string; pos?: string; to: string }
  *  backing out to a leaderboard. Prefix matches rank above substring matches;
  *  teams (12 franchises, latest name) list ahead of players at equal rank. */
 export default function QuickJump() {
-  const { meta, players } = useLeague();
+  const { players } = useLeague();
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const [open, setOpen] = useState(false);
@@ -20,7 +19,6 @@ export default function QuickJump() {
   const nav = useNavigate();
   const lp = useLeaguePath();
   useEffect(() => { jl<Franchises>("franchises.json").then(setFrs).catch(() => {}); }, []);
-  const latest = meta.seasons[meta.seasons.length - 1];
 
   const opts = useMemo<Opt[]>(() => {
     const s = q.trim().toLowerCase();
@@ -33,7 +31,12 @@ export default function QuickJump() {
     };
     const scored: [number, Opt][] = [];
     for (const [rid, f] of Object.entries(frs ?? {})) {
-      const name = f.seasons[f.seasons.length - 1].name.trim();
+      // A franchise with no seasons is a legal shape; this box mounts on every
+      // player and franchise page, so an unguarded .name here white-screened
+      // most of the site rather than just dropping one row from the list.
+      const sn = f.seasons ?? [];
+      const name = sn[sn.length - 1]?.name?.trim();
+      if (!name) continue;
       const sc = score(name);
       if (sc >= 0) scored.push([sc, {
         key: `t${rid}`, label: name,
@@ -45,14 +48,30 @@ export default function QuickJump() {
       if (sc >= 0) scored.push([sc, { key: pid, label: name, pos, to: lp(`/player/${pid}`) }]);
     }
     return scored.sort((a, b) => a[0] - b[0]).slice(0, 8).map(x => x[1]);
-  }, [q, players, frs, latest]);
+    // lp is deliberately not a dep: useLeaguePath returns a fresh closure every
+    // render, and listing it would recompute the whole list on each keystroke's
+    // re-render for a value that never actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [q, players, frs]);
 
   const go = (o: Opt) => { setQ(""); setOpen(false); nav(o.to); };
+
+  /* Combobox semantics (ARIA 1.2): the box owns a listbox of options and says
+   * which one the arrow keys are on. The keyboard already worked — arrows moved
+   * a highlight and Enter took it — but nothing announced that a list had
+   * appeared, how long it was, or what was selected, so a screen reader read
+   * this as a plain search box that did nothing. */
+  const listId = useId();
+  const optId = (i: number) => `${listId}-o${i}`;
+  const shown = open && opts.length > 0;
 
   return (
     <div style={{ position: "relative", marginLeft: "auto" }}>
       <input type="search" placeholder="Jump to player or team…" value={q}
         style={{ minWidth: 170 }}
+        role="combobox" aria-label="Jump to player or team"
+        aria-expanded={shown} aria-controls={listId} aria-autocomplete="list"
+        aria-activedescendant={shown && opts[sel] ? optId(sel) : undefined}
         onChange={e => { setQ(e.target.value); setSel(0); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
@@ -66,15 +85,16 @@ export default function QuickJump() {
           nothing else on the board floats, so the site's one popover was also
           its one piece of soft-shadowed chrome. The border and the raised
           --band surface are what say "above the page" everywhere else. */}
-      {open && opts.length > 0 && (
-        <div style={{
+      {shown && (
+        <div id={listId} role="listbox" aria-label="Matches" style={{
           position: "absolute", right: 0, top: "calc(100% + 4px)", zIndex: 30,
           background: "var(--band)", border: "1px solid var(--rule)",
           minWidth: 235, maxWidth: 320, overflow: "hidden",
         }}>
           {opts.map((o, i) => (
             // onMouseDown (not click) so it fires before the input's blur closes the list
-            <div key={o.key} onMouseDown={e => { e.preventDefault(); go(o); }}
+            <div key={o.key} id={optId(i)} role="option" aria-selected={i === sel}
+              onMouseDown={e => { e.preventDefault(); go(o); }}
               onMouseEnter={() => setSel(i)}
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",

@@ -12,6 +12,20 @@ import { boxStats } from "../components/BoxMarks";
 const ROUNDS = [1, 2, 3, 4];
 const SLOTS = ROUNDS.flatMap(rd => Array.from({ length: 12 }, (_, i) => `${rd}.${String(i + 1).padStart(2, "0")}`));
 
+/**
+ * A finite [lo, hi] plot domain from whatever observations exist.
+ *
+ * Empty gives the default WAR window rather than Infinity/−Infinity; a
+ * degenerate one (a single slot, or every whisker landing on the same value) is
+ * widened, because lo === hi divides by zero in every position calc downstream.
+ */
+function axisDomain(vals: number[], fallback: [number, number] = [-1, 2]): { lo: number; hi: number } {
+  if (!vals.length) return { lo: fallback[0], hi: fallback[1] };
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  if (!Number.isFinite(lo) || !Number.isFinite(hi)) return { lo: fallback[0], hi: fallback[1] };
+  return hi - lo < 0.5 ? { lo: lo - 0.5, hi: hi + 0.5 } : { lo, hi };
+}
+
 /** median of the values present; null when there are none */
 function med(a: (number | null)[]): number | null {
   const s = a.filter((v): v is number => v != null).sort((x, y) => x - y);
@@ -93,13 +107,19 @@ export default function Draft() {
 
   /** slot-value blocks, from the multi-league corpus */
   const corpus = useMemo(() => {
-    if (!pv?.picks?.length) return null;
+    // `dist` and `years_published` are required by the type but this file is
+    // built by a crawl that can publish a partial payload — a bucket without a
+    // dist, or a meta without years, threw straight out of render. Absent means
+    // "no observations", which every reader below already handles.
+    if (!pv?.picks?.length || !pv.meta?.years_published?.length) return null;
     const years = pv.meta.years_published.map(String);
     const bySlot = new Map(pv.picks.map(b => [b.bucket, b]));
+    /** a bucket's observations for one career year — [] when either is missing */
+    const distOf = (b: PickBucket | undefined, y: string): number[] => b?.dist?.[y] ?? [];
     /** every per-season observation for a slot, pooled across career years */
     const pool = (slot: string): number[] => {
       const b = bySlot.get(slot);
-      return b ? years.flatMap(y => b.dist[y] ?? []) : [];
+      return b ? years.flatMap(y => distOf(b, y)) : [];
     };
     const slotMed: Record<string, number | null> = {};
     for (const s of SLOTS) slotMed[s] = med(pool(s));
@@ -177,10 +197,10 @@ export default function Draft() {
       const bands = (pv.bands ?? []).filter(b => +b.bucket[0] === rd);
       const tierNodes = bands.map(b => mkNode(
         b.bucket, 1, b.label ?? b.bucket, b.slots,
-        y => b.dist[y] ?? [], hitOf(b), franOf(b), outOf(b),
+        y => distOf(b, y), hitOf(b), franOf(b), outOf(b),
         bandSlots(b).map(s => mkNode(
           s, 2, s, undefined,
-          y => bySlot.get(s)?.dist[y] ?? [], hitOf(bySlot.get(s)), franOf(bySlot.get(s)),
+          y => distOf(bySlot.get(s), y), hitOf(bySlot.get(s)), franOf(bySlot.get(s)),
           outOf(bySlot.get(s)), [],
         )),
       ));
@@ -188,13 +208,14 @@ export default function Draft() {
         : rdSlots.map(s => bySlot.get(s)).filter((b): b is PickBucket => !!b);
       return mkNode(
         String(rd), 0, `RD ${rd}`, undefined,
-        y => rdSlots.flatMap(s => bySlot.get(s)?.dist[y] ?? []),
+        y => rdSlots.flatMap(s => distOf(bySlot.get(s), y)),
         poolHit(rdBuckets), poolFran(rdBuckets), poolOut(rdBuckets),
         tierNodes,
       );
     });
 
     const ns = SLOTS.map(s => pool(s).length).filter(n => n > 0);
+    const spans = byRound.flatMap(b => b.s ? [b.s.mn, b.s.mx] : []);
     return {
       tree, hitThreshold: pv.meta.hit_threshold_war,
       lastAge: outYears.length ? Number(lastY) : null,
@@ -203,8 +224,13 @@ export default function Draft() {
       // the whiskers stop at p5/p95 the corpus extremes (−1.49 / +2.42) are
       // off-plot, and keeping them as the domain left a full unit of empty
       // gutter past the longest whisker.
-      lo: Math.min(...byRound.flatMap(b => b.s ? [b.s.mn] : [])),
-      hi: Math.max(...byRound.flatMap(b => b.s ? [b.s.mx] : [])),
+      //
+      // A sparse pick_values.json can leave every round below the two
+      // observations boxStats needs, and Math.min/max over nothing is
+      // ±Infinity: the domain inverts, every tick position goes NaN and the
+      // whole box-plot panel draws blank. Fall back to a plain WAR domain and
+      // let the empty rows say there is nothing to plot.
+      ...axisDomain(spans),
       cellN: ns.length ? (Math.min(...ns) === Math.max(...ns)
         ? `n=${ns[0]} per cell` : `n=${Math.min(...ns)}–${Math.max(...ns)} per cell`) : "",
       // Max's call (2026-08-04): headline the COVERAGE number — the scale of
@@ -459,14 +485,14 @@ export default function Draft() {
             <table className="dtbl">
               <thead>
                 <tr>
-                  <th className="t" style={{ width: `${W_FIRST}%` }}>Round · Tier · Pick</th>
+                  <th scope="col" className="t" style={{ width: `${W_FIRST}%` }}>Round · Tier · Pick</th>
                   {yearCols.map(c => (
-                    <th key={c.label} className="n"
+                    <th scope="col" key={c.label} className="n"
                       style={{ width: W_YEAR, color: c.pending ? "var(--dim3)" : undefined }}>{c.label}</th>
                   ))}
-                  <th className="n med" style={{ width: `${W_MED}%` }}>Median</th>
-                  <th className="n" style={{ width: `${W_HIT}%` }}>Hit %</th>
-                  <th className="n" style={{ width: `${W_OUT}%` }}>Franchise %</th>
+                  <th scope="col" className="n med" style={{ width: `${W_MED}%` }}>Median</th>
+                  <th scope="col" className="n" style={{ width: `${W_HIT}%` }}>Hit %</th>
+                  <th scope="col" className="n" style={{ width: `${W_OUT}%` }}>Franchise %</th>
                 </tr>
               </thead>
               <tbody>
@@ -474,8 +500,21 @@ export default function Draft() {
                   const kids = n.children.length > 0;
                   const isOpen = !!open[n.key];
                   return (
+                    // a branch row expands the tree, so it is a control and
+                    // takes the keyboard contract every other row on the site
+                    // now has; a leaf toggles nothing and stays out of the tab
+                    // order
                     <tr key={n.key} className={`lvl${n.depth}${kids ? " tap" : ""}`}
-                      onClick={kids ? () => setOpen(s => ({ ...s, [n.key]: !s[n.key] })) : undefined}>
+                      tabIndex={kids ? 0 : undefined}
+                      aria-expanded={kids ? isOpen : undefined}
+                      onClick={kids ? () => setOpen(s => ({ ...s, [n.key]: !s[n.key] })) : undefined}
+                      onKeyDown={kids ? e => {
+                        if (e.target !== e.currentTarget) return;
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          setOpen(s => ({ ...s, [n.key]: !s[n.key] }));
+                        }
+                      } : undefined}>
                       <td className="lbl">
                         <span className="caret" style={{ color: !kids ? "transparent" : isOpen ? "var(--acc)" : "var(--dim)" }}>
                           {kids ? (isOpen ? "▾" : "▸") : "·"}
@@ -532,12 +571,12 @@ export default function Draft() {
             <div className={`pick-title ${cls}`}>{title}</div>
             <table>
               <thead><tr>
-                <th className="t" style={{ width: "10%" }}>Slot</th>
-                <th className="t" style={{ width: "10%" }}>Yr</th>
-                <th className="t" style={{ width: "36%" }}>Player</th>
-                <th className="n" style={{ width: "13%" }}>Exp</th>
-                <th className="n" style={{ width: "13%" }}>WAR</th>
-                <th className="n key" style={{ width: "18%" }}>Vs exp</th>
+                <th scope="col" className="t" style={{ width: "10%" }}>Slot</th>
+                <th scope="col" className="t" style={{ width: "10%" }}>Yr</th>
+                <th scope="col" className="t" style={{ width: "36%" }}>Player</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>Exp</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>WAR</th>
+                <th scope="col" className="n key" style={{ width: "18%" }}>Vs exp</th>
               </tr></thead>
               <tbody>
                 {rows.map(r => (

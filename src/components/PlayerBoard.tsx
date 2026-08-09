@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Col, Grp } from "./DataTable";
 import { POS_CHIPS, POS_COLOR } from "../lib/league";
@@ -154,7 +154,17 @@ export function usePlayerFilters<T extends { pos: string; nm: string } = PlayerR
   onChange?: () => void,
 ) {
   const [pos, setPos] = useState("ALL");
-  const [q, setQ] = useState("");
+  /**
+   * The query the FILTER reads — one beat behind the box, deliberately, and
+   * owned here rather than in the box.
+   *
+   * The board's row memo lists `apply` as a dep, so every keystroke re-filtered
+   * the population AND re-rendered every row on screen: ~390 rows of ten cells,
+   * six times in the second it takes to type a surname. `SearchBox` keeps the
+   * letters to itself so the board is not re-rendered mid-word at all, and
+   * hands the query up once the typing settles.
+   */
+  const [qd, setQd] = useState("");
 
   const bar = (
     <div className="screen-head" style={{ paddingTop: 0 }}>
@@ -162,21 +172,39 @@ export function usePlayerFilters<T extends { pos: string; nm: string } = PlayerR
         <button key={p} className={`chip ${pos === p ? "on" : ""}`}
           onClick={() => { setPos(p); onChange?.(); }}>{p === "ALL" ? "All" : p}</button>
       ))}
-      <input type="search" placeholder="Search player…" value={q}
-        onChange={e => setQ(e.target.value)} />
+      {/* setQd is a setState function, so its identity is stable and the
+          debounce timer below is never restarted by a parent re-render */}
+      <SearchBox onQuery={setQd} />
     </div>
   );
 
   /** Applied AFTER sorting and position-ranking, so RB4 stays RB4 in an RB-only
-   *  view. Memoized on pos/q because both boards list it as a useMemo dep for
-   *  the whole row build — a fresh identity every render would rebuild the
-   *  entire population on every keystroke anywhere on the page. */
+   *  view. Memoized on pos/qd because both boards list it as a dep of the memo
+   *  that filters the population — a fresh identity every render would re-run
+   *  that pass on every keystroke anywhere on the page. */
   const apply = useCallback((rows: T[]) => {
     let rs = rows;
     if (pos !== "ALL") rs = rs.filter(r => r.pos === pos);
-    if (q) rs = rs.filter(r => r.nm.toLowerCase().includes(q.toLowerCase()));
+    if (qd) rs = rs.filter(r => r.nm.toLowerCase().includes(qd.toLowerCase()));
     return rs;
-  }, [pos, q]);
+  }, [pos, qd]);
 
   return { bar, apply };
+}
+
+/**
+ * The name box. Owns the letters; publishes the query 150ms after the last
+ * one. The input stays controlled and instant — it is this component that
+ * re-renders per keystroke, and it is one input, not a leaderboard.
+ */
+function SearchBox({ onQuery }: { onQuery: (q: string) => void }) {
+  const [q, setQ] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => onQuery(q), 150);
+    return () => clearTimeout(t);
+  }, [q, onQuery]);
+  return (
+    <input type="search" placeholder="Search player…" value={q}
+      onChange={e => setQ(e.target.value)} />
+  );
 }

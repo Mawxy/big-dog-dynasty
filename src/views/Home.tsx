@@ -219,7 +219,7 @@ export default function Home() {
 
   const grpRow = (label: string, cols: number) => (
     <tr className="grp">
-      <th colSpan={cols} className="t" style={{ textAlign: "left", padding: "6px 10px 5px", letterSpacing: ".16em", borderBottom: "1px solid var(--rule)" }}>
+      <th scope="colgroup" colSpan={cols} className="t" style={{ textAlign: "left", padding: "6px 10px 5px", letterSpacing: ".16em", borderBottom: "1px solid var(--rule)" }}>
         {label}
       </th>
     </tr>
@@ -249,10 +249,17 @@ export default function Home() {
             </button>
           </div>
           {!champ ? <div className="empty">No completed season yet.</div> : <>
-            <div style={{ font: `700 ${mobile ? 32 : 40}px/1.05 var(--cond)`, letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)", cursor: "pointer" }}
-              onClick={() => nav(lp(`/franchise/${champ.rid}`))}>
+            {/* the champion's name opens his franchise — a real anchor, so it
+                is reachable by keyboard and openable in a new tab */}
+            <a className="blocklink" href={`#${lp(`/franchise/${champ.rid}`)}`}
+              style={{ font: `700 ${mobile ? 32 : 40}px/1.05 var(--cond)`, letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)" }}
+              onClick={e => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                nav(lp(`/franchise/${champ.rid}`));
+              }}>
               {champ.s.name}
-            </div>
+            </a>
             <div style={{ font: "400 14px/1.4 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", marginTop: 5 }}>
               {champ.s.manager} · {champ.s.wins}-{champ.s.losses}{champ.s.ties ? `-${champ.s.ties}` : ""} · {fmt(champ.s.ppg, 1)} ppg
             </div>
@@ -283,8 +290,15 @@ export default function Home() {
         <div className="panel" style={{ margin: 0, borderTopColor: "var(--rule-2)" }}>
           <div className="chart-label">Title race · {rosterSeason} · top 4 by starter CVI</div>
           {!titleRace ? <div className="empty">Loading indices…</div> : titleRace.map((r, i) => (
-            <div key={r.rid} onClick={() => nav(lp(`/franchise/${r.rid}`))}
-              style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "9px 0", borderTop: i ? "1px solid var(--hair)" : "none", cursor: "pointer" }}>
+            // the whole row is the link to that franchise, so it is an anchor
+            // rather than a div with a click handler no keyboard could reach
+            <a key={r.rid} className="blocklink" href={`#${lp(`/franchise/${r.rid}`)}`}
+              onClick={e => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault();
+                nav(lp(`/franchise/${r.rid}`));
+              }}
+              style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "9px 0", borderTop: i ? "1px solid var(--hair)" : "none" }}>
               <span style={{ font: "600 17px/1 var(--cond)", color: "var(--dim)", flex: "0 0 16px" }}>{i + 1}</span>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div style={{ font: "600 14px/1.35 var(--sans)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{r.name}</div>
@@ -300,7 +314,7 @@ export default function Home() {
                 <div className="head-fig sm">{fmt(r.sCvi, 0)}</div>
                 <div style={{ font: "400 11.5px/1.4 var(--sans)", color: "var(--dim)" }}>starter CVI</div>
               </div>
-            </div>
+            </a>
           ))}
         </div>
       </div>
@@ -354,17 +368,17 @@ export default function Home() {
           </div>
         ) : (
           <TScroll>
-          <table style={{ tableLayout: "fixed" }}>
+          <table style={{ tableLayout: "fixed" }} aria-label="Power rankings by starters DVI">
             <thead>
               <tr>
-                <th className="c" style={{ width: "5%" }}>Rk</th>
-                <th className="t" style={{ width: "23%" }}>Franchise</th>
-                <th className="t hm" style={{ width: "13%" }}>Manager</th>
-                <th className="n key edge" style={{ width: "11%" }}>Starters DVI</th>
-                <th className="n" style={{ width: "11%" }}>Starters CVI</th>
-                <th className="n edge" style={{ width: "12%" }}>{league.latest ?? "Last"}</th>
-                <th className="n" style={{ width: "13%" }}>Proj {rosterSeason}</th>
-                <th className="n hm" style={{ width: "12%" }}>Starter age</th>
+                <th scope="col" className="c" style={{ width: "5%" }}>Rk</th>
+                <th scope="col" className="t" style={{ width: "23%" }}>Franchise</th>
+                <th scope="col" className="t hm" style={{ width: "13%" }}>Manager</th>
+                <th scope="col" className="n key edge" style={{ width: "11%" }}>Starters DVI</th>
+                <th scope="col" className="n" style={{ width: "11%" }}>Starters CVI</th>
+                <th scope="col" className="n edge" style={{ width: "12%" }}>{league.latest ?? "Last"}</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>Proj {rosterSeason}</th>
+                <th scope="col" className="n hm" style={{ width: "12%" }}>Starter age</th>
               </tr>
             </thead>
             <tbody>
@@ -378,7 +392,20 @@ export default function Home() {
                       <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
                       <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
                     </td>
-                    <td className="t name">{r.name}</td>
+                    {/* the row navigates on click, but a click is not the only
+                        way in: the franchise name is a real anchor, like the
+                        standings board's team cell, so the keyboard reaches
+                        the same page without the row itself becoming a second
+                        tab stop over the top of it */}
+                    <td className="t name">
+                      <a className="blocklink" href={`#${lp(`/franchise/${r.rid}`)}`}
+                        onClick={e => {
+                          e.stopPropagation();
+                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                          e.preventDefault();
+                          nav(lp(`/franchise/${r.rid}`));
+                        }}>{r.name}</a>
+                    </td>
                     <td className="t sub hm">{r.manager}</td>
                     <td className="n edge"><span className="head-fig sm">{fmt(r.sDvi, 0)}</span></td>
                     <td className="n"><span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.sCvi, 0)}</span></td>
@@ -439,14 +466,14 @@ export default function Home() {
                 ))}
             </div>
           ) : (
-            <table style={{ tableLayout: "fixed" }}>
+            <table style={{ tableLayout: "fixed" }} aria-label="Value plays · largest DVI minus CVI gaps">
               <thead>
                 <tr>
-                  <th className="c" style={{ width: "14%" }}>Pos</th>
-                  <th className="t" style={{ width: "42%" }}>Player</th>
-                  <th className="n" style={{ width: "14%" }}>DVI</th>
-                  <th className="n" style={{ width: "14%" }}>CVI</th>
-                  <th className="n" style={{ width: "16%" }}>Gap</th>
+                  <th scope="col" className="c" style={{ width: "14%" }}>Pos</th>
+                  <th scope="col" className="t" style={{ width: "42%" }}>Player</th>
+                  <th scope="col" className="n" style={{ width: "14%" }}>DVI</th>
+                  <th scope="col" className="n" style={{ width: "14%" }}>CVI</th>
+                  <th scope="col" className="n" style={{ width: "16%" }}>Gap</th>
                 </tr>
               </thead>
               {([["Sell high · dynasty premium", valuePlays?.sell], ["Buy low · win-now premium", valuePlays?.buy]] as const)
@@ -509,13 +536,13 @@ export default function Home() {
               ))}
             </div>
           ) : (
-            <table style={{ tableLayout: "fixed" }}>
+            <table style={{ tableLayout: "fixed" }} aria-label="Market movers · 7-day KeepTradeCut change">
               <thead>
                 <tr>
-                  <th className="c" style={{ width: "14%" }}>Pos</th>
-                  <th className="t" style={{ width: "42%" }}>Player</th>
-                  <th className="n" style={{ width: "22%" }}>Value</th>
-                  <th className="n" style={{ width: "22%" }}>7d</th>
+                  <th scope="col" className="c" style={{ width: "14%" }}>Pos</th>
+                  <th scope="col" className="t" style={{ width: "42%" }}>Player</th>
+                  <th scope="col" className="n" style={{ width: "22%" }}>Value</th>
+                  <th scope="col" className="n" style={{ width: "22%" }}>7d</th>
                 </tr>
               </thead>
               {([["Rising", movers?.up], ["Falling", movers?.down]] as const).map(([label, list]) => (
@@ -582,13 +609,13 @@ export default function Home() {
               {!waivers.length && <div className="empty">—</div>}
             </div>
           ) : (
-            <table style={{ tableLayout: "fixed" }}>
+            <table style={{ tableLayout: "fixed" }} aria-label="Recent waivers, league-wide">
               <thead>
                 <tr>
-                  <th className="t" style={{ width: "13%" }}>Week</th>
-                  <th className="t" style={{ width: "27%" }}>Team</th>
-                  <th className="t" style={{ width: "30%" }}>Added</th>
-                  <th className="t" style={{ width: "30%" }}>Dropped</th>
+                  <th scope="col" className="t" style={{ width: "13%" }}>Week</th>
+                  <th scope="col" className="t" style={{ width: "27%" }}>Team</th>
+                  <th scope="col" className="t" style={{ width: "30%" }}>Added</th>
+                  <th scope="col" className="t" style={{ width: "30%" }}>Dropped</th>
                 </tr>
               </thead>
               <tbody>
@@ -669,12 +696,12 @@ export default function Home() {
               {!recentTrades.length && <div className="empty">—</div>}
             </div>
           ) : (
-          <table style={{ tableLayout: "fixed" }}>
+          <table style={{ tableLayout: "fixed" }} aria-label="Recent trades">
             <thead>
               <tr>
-                <th className="t" style={{ width: "13%" }}>Week</th>
-                <th className="t" style={{ width: "43%" }}>Gets</th>
-                <th className="t" style={{ width: "44%" }}>Gets</th>
+                <th scope="col" className="t" style={{ width: "13%" }}>Week</th>
+                <th scope="col" className="t" style={{ width: "43%" }}>Gets</th>
+                <th scope="col" className="t" style={{ width: "44%" }}>Gets</th>
               </tr>
             </thead>
             <tbody>

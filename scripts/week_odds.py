@@ -249,7 +249,12 @@ def season_odds(season, ld, raw_root, sproj):
                 if not e:
                     continue
                 mus, vs = [], []
+                # Sleeper writes "0" for an empty lineup slot. It is not a
+                # player, and dist("0") returns the fallback mean — roughly ten
+                # phantom points added to that team's line (2023 week 7 has one).
                 for pid in e[4]:
+                    if pid == "0":
+                        continue
                     m, sd = dist(pid)
                     mus.append(m); vs.append(sd * sd)
                 sides[int(rid)] = (sum(mus), sum(vs), e[2])

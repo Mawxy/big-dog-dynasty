@@ -42,22 +42,25 @@ export function setLeagueBase(key: string) {
  * Fetch a LEAGUE-SCOPED file by name, e.g. `jl("meta.json")` or
  * `jl("2025/teams.json")`.
  *
- * Falls back to the flat `data/<name>` layout when the league path 404s, which
- * is what makes moving the files a separate, reversible change rather than one
- * commit that has to land the scripts, the site and the data together. Once
- * everything is moved the fallback is dead weight and can go.
+ * There is no longer a fallback to the flat `data/<name>` layout. It existed to
+ * make moving the files a reversible change; the migration is done (every
+ * league file lives under data/leagues/<key>/) and the retry was pure cost —
+ * it DOUBLED every expected 404, and expected 404s are routine here: a player
+ * with no shard, a season with no odds.json or absence.json. Each one bought a
+ * second round trip and a second red line in the console before the caller's
+ * own `.catch` ran.
+ *
+ * `leagueBase` is still empty for data built before the registry existed, and
+ * that case still reads the flat layout — as its only path, not as a retry.
  *
  * Global files — values.json, the crawl corpora — are NOT fetched through this;
  * they use `j()` directly, because they belong to no league.
  */
 export function jl<T>(name: string): Promise<T> {
-  if (!leagueBase) return j<T>(`data/${name}`);
-  return j<T>(`${leagueBase}${name}`).catch(() => j<T>(`data/${name}`));
+  return j<T>(`${leagueBase || "data/"}${name}`);
 }
 
 /** jl + the daily cache-bust, for league files on the values schedule */
 export function jlDaily<T>(name: string): Promise<T> {
-  const d = `?d=${new Date().toISOString().slice(0, 10)}`;
-  if (!leagueBase) return j<T>(`data/${name}${d}`);
-  return j<T>(`${leagueBase}${name}${d}`).catch(() => j<T>(`data/${name}${d}`));
+  return j<T>(`${leagueBase || "data/"}${name}?d=${new Date().toISOString().slice(0, 10)}`);
 }

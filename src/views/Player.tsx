@@ -95,13 +95,6 @@ export default function Player({ pid }: { pid: string }) {
     jlDaily<DviFile>("dvi.json").then(d => { if (live) setDvi(d.players[pid] ?? null); }).catch(() => {});
     jlDaily<CviFile>("cvi.json").then(d => { if (live) setCvi(d.players[pid] ?? null); }).catch(() => {});
     jl<Ownership>("ownership.json").then(o => { if (live) setOwn(o); }).catch(() => {});
-    if (wkSeason) {
-      jl<Weekly>(`${wkSeason}/weekly.json`)
-        .then(w => { if (live) setWks((w[pid] || []).slice().sort((a, b) => a[0] - b[0])); })
-        .catch(() => { if (live) setWks([]); });
-      jl<Absences>(`${wkSeason}/absence.json`)
-        .then(a => { if (live) setAbs(a[pid] || {}); }).catch(() => { if (live) setAbs({}); });
-    }
     jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`)
       .then(t => { if (live) setTeams(t); }).catch(() => {});
     jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
@@ -114,7 +107,28 @@ export default function Player({ pid }: { pid: string }) {
       ownerSplits(rows).then(s => { if (live) setSplits(s); }).catch(() => {});
     }).catch(() => {});
     return () => { live = false; };
-  }, [pid, last, wkSeason, league, meta]);
+  }, [pid, last, league, meta]);
+
+  /**
+   * The open drawer's two files, and ONLY those.
+   *
+   * wkSeason changes every time a career row is clicked, and it used to sit in
+   * the dependency list above — so opening a drawer re-ran the whole cascade:
+   * the shard, both indices, ownership, teams, market values, the league-wide
+   * honor index and the career build. All of it cached, none of it free, and it
+   * reset state the page was already showing. A drawer toggle is a drawer
+   * fetch.
+   */
+  useEffect(() => {
+    if (!wkSeason) return;
+    let live = true;
+    jl<Weekly>(`${wkSeason}/weekly.json`)
+      .then(w => { if (live) setWks((w[pid] || []).slice().sort((a, b) => a[0] - b[0])); })
+      .catch(() => { if (live) setWks([]); });
+    jl<Absences>(`${wkSeason}/absence.json`)
+      .then(a => { if (live) setAbs(a[pid] || {}); }).catch(() => { if (live) setAbs({}); });
+    return () => { live = false; };
+  }, [pid, wkSeason]);
 
   const refs = {
     projection: useRef<HTMLDivElement>(null),
@@ -172,13 +186,13 @@ export default function Player({ pid }: { pid: string }) {
     war: career.reduce((s, r) => s + r.war, 0),
   } : null;
 
-  /** open a season's drawer and bring it into view; clicking the open one closes it */
+  /** open a season's drawer and bring it into view; clicking the open one closes it.
+   *  Both setters are called from the handler, not from inside the updater — a
+   *  state updater has to be pure, and React runs it twice under StrictMode. */
   const openSeason = (s: string, scroll = false) => {
-    setWeekSeason(prev => {
-      if (prev === s) return null;
-      setWks(null);
-      return s;
-    });
+    const next = weekSeason === s ? null : s;
+    setWeekSeason(next);
+    if (next) setWks(null);
     if (scroll) refs.career.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -368,19 +382,19 @@ export default function Player({ pid }: { pid: string }) {
                   <thead>
                     <tr className="grp">
                       <th colSpan={2}></th>
-                      <th className="edge" colSpan={3}>Paths</th>
-                      <th className="edge value" colSpan={2}>{st.label} view</th>
+                      <th scope="colgroup" className="edge" colSpan={3}>Paths</th>
+                      <th scope="colgroup" className="edge value" colSpan={2}>{st.label} view</th>
                     </tr>
                     <tr>
-                      <th className="t" style={{ width: "9%" }}>Season</th>
-                      <th className="n" style={{ width: "7%" }}>Age</th>
+                      <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
+                      <th scope="col" className="n" style={{ width: "7%" }}>Age</th>
                       {/* every path is named for what it is; the lens only
                           decides which one carries the accent */}
-                      <th className="n edge" style={{ width: "11%" }}>Composite</th>
-                      <th className="n" style={{ width: "11%" }}>Age curve</th>
-                      <th className="n" style={{ width: "11%" }}>Adjusted</th>
-                      <th className="t key edge" style={{ width: "37%" }}>Range</th>
-                      <th className="n" style={{ width: "14%" }}>Position finish</th>
+                      <th scope="col" className="n edge" style={{ width: "11%" }}>Composite</th>
+                      <th scope="col" className="n" style={{ width: "11%" }}>Age curve</th>
+                      <th scope="col" className="n" style={{ width: "11%" }}>Adjusted</th>
+                      <th scope="col" className="t key edge" style={{ width: "37%" }}>Range</th>
+                      <th scope="col" className="n" style={{ width: "14%" }}>Position finish</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -438,14 +452,14 @@ export default function Player({ pid }: { pid: string }) {
                   <table style={{ tableLayout: "fixed" }}>
                     <thead>
                       <tr>
-                        <th className="t" style={{ width: "9%" }}>Season</th>
-                        <th className="t" style={{ width: "30%" }}>Held by</th>
-                        <th className="n" style={{ width: "7%" }}>GP</th>
-                        <th className="n" style={{ width: "10%" }}>Points</th>
-                        <th className="n" style={{ width: "9%" }}>PPG</th>
-                        <th className="n key edge" style={{ width: "11%" }}>WAR</th>
-                        <th className="n" style={{ width: "10%" }}>Finish</th>
-                        <th className="t edge" style={{ width: "14%" }}>Honors</th>
+                        <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
+                        <th scope="col" className="t" style={{ width: "30%" }}>Held by</th>
+                        <th scope="col" className="n" style={{ width: "7%" }}>GP</th>
+                        <th scope="col" className="n" style={{ width: "10%" }}>Points</th>
+                        <th scope="col" className="n" style={{ width: "9%" }}>PPG</th>
+                        <th scope="col" className="n key edge" style={{ width: "11%" }}>WAR</th>
+                        <th scope="col" className="n" style={{ width: "10%" }}>Finish</th>
+                        <th scope="col" className="t edge" style={{ width: "14%" }}>Honors</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -575,9 +589,9 @@ export default function Player({ pid }: { pid: string }) {
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
-                      <th className="t" style={{ width: "12%" }}>When</th>
-                      <th className="t" style={{ width: "12%" }}>Event</th>
-                      <th className="t" style={{ width: "76%" }}>Detail</th>
+                      <th scope="col" className="t" style={{ width: "12%" }}>When</th>
+                      <th scope="col" className="t" style={{ width: "12%" }}>Event</th>
+                      <th scope="col" className="t" style={{ width: "76%" }}>Detail</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -614,20 +628,20 @@ export default function Player({ pid }: { pid: string }) {
                   <thead>
                     <tr className="grp">
                       <th colSpan={2}></th>
-                      <th className="edge" colSpan={3}>Movement</th>
-                      <th className="edge" colSpan={3}>Standing</th>
-                      <th className="edge value" colSpan={1}>Implied</th>
+                      <th scope="colgroup" className="edge" colSpan={3}>Movement</th>
+                      <th scope="colgroup" className="edge" colSpan={3}>Standing</th>
+                      <th scope="colgroup" className="edge value" colSpan={1}>Implied</th>
                     </tr>
                     <tr>
-                      <th className="t" style={{ width: "16%" }}>Source</th>
-                      <th className="n" style={{ width: "10%" }}>Value</th>
-                      <th className="n edge" style={{ width: "9%" }}>7 day</th>
-                      <th className="n" style={{ width: "9%" }}>14 day</th>
-                      <th className="n" style={{ width: "9%" }}>30 day</th>
-                      <th className="n edge" style={{ width: "9%" }}>Overall</th>
-                      <th className="n" style={{ width: "9%" }}>Position</th>
-                      <th className="t" style={{ width: "19%" }}>Priced like</th>
-                      <th className="n key edge" style={{ width: "10%" }}>WAR / 3yr</th>
+                      <th scope="col" className="t" style={{ width: "16%" }}>Source</th>
+                      <th scope="col" className="n" style={{ width: "10%" }}>Value</th>
+                      <th scope="col" className="n edge" style={{ width: "9%" }}>7 day</th>
+                      <th scope="col" className="n" style={{ width: "9%" }}>14 day</th>
+                      <th scope="col" className="n" style={{ width: "9%" }}>30 day</th>
+                      <th scope="col" className="n edge" style={{ width: "9%" }}>Overall</th>
+                      <th scope="col" className="n" style={{ width: "9%" }}>Position</th>
+                      <th scope="col" className="t" style={{ width: "19%" }}>Priced like</th>
+                      <th scope="col" className="n key edge" style={{ width: "10%" }}>WAR / 3yr</th>
                     </tr>
                   </thead>
                   <tbody>

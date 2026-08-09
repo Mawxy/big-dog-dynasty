@@ -123,10 +123,19 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
     </button>
   );
 
-  const gameCard = (g: BracketGame, caption: string) => (
+  const gameCard = (g: BracketGame, caption: string) => {
+    // no near-side team means the card opens nothing — not a control, not a
+    // tab stop (same rule as the bracket's cards)
+    const act = g.t1 != null;
+    const go = () => act && nav(lp(`/weekly/${season}/${g.week}/${g.t1}`));
+    return (
     <div className="bgame tap" style={{ maxWidth: 420 }}
       title={`Open the week ${g.week} matchup`}
-      onClick={() => g.t1 != null && nav(lp(`/weekly/${season}/${g.week}/${g.t1}`))}>
+      tabIndex={act ? 0 : undefined} role={act ? "button" : undefined}
+      onClick={go}
+      onKeyDown={act ? e => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+      } : undefined}>
       <div className="bgame-head"><span>{caption}</span><span>WK {g.week}</span></div>
       {[[g.t1, g.t1_pts] as const, [g.t2, g.t2_pts] as const].map(([rid, pts], i) => (
         <div key={i} className={`bside ${rid != null && g.w === rid ? "won" : ""}`}>
@@ -136,7 +145,8 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
         </div>
       ))}
     </div>
-  );
+    );
+  };
 
   /** A compact WPA leaderboard, half-width so the two ends sit side by side.
    *  Raw win probability only — no win share, no award: this pair answers
@@ -144,14 +154,14 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
   const wpaTable = (rows: Perf[]) => (
     <table>
       <thead><tr>
-        <th className="t" style={{ width: "7%" }}>Rk</th>
-        <th className="t" style={{ width: "38%" }}>Player</th>
+        <th scope="col" className="t" style={{ width: "7%" }}>Rk</th>
+        <th scope="col" className="t" style={{ width: "38%" }}>Player</th>
         {weeks.map(w => (
-          <th key={w} className="n" style={{ width: `${(39 / weeks.length).toFixed(1)}%` }}>
+          <th scope="col" key={w} className="n" style={{ width: `${(39 / weeks.length).toFixed(1)}%` }}>
             WK {w}
           </th>
         ))}
-        <th className="n key" style={{ width: "16%" }}>WPA</th>
+        <th scope="col" className="n key" style={{ width: "16%" }}>WPA</th>
       </tr></thead>
       <tbody>
         {rows.map((p, i) => {
@@ -201,21 +211,21 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       <thead>
         <tr className="grp">
           <th colSpan={4}></th>
-          <th colSpan={weeks.length} className="edge">MVP points by week</th>
-          <th className="edge">Production</th>
-          <th colSpan={2} className="edge acc">Award</th>
+          <th scope="colgroup" colSpan={weeks.length} className="edge">MVP points by week</th>
+          <th scope="col" className="edge">Production</th>
+          <th scope="colgroup" colSpan={2} className="edge acc">Award</th>
         </tr>
         <tr>
-          <th className="c" style={{ width: "6%" }}>Rk</th>
-          <th className="t" style={{ width: "27%" }}>Player</th>
-          <th className="c" style={{ width: "7%" }}>Pos</th>
-          <th className="t" style={{ width: "21%" }}>For</th>
+          <th scope="col" className="c" style={{ width: "6%" }}>Rk</th>
+          <th scope="col" className="t" style={{ width: "27%" }}>Player</th>
+          <th scope="col" className="c" style={{ width: "7%" }}>Pos</th>
+          <th scope="col" className="t" style={{ width: "21%" }}>For</th>
           {weeks.map(w => (
-            <th key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
+            <th scope="col" key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
           ))}
-          <th className="n" style={{ width: "9%" }}>WAR</th>
-          <th className="n key" style={{ width: "10%" }}>MVP</th>
-          <th className="n" style={{ width: "10%" }}>MVP+</th>
+          <th scope="col" className="n" style={{ width: "9%" }}>WAR</th>
+          <th scope="col" className="n key" style={{ width: "10%" }}>MVP</th>
+          <th scope="col" className="n" style={{ width: "10%" }}>MVP+</th>
         </tr>
       </thead>
       <tbody>

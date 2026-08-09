@@ -31,6 +31,9 @@ BASE = "https://api.sleeper.app/v1"
 DELAY = 0.15                # keeps well under Sleeper's ~1000/min limit
 RETRIES = 3
 ROOKIE_MAX_ROUND = 6        # > this many rounds means it's a startup draft
+# Identify ourselves rather than sending urllib's anonymous default, which is
+# indistinguishable from a scraper — same string style as fetch_values.py.
+UA = {"User-Agent": "big-dog-dynasty-warboard/2.0 (github.com/Mawxy/big-dog-dynasty)"}
 ROOT = Path(__file__).resolve().parent.parent
 CSV_PATH = ROOT / "nfl_history" / "rookie_drafts.csv"
 COLUMNS = ["season", "pick_no", "round", "sleeper_id", "name", "pos", "source"]
@@ -43,7 +46,8 @@ def get(path):
     while True:
         try:
             time.sleep(DELAY)
-            with urllib.request.urlopen(url, timeout=30) as r:
+            with urllib.request.urlopen(
+                    urllib.request.Request(url, headers=UA), timeout=30) as r:
                 body = r.read().decode("utf-8")
             return json.loads(body) if body and body != "null" else None
         except urllib.error.HTTPError as e:

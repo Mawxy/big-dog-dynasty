@@ -110,16 +110,26 @@ export default function Stats() {
   // Production), so the spans stay over their own columns
   const groups = mobile ? [GROUPS[0], GROUPS[2], GROUPS[1], TAIL_GRP] : GROUPS;
 
-  const { rows, count, ctx } = useMemo(() => {
+  // The expensive half — build every row for the season, floor the small
+  // samples, sort the whole population and rank within position off that
+  // order. Keyed on the DATA and the SORT only; the query filters the result
+  // in the memo below rather than forcing this whole pass per keystroke.
+  const { population, ctx } = useMemo(() => {
     const owners = data ? ownerOf(data.teams) : {};
-    let all: PlayerRow[] = (data?.summary ?? []).map(r => {
-      const [id, p, gp, pts, ppg, , war, sdv] = r;
-      return {
-        ...blankRow(id, pInfo(players, id)[0], p, pInfo(players, id)[2]),
-        team: owners[id] || "—",
-        gp, pts, ppg, sdv: sdv || 0, war, warG: gp ? war / gp : 0,
-      };
-    });
+    // Same guard honors.ts uses on this tuple: WAR is optional in the row type
+    // and a row missing it arithmetics into NaN, which sorts unpredictably and
+    // renders as "NaN" down the whole board. Drop the row, don't zero it — a
+    // zero here would read as "returned nothing".
+    let all: PlayerRow[] = (data?.summary ?? [])
+      .filter(r => typeof r[6] === "number")
+      .map(r => {
+        const [id, p, gp, pts, ppg, , war, sdv] = r;
+        return {
+          ...blankRow(id, pInfo(players, id)[0], p, pInfo(players, id)[2]),
+          team: owners[id] || "—",
+          gp, pts, ppg, sdv: sdv || 0, war, warG: gp ? war / gp : 0,
+        };
+      });
     // floor tiny samples out of the leaderboard: a two-game cameo at 22 PPG is
     // not a season, and it outranks everyone if left in
     const gpMax = all.reduce((m, r) => Math.max(m, r.gp), 0);
@@ -135,9 +145,14 @@ export default function Stats() {
       counters[r.pos] = (counters[r.pos] ?? 0) + 1;
       r.posRank = counters[r.pos];
     });
-    const rs = apply(sorted);
-    return { rows: rs, count: rs.length, ctx };
-  }, [data, players, sortId, dir, cols, apply]);
+    return { population: sorted, ctx };
+  }, [data, players, sortId, dir, cols]);
+
+  // …and the cheap half. `ctx.warMax` stays the FULL population's max, so the
+  // meter keeps one scale across every filter — a position view is not its own
+  // little league.
+  const rows = useMemo(() => apply(population), [population, apply]);
+  const count = rows.length;
 
   const onSort = (c: PlayerCol) => {
     if (c.id === "rk") { setSortId("war"); setDir(-1); return; }
@@ -193,6 +208,7 @@ export default function Stats() {
           </div>
         ) : (
           <DataTable cols={cols} groups={groups} rows={rows} ctx={ctx} rowKey={r => r.id}
+            label={allTime ? "Career totals · every played season" : `Regular season ${scope}`}
             sortId={sortId} dir={dir} onSort={onSort} homeCol="rk" openKey={openPid}
             onRowClick={r => setOpenPid(openPid === r.id ? null : r.id)}
             renderDrawer={r => allTime

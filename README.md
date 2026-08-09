@@ -2,8 +2,8 @@
 
 A self-updating website for the league: player WAR/WAA tables, team pages,
 weekly breakdowns, and all-time career stats, computed from the league's exact
-Sleeper scoring and lineup rules. Data refreshes automatically every
-**Wednesday at 1:00 AM Eastern** via GitHub Actions.
+Sleeper scoring and lineup rules. Data refreshes automatically **every day at
+1:00 AM Eastern** via GitHub Actions.
 
 ## How the numbers work
 
@@ -21,8 +21,11 @@ MVP+, playoff WAR, projections, DVI, CVI, and the two pick-value bridges.
 - **Front end (Vite + React + TypeScript, `src/`)** — reads only `data/*.json`,
   never calls Sleeper. Built by GitHub Actions; you never need Node locally.
 - **Workflows:**
-  - `deploy.yml` — build & deploy. Runs on every push to `main` (and manually).
-    Never touches the Sleeper API, so rebuild as often as you like.
+  - `deploy.yml` — build & deploy. Runs on pushes to `main` (and manually),
+    minus a `paths-ignore` list: a commit that touches *only* crawler corpora
+    the site never fetches doesn't deploy. That list is what stopped ~30 full
+    rebuild-and-publish cycles a day. Anything the site does read still
+    deploys. Never touches the Sleeper API, so rebuild as often as you like.
   - `data-refresh.yml` — **daily**, 1 AM ET: pulls the league, recomputes
     everything, commits `data/`, then calls deploy.
   - `players-refresh.yml` — **weekly**, Tuesdays. Fetches only Sleeper's ~19 MB

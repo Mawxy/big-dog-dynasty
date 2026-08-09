@@ -1,8 +1,11 @@
 import { createContext, useContext } from "react";
 import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./types";
 
+/** `leagues` is the whole registry, not just the resolved entry: the router
+ *  has to tell "this URL names another league" from "this URL names nothing",
+ *  and those two want different answers (re-boot vs. bounce to the default). */
 export const LeagueContext = createContext<
-  { meta: Meta; players: PlayersMin; league: LeagueEntry } | null
+  { meta: Meta; players: PlayersMin; league: LeagueEntry; leagues: Leagues } | null
 >(null);
 
 export function useLeague() {

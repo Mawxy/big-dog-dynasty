@@ -59,17 +59,20 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
     return () => { live = false; };
   }, [league, file]);
 
-  /** sorted on the full population, then filtered — so a position view keeps
-   *  the ranks the whole board gave it */
-  const rows = useMemo(() => {
+  /** Sorted on the full population — keyed on the FILE only, so typing a name
+   *  doesn't rebuild and re-sort ~800 rows per keystroke. */
+  const population = useMemo(() => {
     if (!data) return [];
-    const all: IdxRow[] = Object.entries(data.players)
-      .map(([pid, r]) => ({
+    return Object.entries(data.players)
+      .map(([pid, r]): IdxRow => ({
         pid, nm: r.name, pos: r.pos, posRank: r.pos_rank, value: r[pick] ?? 0,
       }))
       .sort((a, b) => b.value - a.value);
-    return apply(all);
-  }, [data, pick, apply]);
+  }, [data, pick]);
+
+  /** …then filtered, so a position view keeps the ranks the whole board gave
+   *  it (`posRank` comes from the file and is never recomputed here). */
+  const rows = useMemo(() => apply(population), [population, apply]);
 
   const label = pick.toUpperCase();
   if (err) return <div className="empty">No {label} data yet.</div>;
@@ -91,17 +94,20 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
       </div>
 
       <TScroll>
-      <table style={{ tableLayout: "fixed" }}>
+      {/* the band above says what this is, but a band is a sibling of the
+          table, not part of it — a reader landing on the table hears only
+          "table" without this */}
+      <table style={{ tableLayout: "fixed" }} aria-label={`${label} · every scored player`}>
         <thead>
           <tr>
             {/* 7%, not 5%: this board runs to 780 scored players, so the rank
                 reaches three digits — and at 5% of a phone-width table that is
                 a ~30px column holding a ~43px figure, drawn over the name */}
-            <th className="c" style={{ width: "7%" }}>Rk</th>
-            <th className="t">Player</th>
-            <th className="c" style={{ width: "8%" }}>Pos</th>
-            <th className="t hm" style={{ width: "22%" }}>Roster</th>
-            <th className="n key" style={{ width: "28%" }}>Index</th>
+            <th scope="col" className="c" style={{ width: "7%" }}>Rk</th>
+            <th scope="col" className="t">Player</th>
+            <th scope="col" className="c" style={{ width: "8%" }}>Pos</th>
+            <th scope="col" className="t hm" style={{ width: "22%" }}>Roster</th>
+            <th scope="col" className="n key" style={{ width: "28%" }}>Index</th>
           </tr>
         </thead>
         <tbody>

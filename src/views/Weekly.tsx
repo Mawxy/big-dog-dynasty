@@ -202,9 +202,15 @@ function MatchupGrid({ season, wk, mw, weekly, players, tnames, odds }: {
             </div>
           );
         };
+        // the same control the stacked phone unit above already is, so it
+        // takes the same contract: a tab stop, Enter/Space, role="button"
+        const go = () => nav(lp(`/weekly/${seasonSeg(season)}/${wk}/${a}`));
         return (
-          <div key={a} className="h2h click"
-            onClick={() => nav(lp(`/weekly/${seasonSeg(season)}/${wk}/${a}`))}>
+          <div key={a} className="h2h click" tabIndex={0} role="button"
+            onClick={go}
+            onKeyDown={e => {
+              if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+            }}>
             {sideOf(a, ap, aw, bw)}
             <div className="h2h-spine">vs</div>
             {sideOf(b, bp, bw, aw)}
@@ -422,29 +428,39 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
             <span className="band-note">Started for resolves from the week's actual lineups · WAR vs the best player left out of the startable pool</span>
           </div>
           <TScroll>
-          <table style={{ tableLayout: "fixed" }}>
+          <table style={{ tableLayout: "fixed" }} aria-label={`Top performers · week ${wk}`}>
             <thead>
               <tr className="grp">
                 <th colSpan={4}></th>
-                <th className="edge" colSpan={3}>Production</th>
-                <th className="edge value" colSpan={1}>Wins added</th>
+                <th scope="colgroup" className="edge" colSpan={3}>Production</th>
+                <th scope="colgroup" className="edge value" colSpan={1}>Wins added</th>
               </tr>
               <tr>
-                <th className="c" style={{ width: "6%" }}>Rk</th>
-                <th className="t" style={{ width: "24%" }}>Player</th>
-                <th className="c" style={{ width: "7%" }}>Pos</th>
-                <th className="t hm" style={{ width: "17%" }}>Started for</th>
-                <th className="n edge" style={{ width: "9%" }}>Points</th>
-                <th className="n hm" style={{ width: "9%" }}>Vs avg</th>
-                <th className="n hm" style={{ width: "9%" }}>Vs repl</th>
-                <th className="n key edge" style={{ width: "19%" }}>WAR</th>
+                <th scope="col" className="c" style={{ width: "6%" }}>Rk</th>
+                <th scope="col" className="t" style={{ width: "24%" }}>Player</th>
+                <th scope="col" className="c" style={{ width: "7%" }}>Pos</th>
+                <th scope="col" className="t hm" style={{ width: "17%" }}>Started for</th>
+                <th scope="col" className="n edge" style={{ width: "9%" }}>Points</th>
+                <th scope="col" className="n hm" style={{ width: "9%" }}>Vs avg</th>
+                <th scope="col" className="n hm" style={{ width: "9%" }}>Vs repl</th>
+                <th scope="col" className="n key edge" style={{ width: "19%" }}>WAR</th>
               </tr>
             </thead>
             <tbody>
               {performers.map((e, i) => (
                 <Fragment key={e.pid}>
+                  {/* the same drawer-toggling row DataTable draws, so the same
+                      keyboard contract — tab stop, Enter/Space, aria-expanded */}
                   <tr className={`click ${openPid === e.pid ? "open" : i % 2 ? "zebra" : ""}`}
-                    onClick={() => setOpenPid(openPid === e.pid ? null : e.pid)}>
+                    tabIndex={0} aria-expanded={openPid === e.pid}
+                    onClick={() => setOpenPid(openPid === e.pid ? null : e.pid)}
+                    onKeyDown={ev => {
+                      if (ev.target !== ev.currentTarget) return;
+                      if (ev.key === "Enter" || ev.key === " ") {
+                        ev.preventDefault();
+                        setOpenPid(openPid === e.pid ? null : e.pid);
+                      }
+                    }}>
                     <td className="spine-cell">
                       <span className="spine" style={{ background: POS_COLOR[e.pos] || "var(--rule)" }} />
                       <span className="rank">{i + 1}</span>

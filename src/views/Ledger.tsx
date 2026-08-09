@@ -32,7 +32,7 @@ export default function Ledger() {
       .filter(t => t.sides.length >= 2)
       .slice()
       .sort((a, b) => b.ts - a.ts)
-      .map(t => {
+      .map((t, i) => {
         const [A, B] = t.sides;
         const aw = sideWar(A), bw = sideWar(B);
         let verdict = "Even so far", cls = "", vcolor = "var(--dim)";
@@ -44,7 +44,11 @@ export default function Ledger() {
         } else if (bw != null && aw == null) {
           verdict = `${B.team} banked ${fmt(bw, 3)} WAR · ${A.team} took picks`; cls = "pick"; vcolor = "var(--acc)";
         }
-        return { key: t.ts, wk: t.week, verdict, cls, vcolor, sides: t.sides.map(s => ({ side: s, war: sideWar(s) })) };
+        // ts is a Sleeper transaction timestamp and two trades processed in the
+        // same batch share it — a bare ts as the React key collided and the two
+        // cards traded contents on any re-render. Composite with the index, the
+        // way the franchise page's trade list already does it.
+        return { key: `${t.ts}-${i}`, wk: t.week, verdict, cls, vcolor, sides: t.sides.map(s => ({ side: s, war: sideWar(s) })) };
       });
   }, [trades]);
 

@@ -11,8 +11,8 @@ Three fitted pieces, all emitted to <data>/aging_curves.json:
 
 1. curves[pos][age-bucket]:  next_rate = a + b * LEVEL
      LEVEL = recency- and games-weighted per-13 rate over the last 3 seasons
-     (weights 0.5/0.3/0.2 x games). Fit ONLY on transitions where the player
-     actually played the next season (gp >= MIN_GP), so the curve is pure
+     (RECENCY weights 0.5/0.4/0.1 x games). Fit ONLY on transitions where the
+     player actually played the next season (gp >= MIN_GP), so the curve is pure
      talent aging; falling out of the league is handled by (3). Age buckets
      capture progression (young hold, old decline). p20/p80 = residual bands.
 

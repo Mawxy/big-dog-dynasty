@@ -27,7 +27,10 @@ jobs:
       - name: Restore/persist crawl state
         uses: actions/cache@v4
         with:
-          path: .crawl-state/drafts
+          # shared player map alongside the state dir — see crawl-signals.yml
+          path: |
+            .crawl-state/drafts
+            .crawl-state/players_nfl.json
           key: crawl-drafts-${{ github.run_id }}
           restore-keys: crawl-drafts-
       - name: Crawl drafts
@@ -35,19 +38,32 @@ jobs:
           python scripts/sleeper_crawl.py --mode drafts \
             --state .crawl-state/drafts --max-minutes 300 --commit-every 1000
       - name: Commit draft signals
-        if: always()
+        # NOT always() — see crawl-signals.yml: a cancelled run may have been
+        # killed mid-flush, and its outputs are then half-written.
+        if: success() || failure()
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           # heal a stale conflicted rebase (detached HEAD) left by an older run
           git rebase --abort 2>/dev/null || true
+          # Stage only what parses — see crawl-signals.yml. Truncated JSON here
+          # reaches pick_value.py and the whole Bridge A corpus.
+          stage() {
+            for f in "$@"; do
+              if python -m json.tool "$f" > /dev/null 2>&1; then
+                git add "$f"
+              else
+                echo "::warning title=Invalid JSON::$f is missing or did not parse — not committing it"
+              fi
+            done
+          }
           # RE-PARENT, never rebase — see crawl-signals.yml for the full reasoning.
           # Same failure mode: generated files rewritten whole, so every replayed
           # commit conflicts and the retry loop can never clear it.
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD
-            git add data/draft_signals.json data/rookie_pick_corpus.json data/draft_index.json
+            stage data/draft_signals.json data/rookie_pick_corpus.json data/draft_index.json
             git diff --cached --quiet && { echo "no changes"; exit 0; }
             git commit -m "Crawl drafts $(date -u +%FT%H:%MZ)"
             git push origin HEAD:main && exit 0

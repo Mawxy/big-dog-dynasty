@@ -93,22 +93,52 @@ def spearman(x, y):
     return round(cov / (vx * vy), 3) if vx and vy else 0.0
 
 
+def latest_summary_season():
+    """Newest season with a NON-EMPTY summary.json — the realized-WAR seed.
+
+    Mirrors pick_value.latest_history_season(): the default has to advance on
+    its own, or the war25 sanity fit quietly keeps pricing against whatever
+    year was hardcoded (the workflows pass nothing, so from 2027 a literal 2025
+    would have been silently wrong rather than absent).
+
+    Non-empty is the whole trick. build_site_data writes a summary.json for
+    every season it sees, so the upcoming one is present and EMPTY all
+    offseason — seeding off it would fit the sanity curve on nothing. This is
+    the same distinction meta.json draws between `latest` and `rosterSeason`.
+    """
+    yrs = []
+    for d in DATA.iterdir():
+        f = d / "summary.json"
+        if not (d.is_dir() and d.name.isdigit() and f.exists()):
+            continue
+        try:
+            if json.loads(f.read_text(encoding="utf-8")):
+                yrs.append(int(d.name))
+        except (OSError, ValueError):
+            continue
+    return max(yrs) if yrs else None
+
+
 # ------------------------------------------------------------------- main --
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--seed-season", type=int, default=2025,
-                    help="season whose summary.json is the realized-WAR sanity fit")
+    ap.add_argument("--seed-season", type=int, default=None,
+                    help="season whose summary.json is the realized-WAR sanity "
+                         "fit (default: newest season with a summary.json)")
     args = ap.parse_args()
+    seed = args.seed_season if args.seed_season is not None else latest_summary_season()
+    if seed is None:
+        raise SystemExit("no season has a summary.json — run build_site_data.py first")
 
-    values = json.loads((DATA / "values.json").read_text())
+    values = json.loads((DATA / "values.json").read_text(encoding="utf-8"))
     proj = {d["pid"]: d for d in
-            json.loads((DATA / "projections.json").read_text())["players"]}
+            json.loads((DATA / "projections.json").read_text(encoding="utf-8"))["players"]}
     summary = json.loads(
-        (DATA / str(args.seed_season) / "summary.json").read_text())
+        (DATA / str(seed) / "summary.json").read_text(encoding="utf-8"))
     war_real = {r[0]: (r[1], r[6]) for r in summary}  # pid -> (pos, war)
 
     out = {"meta": {"values_fetched": values.get("fetched"),
-                    "seed_season": args.seed_season,
+                    "seed_season": seed,
                     "sources": {}},
            "fits": {}, "picks": {}}
 
@@ -155,7 +185,7 @@ def main():
               f"knots total={len(proj_fit['total'])}")
 
     dest = DATA / "value_bridge.json"
-    dest.write_text(json.dumps(out, separators=(",", ":")) + "\n")
+    dest.write_text(json.dumps(out, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"wrote {dest.relative_to(ROOT)}")
 
     # Precompute the player-page numbers into values.json itself, so the site
@@ -177,7 +207,7 @@ def main():
         if pid in proj:
             d["modelWar"] = proj[pid]["total_comp"]
     vdest = DATA / "values.json"
-    vdest.write_text(json.dumps(values, separators=(",", ":")) + "\n")
+    vdest.write_text(json.dumps(values, separators=(",", ":")) + "\n", encoding="utf-8")
     print(f"augmented {vdest.relative_to(ROOT)}: impWar for {n_imp} players")
 
 

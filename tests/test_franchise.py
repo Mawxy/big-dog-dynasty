@@ -24,6 +24,10 @@ MATTHEWS = "00-0031299"
 HILL = "00-0033357"
 THOMAS = "00-0031280"
 
+# The analysis stack nfl_history.py pulls in lazily, inside pull_season. Only
+# one of these going missing is a legitimate reason to skip the locks below.
+OPTIONAL_DEPS = {"polars", "nflreadpy", "pyarrow", "pandas", "numpy"}
+
 
 class PosOverrideTest(unittest.TestCase):
     """nfl_history imports polars lazily inside pull_season, so importing the
@@ -33,8 +37,15 @@ class PosOverrideTest(unittest.TestCase):
     def setUpClass(cls):
         try:
             cls.nh = _load("nfl_history")
-        except Exception as e:                       # pragma: no cover
-            raise unittest.SkipTest(f"nfl_history not importable: {e}")
+        except ModuleNotFoundError as e:             # pragma: no cover
+            # A missing heavy dependency is an environment fact and skipping is
+            # right. ANYTHING else — a syntax error, a NameError, a module-level
+            # import that should have stayed lazy — is a real regression, and
+            # swallowing it silently disables every POS_OVERRIDE lock in this
+            # class while the suite still reports green.
+            if (e.name or "").split(".")[0] not in OPTIONAL_DEPS:
+                raise
+            raise unittest.SkipTest(f"optional dependency {e.name} missing: {e}")
 
     def test_matthews_is_a_receiver_through_his_productive_years(self):
         base = {MATTHEWS: "TE"}
@@ -130,10 +141,64 @@ class QualifyTest(unittest.TestCase):
 
 @unittest.skipUnless((ROOT / "nfl_history").exists(), "nfl_history/ not present")
 class RealDataTest(unittest.TestCase):
-    def test_counts_match_the_published_definition(self):
-        by = fp.qualify(fp.load())
-        self.assertEqual({p: len(r) for p, r in sorted(by.items())},
-                         {"QB": 23, "RB": 25, "TE": 14, "WR": 24})
+    """Against the committed nfl_history/*.csv.
+
+    These assert the SHAPE the published definition produces, not the exact
+    counts it produced on one particular build. `war-history.yml` regenerates
+    waa_war_<season>.csv from nflverse whenever a season completes or a
+    POS_OVERRIDE is added, and every count below moves a little when it does —
+    a pinned {"QB": 23, ...} would redden CI on a legitimate rebuild and teach
+    everyone to edit the number without reading it.
+
+    IF ONE OF THESE FAILS after a rebuild, that is a real finding: the bars
+    are calibrated so QB/RB/WR land together near their rank-12 season value
+    and TE lands materially below (METHODOLOGY.md, "Franchise players"). Check
+    the new counts against that story first. Only widen a band here once you
+    have decided the underlying data moved rather than the definition — and
+    say so in the commit message.
+    """
+
+    def counts(self):
+        return {p: len(r) for p, r in fp.qualify(fp.load()).items()}
+
+    def test_every_core_position_produces_franchise_players(self):
+        got = self.counts()
+        self.assertEqual(set(got), {"QB", "RB", "WR", "TE"})
+        # a bar that admitted nobody, or most of the position, would not be
+        # measuring "a genuine starter, three times over"
+        for pos, n in got.items():
+            self.assertGreater(n, 5, pos)
+            self.assertLess(n, 60, pos)
+
+    def test_the_three_flat_bars_land_within_reach_of_each_other(self):
+        """QB/RB/WR bars sit at their position's rank-12 season value, so they
+        are supposed to return similar counts — 23/25/24 when this was
+        written. That agreement IS the calibration."""
+        got = self.counts()
+        core = [got["QB"], got["RB"], got["WR"]]
+        self.assertLessEqual(max(core) / min(core), 1.5)
+
+    def test_tight_end_returns_materially_fewer_and_that_is_the_finding(self):
+        """TE's bar is a judgement (0.50 against a rank-12 equivalent of 0.29)
+        and still returns roughly half what the others do. **That gap is the
+        finding, not an artefact to tune away** — the players do not exist."""
+        got = self.counts()
+        self.assertLess(got["TE"], min(got["QB"], got["RB"], got["WR"]))
+        self.assertLessEqual(got["TE"] / min(got["QB"], got["RB"], got["WR"]), 0.8)
+
+    def test_every_qualifier_really_cleared_its_positions_bar(self):
+        """The definition itself, checked against the whole published set
+        rather than against a synthetic player."""
+        players = fp.load()
+        for pos, rows in fp.qualify(players).items():
+            bar = fp.FRANCHISE_BAR[pos]
+            for r in rows:
+                self.assertGreaterEqual(r["seasons"], fp.MIN_SEASONS, r["name"])
+                self.assertEqual(len(r["years"]), r["seasons"], r["name"])
+                war = players[r["gsis"]]["war"]
+                for y in r["years"]:
+                    self.assertGreaterEqual(war[y], bar, f"{r['name']} {y}")
+                self.assertGreaterEqual(r["best"], bar, r["name"])
 
     def test_kelce_leads_tight_end_by_a_distance(self):
         te = fp.qualify(fp.load())["TE"]

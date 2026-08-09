@@ -17,7 +17,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from sleeper_war import build_week, norm_win_shift, slot_counts   # noqa: E402
+from sleeper_war import (build_week, norm_win_shift,              # noqa: E402
+                         nth_best_unrostered, slot_counts, WAIVER_RANK)
 from sleeper_pull import row_played                               # noqa: E402
 
 
@@ -170,10 +171,76 @@ class TestWinShift(unittest.TestCase):
         weeks earn more. (PROJECT_NOTES methodology #3.)"""
         self.assertGreater(norm_win_shift(20.0, 15.0), norm_win_shift(20.0, 35.0))
 
-    def test_matches_the_closed_form(self):
-        z = 12.0 / (25.0 * math.sqrt(2))
-        want = 0.5 * (1 + math.erf(z / math.sqrt(2))) - 0.5
-        self.assertAlmostEqual(norm_win_shift(12.0, 25.0), want, places=12)
+    def test_known_values_of_the_standard_normal(self):
+        """Oracles, not a second copy of the formula. Restating
+        `0.5*(1+erf(z/sqrt2)) - 0.5` here would let a shared sign or factor
+        error pass both. A margin of sigma*sqrt(2) is exactly z = 1, so the
+        answer is the textbook Phi(z) - 0.5.
+
+        Phi(1) - 0.5 = 0.341345, Phi(2) - 0.5 = 0.477250, and the probable
+        error z = 0.6744898 is by definition a quarter.
+        """
+        root2 = math.sqrt(2)
+        for sigma in (15.0, 25.0, 41.4):
+            self.assertAlmostEqual(norm_win_shift(1.0 * sigma * root2, sigma),
+                                   0.3413447, places=6, msg=sigma)
+            self.assertAlmostEqual(norm_win_shift(2.0 * sigma * root2, sigma),
+                                   0.4772499, places=6, msg=sigma)
+            self.assertAlmostEqual(norm_win_shift(0.6744898 * sigma * root2, sigma),
+                                   0.25, places=6, msg=sigma)
+
+    def test_the_margin_only_matters_in_units_of_sigma(self):
+        """The conversion has one free quantity, points/(sigma*sqrt2). This is
+        the same claim as 'a low-scoring week is worth more', stated so that a
+        change to the denominator fails even if the numerator changes with it."""
+        self.assertAlmostEqual(norm_win_shift(20.0, 25.0),
+                               norm_win_shift(40.0, 50.0), places=12)
+
+
+class TestWaiverBaseline(unittest.TestCase):
+    """VoWP: the same win-shift conversion, but measured against the Nth-best
+    UNROSTERED player rather than against replacement level (METHODOLOGY.md,
+    "VoWP"). The single best free agent each week is boom-noise, so the anchor
+    sits deeper — 'what you'd actually land after the obvious guy goes'."""
+
+    POS = {f"q{i}": "QB" for i in range(1, 7)}
+
+    def test_the_waiver_anchor_is_the_third_best_free_agent(self):
+        self.assertEqual(WAIVER_RANK, 3)
+
+    def test_it_reads_the_nth_best_unrostered_player(self):
+        pts = {"q1": 30.0, "q2": 25.0, "q3": 20.0, "q4": 12.0, "q5": 9.0}
+        got = nth_best_unrostered(pts, self.POS, rostered={"q1"})
+        self.assertEqual(got["QB"], 12.0)      # q2, q3, q4 free -> 3rd is q4
+
+    def test_rostered_players_are_invisible_however_well_they_scored(self):
+        pts = {"q1": 99.0, "q2": 98.0, "q3": 20.0, "q4": 12.0, "q5": 9.0}
+        rostered = {"q1", "q2"}
+        self.assertEqual(nth_best_unrostered(pts, self.POS, rostered)["QB"], 9.0)
+
+    def test_a_thin_wire_falls_back_to_the_deepest_available(self):
+        """Fewer than N free agents scored: take the last one rather than
+        pretending the wire was deeper than it was."""
+        pts = {"q1": 30.0, "q2": 7.0}
+        self.assertEqual(nth_best_unrostered(pts, self.POS, {"q1"})["QB"], 7.0)
+
+    def test_an_empty_wire_is_zero(self):
+        """The bottom of the ladder: nobody unrostered scored at all."""
+        got = nth_best_unrostered({"q1": 30.0}, self.POS, {"q1"})
+        for pos in ("QB", "RB", "WR", "TE"):
+            self.assertEqual(got[pos], 0.0, pos)
+
+    def test_every_core_position_always_gets_a_baseline(self):
+        got = nth_best_unrostered({"q1": 30.0}, self.POS, set())
+        self.assertEqual(set(got), {"QB", "RB", "WR", "TE"})
+
+    def test_the_rank_is_configurable_and_deeper_is_harsher_to_nobody(self):
+        """A deeper anchor can only be a LOWER score, so VoWP never falls as
+        the wire is searched further down."""
+        pts = {f"q{i}": 30.0 - i for i in range(1, 7)}
+        first = nth_best_unrostered(pts, self.POS, set(), n=1)["QB"]
+        third = nth_best_unrostered(pts, self.POS, set(), n=3)["QB"]
+        self.assertGreater(first, third)
 
 
 def row(pos, **stats):

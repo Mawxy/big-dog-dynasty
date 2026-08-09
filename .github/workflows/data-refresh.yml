@@ -14,9 +14,13 @@ permissions:
   contents: write
   pages: write
   id-token: write
-# every workflow that commits to main shares this group, so two data jobs can
-# never race each other to push (a manual dispatch during a scheduled run used
-# to fail on a rejected push).
+# The three PIPELINE jobs that commit to main — data-refresh, values-refresh and
+# war-history — share this group, so they can never race each other to push (a
+# manual dispatch during a scheduled run used to fail on a rejected push).
+# Deliberately not every committing workflow: the crawls each own a group of
+# their own (crawl-signals, crawl-drafts, crawl-outcomes-<shard>) because a
+# five-hour crawl holding data-push would block the daily refresh behind it.
+# They absorb the race in their own fetch / re-parent / retry loop instead.
 concurrency:
   group: data-push
   cancel-in-progress: false
@@ -36,6 +40,11 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: sleeper_data/players.json
+          # `key` is a placeholder that never hits, by design: the weekly job
+          # saves under players-nfl-<run_id>, so no cache is ever named this and
+          # the restore ALWAYS lands through the restore-keys prefix, taking the
+          # newest map. It reads like a bug and is not one — an exact-match key
+          # here would have to be the run id of a job we don't know about.
           key: players-nfl-restore
           restore-keys: players-nfl-
       # Self-heal: a first run, or a cache evicted after 7 idle days, would

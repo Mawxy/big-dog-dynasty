@@ -69,15 +69,16 @@ def clamp(x, lo, hi):
 
 
 def main():
-    proj = {p["pid"]: p for p in json.load(open(DATA / "projections.json"))["players"]}
-    vals = json.load(open(DATA / "values.json")).get("players", {})
+    proj = {p["pid"]: p
+            for p in json.load(open(DATA / "projections.json", encoding="utf-8"))["players"]}
+    vals = json.load(open(DATA / "values.json", encoding="utf-8")).get("players", {})
     # crawl signals are optional — before the first crawl DVI still computes from
     # market + production, just without roster%/start%
     sf = DATA / "league_signals.json"
-    sigf = json.load(open(sf)) if sf.exists() else {}
+    sigf = json.load(open(sf, encoding="utf-8")) if sf.exists() else {}
     sig = sigf.get("players", {})
     week = sigf.get("week", 0)
-    players_meta = json.load(open(ROOT / "sleeper_data" / "players.json")) \
+    players_meta = json.load(open(ROOT / "sleeper_data" / "players.json", encoding="utf-8")) \
         if (ROOT / "sleeper_data" / "players.json").exists() else {}
 
     # resolve percentile-based clamp bounds from the data

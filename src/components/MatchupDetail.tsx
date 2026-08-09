@@ -231,7 +231,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
               {s.benched.length > 0 && (
                 <table className="feed">
                   <tbody>
-                    <tr className="grp"><th className="t" colSpan={3}>Best not started</th></tr>
+                    <tr className="grp"><th scope="colgroup" className="t" colSpan={3}>Best not started</th></tr>
                     {s.benched.map(b => (
                       <tr key={b.pid}>
                         <td className="t sub" style={{ width: 52 }} />

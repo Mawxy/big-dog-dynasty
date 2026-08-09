@@ -39,13 +39,21 @@ nflverse ──> scripts/nfl_history.py ──> nfl_history_data/  (gitignored)
   ~2 KB instead of all of `projections.json` + `proj_sleeper.json` (~600 KB).
   A 404 means "no projection" and falls back to the plain WAR trend chart.
 - **GitHub Actions workflows:**
-  - `tests.yml` — engine invariants + `tsc --noEmit` on every push and PR.
-  - `deploy.yml` — build & deploy on every push to `main` (also manual /
-    `workflow_call`). Typechecks before building: **Vite does not typecheck**,
-    so this is the only gate. No Sleeper calls; safe to run constantly.
-  - `data-refresh.yml` — Wednesdays 06:00 UTC (1 AM ET) + manual: runs the
+  - `tests.yml` — engine invariants + `tsc --noEmit` on pushes to `main` and
+    on every PR (`branches: [main]` on the push trigger only — a push to a
+    side branch runs nothing until it opens a PR).
+  - `deploy.yml` — build & deploy on pushes to `main` (also manual /
+    `workflow_call`), minus a `paths-ignore` list of crawler corpora the site
+    never fetches — so the ~30 crawl commits a day no longer each trigger a
+    full rebuild + publish. Typechecks before building: **Vite does not
+    typecheck**, so this is the only gate. No Sleeper calls; safe to run
+    constantly.
+  - `data-refresh.yml` — DAILY, 06:00 UTC (1 AM ET) + manual: runs the
     engine tests, pulls Sleeper, recomputes WAR, shards player data, commits
     `data/`, then calls deploy.
+  - `players-refresh.yml` — weekly, Tuesdays: the ~19 MB Sleeper player map,
+    cached. The daily job restores that cache instead of re-downloading it,
+    which is what makes a daily cadence cheap.
   - `values-refresh.yml` — daily: FantasyCalc + KTC market values, no Sleeper.
   - Every workflow that commits shares `concurrency: data-push` and does
     `git pull --rebase --autostash` before pushing, so a manual dispatch during
@@ -145,14 +153,31 @@ regular&position[]=...` (and the per-player `stats/nfl/player/<id>` endpoint):
 
 ## Tests
 
-`python -m unittest discover -s tests -v` — stdlib only, no fixtures, no
-network. Covers the settled methodology, not implementation detail: the 108-slot
-pool shape, dedicated-before-flex ordering, flex-by-points, replacement =
-best-left-out, average = mean-of-startable (so WAA sums to 0 per position),
-weekly-sigma behaviour (a fixed margin is worth more in a low-scoring week), and
-every branch of the played rule. **A failure here is a change in what WAR
-means**, not a broken test — if one fails, decide whether the methodology moved
-on purpose before touching the test.
+`python -m unittest discover -s tests -v` (or `python -m pytest tests -q`) —
+stdlib `unittest`, no network, no third-party runner required. Eight files, one
+per figure or engine:
+
+| File | What it locks |
+|---|---|
+| `test_war_engine.py` | the 108-slot pool shape, dedicated-before-flex, flex-by-points, replacement = best-left-out, average = mean-of-startable (so WAA sums to 0 per position), weekly-sigma behaviour, the VoWP waiver ladder, every branch of the played rule |
+| `test_week_odds.py` | pregame only — week W is built from weeks 1..W−1, week 1 without a snapshot is left unpriced, and `--snapshot` is first-write-wins |
+| `test_playoff_wpa.py` | Shapley efficiency, win-share totals, round weights, MVP vs MVP+ |
+| `test_playoff_war.py` | sigma imported from the regular season, elimination games only |
+| `test_value_stack.py` | DVI / CVI shares and weights, Bridge B isotonic monotonicity, Bridge A's board and outcome rule |
+| `test_franchise.py` | `POS_OVERRIDE`, `FRANCHISE_BAR`, and the shape (not the exact counts) the definition produces on the committed history |
+| `test_outcomes.py` | the crawl's champion / pick-holding / placement / chain-grouping logic |
+| `test_slot_value.py` | lineup-slot pricing: median not mean, hit rate against the position's bar |
+
+Most tests are pure and synthetic. **Some are not, and do not run in CI:**
+eight are gated on `sleeper_data/` or a local crawl artefact, both gitignored,
+so they are skipped on every clone and on every CI run. They execute only on a
+machine that has done a `sleeper_pull.py` / crawl first. `python -m pytest
+tests -q` reporting "8 skipped" is the normal, expected result — CI does not
+cover those paths, and each affected file says so in its docstring.
+
+These cover the settled methodology, not implementation detail. **A failure
+here is a change in what a figure means**, not a broken test — if one fails,
+decide whether the methodology moved on purpose before touching the test.
 
 ## WAR valuation model (shipped; see HANDOFF.md for open threads)
 
@@ -206,8 +231,11 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
    position-split refinement (see methodology #5). Played maps regenerate on
    the next data-refresh run after the split is pushed.
 2. All-time "Roster" column attributes players to their **current** owner only.
-3. Sleeper rate limit: stay under ~1000 calls/min; the 5MB `players/nfl` map
-   at most once per day (why data refresh is weekly and deploy is separate).
+3. Sleeper rate limit: stay under ~1000 calls/min; the ~19 MB `players/nfl`
+   map at most once per day. That one call is why the PLAYER MAP fetch is
+   weekly (`players-refresh.yml`, Tuesdays) and cached — the data refresh
+   itself runs daily off that cache, and deploy is separate again because it
+   never calls Sleeper at all.
 
 ## Roadmap (Max's stated priorities)
 

@@ -316,7 +316,8 @@ def main():
     raw_crawl = 0                      # actual rookie picks analyzed (all leagues)
     if corpus_f.exists():
         by_slot = defaultdict(list)
-        for season, pick, sid, name, pos, cnt in (json.load(open(corpus_f)).get('picks') or []):
+        for season, pick, sid, name, pos, cnt in (
+                json.load(open(corpus_f, encoding='utf-8')).get('picks') or []):
             if season <= last and pick <= MAX_PICK:
                 raw_crawl += cnt
                 if cnt >= CRAWL_MIN:
@@ -488,7 +489,14 @@ def main():
         cells = '  '.join(f"R{rd}={worst[rd]:>3}" for rd in sorted(worst))
         print(f"  yr{k}: {cells}   {'PUBLISH' if ok else 'hold'}")
     print(f"years published: {years}")
+    # No year cleared the observation gate: the file is already written (with
+    # empty year columns, which is the honest answer) but there is no column to
+    # report on, and years[0] would be an IndexError AFTER a successful write.
+    if not years:
+        print("no year cleared the observation gate — no per-slot table to print")
     for name, rows in (('PICKS', out['picks']), ('BANDS', out['bands'])):
+        if not years:
+            break
         print(f"\n{name}")
         for row in rows:
             n = row['n'][years[0]]
@@ -496,9 +504,11 @@ def main():
                             for k in years)
             hit = f"{row['hit_rate']:.0%}" if row['hit_rate'] is not None else '-'
             o = row['out_rate'].get(out_years[-1]) if out_years else None
-            out = f"out y{out_years[-1]} {o:.0%}" if o is not None else ''
+            # NOT `out` — that is the payload dict above, and shadowing it here
+            # only worked because the loop's tuple was evaluated first
+            out_col = f"out y{out_years[-1]} {o:.0%}" if o is not None else ''
             lbl = row.get('label', row['bucket'])
-            print(f"  {lbl:10s} {n:>3d} | {cols} | {hit} | {out}")
+            print(f"  {lbl:10s} {n:>3d} | {cols} | {hit} | {out_col}")
     print(f"\nwrote {dest}")
 
 

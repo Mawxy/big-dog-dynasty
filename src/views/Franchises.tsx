@@ -280,6 +280,7 @@ function RosterBoard() {
         </span>
       </div>
       <DataTable cols={BOARD_COLS} groups={groups} rows={sorted} ctx={{}}
+        label={`Roster value · ${rosterSeason}`}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
         recordsOnMobile recordsClass="t3" />
@@ -400,15 +401,21 @@ function SeasonStandings({ season }: { season: string }) {
 
       const g = t.wins + t.losses + t.ties;
       const wins = t.wins + expWins;
-      const losses = g - t.wins + (ahead.length - expWins);
+      // Played losses, NOT g - wins: that subtraction folded every tie into the
+      // loss column, so a 6-6-2 team read 6-8 and its projected record inherited
+      // the same two phantom losses. Ties are a third figure and stay one — the
+      // odds file prices a win probability, never a draw, so no unplayed week
+      // can add to them.
+      const losses = t.losses + (ahead.length - expWins);
       const proj = ahead.length > 0;
       const all = [...pts, ...projPts];
+      const ties = t.ties ? `-${t.ties}` : "";
       return {
         rid: t.roster_id, seed: 0, manager: t.manager, team: t.team,
         wins, fpts: t.fpts + projPts.reduce((a, b) => a + b, 0),
         rec: proj
-          ? `${wins.toFixed(1)}-${losses.toFixed(1)}`
-          : `${t.wins}-${t.losses}${t.ties ? "-" + t.ties : ""}`,
+          ? `${wins.toFixed(1)}-${losses.toFixed(1)}${ties}`
+          : `${t.wins}-${t.losses}${ties}`,
         // median record and luck are settled facts about weeks that happened;
         // an unplayed week contributes nothing to either
         med: reg.length ? `${mwin}-${mloss}${mtie ? "-" + mtie : ""}` : null,
@@ -556,6 +563,7 @@ function SeasonStandings({ season }: { season: string }) {
         </span>
       </div>
       <DataTable cols={cols} groups={groups} rows={sorted} ctx={ctx}
+        label={wholly ? `Projected standings · ${season}` : `Standings · ${season}`}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="seed" openKey={openRid != null ? String(openRid) : null}
         onRowClick={r => setOpenRid(openRid === r.rid ? null : r.rid)}
@@ -731,6 +739,7 @@ function HistoryBoard() {
         <span className="band-note">Win % counts a tie as half a win · a row opens the franchise page</span>
       </div>
       <DataTable cols={HIST_COLS} groups={HIST_GROUPS} rows={sorted} ctx={{}}
+        label="All-time franchise records · every season played"
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
         recordsOnMobile recordsClass="t3" />

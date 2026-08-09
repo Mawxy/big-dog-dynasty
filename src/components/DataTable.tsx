@@ -109,11 +109,16 @@ interface Props<T, X> {
    *  are declared once per surface so they hold the same x-positions down the
    *  whole list */
   recordsClass?: string;
+  /** what the table is, for a screen reader. The band above every board says
+   *  it in text, but a band is a sibling of the table, not part of it — so a
+   *  reader landing on the table itself heard "table with 10 columns" and no
+   *  subject. Callers already hold the string; they pass it here too. */
+  label?: string;
 }
 
 export default function DataTable<T, X>({
   cols, groups, rows, ctx, rowKey, sortId, dir, onSort, homeCol, openKey, onRowClick, renderDrawer,
-  recordsOnMobile, recordsClass,
+  recordsOnMobile, recordsClass, label,
 }: Props<T, X>) {
   const mobile = useMobile();
   if (mobile && recordsOnMobile) {
@@ -135,11 +140,14 @@ export default function DataTable<T, X>({
     // than a narrow viewport has. That is what `.tscroll` is for: the table
     // scrolls inside its own box rather than dragging the whole page sideways.
     <TScroll>
-    <table>
+    <table aria-label={label}>
       <thead>
+        {/* the band row heads a GROUP of columns, not one — `colgroup` is what
+            says so; the real per-column headers are the `scope="col"` row
+            below, which is what a cell gets announced against */}
         <tr className="grp">
           {groups.filter(g => span(g.id) > 0).map(g => (
-            <th key={g.id} className={g.cls || undefined} colSpan={span(g.id)}>{g.label}</th>
+            <th key={g.id} scope="colgroup" className={g.cls || undefined} colSpan={span(g.id)}>{g.label}</th>
           ))}
         </tr>
         <tr>
@@ -149,7 +157,7 @@ export default function DataTable<T, X>({
             // Every leaderboard on the site was mouse-only before this.
             const act = c.id === homeCol || !!c.sort;
             return (
-              <th key={c.id}
+              <th key={c.id} scope="col"
                 className={[c.align, c.hm ? "hm" : "", c.edge ? "edge" : "", c.keyCol ? "key" : "",
                   act ? "sortable" : "", sortId === c.id ? "sorted" : ""]
                   .filter(Boolean).join(" ")}
@@ -170,9 +178,27 @@ export default function DataTable<T, X>({
         {rows.map((r, i) => {
           const k = rowKey(r);
           const open = openKey === k;
+          const act = !!onRowClick;
           return [
+            // The row is the same control the records-mode `.rec` is, so it
+            // takes the same keyboard contract: a tab stop and Enter/Space.
+            // No `role="button"` here, unlike `.rec` — a <tr> whose role is
+            // overridden stops being a row, and with it the whole table's
+            // structure. `row` already supports aria-expanded, which is the
+            // part a drawer needs announced. Where the row NAVIGATES instead
+            // of opening a drawer, the identity cell also carries a real
+            // anchor (PlayerLink, the standings team cell) — that is the
+            // affordance that reaches a new tab.
             <tr key={k} className={`click ${open ? "open" : i % 2 ? "zebra" : ""}`}
-              onClick={() => onRowClick?.(r)}>
+              tabIndex={act ? 0 : undefined}
+              aria-expanded={act && renderDrawer ? open : undefined}
+              onClick={() => onRowClick?.(r)}
+              onKeyDown={act ? e => {
+                // only the row's own key events — a keystroke inside the
+                // identity cell's anchor belongs to the anchor
+                if (e.target !== e.currentTarget) return;
+                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick!(r); }
+              } : undefined}>
               {cols.map(c => (
                 <td key={c.id} className={c.id === lastId ? `${c.td} last` : c.td}>
                   {c.cell(r, ctx, i)}

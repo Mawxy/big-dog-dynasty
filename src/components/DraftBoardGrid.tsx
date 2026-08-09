@@ -32,6 +32,7 @@ export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {
             const r = bySlot.get(slot);
             if (!r) return <div key={slot} className="dcell empty" />;
             const c = POS_COLOR[r.pos];
+            const to = lp(`/player/${r.pid}`);
             return (
               <div key={slot} className="dcell"
                 title={r.via ? `${pickLabel(r)} ${r.name} — ${r.drafter}, via ${r.via}` : undefined}
@@ -40,10 +41,18 @@ export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {
                   background: c ? `color-mix(in srgb, ${c} 16%, var(--bg))` : "var(--zebra)",
                 }}>
                 <div className="pk"><span>{pickLabel(r)}</span><span>{r.pos}</span></div>
-                <div className="nm tlink"
-                  onClick={e => { e.stopPropagation(); nav(lp(`/player/${r.pid}`)); }}>
+                {/* a real anchor, like PlayerLink: the name is the cell's one
+                    navigation, and as a div it was unreachable by keyboard and
+                    impossible to open in a new tab */}
+                <a className="nm tlink" href={`#${to}`}
+                  onClick={e => {
+                    e.stopPropagation();
+                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                    e.preventDefault();
+                    nav(to);
+                  }}>
                   {nameSplit(r.name).map((part, i) => <span key={i}>{part}</span>)}
-                </div>
+                </a>
                 <div className="by">{r.drafter}</div>
                 {r.via && <div className="via">via {r.via}</div>}
               </div>

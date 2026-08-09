@@ -359,6 +359,11 @@ def season_wpa(season, ld, raw_root):
     weekly = load(sdir / "weekly.json")
     if not bracket or not weekly:
         return None
+    # bracket.json is committed but the week lineups it needs are not, so a
+    # partial dump would otherwise reach the win-share assertion with nothing
+    # allocated against games the bracket says were won.
+    if not (raw_root / season / "matchups").exists():
+        return None
     players = load(ld / "players_min.json") or {}
     # for the production half of the win split
     league = load(raw_root / season / "league.json") or {}
@@ -419,7 +424,10 @@ def season_wpa(season, ld, raw_root):
         for rid in (t1, t2):
             t = by_rid[rid]
             pp = t.get("players_points") or {}
-            starters = [str(p) for p in (t.get("starters") or []) if p]
+            # "0" is Sleeper's EMPTY-SLOT placeholder, not a player — it has to
+            # go before the Shapley pool is built, or an eighth-of-a-team
+            # phantom collects a share of the swing.
+            starters = [str(p) for p in (t.get("starters") or []) if p and p != "0"]
             mus, vs, acts = [], [], []
             for pid in starters:
                 m, sd = dist(pid)
@@ -495,6 +503,14 @@ def main():
 
     ld = Path(str(DATA))
     raw_root = Path(args.raw)
+    # The raw week dumps are gitignored, so a fresh clone has data/ but no
+    # sleeper_data/. Without this the run gets all the way to the win-share
+    # efficiency assert — zero shares against six won games — and dies on a
+    # traceback that reads like a broken model rather than a missing input.
+    if not (raw_root / "players.json").exists():
+        sys.exit(f"{raw_root}/players.json missing — the raw Sleeper dumps are "
+                 "gitignored, so run sleeper_pull.py with --players first "
+                 "(or point --raw at an existing dump)")
     # EVERY season is computed, even when only one is being written: the MVP
     # scale is historical, so the anchor cannot be known from one year alone.
     all_seasons = sorted(d.name for d in ld.iterdir()
@@ -511,7 +527,7 @@ def main():
         if got:
             computed[s] = got
         else:
-            print(f"  {s}: no bracket/weekly — skipped")
+            print(f"  {s}: no bracket/weekly, or no raw week dumps — skipped")
 
     # --- two scales, two anchors ---------------------------------------------
     # MVP is normalised WITHIN its season: that year's best run is 100, so the

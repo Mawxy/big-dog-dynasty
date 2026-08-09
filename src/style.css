@@ -332,6 +332,9 @@ tbody td.edge { border-left: 1px solid var(--hair); }
 tbody td.last { padding-right: 22px; }
 tbody tr.zebra { background: var(--zebra); }
 tbody tr.click { cursor: pointer; }
+/* a clickable row is a keyboard tab stop, so its focus has to be visible —
+   inset, so the ring isn't clipped by the row's own border or by `.tscroll` */
+tbody tr.click:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 tbody tr.open { background: var(--sel); }
 
 /* The rank cell and its position/seed spine live in ONE place now — see
@@ -652,6 +655,18 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   font: inherit;
 }
 
+/* the render-error panel (components/ErrorBoundary). Same shape as .verdict —
+   a labelled block on --band behind a 3px left rule — but the rule is --warn,
+   not --acc: gold is the headline figure everywhere else on the board and a
+   crash is not a headline. */
+.errbox { background: var(--band); border-left: 3px solid var(--warn); padding: 14px 18px 16px; margin: 18px var(--pad) 26px; }
+.errbox .k { font: 600 13px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase; color: var(--warn); }
+.errbox .body { font: 400 13.5px/1.6 var(--sans); color: var(--txt2); margin-top: 8px; max-width: 620px; text-wrap: pretty; }
+.errbox .acts { display: flex; gap: 10px; margin-top: 12px; }
+/* --dim, not .tnote's --dim3: the exception string is the one thing on this
+   panel someone actually has to read back, and --dim3 is decorative-only */
+.errbox .tnote { color: var(--dim); word-break: break-word; }
+
 /* Wide content scrolls inside its own box; the page body never scrolls
    sideways. `.dscroll` does this for the draft's returns table and `.rankwrap`
    for the strengths grid — `.tscroll` is the same idiom for the shared
@@ -770,6 +785,8 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 .dtbl tr.lvl2 { background: var(--band); }
 .dtbl tr.tap { cursor: pointer; }
 .dtbl tr.tap:hover { background: #1a222b; }
+/* a branch row expands from the keyboard too, so it shows its focus */
+.dtbl tr.tap:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 .dtbl tr.lvl0 td { border-bottom: 1px solid var(--bg); }
 .dtbl td { padding: 6px 10px; border-bottom: 1px solid var(--bg); }
 .dtbl td.lbl { font: 700 15px/1.3 var(--cond); letter-spacing: .1em; color: var(--txt); white-space: nowrap; }
@@ -972,6 +989,9 @@ button.dband:hover .band-label { color: var(--txt2); }
 /* ALWAYS two lines: first name over surname, every cell the same shape. A
    mix of one- and two-line names reads as misalignment, not economy. */
 .dcell .nm {
+  /* block: the name is an <a> now, and the fixed two-line height only
+     applies to a block box */
+  display: block;
   margin: 4px 0 3px;
   font: 600 14px/1.3 var(--sans); color: var(--txt);
   height: calc(2 * 1.3em);
@@ -1048,6 +1068,8 @@ button.dband:hover .band-label { color: var(--txt2); }
 .bgame { border: 1px solid var(--rule); background: var(--band); margin-bottom: 14px; }
 .bgame.tap { cursor: pointer; }
 .bgame.tap:hover { border-color: #2b3642; }
+/* the card opens a matchup from the keyboard too, so it shows its focus */
+.bgame.tap:focus-visible { outline: 2px solid var(--acc); outline-offset: -1px; }
 .bgame-head {
   display: flex; justify-content: space-between; gap: 12px;
   background: var(--deep); border-bottom: 1px solid var(--rule); padding: 5px 10px;
@@ -1294,6 +1316,8 @@ tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
 .h2h { display: flex; align-items: stretch; border: 1px solid var(--rule); background: var(--band); }
 .h2h.click { cursor: pointer; }
 .h2h.click:hover { border-color: var(--dim2); }
+/* the desktop unit is a keyboard control too — the phone one already was */
+.h2h.click:focus-visible { outline: 2px solid var(--acc); outline-offset: -1px; }
 .h2h-side { flex: 1 1 0; min-width: 0; padding: 9px 13px 12px; border-top: 3px solid transparent; }
 .h2h-side.win { border-top-color: var(--acc); }
 .h2h-spine {
@@ -1475,6 +1499,13 @@ table.wktbl { width: auto; background: transparent; }
 .tlink { color: var(--acc); cursor: pointer; }
 .tlink:hover { text-decoration: underline; }
 .tlink:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+/* A block that IS the link — a title race row, a champion name. The anchor
+   takes the block's own box and its own ink instead of the link accent, so
+   the markup can become keyboard-reachable without restyling the surface.
+   The focus ring is the only thing it adds. */
+.blocklink { display: block; color: inherit; }
+.blocklink:hover { text-decoration: none; }
+.blocklink:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 /* `.back` is gone: there are exactly two back affordances now — `.rail-back`
    at the top of a split rail, and a `.chip` in the screen header on the
    full-width screens that have no rail. */

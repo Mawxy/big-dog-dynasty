@@ -71,10 +71,11 @@ def main():
     ap.add_argument("--out", default=str(DATA / "cvi.json"))
     args = ap.parse_args()
 
-    proj = {p["pid"]: p for p in json.load(open(DATA / "projections.json"))["players"]}
+    proj = {p["pid"]: p
+            for p in json.load(open(DATA / "projections.json", encoding="utf-8"))["players"]}
 
     ecrf = DATA / "ecr.json"
-    ecr_all = json.load(open(ecrf)).get("players", {}) if ecrf.exists() else {}
+    ecr_all = json.load(open(ecrf, encoding="utf-8")).get("players", {}) if ecrf.exists() else {}
     if not ecr_all:
         print("!! no data/ecr.json — run scripts/fetch_ecr.py first")
     ecr_rank = {}
@@ -84,10 +85,10 @@ def main():
             ecr_rank[pid] = row["ecr"]
 
     sf = DATA / "league_signals.json"
-    sigf = json.load(open(sf)) if sf.exists() else {}
+    sigf = json.load(open(sf, encoding="utf-8")) if sf.exists() else {}
     sig = sigf.get("players", {})
     week = sigf.get("week", 0)
-    players_meta = json.load(open(ROOT / "sleeper_data" / "players.json")) \
+    players_meta = json.load(open(ROOT / "sleeper_data" / "players.json", encoding="utf-8")) \
         if (ROOT / "sleeper_data" / "players.json").exists() else {}
 
     wars = [(p.get("composite") or [0])[0] for p in proj.values()]

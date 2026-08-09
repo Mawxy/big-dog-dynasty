@@ -348,6 +348,15 @@ def main():
         for r in rows[:args.top]:
             print(f"{r[1][:23]:<24}{r[2]:<5}{r[3]:>3}{r[5]:>7}{r[8]:>8}{r[9]:>8}")
 
+    # `career` only ever accumulates the seasons this run walked, so a
+    # --season run holds ONE season and writing it here would overwrite the
+    # real career file with that season's totals. The career file is a
+    # by-product of a full run; a targeted one leaves it alone.
+    if args.season:
+        print(f"\ncareer totals not rewritten: --season {args.season} walked one "
+              f"season, so {root / 'analysis' / 'waa_war_career.csv'} would lose "
+              "every other. Rerun without --season to refresh it.")
+        return
     crows = sorted(([pid, player_name(players, pid), c["pos"], c["gp"],
                      round(c["pts"], 1), round(c["waa"], 3), round(c["war"], 3)]
                     for pid, c in career.items()), key=lambda r: -r[6])

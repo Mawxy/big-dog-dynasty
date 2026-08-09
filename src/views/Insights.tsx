@@ -141,12 +141,12 @@ export default function Insights() {
         <table style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th className="t" style={{ width: "14%" }}>Slot</th>
-              <th className="n key edge" style={{ width: "15%" }}>Champion</th>
-              <th className="n" style={{ width: "13%" }}>Playoff field</th>
-              <th className="n" style={{ width: "13%" }}>Edge</th>
-              <th className="t" style={{ width: "27%" }}>Champion vs field</th>
-              <th className="n edge hm" style={{ width: "18%" }}>{league.name}</th>
+              <th scope="col" className="t" style={{ width: "14%" }}>Slot</th>
+              <th scope="col" className="n key edge" style={{ width: "15%" }}>Champion</th>
+              <th scope="col" className="n" style={{ width: "13%" }}>Playoff field</th>
+              <th scope="col" className="n" style={{ width: "13%" }}>Edge</th>
+              <th scope="col" className="t" style={{ width: "27%" }}>Champion vs field</th>
+              <th scope="col" className="n edge hm" style={{ width: "18%" }}>{league.name}</th>
             </tr>
           </thead>
           <tbody>
@@ -198,11 +198,11 @@ export default function Insights() {
         <table style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th className="t" style={{ width: "16%" }}>League year</th>
-              <th className="n" style={{ width: "20%" }}>League-seasons</th>
-              <th className="n key edge" style={{ width: "20%" }}>Champion drafted</th>
-              <th className="n" style={{ width: "20%" }}>Playoff field drafted</th>
-              <th className="n" style={{ width: "24%" }}>Difference</th>
+              <th scope="col" className="t" style={{ width: "16%" }}>League year</th>
+              <th scope="col" className="n" style={{ width: "20%" }}>League-seasons</th>
+              <th scope="col" className="n key edge" style={{ width: "20%" }}>Champion drafted</th>
+              <th scope="col" className="n" style={{ width: "20%" }}>Playoff field drafted</th>
+              <th scope="col" className="n" style={{ width: "24%" }}>Difference</th>
             </tr>
           </thead>
           <tbody>
@@ -294,10 +294,10 @@ export default function Insights() {
         <table style={{ tableLayout: "fixed" }}>
           <thead>
             <tr>
-              <th className="t" style={{ width: "20%" }}>Within</th>
-              <th className="n" style={{ width: "24%" }}>Finishes with room</th>
-              <th className="n key edge" style={{ width: "28%" }}>Won a title</th>
-              <th className="n" style={{ width: "28%" }}>Reached the top third</th>
+              <th scope="col" className="t" style={{ width: "20%" }}>Within</th>
+              <th scope="col" className="n" style={{ width: "24%" }}>Finishes with room</th>
+              <th scope="col" className="n key edge" style={{ width: "28%" }}>Won a title</th>
+              <th scope="col" className="n" style={{ width: "28%" }}>Reached the top third</th>
             </tr>
           </thead>
           <tbody>

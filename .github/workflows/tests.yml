@@ -6,6 +6,8 @@ on:
     branches: [main]
   pull_request:
   workflow_dispatch:
+permissions:
+  contents: read          # reads the checkout, commits nothing
 jobs:
   python:
     runs-on: ubuntu-latest
@@ -15,7 +17,33 @@ jobs:
         with:
           python-version: "3.12"
       - name: WAR engine invariants
-        run: python -m unittest discover -s tests -v
+        # EXPECTED_SKIPS pins the skip count. The suite reports "OK (skipped=8)"
+        # and stays green when a test stops running, so a skip that appears on
+        # its own is invisible — and a skipped methodology invariant is exactly
+        # the kind of thing that goes unnoticed for months. Counted from the
+        # result object rather than parsed out of the log, so the check can't
+        # drift with the output format. Change the number when the change is
+        # deliberate; that edit is the record of it.
+        env:
+          EXPECTED_SKIPS: "8"
+        run: |
+          python - <<'PY'
+          import os, sys, unittest
+          res = unittest.TextTestRunner(verbosity=2).run(
+              unittest.defaultTestLoader.discover("tests"))
+          if not res.wasSuccessful():
+              sys.exit(1)
+          want, got = int(os.environ["EXPECTED_SKIPS"]), len(res.skipped)
+          if got != want:
+              print(f"::error title=Skip count changed::{got} tests skipped, "
+                    f"expected {want}. A skip appearing on its own is a test "
+                    f"that stopped running; update EXPECTED_SKIPS in tests.yml "
+                    f"if this one is deliberate.")
+              for t, why in res.skipped:
+                  print(f"  skipped: {t.id()} — {why}")
+              sys.exit(1)
+          print(f"{res.testsRun} tests, {got} skipped (expected {want})")
+          PY
   typescript:
     runs-on: ubuntu-latest
     steps:

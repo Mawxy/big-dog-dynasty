@@ -31,7 +31,14 @@ jobs:
       - name: Restore/persist crawl state
         uses: actions/cache@v4
         with:
-          path: .crawl-state/signals
+          # The shared player map rides along with the state dir: it is the same
+          # ~19 MB for every mode and shard, so sleeper_crawl caches it once at
+          # .crawl-state/ rather than once per --state dir. Each job is its own
+          # runner, so per-lane is as shared as CI can make it — this keeps the
+          # download at once a day per lane instead of once per run.
+          path: |
+            .crawl-state/signals
+            .crawl-state/players_nfl.json
           key: crawl-signals-${{ github.run_id }}   # unique -> always saves
           restore-keys: crawl-signals-              # restore latest previous
       - name: Crawl signals
@@ -43,12 +50,29 @@ jobs:
           python scripts/sleeper_crawl.py --mode signals \
             --state .crawl-state/signals --max-minutes 300 --commit-every 1000 $EXTRA
       - name: Commit signals + league list
-        if: always()
+        # NOT always(): a cancelled run was killed at an arbitrary point, which
+        # may be the middle of a multi-megabyte flush. success() || failure()
+        # keeps this backstop for a crawl that ended on its own terms — the
+        # normal case, since the crawler exits 0 even when it stops early — and
+        # skips it for one that was cut off.
+        if: success() || failure()
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           # heal a stale conflicted rebase (detached HEAD) left by an older run
           git rebase --abort 2>/dev/null || true
+          # Stage only what parses. These files are rewritten whole every flush,
+          # so skipping a broken one costs a single cycle — committing it
+          # publishes truncated JSON to every consumer until the next run.
+          stage() {
+            for f in "$@"; do
+              if python -m json.tool "$f" > /dev/null 2>&1; then
+                git add "$f"
+              else
+                echo "::warning title=Invalid JSON::$f is missing or did not parse — not committing it"
+              fi
+            done
+          }
           # RE-PARENT, never rebase. Both outputs are generated files rewritten
           # whole on every flush, so a rebase hits a content conflict on every
           # replayed commit and no number of retries can clear it — that is what
@@ -61,7 +85,7 @@ jobs:
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD
-            git add data/league_signals.json data/crawl_leagues.json
+            stage data/league_signals.json data/crawl_leagues.json
             git diff --cached --quiet && { echo "no changes"; exit 0; }
             git commit -m "Crawl signals $(date -u +%FT%H:%MZ)"
             git push origin HEAD:main && exit 0

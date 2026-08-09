@@ -7,6 +7,7 @@ import { useSeasonData } from "./lib/useSeasonData";
 import { seasonSeg } from "./lib/league";
 import Home from "./views/Home";
 import SiteFooter from "./components/SiteFooter";
+import ErrorBoundary from "./components/ErrorBoundary";
 // Every route off the landing page loads lazily: one eager chunk held all 14
 // views, so a first-time visitor downloaded and parsed the whole site to
 // render the dashboard. Home stays eager — it IS the landing page.
@@ -73,10 +74,35 @@ function intParam(seg: string | undefined): number | null {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 
+/**
+ * The league the URL is asking for: the hash path's first segment.
+ *
+ * Read off `window.location` rather than through useParams, because the
+ * registry has to resolve BEFORE <HashRouter> exists — jl() needs its base set
+ * for meta.json, the very first league-scoped fetch. Nothing in the router is
+ * mounted yet at that point, which is exactly why the :league segment was
+ * decorative: every URL rendered the default league.
+ */
+function wantedLeague(): string {
+  const h = window.location.hash;
+  const path = (h.startsWith("#") ? h.slice(1) : h).split("?")[0];
+  try { return decodeURIComponent(path.split("/")[1] ?? ""); }
+  catch { return path.split("/")[1] ?? ""; }
+}
+
+/** First segments that are NOT a league — the pre-league routes at the bottom
+ *  of the table below. Keep the two in step: a segment missing here is read as
+ *  a bogus league name and bounced to the default league's base. */
+const LEGACY_SEGS = new Set([
+  "players", "stats", "teams", "weekly", "draft", "trades", "value",
+  "dvi", "cvi", "player", "standings",
+]);
+
 export default function App() {
   const [meta, setMeta] = useState<Meta | null>(null);
   const [players, setPlayers] = useState<PlayersMin | null>(null);
   const [league, setLeague] = useState<LeagueEntry | null>(null);
+  const [leagues, setLeagues] = useState<Leagues | null>(null);
   const [err, setErr] = useState("");
   useEffect(() => {
     (async () => {
@@ -85,11 +111,14 @@ export default function App() {
       // and goes through jl().
       const reg = await j<Leagues>("data/leagues.json")
         .catch(() => null as Leagues | null);
+      // The URL's own first segment picks the league — by key, then by alias,
+      // then the registry default. Resolving with no `want` at all is what made
+      // /<league>/... decorative.
+      const want = wantedLeague();
       // Point jl() straight at the league layout. The probe request that used
       // to confirm the layout existed cost a serial round trip (and fetched
-      // meta.json a second time, outside the cache); jl()'s own per-file
-      // fallback already covers anything missing.
-      if (reg) setLeagueBase(resolveLeague(reg).key);
+      // meta.json a second time, outside the cache).
+      if (reg) setLeagueBase(resolveLeague(reg, want).key);
       // meta and players_min don't depend on each other — one round trip.
       // players_min is fetched before setVersion and so carries no ?v= — it
       // rides the same short max-age meta.json does, an accepted staleness.
@@ -99,15 +128,17 @@ export default function App() {
       ]);
       setVersion(m.updated);
       // data built before the registry existed: synthesize an entry from meta
-      setLeague(resolveLeague(reg ?? legacyRegistry(m)));
+      const registry = reg ?? legacyRegistry(m);
+      setLeagues(registry);
+      setLeague(resolveLeague(registry, want));
       setPlayers(pl);
       setMeta(m);
     })().catch(e => setErr(String(e)));
   }, []);
   if (err) return <div className="empty">Failed to load data: {err}</div>;
-  if (!meta || !players || !league) return <div className="empty">Loading…</div>;
+  if (!meta || !players || !league || !leagues) return <div className="empty">Loading…</div>;
   return (
-    <LeagueContext.Provider value={{ meta, players, league }}>
+    <LeagueContext.Provider value={{ meta, players, league, leagues }}>
       <HashRouter>
         <Shell />
       </HashRouter>
@@ -116,7 +147,7 @@ export default function App() {
 }
 
 function Shell() {
-  const { meta, league } = useLeague();
+  const { meta, league, leagues } = useLeague();
   const nav = useNavigate();
   const loc = useLocation();
   const navType = useNavigationType();
@@ -128,6 +159,31 @@ function Shell() {
   // paths are league-first now: /<league>/<view>[/<season>...]
   const base = `/${leagueSeg(league)}`;
   const parts = loc.pathname.split("/");
+
+  /**
+   * The URL's league segment against the one actually loaded.
+   *
+   * Three cases. It names the loaded league (by key or alias) — render. It
+   * names nothing in the registry, and isn't one of the pre-league segments
+   * below — bounce to the default league's base, because leaving it renders
+   * the default league at an address claiming another one, and that address is
+   * what gets shared. It names a DIFFERENT registered league — every
+   * league-scoped file was already fetched under the loaded one, so the only
+   * honest answer is to boot again against the requested key. That cannot loop:
+   * the reload resolves to the requested league and the segment then matches.
+   */
+  const seg = parts[1] ?? "";
+  const wantEntry = seg ? leagues.leagues.find(l => l.key === seg || l.alias === seg) : undefined;
+  // leagueSeg() is checked on its own because it invents "league" for data
+  // built before the registry existed, where key and alias are both empty. That
+  // segment resolves to nothing in the registry, so without this it would read
+  // as unknown and redirect to itself, forever.
+  const onLoaded = seg === leagueSeg(league) || wantEntry?.key === league.key;
+  const otherLeague = !!wantEntry && !onLoaded;
+  const unknownLeague = !!seg && !onLoaded && !wantEntry && !LEGACY_SEGS.has(seg);
+  useEffect(() => {
+    if (otherLeague) window.location.reload();
+  }, [otherLeague]);
   const onView = (VIEWS as readonly string[]).includes(parts[2]);
   // Carry the current season across a tab switch — but only if that segment
   // IS a season. Several views take a non-season fourth segment (/draft/history,
@@ -172,8 +228,15 @@ function Shell() {
       </TabBar>
 
       <main>
+        {/* One malformed row used to take the whole SPA down: an uncaught
+            render throw unmounts the tree, masthead and tab bar included. The
+            boundary sits INSIDE the shell so a broken page leaves the
+            navigation standing, and outside Suspense so a lazy chunk that
+            fails to load lands here too. Keyed on the pathname, so walking
+            away from the broken page clears it. */}
+        <ErrorBoundary resetKey={loc.pathname}>
         <Suspense fallback={<div className="empty">Loading…</div>}>
-        <Routes>
+        {unknownLeague ? <Navigate to={base} replace /> : <Routes>
           {/* league-first. A static first segment outranks the dynamic
               :league, so the legacy block below can never be shadowed. */}
           <Route path="/:league" element={<Home />} />
@@ -227,6 +290,9 @@ function Shell() {
           <Route path="/stats/*" element={<LegacyRedirect />} />
           <Route path="/teams/*" element={<LegacyRedirect />} />
           <Route path="/weekly/*" element={<LegacyRedirect />} />
+          {/* /standings/<season> predates the league prefix too — without this
+              it fell through to the catchall and lost the season entirely */}
+          <Route path="/standings/*" element={<LegacyRedirect />} />
           <Route path="/draft" element={<LegacyRedirect />} />
           <Route path="/trades" element={<LegacyRedirect />} />
           <Route path="/value" element={<LegacyRedirect />} />
@@ -235,8 +301,9 @@ function Shell() {
           <Route path="/player/*" element={<LegacyRedirect />} />
 
           <Route path="*" element={<Navigate to={base} replace />} />
-        </Routes>
+        </Routes>}
         </Suspense>
+        </ErrorBoundary>
       </main>
       <SiteFooter />
     </div>

@@ -67,14 +67,24 @@ export default function PlayoffBracket({ season, bracket }: { season: string; br
     </div>
   );
 
-  const game = (g: BracketGame, cls = "") => (
-    <div className={`bgame tap ${cls}`} title={`Open the week ${g.week} matchup`}
-      onClick={() => g.t1 != null && nav(lp(`/weekly/${season}/${g.week}/${g.t1}`))}>
-      <div className="bgame-head"><span>{title(g)}</span><span>WK {g.week}</span></div>
-      {side(g, g.t1, g.t1_pts)}
-      {side(g, g.t2, g.t2_pts)}
-    </div>
-  );
+  const game = (g: BracketGame, cls = "") => {
+    // a card with no team on the near side opens nothing, so it is not a
+    // control and must not become a tab stop
+    const act = g.t1 != null;
+    const go = () => act && nav(lp(`/weekly/${season}/${g.week}/${g.t1}`));
+    return (
+      <div className={`bgame tap ${cls}`} title={`Open the week ${g.week} matchup`}
+        tabIndex={act ? 0 : undefined} role={act ? "button" : undefined}
+        onClick={go}
+        onKeyDown={act ? e => {
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
+        } : undefined}>
+        <div className="bgame-head"><span>{title(g)}</span><span>WK {g.week}</span></div>
+        {side(g, g.t1, g.t1_pts)}
+        {side(g, g.t2, g.t2_pts)}
+      </div>
+    );
+  };
 
   /** a bye is a real slot in the bracket — the seed earned the week off */
   const byeCard = (rid: number | null, cls: string) => (

@@ -4,6 +4,13 @@ These are the three functions that decide what every benchmark means, so a
 change here is a change in what "champion", "held a first" and "homegrown"
 report — not a broken build. The fixtures are the real Sleeper payloads the
 crawler would fetch, so a Sleeper shape change fails here first.
+
+WHAT ACTUALLY RUNS IN CI. Seven tests in this file are gated on
+`sleeper_data/` — the raw Sleeper dump — which is gitignored and therefore
+absent on every clone, CI included. They run ONLY on a machine that has done
+a local `sleeper_pull.py` first. Treat them as a local-only extra: everything
+CI verifies is in the ungated tests, and a change that breaks only the gated
+ones will go green on a pull request.
 """
 import importlib.util
 import json
@@ -489,11 +496,56 @@ class TurnaroundTest(unittest.TestCase):
         self.assertEqual(c["move_abs_sum"], 6)   # 3 down + 0 + 0 + 3 up
         self.assertEqual(c["move_up_sum"], 3)    # only the gain counts here
 
+    # Big Dog Dynasty 2022-2026, oldest first. Real Sleeper ids, so the
+    # hashing below is the hashing production does.
+    CHAIN = ["814608002207334400", "916360462835634176", "1048300464669937664",
+             "1180090288907112448", "1312221243742621696"]
+
+    def chain_rows(self):
+        """What the crawler writes for one franchise: a row per season, each
+        under THAT season's league_id, every one of them tagged with the
+        founding id. Roster 5 finishes 12th and then wins."""
+        places = {2024: {r: (12 if r == 5 else r if r < 5 else r - 1)
+                         for r in range(1, 13)},
+                  2025: {r: (1 if r == 5 else r + 1 if r < 5 else r)
+                         for r in range(1, 13)}}
+        lids = {2024: self.CHAIN[2], 2025: self.CHAIN[3]}
+        return [{"lid": lids[season], "chain": self.CHAIN[0], "season": season,
+                 "teams": 12, "runner": None,
+                 "champ": next(r for r, p in pl.items() if p == 1),
+                 "rosters": [mkrow(rid, p) for rid, p in pl.items()]}
+                for season, pl in places.items()]
+
     def test_a_league_never_splits_across_shards(self):
-        # shard_of keys on league_id, so every season of a league is together —
-        # the turnaround sums are only correct because of that.
-        lid = "1048300464669937664"
-        self.assertEqual(len({sc.shard_of(lid, 4) for _ in range(3)}), 1)
+        """The turnaround sums are only correct because every season of a
+        franchise is summarised together — and that is NOT free. A Sleeper
+        league_id is one season, and the ids of one chain are unrelated
+        numbers. The crawler shards on the ENTRY league_id, walks back to the
+        founding one, and tags every row it emits with that founding id, so
+        the whole chain is crawled once by one shard and lands in one file.
+        (The walk itself needs the network; what is exercised here is the
+        grouping key it produces.)
+        """
+        rows = self.chain_rows()
+        self.assertEqual({r["chain"] for r in rows}, {self.CHAIN[0]})
+        self.assertEqual(len({r["lid"] for r in rows}), len(rows))
+        entry = self.CHAIN[-1]
+        c = sc.summarize_outcomes(rows, sc.shard_of(entry, 4), 4)["counts"]
+        self.assertEqual(c["last_to_first"], 1)
+
+    def test_the_seasons_of_a_chain_do_not_share_a_shard_by_luck(self):
+        """Sharding on each season's own id instead would scatter this
+        franchise across three of the four shard files."""
+        self.assertGreater(len({sc.shard_of(lid, 4) for lid in self.CHAIN}), 1)
+
+    def test_a_chain_split_across_shards_loses_the_sequence(self):
+        """The failure the design prevents: with the seasons in separate files
+        nothing ever sees the transition — which is how the first trial
+        reported zero turnarounds in a league that had a 12th-to-1st."""
+        split = [sc.summarize_outcomes([r], i, 4)["counts"]
+                 for i, r in enumerate(self.chain_rows())]
+        self.assertEqual(sum(s.get("last_to_first", 0) for s in split), 0)
+        self.assertEqual(sum(s.get("move_n", 0) for s in split), 0)
 
 
 if __name__ == "__main__":

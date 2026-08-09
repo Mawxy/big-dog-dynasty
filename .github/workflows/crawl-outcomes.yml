@@ -42,7 +42,10 @@ jobs:
       - name: Restore/persist shard state
         uses: actions/cache@v4
         with:
-          path: .crawl-state/outcomes-${{ matrix.shard }}
+          # shared player map alongside the state dir — see crawl-signals.yml
+          path: |
+            .crawl-state/outcomes-${{ matrix.shard }}
+            .crawl-state/players_nfl.json
           key: crawl-outcomes-${{ matrix.shard }}-${{ github.run_id }}
           restore-keys: crawl-outcomes-${{ matrix.shard }}-
       - name: Crawl outcomes (shard ${{ matrix.shard }} of 4)
@@ -63,18 +66,52 @@ jobs:
           # rather than showing green with nothing uploaded.
           if-no-files-found: warn
       - name: Commit benchmark signals
-        if: always()
+        # NOT always() — see crawl-signals.yml: a cancelled run may have been
+        # killed mid-flush, and its shard file is then half-written.
+        if: success() || failure()
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           git rebase --abort 2>/dev/null || true
+          # Stage only what parses — see crawl-signals.yml.
+          stage() {
+            for f in "$@"; do
+              if python -m json.tool "$f" > /dev/null 2>&1; then
+                git add "$f"
+              else
+                echo "::warning title=Invalid JSON::$f is missing or did not parse — not committing it"
+              fi
+            done
+          }
+          MINE=data/outcome_signals_${{ matrix.shard }}.json
+          SAVED="${RUNNER_TEMP:-/tmp}/outcome_signals_${{ matrix.shard }}.json"
+          [ -f "$MINE" ] && cp "$MINE" "$SAVED"
           # RE-PARENT, never rebase — see crawl-signals.yml. Generated files are
           # rewritten whole, so a replayed commit always conflicts.
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD
-            python scripts/benchmarks.py || true
-            git add data/outcome_signals_${{ matrix.shard }}.json data/benchmarks.json
+            # A mixed reset keeps the WORKING TREE, so the sibling shards' files
+            # sitting here are still the run-start copies from checkout — up to
+            # five hours old, and missing everything the other three shards
+            # pushed while this one crawled. benchmarks.py merges the working
+            # tree, so without this the last shard to push publishes a
+            # benchmarks.json computed from its own fresh data and three stale
+            # peers, silently dropping their runs. Take the peers (and the
+            # previous benchmarks.json) from origin, then put our own back.
+            git checkout FETCH_HEAD -- 'data/outcome_signals_*.json' data/benchmarks.json \
+              || echo "no committed shard files at origin yet"
+            [ -f "$SAVED" ] && cp "$SAVED" "$MINE"
+            # Non-fatal, but never silent: this shard's signals are five hours of
+            # crawling and must land even if the merge trips, while a stale
+            # benchmarks.json survives one cycle. The old `|| true` swallowed a
+            # failure that would then repeat forever with nothing to see.
+            # On failure origin's benchmarks.json is what stays staged, so a
+            # broken merge cannot publish numbers older than what is already
+            # committed.
+            python scripts/benchmarks.py \
+              || echo "::warning title=benchmarks.py failed::data/benchmarks.json not regenerated this run; committing shard ${{ matrix.shard }} signals only"
+            stage "$MINE" data/benchmarks.json
             git diff --cached --quiet && { echo "no changes"; exit 0; }
             git commit -m "Crawl outcomes shard ${{ matrix.shard }} $(date -u +%FT%H:%MZ)"
             git push origin HEAD:main && exit 0

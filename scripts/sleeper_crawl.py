@@ -22,27 +22,40 @@ skipped until its per-mode timestamp is older than --cooldown-days, so repeated
 
 Seeds (signals): the Big Dog Dynasty chain, 2022-2026.
 """
-import argparse, csv, datetime, hashlib, json, re, sys, time, urllib.error, urllib.request
+import argparse, csv, datetime, hashlib, json, os, re, sys, tempfile, time, urllib.error, urllib.request
 from collections import defaultdict, deque
 from pathlib import Path
 
 # one definition of "franchise-level season", shared with the analysis script
 # rather than restated — see METHODOLOGY.md "Franchise players"
 from franchise_players import ELITE_BAR, FRANCHISE_BAR, MIN_SEASONS as MIN_FRANCHISE_SEASONS
+# season dirs live under data/leagues/<founding_id>/<season>/, not data/<season>
+from leaguepaths import DataDir
 
 ROOT = Path(__file__).resolve().parent.parent
 BASE = "https://api.sleeper.app/v1"
+# Identify the crawler to Sleeper. The default urllib agent is anonymous and
+# indistinguishable from a scraper, which is a bad thing to be when you make
+# six figures of calls a day against a free API — same string style as
+# fetch_values.py.
+UA = {"User-Agent": "big-dog-dynasty-warboard/2.0 (github.com/Mawxy/big-dog-dynasty)"}
 DELAY = 0.12
 RETRIES = 3
 RATE_LIMIT_TRIES = 10
 STARTUP_MIN_ROUNDS = 10
 CHECKPOINT_EVERY = 250
+PLAYERS_CACHE_V = 1        # bump when a field is added to the shared player map
 # Rookie-corpus chain walk. Sleeper's /league/<id>/drafts is per league_id, and
 # a league_id is ONE SEASON — so a crawl seeded from current-season leagues can
 # only ever see the current rookie class. Follow previous_league_id back to
 # reach older classes; stop at FIRST_CLASS, the oldest class Bridge A prices.
 FIRST_CLASS = 2019
-MAX_CHAIN = 10
+# Hop cap for that walk. It is a runaway guard only — the real stop is
+# FIRST_CLASS — so it has to stay ahead of the calendar rather than sit at a
+# fixed 10: from the 2029 season a 2019-founded chain needs 11 hops, and a cap
+# that bites first truncates the walk, which changes the FOUNDING id used as
+# the franchise key in mode_outcomes and splits one franchise into two chains.
+MAX_CHAIN = datetime.date.today().year - FIRST_CLASS + 5
 DEFAULT_SEEDS = ["1312221243742621696", "1180090288907112448",
                  "1048300464669937664", "916360462835634176",
                  "814608002207334400"]
@@ -58,7 +71,8 @@ def get(path):
         try:
             time.sleep(DELAY)
             _calls += 1
-            with urllib.request.urlopen(url, timeout=30) as r:
+            with urllib.request.urlopen(
+                    urllib.request.Request(url, headers=UA), timeout=30) as r:
                 body = r.read().decode("utf-8")
             return json.loads(body) if body and body != "null" else None
         except urllib.error.HTTPError as e:
@@ -74,7 +88,12 @@ def get(path):
             if attempt >= RETRIES:
                 raise
             time.sleep(2 ** attempt)
-        except (urllib.error.URLError, TimeoutError):
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+            # JSONDecodeError is retryable, not fatal: a connection cut
+            # mid-body reads as valid HTTP and unparseable JSON, and without
+            # it the caller's `except Exception` skips the whole league for
+            # what is a transport blip. The other two Sleeper clients already
+            # retry it (their handlers are bare `except Exception`).
             attempt += 1
             if attempt >= RETRIES:
                 raise
@@ -135,9 +154,26 @@ def jload(p, default):
 
 
 def jdump(p, obj):
+    """Write through a temp file in the same directory, then os.replace.
+
+    Every file this writes is read back — state on the next run, outputs by
+    benchmarks.py and the site — and this crawler is *routinely* killed
+    mid-write: the job timeout, a cancelled run and a rate-limit abort all land
+    while a multi-megabyte flush is in flight. A bare write_text truncates in
+    place, so the next run starts from unparseable state or the commit step
+    publishes half a corpus. os.replace is atomic on POSIX and on Windows when
+    both paths share a volume, which a same-directory temp file guarantees.
+    """
     p = Path(p)
     p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(obj), encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(obj, fh)
+        os.replace(tmp, p)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
 
 
 def git_push(paths, message):
@@ -187,26 +223,45 @@ def fresh(ts, cooldown_days):
     return ts is not None and (time.time() - ts) < cooldown_days * 86400
 
 
-def load_player_meta(state_dir, cache_hours=20):
-    """{pid: {exp, name, pos, dob}} from /players/nfl (rookie-class filter + the
-    rookie pick corpus's name/pos, which pick_value matches to gsis). `dob` is
-    what joins a Sleeper player to nflverse WAR — see elite_index(). Refreshed
-    ~daily; a cache written before `dob` existed is discarded rather than used,
-    or every elite count would silently come back zero."""
-    f = Path(state_dir) / "player_meta.json"
+def load_players_nfl(state_dir, cache_hours=20):
+    """{pid: {exp, name, pos, dob, team}} from /players/nfl, cached on disk.
+
+    ONE cache for every mode, deliberately OUTSIDE the per-mode state dir (at
+    `.crawl-state/players_nfl.json`, the parent of `--state`). The map is the
+    ~19 MB call Sleeper asks you to make at most once a day, and it is the same
+    bytes for every mode and every shard — but each caller used to keep its own
+    copy under its own state dir and pull it independently, so the fleet fetched
+    it 6+ times a day for one day's worth of data. Modes sharing a filesystem
+    now fetch it once between them. In CI they do not share one — each job is
+    its own runner — so the workflows list this path alongside their state dir
+    in the actions/cache entry, which is what keeps the per-lane download at
+    once a day rather than once a run.
+
+    `dob` is what joins a Sleeper player to nflverse WAR — see tier_index().
+    PLAYERS_CACHE_V is what stops a cache written before a field existed from
+    being read as if it had one: `dob` arriving late would otherwise have
+    zeroed every elite count silently instead of failing.
+    """
+    f = Path(state_dir).parent / "players_nfl.json"
     cached = jload(f, {})
-    fresh_enough = cached.get("ts") and (time.time() - cached["ts"]) < cache_hours * 3600
-    has_dob = any("dob" in v for v in (cached.get("meta") or {}).values())
-    if fresh_enough and has_dob:
-        return cached["meta"]
+    if (cached.get("v") == PLAYERS_CACHE_V and cached.get("ts")
+            and (time.time() - cached["ts"]) < cache_hours * 3600):
+        return cached.get("players") or {}
     pmap = get("/players/nfl") or {}
-    meta = {pid: {"exp": p.get("years_exp"),
-                  "name": (p.get("first_name", "") + " " + p.get("last_name", "")).strip(),
-                  "pos": p.get("position"),
-                  "dob": p.get("birth_date")}
-            for pid, p in pmap.items() if isinstance(p, dict)}
-    jdump(f, {"ts": time.time(), "meta": meta})
-    return meta
+    players = {pid: {"exp": p.get("years_exp"),
+                     "name": (p.get("first_name", "") + " " + p.get("last_name", "")).strip(),
+                     "pos": p.get("position"),
+                     "dob": p.get("birth_date"),
+                     "team": p.get("team")}
+               for pid, p in pmap.items() if isinstance(p, dict)}
+    jdump(f, {"v": PLAYERS_CACHE_V, "ts": time.time(), "players": players})
+    return players
+
+
+def load_player_meta(state_dir, cache_hours=20):
+    """{pid: {exp, name, pos, dob}} — the rookie-class filter, and the rookie
+    pick corpus's name/pos that pick_value matches to gsis."""
+    return load_players_nfl(state_dir, cache_hours)
 
 
 def _last(name):
@@ -310,16 +365,9 @@ def tier_index(pmeta):
 
 
 def load_player_teams(state_dir, cache_hours=20):
-    """{pid: nfl_team} for bye detection, refreshed from /players/nfl ~daily."""
-    f = Path(state_dir) / "player_teams.json"
-    cached = jload(f, {})
-    if cached.get("ts") and (time.time() - cached["ts"]) < cache_hours * 3600:
-        return cached.get("team", {})
-    pmap = get("/players/nfl") or {}
-    team = {pid: p.get("team") for pid, p in pmap.items()
-            if isinstance(p, dict) and p.get("team")}
-    jdump(f, {"ts": time.time(), "team": team})
-    return team
+    """{pid: nfl_team} for bye detection — a view of the shared player map."""
+    return {pid: p["team"] for pid, p in load_players_nfl(state_dir, cache_hours).items()
+            if p.get("team")}
 
 
 def make_heartbeat(t0, counters):
@@ -352,7 +400,13 @@ def mode_signals(args, t0):
     pid_team, byes = {}, {}
     if args.season_type == "regular":
         pid_team = load_player_teams(sd)
-        byes = jload(ROOT / "data" / str(args.season) / "byes.json", {})   # {team: week}
+        # Written by sleeper_pull into the DEFAULT league's season dir. The map
+        # itself is the league-independent NFL schedule, so reading it from
+        # there is right — but it moved under data/leagues/<founding_id>/ and
+        # the old data/<season>/ path never existed again, so this guard was
+        # silently a no-op: byes counted as "chose not to start him" and every
+        # start_rate came back low.
+        byes = jload(DataDir(ROOT / "data") / str(args.season) / "byes.json", {})  # {team: week}
     seen_users = {}                                # transient per run
     require_sf = not args.any_qb
     # re-enqueue counted leagues whose snapshots have gone stale, for refresh

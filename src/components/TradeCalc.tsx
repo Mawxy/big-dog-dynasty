@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useId, useMemo, useState } from "react";
 import type { CviFile, DviFile, PicksOwned, PickValues, ProjectionsFile } from "../lib/types";
 import { jl, jlDaily } from "../lib/data";
 import { fmt, sgn } from "../lib/stats";
@@ -187,13 +187,13 @@ export default function TradeCalc() {
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr>
-                <th className="c" style={{ width: "12%" }}>Pos</th>
-                <th className="t" style={{ width: "37%" }}>Asset</th>
-                <th className="n" style={{ width: "9%" }}>Age</th>
-                <th className="n edge" style={{ width: "12%" }}>DVI</th>
-                <th className="n" style={{ width: "12%" }}>CVI</th>
-                <th className="n edge" style={{ width: "13%" }}>Proj WAR</th>
-                <th className="c" style={{ width: "5%" }}></th>
+                <th scope="col" className="c" style={{ width: "12%" }}>Pos</th>
+                <th scope="col" className="t" style={{ width: "37%" }}>Asset</th>
+                <th scope="col" className="n" style={{ width: "9%" }}>Age</th>
+                <th scope="col" className="n edge" style={{ width: "12%" }}>DVI</th>
+                <th scope="col" className="n" style={{ width: "12%" }}>CVI</th>
+                <th scope="col" className="n edge" style={{ width: "13%" }}>Proj WAR</th>
+                <th scope="col" className="c" style={{ width: "5%" }}></th>
               </tr>
             </thead>
             <tbody>
@@ -304,10 +304,18 @@ function AssetSearch({ options, taken, onPick, placeholder }: {
       .slice(0, 8).map(([, o]) => o);
   }, [q, options, taken]);
   const pick = (a: Asset) => { onPick(a); setQ(""); setOpen(false); };
+  /* the same combobox contract QuickJump uses — the arrow-key highlight is
+   * only a highlight until something says which option it is on */
+  const listId = useId();
+  const optId = (i: number) => `${listId}-o${i}`;
+  const shown = open && hits.length > 0;
   return (
     <div style={{ position: "relative" }}>
       <input type="search" placeholder={placeholder} value={q}
         style={{ width: "100%", boxSizing: "border-box" }}
+        role="combobox" aria-label={placeholder}
+        aria-expanded={shown} aria-controls={listId} aria-autocomplete="list"
+        aria-activedescendant={shown && hits[sel] ? optId(sel) : undefined}
         onChange={e => { setQ(e.target.value); setSel(0); setOpen(true); }}
         onFocus={() => setOpen(true)}
         onBlur={() => setOpen(false)}
@@ -317,14 +325,15 @@ function AssetSearch({ options, taken, onPick, placeholder }: {
           else if (e.key === "Enter" && hits[sel]) pick(hits[sel]);
           else if (e.key === "Escape") setOpen(false);
         }} />
-      {open && hits.length > 0 && (
-        <div style={{
+      {shown && (
+        <div id={listId} role="listbox" aria-label="Matches" style={{
           position: "absolute", left: 0, right: 0, top: "calc(100% + 4px)", zIndex: 30,
           background: "var(--band)", border: "1px solid var(--rule)",
           overflow: "hidden", boxShadow: "0 6px 20px rgba(0,0,0,.35)",
         }}>
           {hits.map((o, i) => (
-            <div key={o.key} onMouseDown={e => { e.preventDefault(); pick(o); }}
+            <div key={o.key} id={optId(i)} role="option" aria-selected={i === sel}
+              onMouseDown={e => { e.preventDefault(); pick(o); }}
               onMouseEnter={() => setSel(i)}
               style={{
                 display: "flex", alignItems: "center", gap: 8, padding: "7px 10px",

@@ -456,13 +456,17 @@ An override only takes effect on a rebuild: `nfl_history.py` regenerates
 
 ## Verifying any of this
 
-The methodology decisions above are locked by tests — a failure there is a
-change in what a figure *means*, not a broken build:
+The methodology decisions above are locked by the test suite — a failure there
+is a change in what a figure *means*, not a broken build:
 
 ```
-python -m unittest discover -s tests      # 75 invariants
+python -m unittest discover -s tests      # the invariants
 python scripts/validate_data.py           # published-data consistency
 ```
+
+The suite reports its own size; there is no target number to hit. A handful of
+tests are gated on a local Sleeper dump and are skipped everywhere else,
+including CI — see the testing section of PROJECT_NOTES.md.
 
 Each engine also has a `--probe` mode that reports without writing:
 
@@ -471,3 +475,10 @@ python scripts/playoff_wpa.py --probe
 python scripts/playoff_war.py --probe
 python scripts/week_odds.py  --probe
 ```
+
+The two playoff probes read the raw Sleeper dump in `sleeper_data/`, which is
+gitignored — on a fresh clone they exit with "players.json missing" and report
+nothing. Run `python scripts/sleeper_pull.py <league_id> --players` first, or
+point `--raw` at an existing dump. `week_odds.py --probe` is the exception: it
+prices played weeks straight out of committed `data/`, so it works anywhere
+(only the projected-lineup half needs `league.json` from a dump).
