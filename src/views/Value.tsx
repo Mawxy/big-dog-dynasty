@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
-import type { CviFile, DviFile, EcrFile, ProjectionsFile, Team, Values } from "../lib/types";
+import type {
+  CviFile, DviFile, EcrFile, KnnFile, ProjectionsFile, Team, Values,
+} from "../lib/types";
 import { jDaily, jl, jlDaily } from "../lib/data";
 import { fmt } from "../lib/stats";
 import { ownerOf, rosterSeasonOf } from "../lib/league";
@@ -45,6 +47,10 @@ const COLS: PlayerCol[] = [
     sort: r => r.war1, cell: r => r.war1 == null ? nul : fmt(r.war1, 3),
   },
   {
+    id: "warK", label: "Analog", grp: 1, w: 10, align: "n", td: "fig n",
+    sort: r => r.warK, cell: r => r.warK == null ? nul : fmt(r.warK, 3),
+  },
+  {
     id: "ktc", label: "KTC", grp: 2, w: 9, align: "n", edge: true,
     td: "n edge", sort: r => r.ktc, cell: r => srcCell(r.ktc, r.ktc?.toLocaleString() ?? ""),
   },
@@ -85,6 +91,7 @@ export default function Value() {
   const [vals, setVals] = useState<Values | null>(null);
   const [ecr, setEcr] = useState<EcrFile | null>(null);
   const [curTeams, setCurTeams] = useState<Team[] | null>(null);
+  const [knn, setKnn] = useState<KnnFile | null>(null);
   const [ready, setReady] = useState(false);
   useEffect(() => {
     let live = true;
@@ -96,7 +103,9 @@ export default function Value() {
       jDaily<Values>("data/values.json"),
       jDaily<EcrFile>("data/ecr.json"),
       jl<Team[]>(`${rosterSeason}/teams.json`),
-    ]).then(([p, d, c, v, e, t]) => {
+      // experimental; allSettled means its absence costs the board nothing
+      jl<KnnFile>("projections_knn_hybrid.json"),
+    ]).then(([p, d, c, v, e, t, k]) => {
       if (!live) return;
       if (p.status === "fulfilled") setProjs(p.value);
       if (d.status === "fulfilled") setDvi(d.value);
@@ -104,6 +113,7 @@ export default function Value() {
       if (v.status === "fulfilled") setVals(v.value);
       if (e.status === "fulfilled") setEcr(e.value);
       if (t.status === "fulfilled") setCurTeams(t.value);
+      if (k.status === "fulfilled") setKnn(k.value);
       setReady(true);
     });
     return () => { live = false; };
@@ -155,6 +165,12 @@ export default function Value() {
       row.ktc = r.ktc ?? null;
       row.fc = r.fc ?? null;
     }
+    // analog projection: attaches to known players only, same as prices. Its
+    // corpus reaches every NFL player, not just this league's rosters.
+    for (const k of knn?.players ?? []) {
+      const row = k.pid ? byId.get(k.pid) : undefined;
+      if (row) row.warK = k.proj?.[0] ?? null;
+    }
     const slug = Object.keys(ecr?.formats ?? {})[0];
     if (slug) for (const [pid, byFmt] of Object.entries(ecr?.players ?? {})) {
       const row = byId.get(pid);
@@ -176,7 +192,7 @@ export default function Value() {
     return { population: sorted, ctx };
     // `players` was listed here and read nowhere in the body — every row's name
     // and position come from projections/dvi/cvi. It only forced re-runs.
-  }, [projs, dvi, cvi, vals, ecr, curTeams, sortId, dir]);
+  }, [projs, dvi, cvi, vals, ecr, curTeams, knn, sortId, dir]);
 
   // …and the cheap half: the position chips and the name box, over a list that
   // is already built, sorted and ranked. Ranks are read off the row objects, so
@@ -224,7 +240,11 @@ export default function Value() {
 
       <div className="tnote screen">
         DVI prices the dynasty horizon and CVI the coming season — both 0–100 indices,
-        bare figures by design. Proj WAR is the model's composite for the coming season.
+        bare figures by design. Proj WAR is the model's composite for the coming season;
+        <b> Analog</b> is the experimental comparables model beside it — the median of what
+        the k most similar historical player-seasons actually returned, so it reads low
+        for anyone whose comparables mostly did nothing. Where the two disagree is the
+        point of showing both.
         KTC and FantasyCalc are dynasty market prices in their own currencies; ECR is the
         FantasyPros expert consensus rank for redraft, where 1 is best, so it prices the
         coming season alone and a rookie will sit below his dynasty price. None of the

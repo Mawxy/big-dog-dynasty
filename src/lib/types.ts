@@ -179,6 +179,36 @@ export interface ProjectionsFile {
     years: number[]; players: number; model: string; generated: string };
   players: Projection[];
 }
+/** data/<league>/projections_knn_*.json — the EXPERIMENTAL analog projection.
+ *  Runs alongside projections.json, never replaces it: instead of collapsing a
+ *  career into one scalar and aging it, it matches a player to his k nearest
+ *  historical comparables and reports what those players actually did. */
+export interface KnnProjection {
+  /** Sleeper id, joined via project_war.py's matcher. Null when the corpus
+   *  name could not be resolved — a rookie with no NFL season has no entry
+   *  at all, which is different from being unjoined. */
+  pid: string | null;
+  gsis: string; name: string; pos: string;
+  age: number | null; exp: number | null;
+  /** what the model saw: seasonal points/100 and games, most recent first */
+  seen: number[]; gps: number[];
+  /** cohort size, and how many of it were scored per horizon year (an analog
+   *  hurt that year is skipped, not zeroed — see METHODOLOGY on absence) */
+  n: number; n_scored?: number[];
+  /** cohort MEDIAN per year, in league WAR */
+  proj: number[]; proj_mean: number[];
+  low: number[]; high: number[];
+  /** share of the cohort that cleared 0.5 WAR — the breakout rate */
+  share_useful: number[];
+  total: number;
+}
+export interface KnnFile {
+  meta: { model: string; space: string; k: number; horizon: number;
+    corpus_seasons: number[]; corpus_rows: number; seed_season: number;
+    league_scale_ratio: number; absent: string };
+  players: KnnProjection[];
+}
+
 export interface SleeperProj { pos: string; pts13: number; ppg: number; raw_pts: number; }
 export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }
 

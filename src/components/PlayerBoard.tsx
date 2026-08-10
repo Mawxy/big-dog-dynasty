@@ -26,6 +26,9 @@ export interface PlayerRow {
   posRank: number;
   /* value board */
   dvi: number | null; cvi: number | null; war1: number | null;
+  /** the analog model's year-1 median — experimental, shown beside war1 so the
+   *  two can be compared rather than swapped between */
+  warK: number | null;
   ktc: number | null; fc: number | null; ecr: number | null;
   /* stats board */
   gp: number; pts: number; ppg: number; sdv: number; war: number; warG: number;
@@ -45,7 +48,7 @@ export const srcCell = (v: number | null, text: string) =>
 /** a blank row, so a source that knows only some fields can still create one */
 export const blankRow = (id: string, nm: string, pos: string, nfl: string): PlayerRow => ({
   id, nm, pos, nfl, team: "—", posRank: 0,
-  dvi: null, cvi: null, war1: null, ktc: null, fc: null, ecr: null,
+  dvi: null, cvi: null, war1: null, warK: null, ktc: null, fc: null, ecr: null,
   gp: 0, pts: 0, ppg: 0, sdv: 0, war: 0, warG: 0,
 });
 

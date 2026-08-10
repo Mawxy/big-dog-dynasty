@@ -321,10 +321,24 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
             stat_by[(wk, pid)] = r
 
     snap_by = {}          # (week, gsis) -> (off, def, st)
+    # (week, team) that snap data actually COVERS. This is the tm_*_snp
+    # equivalent nflverse does not ship, and the ACT fallback below is unsafe
+    # without it: snap coverage runs 69-76% of active player-weeks in 2014-18
+    # against 87-88% from 2019, so `no snap row` means "we have no data" far
+    # more often in the early seasons than it means "he took no snaps".
+    # Treating that as a played 0.00 manufactured negative WAR out of a gap in
+    # the source — 126 all-season-scoreless players in 2014 against 47 in 2025,
+    # which is a coverage curve, not a football fact.
+    snap_teams = set()
     for r in snaps:
-        gsis = pfr_to_gsis.get(r.get("pfr_player_id"))
         wk = r.get("week")
-        if gsis and wk and 1 <= wk <= LAST_WEEK:
+        if not wk or not (1 <= wk <= LAST_WEEK):
+            continue
+        team = r.get("team") or r.get("recent_team") or r.get("team_abbr")
+        if team:
+            snap_teams.add((wk, team))
+        gsis = pfr_to_gsis.get(r.get("pfr_player_id"))
+        if gsis:
             snap_by[(wk, gsis)] = (g(r, "offense_snaps"), g(r, "defense_snaps"),
                                    g(r, "st_snaps"))
 
@@ -347,7 +361,8 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
         # all. He is exactly the player the 2026-08-07 rule exists to score.
         pids = ({p for w, p in stat_by if w == wk}
                 | {p for w, p in snap_by if w == wk}
-                | {p for p, (s, _) in wk_status.items() if s == "ACT"})
+                | {p for p, (s, tm) in wk_status.items()
+                   if s == "ACT" and (wk, tm) in snap_teams})
         for pid in pids:
             # season-aware: the override has to reach score_row() and the pool
             # assignment below, not just the label written to the CSV
@@ -356,7 +371,11 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
                 continue
             srow = stat_by.get((wk, pid))
             osnp, dsnp, ssnp = snap_by.get((wk, pid), (0, 0, 0))
-            act = wk_status.get(pid, ("", ""))[0] == "ACT"
+            st_code, st_team = wk_status.get(pid, ("", ""))
+            # ACT only counts as "dressed and did not play" where snap data
+            # covers his team that week. Without that check, missing data reads
+            # as a played 0.00 — see snap_teams above.
+            act = st_code == "ACT" and (wk, st_team) in snap_teams
             if not row_played_hist(pos, osnp, dsnp, ssnp, srow, act):
                 continue
             points[pid] = score_row(srow, pos) if srow else 0.0
@@ -372,6 +391,9 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
                 continue
             status[gsis] = {"st": s, "tm": team,
                             "snaps": snap_by.get((wk, gsis), (0, 0, 0))[0],
+                            # whether snap data covers his game at all — the
+                            # difference between "took no snaps" and "unknown"
+                            "cov": (wk, team) in snap_teams,
                             "played": gsis in played}
         weeks[wk] = (points, positions, played, status)
     return weeks
@@ -454,9 +476,17 @@ def main():
                 (sdir / "status" / f"week_{wk:02d}.json").write_text(
                     json.dumps(status), encoding="utf-8")
         n = sum(1 for w in weeks.values() if w[0])
+        # Count what the 2026-08-07 rule ADDED: active, zero snaps, and now
+        # scored as a played 0.00. An earlier version of this counter tested
+        # `not played`, which under the new rule is 0 by construction — the
+        # whole point is that these players are played now. It reported 0 for
+        # every season and read as a failed roster pull.
         dressed = sum(1 for w in weeks.values() for s in w[3].values()
-                      if s["st"] == "ACT" and not s["played"])
-        print(f"  {n} weeks written · {dressed} active-but-did-not-play player-weeks")
+                      if s["st"] == "ACT" and not s["snaps"] and s["played"])
+        excluded = sum(1 for w in weeks.values() for s in w[3].values()
+                       if s["st"] != "ACT" and not s["played"])
+        print(f"  {n} weeks written · {dressed} dressed-but-scoreless player-weeks "
+              f"now scored · {excluded} hurt/inactive/practice-squad still excluded")
 
     print(f"done → {out}\nnow run: python scripts/sleeper_war.py --data {out}")
 

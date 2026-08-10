@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Absences, CviFile, DviFile, Ownership, PlayerShard,
+  Absences, CviFile, DviFile, KnnFile, KnnProjection, Ownership, PlayerShard,
   SummaryRow, Team, Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jDaily, jl, jlDaily } from "../lib/data";
@@ -68,6 +68,8 @@ export default function Player({ pid }: { pid: string }) {
   const [career, setCareer] = useState<CareerSeason[] | null>(null);
   /** career split by the franchise that held him — the table's footer */
   const [splits, setSplits] = useState<OwnerSplit[]>([]);
+  /** the experimental analog projection, shown beside the parametric one */
+  const [knn, setKnn] = useState<KnnProjection | null>(null);
 
   const last = meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : meta.seasons[meta.seasons.length - 1];
@@ -99,6 +101,9 @@ export default function Player({ pid }: { pid: string }) {
       .then(t => { if (live) setTeams(t); }).catch(() => {});
     jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
     loadHonors(meta.seasons).then(h => { if (live) setHonors(h); }).catch(() => {});
+    jl<KnnFile>("projections_knn_hybrid.json")
+      .then(k => { if (live) setKnn(k.players.find(p => p.pid === pid) ?? null); })
+      .catch(() => {});
     loadCareer(meta.seasons).then(c => {
       if (!live) return;
       const rows = c[pid] ?? [];
@@ -436,6 +441,60 @@ export default function Player({ pid }: { pid: string }) {
                   </tbody>
                 </table>
                 </TScroll>
+              </div>
+            )}
+
+            {knn && (
+              <div>
+                <div className="band">
+                  <span className="band-label">Analog · experimental</span>
+                  <span className="band-note">
+                    The {knn.n} most similar historical player-seasons and what they
+                    actually returned · median, not mean
+                  </span>
+                </div>
+                <TScroll>
+                <table style={{ tableLayout: "fixed" }}>
+                  <thead>
+                    <tr>
+                      <th scope="col" className="t" style={{ width: "26%" }}>Season</th>
+                      <th scope="col" className="n edge" style={{ width: "15%" }}>Cohort median</th>
+                      <th scope="col" className="n" style={{ width: "15%" }}>p20</th>
+                      <th scope="col" className="n" style={{ width: "15%" }}>p80</th>
+                      <th scope="col" className="n edge" style={{ width: "15%" }}>Cleared 0.5</th>
+                      <th scope="col" className="n" style={{ width: "14%" }}>Model</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {knn.proj.map((v, i) => (
+                      <tr key={i} className={i % 2 ? "zebra" : ""}>
+                        <td className="t fig strong">
+                          {years[i] ?? `Year ${i + 1}`}
+                        </td>
+                        <td className="n edge">
+                          <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(v, 2)}</span>
+                        </td>
+                        <td className="n fig quiet">{fmt(knn.low[i], 2)}</td>
+                        <td className="n fig quiet">{fmt(knn.high[i], 2)}</td>
+                        {/* the breakout rate — a median of 0.00 with 20% here is a
+                            very different asset from 0.00 with 0% */}
+                        <td className="n fig edge">{Math.round(knn.share_useful[i] * 100)}%</td>
+                        <td className="n fig quiet last">
+                          {proj?.composite?.[i] == null ? "—" : fmt(proj.composite[i], 2)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </TScroll>
+                <div className="tnote" style={{ padding: "12px 22px 16px" }}>
+                  Matched on his last three seasons of scoring and games played, plus age
+                  and experience — so a player who barely played is compared with players
+                  who barely played, not extrapolated to a full season. He shows as{" "}
+                  {knn.gps.map((g, i) => `${Math.round(knn.seen[i] * 100)} pts in ${g} games`).join(" · ")}.
+                  A comparable who was hurt that year is skipped rather than counted as
+                  zero; one who left the league is a real 0.00.
+                </div>
               </div>
             )}
 
