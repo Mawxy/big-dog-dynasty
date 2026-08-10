@@ -1,0 +1,6 @@
+{
+ "_note": "gsis_id -> the name people use. Read by project_war_knn.py for the Closest comparables table. Keyed by id, never by name: the name is the thing being corrected, so it cannot also be the key. Sleeper's label outranks this; nflverse's `common` column ranks below it.",
+ "_example": {
+  "00-0027944": "Julio Jones"
+ }
+}
