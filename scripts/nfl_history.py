@@ -40,7 +40,7 @@ Weeks 1-14 only (the league's regular season), season_type REG.
 
 Output layout (mirrors sleeper_pull.py):
   <out>/players.json                      gsis_id -> {position, first/last name}
-  <out>/players_meta.csv                  + birth_date, draft season/round/pick
+  <out>/players_meta.csv                  + common name, birth_date, draft slot
   <out>/<season>/league.json              synthetic league shell
   <out>/<season>/matchups/week_NN.json    12 teams: points + players_points
   <out>/<season>/played/week_NN.json      pid -> NFL team (settled played rule)
@@ -434,8 +434,19 @@ def main():
                 first = g(p, "display_name", "player_name", default=str(gid))
             players_json[gid] = {"position": pos, "first_name": first,
                                  "last_name": last}
+            # THE NAME PEOPLE ACTUALLY USE, carried alongside the legal one.
+            # first_name is what the birth certificate says: nflverse has Julio
+            # Jones as Quintorris, CeeDee Lamb as Cedarian, Dak Prescott as
+            # Rayne and Johnny Manziel as Johnathan. Fine as a join key, unusable
+            # in a comparables table. `football_name` is nflverse's own common
+            # first name; display_name is the full common name. Prefer those and
+            # fall back to the legal name so the column is never empty.
+            fb = g(p, "football_name", default="") or ""
+            common = (f"{fb} {last}".strip() if fb
+                      else (g(p, "display_name", "player_name", default="") or "")) \
+                or f"{first} {last}".strip()
             d = draft.get(gid, (None, None, None))
-            meta_rows.append([gid, f"{first} {last}".strip(), pos,
+            meta_rows.append([gid, f"{first} {last}".strip(), common, pos,
                               g(p, "birth_date", "birthdate", default=""),
                               d[0] or "", d[1] or "", d[2] or ""])
 
@@ -443,7 +454,7 @@ def main():
     (out / "players.json").write_text(json.dumps(players_json), encoding="utf-8")
     with open(out / "players_meta.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["gsis_id", "name", "pos", "birth_date",
+        w.writerow(["gsis_id", "name", "common", "pos", "birth_date",
                     "draft_season", "draft_round", "draft_pick"])
         w.writerows(meta_rows)
     print(f"players.json: {len(players_json)} QB/RB/WR/TE")

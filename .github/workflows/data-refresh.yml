@@ -102,6 +102,10 @@ jobs:
         run: python scripts/shard_players.py --out data
       - name: Bridge B (market value -> WAR, refit on fresh projections)
         run: python scripts/value_bridge.py
+      # after project_war and the analog model: the matrix reads both, so it
+      # cannot run earlier or it publishes six curves off a stale scalar arm
+      - name: Six-curve projection matrix (scalar / analog / blend)
+        run: python scripts/project_matrix.py
       - name: DVI (ensemble trade value -> data/dvi.json)
         run: python scripts/blend_values.py
       # after DVI: CVI reads dvi.json to publish the gap between them

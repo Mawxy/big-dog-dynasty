@@ -195,18 +195,100 @@ export interface KnnProjection {
   /** cohort size, and how many of it were scored per horizon year (an analog
    *  hurt that year is skipped, not zeroed — see METHODOLOGY on absence) */
   n: number; n_scored?: number[];
+  /** how alike the cohort actually is. d_med 0.3 is a real neighbourhood, 1.8
+   *  is a shrug; `padded` means it had to reach past the cutoff to fill. */
+  d_med?: number; d_max?: number; padded?: boolean; eff_n?: number;
+  /** d_med on the readable 0-100 match scale — see KnnNeighbour.sim */
+  sim_med?: number;
   /** cohort MEDIAN per year, in league WAR */
   proj: number[]; proj_mean: number[];
   low: number[]; high: number[];
   /** share of the cohort that cleared 0.5 WAR — the breakout rate */
   share_useful: number[];
   total: number;
+  /** the three closest comparables, named. Empty for a corpus player with no
+   *  Sleeper id, since nothing on the site can link to him.
+   *
+   *  The player's OWN earlier windows are excluded from this list and from
+   *  nothing else. A career contributes one window per season, so Josh Allen's
+   *  two nearest neighbours are Josh Allen 2024 and 2023 — right for the median,
+   *  which is a statement about how rare the pattern is, and useless as an
+   *  answer to "who does he look like". */
+  near?: KnnNeighbour[];
+}
+export interface KnnNeighbour {
+  name: string | null;
+  /** the season he was entering — his `seen` is the three years before it */
+  season: number;
+  age: number | null;
+  /** distance, in standard deviations of the position's own features */
+  d: number;
+  /** the same thing on a 0-100 scale, gaussian, width set so the cohort
+   *  membership cutoff lands exactly on 50 — at or above 50 he was inside the
+   *  neighbourhood, below it he was reached for. Comparable across players,
+   *  unlike the model's own per-player kernel. */
+  sim: number;
+  /** what he had done going in: seasonal points/100 and games, most recent
+   *  first. null is a season that does not exist, not a season of zero. */
+  seen: (number | null)[];
+  gps: (number | null)[];
+  /** what he ACTUALLY returned over the next three years, in league WAR.
+   *  null = hurt or inactive, skipped rather than scored; a real 0.0 means he
+   *  left the league. Different facts, different renderings. */
+  then: (number | null)[];
+  then_gp: number[];
 }
 export interface KnnFile {
   meta: { model: string; space: string; k: number; horizon: number;
     corpus_seasons: number[]; corpus_rows: number; seed_season: number;
     league_scale_ratio: number; absent: string };
   players: KnnProjection[];
+}
+
+/** data/<league>/projections_matrix.json — the six curves, written by
+ *  scripts/project_matrix.py. Two models (scalar, analog) plus their blend,
+ *  each with and without Sleeper's depth-chart read folded in.
+ *
+ *  The analog composite is the odd one out and deliberately so: its Sleeper
+ *  weight scales with `trust` rather than sitting at the scalar model's flat
+ *  0.9. At a flat 0.9 the scalar and analog composites agree to a mean of
+ *  0.020 WAR — the same curve twice, not two curves. */
+export const MATRIX_CURVES = [
+  "scalar_natural", "scalar_composite",
+  "analog_natural", "analog_composite",
+  "blend_natural", "blend_composite",
+] as const;
+export type MatrixCurve = typeof MATRIX_CURVES[number];
+export type MatrixModel = "scalar" | "analog" | "blend";
+
+export type MatrixRow = {
+  pid: string; name: string; pos: string; team: string | null;
+  age: number | null;
+  /** whether a curve is its own model's read or a fallback. No analog cohort
+   *  means the analog and blend curves ARE the scalar curve; no Sleeper above
+   *  the pts13 floor means every composite is its own natural. Both have to be
+   *  said out loud or the table shows agreement that was never measured. */
+  has_analog: boolean; has_sleeper: boolean;
+  sleeper_war: number | null;
+  pts13: number;
+  /** how much the analog's cohort is worth, in [0,1] — drives both the blend
+   *  of the two naturals and the analog composite's Sleeper weight */
+  trust: number | null;
+  w_sleeper: number | null;
+  d_med: number | null; padded: boolean | null;
+  totals: Record<MatrixCurve, number>;
+} & Record<MatrixCurve, number[]>;
+
+export interface MatrixFile {
+  meta: {
+    curves: MatrixCurve[]; horizon: number; blend_w: number[];
+    trust_p: number; pad_penalty: number; w_min: number; w_max: number;
+    pts13_floor: number; d_ref: Record<string, number>;
+    league_scale_ratio: number;
+    players: number; with_analog: number; with_sleeper: number;
+    note: string;
+  };
+  players: MatrixRow[];
 }
 
 export interface SleeperProj { pos: string; pts13: number; ppg: number; raw_pts: number; }

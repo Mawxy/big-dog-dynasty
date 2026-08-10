@@ -131,6 +131,44 @@ def match_meta(name, pos, idx):
     return None
 
 
+def curve_at(model, pos, age, lvl, use_grid=True):
+    """next_rate and its 80% band at THIS player's own level.
+
+    Prefers `curve_grid` — a local fit over age x LEVEL — and falls back to the
+    age bucket's global line when the grid is absent or does not cover the
+    query. The bucket line conditions on the wrong variable: it splits age
+    exactly and then assumes one straight line across every LEVEL in the cell,
+    so a sub-replacement backup helps set where the line sits for a starter.
+    Returns (rate, p20, p80).
+    """
+    grid = model.get('curve_grid') if use_grid else None
+    g = grid.get(pos) if grid else None
+    if g:
+        m = grid['meta']
+        ages, levels = m['ages'], m['levels']
+        ai = min(range(len(ages)), key=lambda i: abs(ages[i] - age))
+        # linear interpolation ALONG LEVEL: the grid step is 0.1 and the curve
+        # is smooth in it, so nearest-neighbour would quantise every projection
+        # onto a 0.1-wide staircase.
+        lo = max(0, min(len(levels) - 2,
+                        int((lvl - levels[0]) / (levels[1] - levels[0]))))
+        x0, x1 = levels[lo], levels[lo + 1]
+        t = 0.0 if x1 == x0 else max(0.0, min(1.0, (lvl - x0) / (x1 - x0)))
+
+        def at(key):
+            a, b = g[key][ai][lo], g[key][ai][lo + 1]
+            if a is None or b is None:
+                return None
+            return a + (b - a) * t
+        r, q20, q80 = at('pred'), at('p20'), at('p80')
+        if r is not None and q20 is not None and q80 is not None:
+            return r, q20, q80
+    b = group_for(model['curves'].get(pos) or [], age)
+    if not b:
+        return 0.0, 0.0, 0.0
+    return b['a'] + b['b'] * lvl, b['p20'], b['p80']
+
+
 def group_for(groups, age):
     for g in groups:
         if g['min_age'] <= age <= g['max_age']:
@@ -166,12 +204,31 @@ def depth_of(gps, upto):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--horizon', type=int, default=3)
+    # OPT-IN, not default. The LEVEL-local grid fixes a real defect in the
+    # curve — see build_grid in aging_curves.py — but it does NOT improve the
+    # model end to end, because project_war's durability and shrinkage terms
+    # were fitted with the biased curve in place and had already absorbed it.
+    # Four rolling holdout seasons, de-biased per season, n=856: bucket mae
+    # 0.476, grid 0.485, and QB (the position the defect is worst in) is where
+    # the grid loses most, 0.543 vs 0.574. Shipping it would mean re-fitting
+    # durability against it first.
+    ap.add_argument('--grid', action='store_true',
+                    help='use curve_grid (LEVEL-local) instead of the age-bucket '
+                         'lines. Experimental — see the note above.')
+    ap.add_argument('--out', default='projections.json')
+    # Backtest hooks. Projecting from an earlier seed with curves fit only
+    # through that seed is the only way to score this model out of sample —
+    # the shipped curves are fit through the season you would be predicting.
+    ap.add_argument('--seed', type=int, default=None,
+                    help='pretend this is the last completed season')
+    ap.add_argument('--curves', default=None,
+                    help='path to an aging_curves.json (default nfl_history/)')
     args = ap.parse_args()
     H = args.horizon
 
     meta = json.load(open(DATA / 'meta.json', encoding='utf-8'))
     seasons = sorted(int(s) for s in meta['seasons'])
-    seed = int(meta.get('latest') or seasons[-2])
+    seed = args.seed or int(meta.get('latest') or seasons[-2])
     roster_season = seasons[-1]
 
     # per-13 rate + gp per player for seed-2..seed
@@ -214,7 +271,8 @@ def main():
         yrs = sorted(int(y) for y in (pv.get('meta') or {}).get('years_published') or [])
         slot_exp = {b['bucket']: [float(b.get('raw', {}).get(str(y), 0.0)) for y in yrs]
                     for b in pv.get('picks', [])}
-    model = json.load(open(ROOT / 'nfl_history' / 'aging_curves.json', encoding='utf-8'))
+    model = json.load(open(args.curves or (ROOT / 'nfl_history' / 'aging_curves.json'),
+                           encoding='utf-8'))
     curves, avail, priors = model['curves'], model['availability'], model['capital_priors']
     UDFA_PICK = model['meta'].get('udfa_pick', 260)
     ptw = model.get('pts_to_war', {})
@@ -322,8 +380,7 @@ def main():
             if anchor is None:
                 anchor = L                    # true-talent anchor (year-1 level)
             age = base_age + (frm - seed)
-            g = group_for(curves[pos], age)
-            r = g['a'] + g['b'] * L
+            r, g_p20, g_p80 = curve_at(model, pos, age, L, args.grid)
             # pedigree hold (fitted in aging_curves): young early-pick
             # producers deviate from their bucket's pooled regression —
             # +0.08/yr for the Chase/Jefferson WR archetype, negative for
@@ -342,11 +399,11 @@ def main():
             # NO zero-floor on the pessimistic band: negative projections are
             # real, and a band that can't go below 0 renders ABOVE the line
             # for sub-replacement players (Darnell Washington bug, 2026-07-20)
-            nat_lo.append(round(r + g['p20'], 3))
-            nat_hi.append(round(r + g['p80'], 3))
-            adj_lo.append(round((r + g['p20']) * av, 3))
-            adj_hi.append(round((r + g['p80']) * av, 3))
-            p20s.append(g['p20']); p80s.append(g['p80'])
+            nat_lo.append(round(r + g_p20, 3))
+            nat_hi.append(round(r + g_p80, 3))
+            adj_lo.append(round((r + g_p20) * av, 3))
+            adj_hi.append(round((r + g_p80) * av, 3))
+            p20s.append(g_p20); p80s.append(g_p80)
             # roll forward WITHOUT re-regressing: feed a value dampened toward the
             # anchor so the level holds and aging (not compounding) drives the decline
             rates[fy] = r + DECAY_DAMP * (anchor - r)
@@ -427,7 +484,7 @@ def main():
     }, 'players': rows}
     # compact separators: the site fetches this on the landing page and
     # indentation was 40% of its bytes
-    (DATA / 'projections.json').write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
+    (DATA / args.out).write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
 
     print(f"seed {seed}  rosters {roster_season}  projected {len(rows)}  "
           f"skipped no-history {skipped}  age-default {age_def}  "
@@ -437,7 +494,7 @@ def main():
     for r in rows[:22]:
         print(f"{r['name'][:21]:21s} {r['pos']:3s} {r['age']:>2d} {r['pick']:>4d} {r['level']:>5.2f} | "
               f"{r['total']:>5.2f}  {r['total_comp']:>5.2f}  {r['total_exp']:>5.2f}")
-    print(f"\nwrote data/projections.json")
+    print(f"\nwrote data/{args.out}")
 
 
 if __name__ == '__main__':

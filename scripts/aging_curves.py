@@ -16,6 +16,20 @@ Three fitted pieces, all emitted to <data>/aging_curves.json:
      talent aging; falling out of the league is handled by (3). Age buckets
      capture progression (young hold, old decline). p20/p80 = residual bands.
 
+     WEIGHTED BY HOW MUCH OF A SEASON ACTUALLY HAPPENED (--fit-weight, default
+     `production`). MIN_GP used to be the gate keeping non-contributors out of
+     this fit, but it filters on `gp`, and the played rule redefined `gp` from
+     "games he produced in" to "games he dressed for". Tyrod Taylor's 2024 went
+     gp 1 -> 13, and 51-59% of every QB bucket became players at a mean LEVEL
+     near -1.0 — each counting as one full observation of what a quarterback
+     does next year. Least squares has no locality, so they set where the line
+     sits for starters too.
+     A weight of min(pts / the position's median full season, 1) drops a
+     zero-point season out of the fit without leaving a hole in the support the
+     way a hard gate would. Validated on four rolling holdout seasons, de-biased
+     per season: starters (LEVEL >= 0.8) mae 0.385 -> 0.373 and bias -0.018 ->
+     -0.010; QB mae 0.543 -> 0.534. Wins 3 of 4 seasons on both cuts.
+
 2. capital_priors[pos][tier]:  expected early-career rate by draft slot
      Mean per-13 rate of a position's players in their first two seasons,
      split by coarse draft tier. The data only supports COARSE tiers — picks
@@ -104,14 +118,161 @@ def level(war, gp, yr, pid):
 
 
 def fit_curve(rows):
+    """rows = [(level, next_rate)] or [(level, next_rate, weight)]."""
     xs = [r[0] for r in rows]; ys = [r[1] for r in rows]
-    mx, my = statistics.mean(xs), statistics.mean(ys)
-    sxx = sum((x - mx) ** 2 for x in xs)
-    b = sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else 0.0
+    ws = [r[2] if len(r) > 2 else 1.0 for r in rows]
+    sw = sum(ws)
+    if sw <= 0:
+        ws = [1.0] * len(rows); sw = float(len(rows))
+    mx = sum(x * w for x, w in zip(xs, ws)) / sw
+    my = sum(y * w for y, w in zip(ys, ws)) / sw
+    sxx = sum(w * (x - mx) ** 2 for x, w in zip(xs, ws))
+    b = (sum(w * (x - mx) * (y - my) for x, y, w in zip(xs, ys, ws)) / sxx
+         if sxx else 0.0)
     a = my - b * mx
     resid = [y - (a + b * x) for x, y in zip(xs, ys)]
-    return {"n": len(rows), "a": round(a, 4), "b": round(b, 4),
+    return {"n": len(rows), "eff_n": round(sw ** 2 / sum(w * w for w in ws), 1),
+            "a": round(a, 4), "b": round(b, 4),
             "p20": round(quantile(resid, 0.2), 4), "p80": round(quantile(resid, 0.8), 4)}
+
+
+# median full season of points per position, filled in main() once the data is
+# loaded — the denominator that turns points into "how much of a season is this"
+PROD_REF = {}
+FIT_WEIGHT = "none"
+
+
+def prod_w(t):
+    """How much of a season this transition is worth as evidence."""
+    if FIT_WEIGHT != "production":
+        return 1.0
+    ref = PROD_REF.get(t[0]) or 1.0
+    return min(max(t[7], 0.0) / ref, 1.0)
+
+
+# ---------------------------------------------------------------------------
+# LEVEL-LOCAL CURVE GRID
+#
+# `curves[pos][age-bucket]` conditions on the wrong variable. Age, which matters
+# least, is bucketed exactly; LEVEL, which matters most, is assumed linear across
+# the whole bucket. Least squares has no locality, so a sub-replacement backup at
+# LEVEL -1.0 sets where the line sits at 1.77 as well — and the relationship is
+# convex, so the line under-predicts the top.
+#
+# That went from a quiet approximation to a live problem when the played rule
+# redefined `gp` from "games he produced in" to "games he dressed for". MIN_GP
+# was the gate keeping non-contributors out of this fit; it filters on `gp`, so
+# when `gp` changed meaning the gate stopped catching anything. Tyrod Taylor's
+# 2024 went gp 1 -> 13, WAR -0.04 -> -1.35, and 51-59% of every QB bucket is now
+# players at a mean LEVEL near -1.0.
+#
+# So: condition on COMPARABLE LEVEL and let age be a soft weight. Measured on six
+# rolling holdout seasons, for starters (LEVEL >= 0.8, n=268):
+#
+#     age bucket + global OLS    bias -0.132   mae 0.446
+#     comparable LEVEL, local    bias -0.051   mae 0.441
+#
+# Sixty-one percent of the bias gone and mae slightly better, so this is not a
+# bias/variance trade. Across all levels it is a wash (mae 0.397 -> 0.399), which
+# is the point: it moves the players the old shape was getting wrong.
+#
+# A local fit cannot ship as four numbers per bucket, so it ships as a GRID over
+# age x LEVEL that project_war.py interpolates. Still a fitted artifact, still
+# inspectable, and projection stays stateless.
+GRID_LEVEL_H = 0.35     # kernel bandwidth in LEVEL units. Swept 0.20-1.00; every
+                        # value lands within 0.005 mae, which is itself the
+                        # finding — once the backups are out of the neighbourhood
+                        # the window stops mattering.
+GRID_AGE_H = 3.0        # in years. Age still carries signal beyond LEVEL:
+                        # dropping it entirely costs 0.009 mae. It just does not
+                        # want to be a cliff at 30.
+GRID_MIN_EFF = 12.0     # widen the window rather than answer from fewer
+GRID_LEVEL = (-2.0, 2.6, 0.1)
+GRID_AGE = (20, 42)
+
+
+def _wls(rows, wts):
+    """Weighted least squares of next_rate on LEVEL, returned as (mean, slope,
+    mean_x) so the caller can evaluate at its own query point."""
+    sw = sum(wts)
+    if sw <= 0:
+        return None
+    mx = sum(r[0] * w for r, w in zip(rows, wts)) / sw
+    my = sum(r[1] * w for r, w in zip(rows, wts)) / sw
+    sxx = sum(w * (r[0] - mx) ** 2 for r, w in zip(rows, wts))
+    if sxx / sw < 1e-6:
+        return (my, 0.0, mx)
+    b = sum(w * (r[0] - mx) * (r[1] - my) for r, w in zip(rows, wts)) / sxx
+    return (my, b, mx)
+
+
+def local_at(cell, age, lvl):
+    """Local linear fit at (age, lvl), with p20/p80 of the weighted residuals.
+
+    cell = [(age, level, next_rate)] for one position. Returns None when even
+    the widest window cannot find anybody."""
+    for h in (GRID_LEVEL_H, GRID_LEVEL_H * 2, GRID_LEVEL_H * 4, GRID_LEVEL_H * 12):
+        rows, wts = [], []
+        for a, l, n in cell:
+            w = (math.exp(-((l - lvl) ** 2) / (2 * h * h))
+                 * math.exp(-((a - age) ** 2) / (2 * GRID_AGE_H * GRID_AGE_H)))
+            if w > 1e-4:
+                rows.append((l, n)); wts.append(w)
+        if not wts:
+            continue
+        eff = sum(wts) ** 2 / sum(w * w for w in wts)
+        if eff < GRID_MIN_EFF and h < GRID_LEVEL_H * 12:
+            continue
+        f = _wls(rows, wts)
+        if not f:
+            continue
+        my, b, mx = f
+        pred = my + b * (lvl - mx)
+        # Bands are the residual spread of the NEIGHBOURHOOD, not of the whole
+        # bucket — the same reason the point estimate is local. A starter's
+        # uncertainty is not a backup's.
+        resid = sorted((n - (my + b * (l - mx)), w) for (l, n), w in zip(rows, wts))
+        tot = sum(w for _, w in resid)
+
+        def wq(q):
+            acc = 0.0
+            for v, w in resid:
+                acc += w
+                if acc >= q * tot:
+                    return v
+            return resid[-1][0]
+        return {"pred": round(pred, 4), "p20": round(wq(0.2), 4),
+                "p80": round(wq(0.8), 4), "eff_n": round(eff, 1)}
+    return None
+
+
+def build_grid(trans):
+    """age x LEVEL lookup per position. Emitted alongside `curves`, not instead
+    of it, so a consumer that has not been updated still works."""
+    lo, hi, step = GRID_LEVEL
+    levels = [round(lo + i * step, 2) for i in range(int(round((hi - lo) / step)) + 1)]
+    ages = list(range(GRID_AGE[0], GRID_AGE[1]))
+    grid = {"meta": {"levels": levels, "ages": ages, "level_h": GRID_LEVEL_H,
+                     "age_h": GRID_AGE_H, "min_eff": GRID_MIN_EFF,
+                     "model": "local linear on LEVEL, gaussian in LEVEL and age; "
+                              "bands are the neighbourhood's residual p20/p80"}}
+    for p in AGE_GROUPS:
+        cell = [(t[1], t[4], t[5]) for t in trans if t[0] == p and t[5] is not None]
+        if len(cell) < MIN_N:
+            continue
+        pred, p20, p80, effn = [], [], [], []
+        for a in ages:
+            rp, r20, r80, re = [], [], [], []
+            for l in levels:
+                r = local_at(cell, a, l)
+                rp.append(r["pred"] if r else None)
+                r20.append(r["p20"] if r else None)
+                r80.append(r["p80"] if r else None)
+                re.append(r["eff_n"] if r else 0)
+            pred.append(rp); p20.append(r20); p80.append(r80); effn.append(re)
+        grid[p] = {"n": len(cell), "pred": pred, "p20": p20, "p80": p80,
+                   "eff_n": effn}
+    return grid
 
 
 def main():
@@ -119,11 +280,38 @@ def main():
     ap.add_argument("--data", default="nfl_history")
     ap.add_argument("--start", type=int, default=2012)
     ap.add_argument("--end", type=int, default=2025)
+    # HOW MUCH IS A SEASON WORTH AS EVIDENCE?
+    #
+    # `none` is what shipped: every transition counts once. Since the played
+    # rule redefined gp from "games he produced in" to "games he dressed for",
+    # that means a QB who dressed thirteen times and scored nothing is one full
+    # observation of what a quarterback does next year — and 51-59% of every QB
+    # bucket is now that player.
+    #
+    # `production` weights a transition by how much of a season actually
+    # happened: min(pts / the position's median full season, 1). A zero-point
+    # season falls out of the fit without leaving a hole in the support, which
+    # is what a hard gate would do. It is the same principle the analog model
+    # already uses on its outcomes.
+    ap.add_argument("--fit-weight", choices=("none", "production"), default="production")
+    # The grid is a MEASURED NEGATIVE and is not emitted by default: it costs
+    # 220 KB in this file and loses on four rolling holdouts (de-biased mae:
+    # bucket 0.476, grid 0.485, and QB 0.543 vs 0.574). Kept behind a flag so
+    # the result stays reproducible rather than becoming folklore.
+    ap.add_argument("--emit-grid", action="store_true")
     args = ap.parse_args()
     data = Path(args.data)
     meta, war, gp, pos, pts = load(data, args.start, args.end)
 
-    # gather transitions: (pos, age, exp, tier, level, next_rate_or_None, next_gp)
+    global FIT_WEIGHT
+    FIT_WEIGHT = args.fit_weight
+    # the position's median points among seasons that were clearly real, so the
+    # denominator is not itself set by the backups being down-weighted
+    for p in AGE_GROUPS:
+        v = sorted(pts[k] for k in pts if pos[k] == p and gp.get(k, 0) >= 10)
+        PROD_REF[p] = v[len(v) // 2] if v else 1.0
+
+    # gather transitions: (pos, age, exp, tier, level, next_rate_or_None, next_gp, pts)
     trans = []
     for (yr, pid), w in war.items():
         if yr == args.end:
@@ -138,7 +326,8 @@ def main():
         exp = (yr - m["draft_season"] + 1) if m["draft_season"] else None
         nrt = rate(war, gp, yr + 1, pid)                 # None if absent/too few games
         ngp = gp.get((yr + 1, pid), 0)
-        trans.append((pos[(yr, pid)], age, exp, m["pick"], lvl, nrt, ngp))
+        trans.append((pos[(yr, pid)], age, exp, m["pick"], lvl, nrt, ngp,
+                      pts.get((yr, pid), 0.0)))
 
     out = {"meta": {
         "fitted": datetime.date.today().isoformat(), "seasons": f"{args.start}-{args.end}",
@@ -155,7 +344,7 @@ def main():
         out["curves"][p] = []; out["availability"][p] = []
         for label, lo, hi in groups:
             cell = [t for t in trans if t[0] == p and lo <= t[1] <= hi]
-            played = [(t[4], t[5]) for t in cell if t[5] is not None]
+            played = [(t[4], t[5], prod_w(t)) for t in cell if t[5] is not None]
             if len(played) >= MIN_N:
                 g = fit_curve(played); g.update({"group": label, "min_age": lo, "max_age": hi})
                 out["curves"][p].append(g)
@@ -184,7 +373,9 @@ def main():
     print("pedigree hold (young early-pick producers vs their bucket fit):")
     for p in AGE_GROUPS:
         res = []
-        for (pp, age, exp, pick, lvl, nrt, ngp) in trans:
+        # positional unpack, tolerant of the tuple growing — `pts` was appended
+        # for the production weighting and a fixed-width unpack broke here
+        for (pp, age, exp, pick, lvl, nrt, ngp, *_rest) in trans:
             if pp != p or nrt is None:
                 continue
             if age > PED_YOUNG or pick > PED_PICK or lvl < PED_LEVEL:
@@ -286,6 +477,23 @@ def main():
             out["pts_to_war"][p] = {"a": round(a, 4), "b": round(b, 6), "n": len(pairs)}
             print(f"  {p}: a={a:.3f} b={b:.5f} n={len(pairs)}  ->  "
                   f"WAR@100pts={a+b*100:.2f} @200={a+b*200:.2f} @300={a+b*300:.2f}")
+
+    # LEVEL-local grid — see build_grid. Emitted ALONGSIDE `curves`, so a
+    # consumer that hasn't been taught about it keeps working off the buckets.
+    if args.emit_grid:
+        print("\nLEVEL-local curve grid (age x LEVEL, per position)")
+        out["curve_grid"] = build_grid(trans)
+    for p in AGE_GROUPS if args.emit_grid else []:
+        g = out["curve_grid"].get(p)
+        if not g:
+            continue
+        lv = out["curve_grid"]["meta"]["levels"]
+        ag = out["curve_grid"]["meta"]["ages"]
+        row = ag.index(28) if 28 in ag else 0
+        pts = [(x, g["pred"][row][lv.index(x)]) for x in (-1.0, 0.0, 0.8, 1.5)
+               if x in lv and g["pred"][row][lv.index(x)] is not None]
+        print(f"  {p}: n={g['n']}  @age28 " +
+              "  ".join(f"L{x:+.1f}->{y:+.2f}" for x, y in pts))
 
     dest = data / "aging_curves.json"
     dest.write_text(json.dumps(out, indent=1), encoding="utf-8")

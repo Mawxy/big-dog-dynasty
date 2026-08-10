@@ -309,6 +309,16 @@ export interface OwnerSplit {
   gp: number;
   pts: number;
   war: number;
+  /** mean rank within position across the seasons this franchise OWNED him —
+   *  see the attribution note on ownerSplits. Null when no season he spent here
+   *  has a rank. A mean, not a placing, which is why it renders as a figure
+   *  rather than as the badge the per-season rows use. */
+  finish: number | null;
+  /** honors earned in those seasons, as [key, count] in career order — the same
+   *  shape honorTotals returns, so HonorMarks renders it the way the career row
+   *  does. Counts rather than repeats: HonorMarks keys its list by honor type,
+   *  so two `champ` entries would collide on the same React key. */
+  keys: [HonorKey, number][];
 }
 
 /** ["2022","2023","2024","2026"] -> "2022–24, 2026" */
@@ -342,18 +352,47 @@ export function yearSpan(years: string[]): string {
  * playoffs.
  */
 export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
-  const acc = new Map<string, OwnerSplit & { yrs: Set<string>; last: string }>();
+  type Acc = OwnerSplit & {
+    yrs: Set<string>; last: string; ranks: number[]; marks: HonorKey[];
+  };
+  const acc = new Map<string, Acc>();
   const bump = (
     o: { rid: string; team: string; manager: string },
     season: string, gp: number, pts: number, war: number,
   ) => {
     const e = acc.get(o.rid)
       ?? { rid: o.rid, manager: o.manager, team: o.team, seasons: 0, years: [], gp: 0, pts: 0, war: 0,
-        yrs: new Set<string>(), last: season };
+        finish: null, keys: [], yrs: new Set<string>(), last: season,
+        ranks: [], marks: [] };
     e.gp += gp; e.pts += pts; e.war += war; e.yrs.add(season);
     // keep the newest name and manager we have seen for this roster
     if (season >= e.last) { e.last = season; e.team = o.team; e.manager = o.manager; }
     acc.set(o.rid, e);
+  };
+
+  /**
+   * WHO OWNS A SEASON'S FINISH AND ITS HONORS.
+   *
+   * Production splits week by week, because it accrues week by week. A finish
+   * and an award do not: they are single season-long facts and cannot be cut in
+   * half. Giving a mid-season acquisition the same MVP mark as the manager who
+   * held him for eleven weeks would double-count the award across the table,
+   * and dropping it would lose it entirely.
+   *
+   * So they go, whole, to the franchise that held him for the most weeks of
+   * that season — the same rule the WAR path already falls back on when a
+   * weekly file is missing. A clean single-owner season is the same rule with
+   * nothing to decide.
+   */
+  const primary = (r: CareerSeason) => {
+    // Only owners who actually accumulated something are eligible. Production
+    // is capped at week 14, so a manager who traded for him in the playoffs has
+    // a span but no weeks and never entered the accumulator — and picking him
+    // here would silently drop that season's finish and its championship mark,
+    // which is exactly the season a title is most likely to be sitting in.
+    const held = r.owners.filter(o => acc.has(o.rid));
+    if (!held.length) return null;
+    return held.reduce((a, b) => (b.to - b.from > a.to - a.from ? b : a));
   };
 
   const split = rows.filter(r => r.owners.length > 1);
@@ -383,9 +422,23 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
     }
   }
 
+  // finish and honors, attributed whole to the season's primary owner
+  for (const r of rows) {
+    const p = primary(r);
+    const e = p && acc.get(p.rid);
+    if (!e) continue;
+    if (r.posRank != null) e.ranks.push(r.posRank);
+    e.marks.push(...r.keys);
+  }
+
   return [...acc.values()]
-    .map(({ yrs, last: _last, ...e }) => ({
+    .map(({ yrs, last: _last, ranks, marks, ...e }) => ({
       ...e, seasons: yrs.size, years: [...yrs].sort(),
+      finish: ranks.length ? ranks.reduce((a, b) => a + b, 0) / ranks.length : null,
+      // career order, so a manager's marks read the way the career row's do
+      keys: HONOR_ORDER
+        .map(k => [k, marks.filter(x => x === k).length] as [HonorKey, number])
+        .filter(([, n]) => n > 0),
     }))
     .sort((a, b) => b.war - a.war || b.seasons - a.seasons);
 }

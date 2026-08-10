@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Absences, CviFile, DviFile, KnnFile, KnnProjection, Ownership, PlayerShard,
-  SummaryRow, Team, Values, Weekly, WeeklyRow,
+  Absences, CviFile, DviFile, KnnFile, KnnProjection, MatrixFile, MatrixModel,
+  MatrixRow, Ownership, PlayerShard, SummaryRow, Team, Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jDaily, jl, jlDaily } from "../lib/data";
 import { fmt, mean } from "../lib/stats";
@@ -39,6 +39,19 @@ const STREAMS = [
 ] as const;
 type StreamKey = typeof STREAMS[number]["key"];
 
+/** The six curves, as three models x two streams. The lens picks which MODEL
+ *  carries the accent; all six stay on screen, because the disagreement between
+ *  them is the thing worth reading. Hiding four of six behind a control would
+ *  turn a comparison into a single answer with extra steps. */
+const MODELS: { key: MatrixModel; label: string; desc: string }[] = [
+  { key: "scalar", label: "Scalar",
+    desc: "the shipped model — one recency-weighted level, aged forward" },
+  { key: "analog", label: "Analog",
+    desc: "nearest historical comparables and what they actually returned" },
+  { key: "blend", label: "Blend",
+    desc: "the two naturals mixed by how good the analog's cohort is" },
+];
+
 /**
  * Player page (3A): split rail. The rail carries identity and the career WAR
  * ladder — projected years above played ones, so decline is visible in the
@@ -70,6 +83,10 @@ export default function Player({ pid }: { pid: string }) {
   const [splits, setSplits] = useState<OwnerSplit[]>([]);
   /** the experimental analog projection, shown beside the parametric one */
   const [knn, setKnn] = useState<KnnProjection | null>(null);
+  /** the six-curve matrix, and which model the comparison table accents */
+  const [mx, setMx] = useState<MatrixRow | null>(null);
+  const [mxMeta, setMxMeta] = useState<MatrixFile["meta"] | null>(null);
+  const [model, setModel] = useState<MatrixModel>("blend");
 
   const last = meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : meta.seasons[meta.seasons.length - 1];
@@ -103,6 +120,13 @@ export default function Player({ pid }: { pid: string }) {
     loadHonors(meta.seasons).then(h => { if (live) setHonors(h); }).catch(() => {});
     jl<KnnFile>("projections_knn_hybrid.json")
       .then(k => { if (live) setKnn(k.players.find(p => p.pid === pid) ?? null); })
+      .catch(() => {});
+    jl<MatrixFile>("projections_matrix.json")
+      .then(m => {
+        if (!live) return;
+        setMxMeta(m.meta);
+        setMx(m.players.find(p => p.pid === pid) ?? null);
+      })
       .catch(() => {});
     loadCareer(meta.seasons).then(c => {
       if (!live) return;
@@ -147,6 +171,11 @@ export default function Player({ pid }: { pid: string }) {
   const [nm, pos, nfl] = pInfo(players, pid);
   const proj = shard?.proj ?? null;
   const years = shard?.years ?? [];
+  /** the accented model, forced back to scalar for a player with no cohort.
+   *  Derived rather than corrected in state: the lens remembers what the reader
+   *  picked, so navigating from a player who has an analog read to one who does
+   *  not and back does not silently reset their choice. */
+  const modelOn: MatrixModel = mx && !mx.has_analog ? "scalar" : model;
   const owner = useMemo(() => {
     const t = teams?.find(x => x.players.includes(pid));
     return t ? t.team : null;
@@ -170,6 +199,35 @@ export default function Player({ pid }: { pid: string }) {
     }));
   }, [v, vals]);
 
+  /**
+   * The 80% band for the model the six-curve table is accenting.
+   *
+   * Each model owns its own uncertainty and they are not interchangeable: the
+   * scalar band is the residual spread of the fitted aging curve, the analog
+   * band is p20/p80 of THIS player's cohort. Blend interpolates by the same
+   * `trust` that mixes the two point estimates, so the band and the figure it
+   * sits under are always built from the same weighting.
+   *
+   * Declared HERE, above the `shard === undefined` guard below, with every
+   * other hook. Hooks must run in the same order on every render, and this one
+   * originally sat down with the render-time derivations past that early
+   * return — so the first paint ran one fewer hook than the second and React
+   * bailed out with "rendered more hooks than during the previous render".
+   */
+  const band = useMemo(() => {
+    const none = { lo: null as number[] | null, hi: null as number[] | null };
+    const p = shard?.proj ?? null;
+    if (!p) return none;
+    const sc = { lo: p.nat_low, hi: p.nat_high };
+    if (modelOn === "scalar" || !knn?.low || !knn?.high) return sc;
+    const an = { lo: knn.low, hi: knn.high };
+    if (modelOn === "analog") return an;
+    const t = mx?.trust ?? 0;
+    const mix = (a: number[], b: number[]) =>
+      b.map((val, i) => t * val + (1 - t) * (a[i] ?? val));
+    return { lo: mix(sc.lo, an.lo), hi: mix(sc.hi, an.hi) };
+  }, [shard, knn, mx, modelOn]);
+
   if (shard === undefined) return <div className="empty">Loading player…</div>;
 
   // wks goes null again whenever a different season is opened. That is a
@@ -189,6 +247,14 @@ export default function Player({ pid }: { pid: string }) {
     gp: career.reduce((s, r) => s + r.gp, 0),
     pts: career.reduce((s, r) => s + r.pts, 0),
     war: career.reduce((s, r) => s + r.war, 0),
+    /** mean position finish. Belongs on the average row and NOT on the career
+     *  row above it: a total of ranks is meaningless, but a mean of them is
+     *  exactly what "average season" claims to be. Seasons he went unranked are
+     *  left out rather than counted as a bad finish. */
+    finish: (() => {
+      const r = career.filter(x => x.posRank != null).map(x => x.posRank as number);
+      return r.length ? r.reduce((a, b) => a + b, 0) / r.length : null;
+    })(),
   } : null;
 
   /** open a season's drawer and bring it into view; clicking the open one closes it.
@@ -244,7 +310,9 @@ export default function Player({ pid }: { pid: string }) {
   const stLo = proj ? (proj[st.lo] as number[]) : null;
   const stHi = proj ? (proj[st.hi] as number[]) : null;
   // the axis has to hold whichever band is showing, not always the composite's
-  const rangeMax = proj ? Math.max(0.001, ...(stHi ?? proj.comp_high)) : 1;
+  const rangeMax = proj
+    ? Math.max(0.001, ...((mx ? band.hi : stHi) ?? proj.comp_high))
+    : 1;
 
   return (
     <>
@@ -369,7 +437,144 @@ export default function Player({ pid }: { pid: string }) {
               </div>
             )}
 
-            {proj && years.length > 0 && (
+            {/* The projection section is the six-curve table when the matrix is
+                available. The three-stream table below is the fallback for a
+                deploy whose data predates projections_matrix.json — same band,
+                same slot, so the page never loses its projection. */}
+            {proj && years.length > 0 && mx && (
+              <div ref={refs.projection}>
+                <div className="band">
+                  <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
+                  <span className="band-note">
+                    {MODELS.find(m => m.key === modelOn)?.desc} · range is its 80% band
+                  </span>
+                </div>
+                <div className="lens">
+                  {MODELS.map(m => (
+                    <button key={m.key} type="button" title={m.desc}
+                      className={`seg${m.key === modelOn ? " on" : ""}`}
+                      disabled={m.key !== "scalar" && !mx.has_analog}
+                      onClick={() => setModel(m.key)}>{m.label}</button>
+                  ))}
+                </div>
+                <TScroll>
+                <table style={{ tableLayout: "fixed" }}>
+                  <thead>
+                    <tr className="grp">
+                      <th colSpan={2}></th>
+                      {MODELS.map(m => (
+                        <th key={m.key} scope="colgroup" colSpan={2}
+                          className={`edge${m.key === modelOn ? " value" : ""}`}>
+                          {m.label}
+                        </th>
+                      ))}
+                      <th scope="colgroup" className="edge" colSpan={2}>
+                        {MODELS.find(m => m.key === modelOn)?.label} view
+                      </th>
+                    </tr>
+                    <tr>
+                      <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
+                      <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
+                      {MODELS.map(m => (
+                        <Fragment key={m.key}>
+                          <th scope="col" className="n edge" style={{ width: "10%" }}>Natural</th>
+                          <th scope="col" className="n" style={{ width: "10%" }}>Composite</th>
+                        </Fragment>
+                      ))}
+                      <th scope="col" className="t key edge" style={{ width: "27%" }}>Range</th>
+                      <th scope="col" className="n" style={{ width: "8%" }}>Position finish</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mx.blend_natural.map((_, i) => (
+                      <tr key={i} className={i % 2 ? "zebra" : ""}>
+                        <td className="t fig strong">{years[i] ?? `Year ${i + 1}`}</td>
+                        <td className="n fig quiet">{mx.age == null ? "—" : mx.age + i}</td>
+                        {MODELS.map(m => {
+                          /* A model with no cohort has no read. The JSON carries
+                             the scalar fallback so downstream consumers get a
+                             number, but repeating it here under an "Analog"
+                             header would claim a measurement that never
+                             happened — so it reads as an em dash instead. */
+                          const off = m.key !== "scalar" && !mx.has_analog;
+                          const on = m.key === modelOn && !off;
+                          return (
+                            <Fragment key={m.key}>
+                              {(["natural", "composite"] as const).map((s, k) => {
+                                const v = mx[`${m.key}_${s}` as const][i];
+                                /* no Sleeper above the pts13 floor means the
+                                   composite IS the natural — shown, but never
+                                   accented, so an echo cannot read as a second
+                                   opinion */
+                                const echo = s === "composite" && !mx.has_sleeper;
+                                return (
+                                  <td key={s} className={`n${k === 0 ? " edge" : ""}${on && !echo ? "" : " fig quiet"}`}>
+                                    {off ? <span className="fig quiet">—</span>
+                                      : on && !echo
+                                        ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(v, 2)}</span>
+                                        : fmt(v, 2)}
+                                  </td>
+                                );
+                              })}
+                            </Fragment>
+                          );
+                        })}
+                        <td className="t edge" style={{ whiteSpace: "normal" }}>
+                          {band.lo && band.hi ? <>
+                            <div className="range-band">
+                              <div className="fill" style={{
+                                left: `${(Math.max(0, band.lo[i] ?? 0) / rangeMax * 100).toFixed(1)}%`,
+                                width: `${(Math.max(0, (band.hi[i] ?? 0) - Math.max(0, band.lo[i] ?? 0)) / rangeMax * 100).toFixed(1)}%`,
+                              }} />
+                              <div className="tick" style={{ left: `${(Math.max(0, mx[`${modelOn}_natural` as const][i]) / rangeMax * 100).toFixed(1)}%` }} />
+                            </div>
+                            <div className="range-ends">
+                              <span>{fmt(band.lo[i] ?? 0, 2)}</span>
+                              <span>{fmt(band.hi[i] ?? 0, 2)}</span>
+                            </div>
+                          </> : <span className="fig quiet">—</span>}
+                        </td>
+                        <td className="n last">
+                          {proj.posFin?.[i]
+                            ? <span className="pos wide" style={{ background: POS_COLOR[pos] || "var(--rule-2)" }}>{pos}{proj.posFin[i]}</span>
+                            : <span className="fig quiet">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                </TScroll>
+                <div className="tnote" style={{ padding: "12px 22px 16px" }}>
+                  {!mx.has_analog
+                    ? "No analog cohort — he has never been scored in an NFL season the corpus covers, so only the scalar curves exist."
+                    : <>
+                      Blend and the analog composite are both weighted by{" "}
+                      <strong>trust {fmt(mx.trust ?? 0, 2)}</strong> — how dense
+                      this player's cohort of historical comparables actually is
+                      (median distance {fmt(mx.d_med ?? 0, 2)}
+                      {mx.padded ? ", padded past the cutoff to fill twelve" : ""}).
+                      A tight cohort keeps the analog's own read; a thin one hands
+                      the answer to the scalar model and to Sleeper.
+                    </>}
+                  {" "}
+                  {mx.has_sleeper
+                    ? <>Sleeper projects {num(Math.round(mx.pts13))} points over 13 games,
+                      worth {fmt(mx.sleeper_war ?? 0, 2)} WAR, taken at{" "}
+                      {Math.round((mx.w_sleeper ?? 0) * 100)}% in year one by the analog
+                      composite and {Math.round((mxMeta?.blend_w?.[0] ?? 0.9) * 100)}% by
+                      the other two.</>
+                    : <>Sleeper has no usable projection for him — under{" "}
+                      {mxMeta?.pts13_floor ?? 25} points is absent data, not a
+                      forecast of nearly zero — so every composite falls back to
+                      its own natural.</>}
+                  {proj.expected && <> Discounted for availability rather than shown
+                    if-healthy, the scalar path is{" "}
+                    {proj.expected.map(v => fmt(v, 2)).join(" · ")}.</>}
+                </div>
+              </div>
+            )}
+
+            {proj && years.length > 0 && !mx && (
               <div ref={refs.projection}>
                 <div className="band">
                   <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
@@ -444,43 +649,57 @@ export default function Player({ pid }: { pid: string }) {
               </div>
             )}
 
-            {knn && (
+            {knn && knn.near && knn.near.length > 0 && (
               <div>
                 <div className="band">
-                  <span className="band-label">Analog · experimental</span>
+                  <span className="band-label">Closest comparables · {knn.near.length} of {knn.n}</span>
                   <span className="band-note">
-                    The {knn.n} most similar historical player-seasons and what they
-                    actually returned · median, not mean
+                    Nearest historical player-seasons, and what each one actually
+                    returned over the three years that followed
                   </span>
                 </div>
                 <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
-                      <th scope="col" className="t" style={{ width: "26%" }}>Season</th>
-                      <th scope="col" className="n edge" style={{ width: "15%" }}>Cohort median</th>
-                      <th scope="col" className="n" style={{ width: "15%" }}>p20</th>
-                      <th scope="col" className="n" style={{ width: "15%" }}>p80</th>
-                      <th scope="col" className="n edge" style={{ width: "15%" }}>Cleared 0.5</th>
-                      <th scope="col" className="n" style={{ width: "14%" }}>Model</th>
+                      <th scope="col" className="t" style={{ width: "27%" }}>Comparable</th>
+                      <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
+                      <th scope="col" className="t edge" style={{ width: "24%" }}>Points going in</th>
+                      {[0, 1, 2].map(i => (
+                        <th key={i} scope="col" className={`n${i === 0 ? " edge" : ""}`}
+                          style={{ width: "11%" }}>Year {i + 1}</th>
+                      ))}
+                      <th scope="col" className="n edge" style={{ width: "10%" }}>Match</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {knn.proj.map((v, i) => (
-                      <tr key={i} className={i % 2 ? "zebra" : ""}>
-                        <td className="t fig strong">
-                          {years[i] ?? `Year ${i + 1}`}
+                    {knn.near.map((m, i) => (
+                      <tr key={`${m.name}-${m.season}`} className={i % 2 ? "zebra" : ""}>
+                        <td className="t name">{m.name ?? "—"} <span className="fig quiet">{m.season}</span></td>
+                        <td className="n fig quiet">{m.age ?? "—"}</td>
+                        {/* the same three numbers the match was made on, most
+                            recent first. A slot he has no season for reads as a
+                            dash: it is not a season in which he scored nothing. */}
+                        <td className="t fig quiet edge">
+                          {m.seen.map(v => v == null ? "—" : Math.round(v * 100)).join(" · ")}
                         </td>
-                        <td className="n edge">
-                          <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(v, 2)}</span>
-                        </td>
-                        <td className="n fig quiet">{fmt(knn.low[i], 2)}</td>
-                        <td className="n fig quiet">{fmt(knn.high[i], 2)}</td>
-                        {/* the breakout rate — a median of 0.00 with 20% here is a
-                            very different asset from 0.00 with 0% */}
-                        <td className="n fig edge">{Math.round(knn.share_useful[i] * 100)}%</td>
-                        <td className="n fig quiet last">
-                          {proj?.composite?.[i] == null ? "—" : fmt(proj.composite[i], 2)}
+                        {m.then.map((v, k) => (
+                          <td key={k} className={`n${k === 0 ? " edge" : ""}`}>
+                            {v == null
+                              /* hurt or inactive that year — skipped, never
+                                 scored. A real 0.00 below means he left the
+                                 league, which is a different fact. */
+                              ? <span className="fig quiet">—</span>
+                              : <span className="fig" style={{
+                                color: v > 0.005 ? "var(--good)"
+                                  : v < -0.005 ? "var(--bad)" : "var(--dim)",
+                              }}>{v > 0.005 ? "+" : v < -0.005 ? "−" : ""}{fmt(Math.abs(v), 2)}</span>}
+                          </td>
+                        ))}
+                        {/* a 0-100 score is an index: a bare figure, never a
+                            meter. A bar would only restate the number. */}
+                        <td className="n edge last">
+                          <span className="head-fig sm">{m.sim}</span>
                         </td>
                       </tr>
                     ))}
@@ -492,8 +711,19 @@ export default function Player({ pid }: { pid: string }) {
                   and experience — so a player who barely played is compared with players
                   who barely played, not extrapolated to a full season. He shows as{" "}
                   {knn.gps.map((g, i) => `${Math.round(knn.seen[i] * 100)} pts in ${g} games`).join(" · ")}.
-                  A comparable who was hurt that year is skipped rather than counted as
-                  zero; one who left the league is a real 0.00.
+                  Match runs 0–100, higher being more alike: 100 is an identical
+                  profile, 0 is nothing in common. It is comparable across players,
+                  and 50 is exactly the cutoff for joining a cohort — above it a
+                  comparable was already in the neighbourhood, below it he was
+                  reached for. The full
+                  cohort of {knn.n} has a median match of {knn.sim_med ?? 0}
+                  {knn.padded ? ", and had to reach past the cutoff to fill" : ""}.
+                  {" "}His own earlier seasons are left out of this list — they are the
+                  nearest matches to him and say nothing about who else he resembles —
+                  but they still count toward the projection.
+                  {" "}Of the whole cohort,{" "}
+                  {knn.share_useful.map(s => `${Math.round(s * 100)}%`).join(" / ")}
+                  {" "}cleared 0.5 WAR in years one, two and three.
                 </div>
               </div>
             )}
@@ -602,7 +832,15 @@ export default function Player({ pid }: { pid: string }) {
                           <td className="n fig quiet">{num(Math.round(tot.pts / tot.seasons))}</td>
                           <td className="n fig quiet">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
                           <td className="n fig quiet edge">{fmt(tot.war / tot.seasons, 2)}</td>
-                          <td className="n fig quiet">—</td>
+                          {/* a MEAN finish, so a figure rather than the badge the
+                              per-season rows use — those are placings, this is
+                              not, and rendering them alike would say he finished
+                              RB8.4 in some season */}
+                          <td className="n fig quiet">
+                            {tot.finish == null ? "—" : `${pos} ${fmt(tot.finish, 1)}`}
+                          </td>
+                          {/* honors do not average — the career row above already
+                              carries every mark he has */}
                           <td className="t last edge"><span className="fig quiet">—</span></td>
                         </tr>
                         {splits.length > 1 && splits.map(s => (
@@ -621,8 +859,17 @@ export default function Player({ pid }: { pid: string }) {
                             <td className="n fig quiet">{num(Math.round(s.pts))}</td>
                             <td className="n fig quiet">{s.gp ? fmt(s.pts / s.gp, 1) : "—"}</td>
                             <td className="n fig edge">{fmt(s.war, 2)}</td>
-                            <td className="n fig quiet">—</td>
-                            <td className="t last edge"><span className="fig quiet">—</span></td>
+                            <td className="n fig quiet">
+                              {s.finish == null ? "—" : `${pos} ${fmt(s.finish, 1)}`}
+                            </td>
+                            {/* what he won while this manager held him. A season
+                                he changed hands in goes whole to whoever had him
+                                longest — an award cannot be cut in half. */}
+                            <td className="t last edge">
+                              {s.keys.length
+                                ? <HonorMarks marks={s.keys} size={17} />
+                                : <span className="fig quiet">—</span>}
+                            </td>
                           </tr>
                         ))}
                       </tfoot>

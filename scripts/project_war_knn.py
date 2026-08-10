@@ -130,6 +130,27 @@ MAX_COHORT = 100
 # deciding the answer. `eff_n` reports how many players the weight is really
 # spread across.
 KERNEL_H = 1.0        # bandwidth as a multiple of the cohort's median distance
+TOP_N = 3             # how many named comparables to publish per player
+
+
+def similarity(d):
+    """Distance -> a 0-100 match score, for reading rather than for maths.
+
+    Distance is in standard deviations of the position's own features: good for
+    the model, meaningless to a reader, and unbounded above so it cannot be a
+    percentage directly. A gaussian maps it onto 0-100 monotonically.
+
+    The width is NOT a free parameter. It is set so that MAX_DIST — the cohort
+    membership cutoff — lands exactly on 50, which makes the score
+    self-documenting: at or above 50 a comparable was inside the neighbourhood,
+    below 50 he was reached for. Deliberately NOT the model's own kernel
+    bandwidth, which is per-player (the cohort's median distance), so the same
+    distance would score differently for different players and the number would
+    stop being comparable across pages — Christian McCaffrey's uncomparable
+    2.0-away analogs would score like Bijan Robinson's genuine 0.7 ones.
+    """
+    h = MAX_DIST / (2 * math.log(2)) ** 0.5
+    return round(100 * math.exp(-(d * d) / (2 * h * h)))
 
 
 def load_history():
@@ -141,7 +162,12 @@ def load_history():
         except (ValueError, TypeError):
             born = None
         meta[r["gsis_id"]] = {
-            "name": r["name"], "pos": r["pos"], "born": born,
+            "name": r["name"],
+            # the name people use, when nfl_history.py has been run since the
+            # column was added. Falls back to the legal name so an older corpus
+            # still works — it just keeps calling him Quintorris.
+            "common": (r.get("common") or "").strip() or r["name"],
+            "pos": r["pos"], "born": born,
             "draft": int(r["draft_season"]) if r["draft_season"] else None,
         }
     seasons = defaultdict(dict)
@@ -426,6 +452,26 @@ def project(q, corpus, max_dist, horizon, sc):  # noqa: C901
            "d_med": round(statistics.median(dists), 2),
            "d_max": round(max(dists), 2),
            "padded": padded,
+           # THE NEAREST FEW, BY NAME. "Who does this model think he looks
+           # like" is the first question anyone asks of an analog model, and
+           # until now the answer existed only in the process memory of the run
+           # that produced the number. A median with no visible cohort is not
+           # inspectable — you cannot tell a real neighbourhood from a shrug.
+           # Only the top TOP_N ship: past that the weights are small enough
+           # that they inform the estimate without informing a reader.
+           #
+           # HIS OWN EARLIER WINDOWS ARE EXCLUDED FROM THIS LIST ONLY, never
+           # from the estimate. A career contributes one window per season, so
+           # Josh Allen's nearest two neighbours are Josh Allen 2024 and 2023 —
+           # correct for the median (it is a statement about how rare the
+           # pattern is) and useless as an answer to "who does he look like".
+           "near": [{"pid": c["pid"], "yr": c["yr"], "d": round(d, 3),
+                     "age": c["age"],
+                     "rates": [round(x, 3) for x in c["rates"]],
+                     "gps": [round(x * FULL_GP) for x in c["gps"]],
+                     "has": c["has"],
+                     "future": c["future"], "future_gp": c["future_gp"]}
+                    for d, c in [t for t in near if t[1]["pid"] != q.get("pid")][:TOP_N]],
            "n_scored": [], "median": [], "mean": [], "p20": [], "p80": [],
            "share_useful": [], "avail": [], "fitted": [], "median_flat": []}
     for i in range(horizon):
@@ -511,7 +557,7 @@ def main():
     # gsis -> Sleeper pid. Built ONCE, up here, because two things need it: the
     # scale ratio below and the player join at the end. It used to be built only
     # at the end, so the ratio fell back to a raw-name join and came out wrong.
-    gsis_to_pid = {}
+    gsis_to_pid, sleeper_name = {}, {}
     try:
         _pmin = json.loads((DATA / "players_min.json").read_text(encoding="utf-8"))
         _idx = build_meta_index()
@@ -521,6 +567,11 @@ def main():
             _m = match_meta(_v[0], _v[1], _idx)
             if _m and _m[3]:
                 gsis_to_pid.setdefault(_m[3], _pid)
+                # Sleeper's label is the one the rest of the site shows, so it
+                # wins where we have it. It only covers players the league still
+                # references, which is why the corpus needs its own common name
+                # for everyone who has retired.
+                sleeper_name.setdefault(_m[3], _v[0])
     except (OSError, ValueError, KeyError, IndexError) as e:
         print(f"  ! could not build the Sleeper id map: {e}")
 
@@ -554,6 +605,36 @@ def main():
             ratio = sxy / sxx
     except (OSError, KeyError, json.JSONDecodeError):
         pass
+
+    # Hand corrections, keyed by gsis_id — see the file's own note. Keyed by ID
+    # and never by name, for the reason the owner splits are keyed by roster_id:
+    # the name is the thing being corrected, so it cannot also be the key.
+    aliases = {}
+    af = HIST / "name_aliases.json"
+    if af.exists():
+        try:
+            aliases = {k: v for k, v in json.loads(af.read_text(encoding="utf-8")).items()
+                       if not k.startswith("_") and isinstance(v, str) and v.strip()}
+            print(f"name aliases: {len(aliases)}")
+        except (OSError, ValueError) as e:
+            print(f"  ! could not read {af.name}: {e}")
+
+    def shown(gsis):
+        """The name to print for a comparable.
+
+        Four sources, best first: Sleeper's label (matches the rest of the site,
+        but only covers players the league still references), a hand alias,
+        nflverse's common name, then the legal name. nflverse indexes by birth
+        certificate — Julio Jones is Quintorris, CeeDee Lamb is Cedarian, Dak
+        Prescott is Rayne — which is correct for a join key and unreadable in a
+        comparables table.
+
+        Sleeper outranks the alias deliberately: where the site already shows a
+        name, the comparables table must not disagree with it.
+        """
+        m = meta.get(gsis, {})
+        return (sleeper_name.get(gsis) or aliases.get(gsis)
+                or m.get("common") or m.get("name"))
 
     def to_war(v, pos):
         """Retrofit: in points space the cohort's outcomes are seasonal points,
@@ -596,6 +677,7 @@ def main():
         q = feature(pid, seed, seasons, meta, args.space)
         if not q or not q["pos"] or q["pos"] not in scalers:
             continue
+        q["pid"] = pid
         r = project(q, corpus, args.max_dist, args.horizon, scalers[q["pos"]])
         if not r:
             continue
@@ -608,6 +690,8 @@ def main():
             "gps": [round(x * FULL_GP) for x in q["gps"]],
             "n": r["n"], "eff_n": r["eff_n"], "n_scored": r["n_scored"],
             "d_med": r["d_med"], "d_max": r["d_max"], "padded": r["padded"],
+            # the cohort's typical match, on the same 0-100 scale as `near.sim`
+            "sim_med": similarity(r["d_med"]),
             "avail": r["avail"], "fitted": r["fitted"],
             "median_flat": [round(to_war(x, pos) * ratio, 3) for x in r["median_flat"]],
             # if-healthy median x the cohort's availability
@@ -620,6 +704,26 @@ def main():
             "raw_median": r["median"],
             "share_useful": r["share_useful"],
             "total": round(sum(proj), 3),
+            # the named comparables, in the same league WAR units as `proj` so a
+            # reader can compare a cohort member's actual result against the
+            # projection it helped produce without converting anything
+            "near": [{
+                "name": shown(m["pid"]),
+                "season": m["yr"], "age": m["age"], "d": m["d"],
+                "sim": similarity(m["d"]),
+                # what he had done going in, most recent first — the same three
+                # numbers the query was matched on
+                "seen": [round(x, 3) if h else None
+                         for x, h in zip(m["rates"], m["has"])],
+                "gps": [g if h else None for g, h in zip(m["gps"], m["has"])],
+                # what he ACTUALLY returned over the next three years. None is a
+                # year he was hurt or inactive, which is skipped rather than
+                # scored as a zero — a real 0.0 means he left the league, and
+                # those are different facts (METHODOLOGY.md on absence).
+                "then": [None if v is None else round(to_war(v, pos) * ratio, 3)
+                         for v in m["future"]],
+                "then_gp": m["future_gp"],
+            } for m in r["near"]] if gsis_to_pid.get(pid) else [],
         })
 
     # gsis -> Sleeper pid, so the site can join without guessing at names.
