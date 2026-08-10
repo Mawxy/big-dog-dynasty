@@ -248,12 +248,21 @@ def row(pos, **stats):
 
 
 class TestPlayedRule(unittest.TestCase):
-    """The position-dependent rule settled 2026-07-17 (methodology #5)."""
+    """The position-INDEPENDENT rule settled 2026-08-07 (methodology #5):
+    dressed = played everywhere, and a dressed 0.00 accrues negative value.
 
-    def test_qb_dressed_with_zero_snaps_is_dnp(self):
-        """Malik Willis 2025 wk1: dressed, no offensive snaps => not a 0.00."""
-        self.assertFalse(row_played(row("QB", gms_active=1, tm_off_snp=64,
-                                        tm_def_snp=61, tm_st_snp=25)))
+    Supersedes the 2026-07-17 QB carve-out, which excluded a dressed QB because
+    every team dresses a QB2 so dressing carried no signal — an argument about
+    opportunity. WAR measures production against replacement, not opportunity:
+    a backup QB can be valuable to own and unproductive at the same time, and
+    ownership value is what DVI, CVI and market price measure."""
+
+    def test_qb_dressed_with_zero_snaps_is_a_played_zero(self):
+        """Malik Willis 2025 wk1: dressed, no offensive snaps. He was startable
+        and produced nothing, so it is a played 0.00 — the case the rule change
+        exists for."""
+        self.assertTrue(row_played(row("QB", gms_active=1, tm_off_snp=64,
+                                       tm_def_snp=61, tm_st_snp=25)))
 
     def test_qb_with_snaps_played(self):
         self.assertTrue(row_played(row("QB", off_snp=58, pass_att=30)))
@@ -286,9 +295,19 @@ class TestPlayedRule(unittest.TestCase):
             self.assertFalse(row_played(row(pos)), pos)
 
     def test_falls_back_to_fantasy_positions(self):
+        """Position no longer changes the answer, but it is still read — the
+        fallback has to keep working for anything downstream that uses it."""
         r = {"player": {"fantasy_positions": ["QB"]}, "stats": {"gms_active": 1,
              "tm_off_snp": 64}}
-        self.assertFalse(row_played(r), "QB via fantasy_positions is still QB")
+        self.assertTrue(row_played(r), "dressed is played at every position")
+
+    def test_hurt_and_inactive_still_accrue_nothing(self):
+        """The change is about the ACTIVE who did not play. A player on IR or
+        inactive has no tm_*_snp record, so he stays excluded — absence stays
+        absence, per METHODOLOGY.md."""
+        for pos in ("QB", "RB", "WR", "TE"):
+            self.assertFalse(row_played(row(pos, gms_active=1)), f"{pos} on IR")
+            self.assertFalse(row_played(row(pos)), f"{pos} inactive/bye")
 
 
 if __name__ == "__main__":

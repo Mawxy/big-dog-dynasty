@@ -445,10 +445,29 @@ def mode_signals(args, t0):
                "season_type": args.season_type, "week": args.week, "leagues": n,
                "format": {"teams": args.teams or "any", "superflex_only": require_sf},
                "players": players})
-        counted_ids = [lid for lid, m in registry.items() if m.get("counts")]
+        # UNION with what is already committed, never replace it.
+        #
+        # `registry` lives only in .crawl-state, which is a GitHub Actions
+        # cache with a 7-day eviction window. crawl_leagues.json is committed
+        # and therefore durable. Writing the registry over the file meant one
+        # cache miss published whatever a single run had discovered so far as
+        # if it were the whole corpus: on 2026-08-09 that replaced 79,624
+        # leagues with 2,000, and the rookie corpus fell from 79,399 picks to
+        # 12,703 behind it. Recovery was days of re-crawling for data that had
+        # never actually been lost.
+        #
+        # A league that has counted before still counts — format is a property
+        # of the league, not of the run that saw it — so the union is sound and
+        # a cold start now only ever adds.
+        counted_ids = {lid for lid, m in registry.items() if m.get("counts")}
+        prior = set(jload(ROOT / args.leagues_out, {}).get("leagues", []))
+        merged = sorted(counted_ids | prior)
+        if len(merged) > len(counted_ids):
+            print(f"  leagues: {len(counted_ids)} this run + {len(merged) - len(counted_ids)} "
+                  f"already committed = {len(merged)}")
         jdump(ROOT / args.leagues_out,
-              {"generated": datetime.date.today().isoformat(), "count": len(counted_ids),
-               "leagues": counted_ids})
+              {"generated": datetime.date.today().isoformat(), "count": len(merged),
+               "leagues": merged})
         jdump(sd / "registry.json", registry)
         jdump(sd / "frontier.json", list(frontier))
         jdump(sd / "snapshots.json", snapshots)
@@ -610,9 +629,37 @@ def mode_drafts(args, t0):
     raw_seen = jload(sd / "seen_drafts.json", {})
     seen_drafts = ({d: None for d in raw_seen} if isinstance(raw_seen, list)
                    else dict(raw_seen))          # migrate the old list form
+    # Same cold-start recovery as the corpus below, and it must happen TOGETHER
+    # with it: recovering picks without recovering which drafts produced them
+    # would let this run re-walk those drafts and double their counts.
+    if not seen_drafts:
+        seen_drafts = dict(jload(ROOT / args.draft_index_out, {}).get("drafts", {}))
+        if seen_drafts:
+            print(f"[drafts] cold start: recovered {len(seen_drafts)} walked drafts "
+                  f"from {args.draft_index_out}", file=sys.stderr, flush=True)
     # rookie-pick corpus for Bridge A: "season|pick|pid" -> # drafts. Persistent
     # and NOT windowed — a completed rookie draft is a permanent historical fact.
     rookie_corpus = jload(sd / "rookie_corpus.json", {})
+    # ...and if the cache is cold, RECOVER IT FROM THE COMMITTED FILE rather
+    # than starting from nothing. The state dir is a 7-day Actions cache; the
+    # published corpus is in git. On 2026-08-09 a cache miss rebuilt this file
+    # from one run's discoveries and 79,399 picks became 12,703 — data that was
+    # never lost, only unreadable from where the crawler was looking.
+    #
+    # Counts are re-derived per draft, so re-walking a draft already in the
+    # recovered corpus would double it. `seen_drafts` prevents that: a draft
+    # walked before is skipped, so recovered rows are never re-incremented.
+    if not rookie_corpus:
+        recovered = jload(ROOT / args.rookie_out, {}).get("picks", [])
+        for row in recovered:
+            try:
+                season, pno, pid, _name, _pos, cnt = row
+            except (ValueError, TypeError):
+                continue
+            rookie_corpus[f"{season}|{pno}|{pid}"] = cnt
+        if rookie_corpus:
+            print(f"[drafts] cold start: recovered {len(rookie_corpus)} rookie "
+                  f"picks from {args.rookie_out}", file=sys.stderr, flush=True)
     # league_ids whose chain has already been walked. A predecessor reached once
     # never needs re-fetching: its own history was walked in the same pass, and
     # completed drafts don't change. Keeps the backfill a one-time cost and lets

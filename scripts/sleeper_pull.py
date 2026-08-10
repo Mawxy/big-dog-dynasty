@@ -230,36 +230,38 @@ _OFF_STATS = ("pass_att", "pass_yd", "pass_cmp", "rush_att", "rush_yd",
               "rec", "rec_tgt", "rec_yd", "fum", "pass_sack")
 
 def row_played(row):
-    """Played test per the settled 2026-07-17 rule (position-dependent):
+    """Played test, settled 2026-08-07 and now position-INDEPENDENT:
 
-    QB       — offensive participation only: off_snp > 0 or a real offensive
-               stat line. A dressed backup with zero snaps (Malik Willis 2025
-               wk1) is DNP: QB is the one position with a clear every-snap
-               starter, so merely dressing carries no signal.
-    RB/WR/TE — dressed = played: any record beyond the bare 'gms_active'
-               placeholder (gp / own snaps / tm_*_snp) counts, and a dressed
-               0.00 accrues negative value — rotation positions have no
-               guaranteed snap-taker.
+        dressed = played, for every position, and a dressed 0.00 accrues
+        negative value.
+
+    This supersedes the 2026-07-17 rule, which exempted QB on the grounds that
+    every team dresses a QB2 every week so dressing carried no signal. That
+    argument is about OPPORTUNITY, and WAR is not a measure of opportunity — it
+    measures production against replacement. A backup QB is often valuable to
+    OWN and reliably unproductive, and those are different facts: ownership
+    value is what DVI, CVI and market price measure. Excluding his weeks let a
+    backup keep a per-13 rate built from two mop-up appearances, which is the
+    root of the projection model pricing unproven QBs as startable assets.
 
     Never trust 'gms_active' alone: Sleeper emits it even for IR, NFI and
     practice-squad players (their records are gms_active + pos_rank 999 and
     nothing else). tm_*_snp presence is the dressed/not-dressed discriminator;
-    scratches, byes and Sleeper's game-log '-' have no record at all.
+    scratches, byes and Sleeper's game-log '-' have no record at all, so the
+    hurt and the inactive still accrue nothing.
 
-    Both branches test snaps OR a stat line, never one alone: either key can
-    appear without the other (a TE with off_snp 4 and no gp; Chism 2025 wk18
-    with a catch and off_snp 0). This keeps the test aligned with
-    nfl_history.row_played_hist, which applies the same rule to nflverse
-    inputs. The one asymmetry that remains is unavoidable: nflverse has no
-    team-snap equivalent of tm_*_snp, so a dressed RB/WR/TE with zero snaps in
-    every phase and no stat line is DNP historically but a played 0.00 here.
-    Documented in nfl_history.py's header; the population is negligible."""
+    Test snaps OR a stat line, never one alone: either key can appear without
+    the other (a TE with off_snp 4 and no gp; Chism 2025 wk18 with a catch and
+    off_snp 0). Keeps this aligned with nfl_history.row_played_hist, which now
+    reads weekly roster status to make the same call on nflverse inputs."""
     st = row.get("stats") or {}
     pl = row.get("player") or {}
     pos = pl.get("position") or (pl.get("fantasy_positions") or [None])[0]
     has_stats = any(st.get(k) for k in _OFF_STATS)
-    if pos == "QB":
-        return bool(st.get("off_snp") or has_stats)
+    # position is still read (callers and the fallback depend on it) but no
+    # longer changes the answer — see the docstring for why the QB carve-out
+    # was retired.
+    _ = pos
     # RB/WR/TE (and unknown-position fallback): dressed = played
     return bool(st.get("gp") or st.get("off_snp") or st.get("def_snp")
                 or st.get("st_snp") or st.get("tm_off_snp")

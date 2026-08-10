@@ -18,17 +18,35 @@ Two fits per source (Option C, settled with Max 2026-07-20):
 
 Method: isotonic regression (pool-adjacent-violators) on players sorted by
 value; blocks compressed to knots (mean value, fitted WAR); prediction is
-linear interpolation between knots, clamped at the ends. Position-agnostic
-on purpose — picks have no position, so the bridge must not either.
-Per-position spearman is reported as a diagnostic only.
+linear interpolation between knots, clamped at the ends.
+
+TWO FITS, DIFFERENT JOBS.
+
+  fits        — position-agnostic, and that stays deliberate: a draft pick has
+                no position, so the curve pricing picks must not either. This
+                is what `picks` is built from. Do not make it positional.
+
+  fits_by_pos — one curve per position, used ONLY for player-level impWar. The
+                global curve is unbiased in aggregate and badly biased within
+                position: on 2026-08 rostered players it put 93% of QBs on one
+                side of the model (mean residual -0.93) against +0.27 for RB
+                and +0.24 for WR. In superflex a QB returns far more WAR per
+                dollar of market price than a skill player, and one curve
+                cannot say so — so any model-vs-market read built on the global
+                curve concludes "every QB is underpriced", which is a statement
+                about the fit, not the market.
+
+                Falls back to the global fit below MIN_POS_N, so a thin
+                position never gets a curve built from a handful of players.
 
 Inputs (all committed): data/values.json, data/projections.json,
 data/<seed>/summary.json.
 Output: data/value_bridge.json
-  meta:   dates, sample sizes, spearman diagnostics (overall + by pos)
-  fits:   {ktc|fc: {proj: {y1,y2,y3,total: knots}, war25: knots}}
-          knots = [[value, war], ...] ascending
-  picks:  {ktc|fc: [[label, value, implied_war_total, [y1,y2,y3]], ...]}
+  meta:        dates, sample sizes, spearman diagnostics (overall + by pos)
+  fits:        {ktc|fc: {proj: {y1,y2,y3,total: knots}, war25: knots}}
+               knots = [[value, war], ...] ascending
+  fits_by_pos: {ktc|fc: {QB|RB|WR|TE: knots}}  — total-WAR only, players only
+  picks:       {ktc|fc: [[label, value, implied_war_total, [y1,y2,y3]], ...]}
 
 Usage: python scripts/value_bridge.py [--seed-season 2025]
 """
@@ -40,6 +58,11 @@ from leaguepaths import DataDir
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = DataDir(ROOT / "data")
+
+# A position needs at least this many joined players before it gets its own
+# curve; below it the global fit is used. Isotonic regression on a thin sample
+# produces a step function that reads as signal and is noise.
+MIN_POS_N = 40
 
 
 # ---------------------------------------------------------------- fitting --
@@ -140,7 +163,7 @@ def main():
     out = {"meta": {"values_fetched": values.get("fetched"),
                     "seed_season": seed,
                     "sources": {}},
-           "fits": {}, "picks": {}}
+           "fits": {}, "fits_by_pos": {}, "picks": {}}
 
     for src in ("ktc", "fc"):
         # -- joins ----------------------------------------------------------
@@ -156,6 +179,15 @@ def main():
         proj_fit["total"] = pav([(v, p["total_comp"]) for v, p in pj])
         war25_fit = pav([(v, w) for v, (_, w) in rl])
         out["fits"][src] = {"proj": proj_fit, "war25": war25_fit}
+
+        # per-position curves for PLAYER implied WAR only — `picks` below still
+        # reads `fits`, which stays position-agnostic
+        by_pos = {}
+        for pos in ("QB", "RB", "WR", "TE"):
+            sub = [(v, p["total_comp"]) for v, p in pj if p["pos"] == pos]
+            if len(sub) >= MIN_POS_N:
+                by_pos[pos] = pav(sub)
+        out["fits_by_pos"][src] = by_pos
 
         # -- diagnostics ----------------------------------------------------
         diag = {"n_proj": len(pj), "n_war25": len(rl),
@@ -193,12 +225,22 @@ def main():
     # file it already fetches (no pop-in waiting on extra requests):
     #   impWar   = {ktc?, fc?} market-implied 3-yr WAR at the player's value
     #   modelWar = our projected 3-yr composite WAR (total_comp)
-    n_imp = 0
+    #
+    # A player is priced on HIS POSITION'S curve where one exists. The global
+    # curve stays for picks and for any position too thin to fit.
+    n_imp = n_pos = 0
     for pid, d in values["players"].items():
+        pos = proj.get(pid, {}).get("pos")
         imp = {}
         for src in ("ktc", "fc"):
-            knots = out["fits"].get(src, {}).get("proj", {}).get("total")
-            if knots and d.get(src) is not None:
+            if d.get(src) is None:
+                continue
+            knots = out["fits_by_pos"].get(src, {}).get(pos)
+            if knots:
+                n_pos += 1
+            else:
+                knots = out["fits"].get(src, {}).get("proj", {}).get("total")
+            if knots:
                 imp[src] = round(interp(knots, d[src]), 3)
         d.pop("impWar", None), d.pop("modelWar", None)
         if imp:
@@ -208,7 +250,8 @@ def main():
             d["modelWar"] = proj[pid]["total_comp"]
     vdest = DATA / "values.json"
     vdest.write_text(json.dumps(values, separators=(",", ":")) + "\n", encoding="utf-8")
-    print(f"augmented {vdest.relative_to(ROOT)}: impWar for {n_imp} players")
+    print(f"augmented {vdest.relative_to(ROOT)}: impWar for {n_imp} players "
+          f"({n_pos} priced on a per-position curve)")
 
 
 if __name__ == "__main__":

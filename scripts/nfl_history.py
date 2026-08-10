@@ -10,11 +10,11 @@ league's exact shape on raw NFL data:
   * league scoring recomputed weekly from raw components (PPR + 0.5 TE
     premium, superflex) — scoring dict pulled from the live league and frozen
     below;
-  * the settled 2026-07-17 played rule, position-dependent:
-      QB       — offensive participation only (off snaps or offensive stats);
-      RB/WR/TE — dressed = played (any snaps in any phase, or any stats).
-      Historical caveat: a dressed player with zero snaps in EVERY phase is
-      invisible in nflverse; treated as DNP. Negligible.
+  * the settled 2026-08-07 played rule, position-INDEPENDENT: dressed =
+    played, and a dressed 0.00 accrues negative value. Weekly roster status
+    supplies "dressed" where snaps and stats are both absent, which is what
+    lets a QB2 who never entered be scored rather than skipped. Replaces the
+    2026-07-17 QB carve-out; see row_played_hist for why.
   * the league's startable-pool shape (12 QB / 24 RB / 36 WR / 12 TE + 12 SF
     + 12 FLEX weekly, greedy by points — reuses sleeper_war.build_week);
   * 12 synthetic team scores per week for the sigma step: the 108 startable
@@ -44,6 +44,12 @@ Output layout (mirrors sleeper_pull.py):
   <out>/<season>/league.json              synthetic league shell
   <out>/<season>/matchups/week_NN.json    12 teams: points + players_points
   <out>/<season>/played/week_NN.json      pid -> NFL team (settled played rule)
+  <out>/<season>/status/week_NN.json      pid -> {st, tm, snaps, played} for
+                                          EVERY rostered QB/RB/WR/TE, played or
+                                          not. Not read by the WAR path — it
+                                          exists so "active, zero snaps" stops
+                                          being indistinguishable from "not in
+                                          the NFL". See pull_season.
 
 Then:  python scripts/sleeper_war.py --data <out>
 
@@ -179,16 +185,28 @@ def has_off_stats(row):
         "rushing_2pt_conversions", "receiving_2pt_conversions"))
 
 
-def row_played_hist(pos, off_snp, def_snp, st_snp, stat_row):
-    """Settled 2026-07-17 played rule on nflverse inputs. Same rule as
-    sleeper_pull.row_played (snaps OR stat line, QB offense-only), with one
-    unavoidable gap: nflverse has no counterpart to Sleeper's tm_*_snp, so a
-    dressed RB/WR/TE with zero snaps in every phase and no stat line reads as
-    DNP here but as a played 0.00 on the league side. See the module header."""
-    if pos == "QB":
-        return bool(off_snp) or (stat_row is not None and has_off_stats(stat_row))
-    return bool(off_snp or def_snp or st_snp) or (
-        stat_row is not None and has_off_stats(stat_row))
+def row_played_hist(pos, off_snp, def_snp, st_snp, stat_row, active=False):
+    """Played rule on nflverse inputs, settled 2026-08-07: dressed = played for
+    every position, and a dressed 0.00 accrues negative value. Mirrors
+    sleeper_pull.row_played.
+
+    `active` is the piece nflverse could not supply until weekly rosters were
+    pulled: True when the player carried an ACT status that week. It closes the
+    two gaps the old rule left open —
+
+      * a dressed QB who never took a snap read as DNP and kept a rate he had
+        not earned. He is now a played 0.00, which is the point of the change;
+      * a dressed RB/WR/TE with zero snaps in every phase was DNP here and a
+        played 0.00 on the league side, because nflverse has no counterpart to
+        Sleeper's tm_*_snp. ACT status is that counterpart.
+
+    Hurt and inactive still accrue nothing: INA, RES, PUP and practice-squad
+    statuses are not ACT, so they never reach the last branch."""
+    if bool(off_snp or def_snp or st_snp):
+        return True
+    if stat_row is not None and has_off_stats(stat_row):
+        return True
+    return bool(active)
 
 
 # ------------------------------------------------------- team synthesis -----
@@ -262,12 +280,38 @@ def synth_teams(points, positions, slots, seed):
 
 # ------------------------------------------------------------ data pull -----
 def pull_season(season, players_pos, pfr_to_gsis, nfl):
-    """Return (points, positions, teams_of, played) per week for one season."""
+    """Return (points, positions, played, status) per week for one season.
+
+    Status exists because absence used to mean three different things and the
+    corpus recorded all of them the same way — as nothing at all:
+
+      on a roster, active, never took a snap   a real backup, and under the
+                                               2026-08-07 rule a played 0.00
+      inactive / IR                            hurt; METHODOLOGY.md says skip
+                                               these, not zero them
+      not on an NFL roster                     a genuine 0.0
+
+    The QB case is why this matters. The old rule admitted a QB only on
+    offensive snaps or an offensive stat line, so the QB2 who dresses
+    seventeen times and never enters was invisible. The module header used to
+    call that gap "negligible" — true for RB/WR/TE, false for the position the
+    narrow rule applied to.
+    """
     import polars as pl
     stats = nfl.load_player_stats([season], summary_level="week")
     stats = stats.filter(pl.col("season_type") == "REG").to_dicts()
     snaps = nfl.load_snap_counts([season])
     snaps = snaps.filter(pl.col("game_type") == "REG").to_dicts()
+    # weekly, not season-level: status changes week to week, and season-level
+    # rosters would call an eight-week IR stint "active".
+    try:
+        rosters = nfl.load_rosters_weekly([season])
+        if "game_type" in rosters.columns:
+            rosters = rosters.filter(pl.col("game_type") == "REG")
+        rosters = rosters.to_dicts()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"  ! weekly rosters unavailable for {season}: {e}")
+        rosters = []
 
     stat_by = {}          # (week, gsis) -> row
     for r in stats:
@@ -284,10 +328,26 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
             snap_by[(wk, gsis)] = (g(r, "offense_snaps"), g(r, "defense_snaps"),
                                    g(r, "st_snaps"))
 
+    # bucketed by week, not keyed on (week, gsis): the per-week loop would
+    # otherwise rescan every roster row in the season fourteen times over.
+    status_by = defaultdict(dict)
+    for r in rosters:
+        gsis = r.get("gsis_id")
+        wk = r.get("week")
+        if gsis and wk and 1 <= wk <= LAST_WEEK:
+            status_by[wk][gsis] = (r.get("status") or "", r.get("team") or "")
+
     weeks = {}
     for wk in range(1, LAST_WEEK + 1):
         points, positions, played = {}, {}, {}
-        pids = {p for w, p in stat_by if w == wk} | {p for w, p in snap_by if w == wk}
+        wk_status = status_by.get(wk, {})
+        # The ACT set has to join the CANDIDATE pool, not just the played test:
+        # a dressed QB who never entered has no stat row and no snap row, so
+        # building `pids` from those two alone meant he was never considered at
+        # all. He is exactly the player the 2026-08-07 rule exists to score.
+        pids = ({p for w, p in stat_by if w == wk}
+                | {p for w, p in snap_by if w == wk}
+                | {p for p, (s, _) in wk_status.items() if s == "ACT"})
         for pid in pids:
             # season-aware: the override has to reach score_row() and the pool
             # assignment below, not just the label written to the CSV
@@ -296,12 +356,24 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
                 continue
             srow = stat_by.get((wk, pid))
             osnp, dsnp, ssnp = snap_by.get((wk, pid), (0, 0, 0))
-            if not row_played_hist(pos, osnp, dsnp, ssnp, srow):
+            act = wk_status.get(pid, ("", ""))[0] == "ACT"
+            if not row_played_hist(pos, osnp, dsnp, ssnp, srow, act):
                 continue
             points[pid] = score_row(srow, pos) if srow else 0.0
             positions[pid] = pos
             played[pid] = (srow or {}).get("team") or (srow or {}).get("recent_team") or ""
-        weeks[wk] = (points, positions, played)
+
+        # Everyone on an NFL roster this week at a scored position, played or
+        # not. `snaps` is 0 for the dressed-but-never-entered case, the state
+        # that had no representation before.
+        status = {}
+        for gsis, (s, team) in wk_status.items():
+            if pos_for(players_pos, gsis, season) not in CORE:
+                continue
+            status[gsis] = {"st": s, "tm": team,
+                            "snaps": snap_by.get((wk, gsis), (0, 0, 0))[0],
+                            "played": gsis in played}
+        weeks[wk] = (points, positions, played, status)
     return weeks
 
 
@@ -369,7 +441,8 @@ def main():
         (sdir / "played").mkdir(parents=True, exist_ok=True)
         lg = dict(league, season=str(season))
         (sdir / "league.json").write_text(json.dumps(lg), encoding="utf-8")
-        for wk, (points, positions, played) in weeks.items():
+        (sdir / "status").mkdir(parents=True, exist_ok=True)
+        for wk, (points, positions, played, status) in weeks.items():
             if not points:
                 continue
             teams = synth_teams(points, positions, slots, seed=f"{season}-{wk}")
@@ -377,8 +450,13 @@ def main():
                 json.dumps(teams), encoding="utf-8")
             (sdir / "played" / f"week_{wk:02d}.json").write_text(
                 json.dumps(played), encoding="utf-8")
+            if status:
+                (sdir / "status" / f"week_{wk:02d}.json").write_text(
+                    json.dumps(status), encoding="utf-8")
         n = sum(1 for w in weeks.values() if w[0])
-        print(f"  {n} weeks written")
+        dressed = sum(1 for w in weeks.values() for s in w[3].values()
+                      if s["st"] == "ACT" and not s["played"])
+        print(f"  {n} weeks written · {dressed} active-but-did-not-play player-weeks")
 
     print(f"done → {out}\nnow run: python scripts/sleeper_war.py --data {out}")
 

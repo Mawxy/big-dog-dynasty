@@ -24,6 +24,7 @@ adjust PROJ_URL / item parsing below — everything else is stable.
 Usage: python scripts/fetch_projections.py [--season 2026] [--league-id ...]
 """
 import argparse, json, sys, time, urllib.request, urllib.error
+from collections import Counter, defaultdict
 from pathlib import Path
 from leaguepaths import DataDir
 
@@ -49,6 +50,15 @@ def get(url, tries=4):
                 raise
             time.sleep(1.5 * (i + 1))
     return None
+
+
+def week_proj_url(season, week, pos):
+    """The WEEKLY projection endpoint. Season-long rotowire covers only ~22% of
+    QBs (77 of 355 for 2026) — starters and near-starters — and lists everyone
+    else at ADP only. Weekly membership differs slightly, so a player can have
+    a weekly line and no season line (Garrett Nussmeier, 2026)."""
+    return (f"{PROJ_HOST}/projections/nfl/{season}/{week}"
+            f"?season_type=regular&position[]={pos}&order_by=pts_ppr")
 
 
 def season_proj_url(season, pos):
@@ -89,6 +99,20 @@ def default_league_id():
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", type=int, default=None, help="default: current from /state/nfl")
+    ap.add_argument("--debug-pid", default=None,
+                    help="dump Sleeper's raw item for this player_id and exit "
+                         "without writing — for diagnosing a player the app "
+                         "shows points for but this file scores at 0")
+    ap.add_argument("--survey", action="store_true",
+                    help="report which projection SOURCES the endpoint returns "
+                         "and how many carry real stat lines, then exit")
+    ap.add_argument("--weeks", type=int, default=0, metavar="N",
+                    help="probe the WEEKLY endpoint for weeks 1..N and report "
+                         "coverage, then exit. Combine with --debug-pid.")
+    ap.add_argument("--weekly-fallback", type=int, default=18, metavar="N",
+                    help="for players the SEASON endpoint lists at ADP only, "
+                         "sum weeks 1..N from the weekly endpoint instead. "
+                         "0 disables.")
     ap.add_argument("--league-id", default=None,
                     help="default: the registry's current-season league id")
     args = ap.parse_args()
@@ -103,6 +127,49 @@ def main():
     if not scoring:
         sys.exit("no scoring_settings on league; cannot score projections")
 
+    def scored(stats):
+        """A real projection touches at least one key the league scores. ADP
+        plus gp is a LISTING, not a forecast."""
+        return any(isinstance(stats.get(k), (int, float)) and stats[k]
+                   for k in scoring)
+
+    if args.weeks:
+        print(f"WEEKLY coverage, {season} weeks 1-{args.weeks}")
+        for pos in POSITIONS:
+            seen, has = set(), set()
+            for wk in range(1, args.weeks + 1):
+                for item in get(week_proj_url(season, wk, pos)) or []:
+                    pid = str(item.get("player_id") or "")
+                    if not pid:
+                        continue
+                    seen.add(pid)
+                    if scored(item.get("stats") or {}):
+                        has.add(pid)
+                time.sleep(0.2)
+            print(f"  {pos}: {len(seen)} players seen · {len(has)} with a scored line")
+            if args.debug_pid and str(args.debug_pid) in seen:
+                print(f"    -> {args.debug_pid} IS in weekly "
+                      f"({'scored' if str(args.debug_pid) in has else 'ADP-only'})")
+        return
+
+    if args.survey:
+        for pos in POSITIONS:
+            data = get(season_proj_url(season, pos)) or []
+            comp, real, adp = Counter(), Counter(), Counter()
+            for item in data:
+                c = item.get("company") or "?"
+                comp[c] += 1
+                st = item.get("stats") or {}
+                if scored(st):
+                    real[c] += 1
+                elif st:
+                    adp[c] += 1
+            print(f"\n  {pos}: {len(data)} items")
+            for c, n in comp.most_common():
+                print(f"    {c:14} {n:>5} items · {real[c]:>5} scored · {adp[c]:>5} ADP-only")
+            time.sleep(0.3)
+        return
+
     out = {}
     for pos in POSITIONS:
         data = get(season_proj_url(season, pos))
@@ -112,7 +179,24 @@ def main():
         for item in data:
             pid = str(item.get("player_id") or "")
             stats = item.get("stats") or {}
+            if args.debug_pid and pid == str(args.debug_pid):
+                print(f"\n=== raw Sleeper item for {pid} ({pos}) ===")
+                print(json.dumps(item, indent=1, sort_keys=True)[:2500])
+                print("\nstat keys returned:", sorted(stats))
+                print("keys that CONTRIBUTE under league scoring:",
+                      {k: (scoring[k], stats[k]) for k in scoring
+                       if isinstance(stats.get(k), (int, float)) and stats[k]}
+                      or "NONE  <- this is why he scores 0")
+                print("computed league points:", score_line(stats, scoring, pos))
+                return
             if not pid or not stats:
+                continue
+            # An ADP-only record is a listing, not a forecast. Writing it as
+            # pts13:0 made "no opinion" indistinguishable from "projected to
+            # score nothing", and project_war.py reads a 0 as absent and falls
+            # back to the pure-math stream — the optimistic path, handed to
+            # exactly the unproven players who least deserve it.
+            if not scored(stats):
                 continue
             pts = score_line(stats, scoring, pos)
             # Sleeper totals are a full 17-game season; scale to our 13-game slate.
@@ -120,6 +204,32 @@ def main():
             out[pid] = {"pos": pos, "pts13": round(pts13, 2),
                         "ppg": round(pts / NFL_SEASON_GAMES, 2),
                         "raw_pts": round(pts, 1)}
+
+        # Weekly fallback for anyone the season endpoint listed at ADP only.
+        # Aggregate coverage is nearly identical (76 scored QBs weekly vs 77
+        # season-long for 2026) but MEMBERSHIP differs, so this rescues a
+        # handful of real players rather than lifting coverage wholesale.
+        if args.weekly_fallback:
+            wk_pts = defaultdict(float)
+            for wk in range(1, args.weekly_fallback + 1):
+                for item in get(week_proj_url(season, wk, pos)) or []:
+                    pid = str(item.get("player_id") or "")
+                    st = item.get("stats") or {}
+                    if pid and pid not in out and st:
+                        wk_pts[pid] += score_line(st, scoring, pos)
+                time.sleep(0.2)
+            rescued = 0
+            for pid, pts in wk_pts.items():
+                if pts <= 0:
+                    continue
+                out[pid] = {"pos": pos,
+                            "pts13": round(pts / NFL_SEASON_GAMES * LEAGUE_GAMES, 2),
+                            "ppg": round(pts / NFL_SEASON_GAMES, 2),
+                            "raw_pts": round(pts, 1), "src": "weekly"}
+                rescued += 1
+            if rescued:
+                print(f"  {pos}: +{rescued} from the weekly endpoint")
+
         print(f"  {pos}: {sum(1 for v in out.values() if v['pos'] == pos)} players")
         time.sleep(0.3)
 
