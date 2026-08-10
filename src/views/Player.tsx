@@ -445,8 +445,24 @@ export default function Player({ pid }: { pid: string }) {
               <div ref={refs.projection}>
                 <div className="band">
                   <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
+                  {/* One line. The figures that drive the table but appear
+                      nowhere in it — trust, and Sleeper's year-one share — ride
+                      here as tokens with the explanation on hover, rather than
+                      as a paragraph underneath. */}
                   <span className="band-note">
-                    {MODELS.find(m => m.key === modelOn)?.desc} · range is its 80% band
+                    {MODELS.find(m => m.key === modelOn)?.desc} · 80% band
+                    {mx.trust != null && <>
+                      {" · "}
+                      <span title={`How dense his cohort of comparables is (median distance ${fmt(mx.d_med ?? 0, 2)}${mx.padded ? ", padded past the cutoff" : ""}). A tight cohort keeps the analog's own read; a thin one hands the answer to the scalar model and to Sleeper.`}>
+                        trust {fmt(mx.trust, 2)}
+                      </span>
+                    </>}
+                    {mx.w_sleeper != null && <>
+                      {" · "}
+                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmt(mx.sleeper_war ?? 0, 2)} WAR. The analog composite takes it at this weight in year one; scalar and blend take it at ${Math.round((mxMeta?.blend_w?.[0] ?? 0.9) * 100)}%.`}>
+                        Sleeper {Math.round(mx.w_sleeper * 100)}%
+                      </span>
+                    </>}
                   </span>
                 </div>
                 <div className="lens">
@@ -544,33 +560,6 @@ export default function Player({ pid }: { pid: string }) {
                   </tbody>
                 </table>
                 </TScroll>
-                <div className="tnote" style={{ padding: "12px 22px 16px" }}>
-                  {!mx.has_analog
-                    ? "No analog cohort — he has never been scored in an NFL season the corpus covers, so only the scalar curves exist."
-                    : <>
-                      Blend and the analog composite are both weighted by{" "}
-                      <strong>trust {fmt(mx.trust ?? 0, 2)}</strong> — how dense
-                      this player's cohort of historical comparables actually is
-                      (median distance {fmt(mx.d_med ?? 0, 2)}
-                      {mx.padded ? ", padded past the cutoff to fill twelve" : ""}).
-                      A tight cohort keeps the analog's own read; a thin one hands
-                      the answer to the scalar model and to Sleeper.
-                    </>}
-                  {" "}
-                  {mx.has_sleeper
-                    ? <>Sleeper projects {num(Math.round(mx.pts13))} points over 13 games,
-                      worth {fmt(mx.sleeper_war ?? 0, 2)} WAR, taken at{" "}
-                      {Math.round((mx.w_sleeper ?? 0) * 100)}% in year one by the analog
-                      composite and {Math.round((mxMeta?.blend_w?.[0] ?? 0.9) * 100)}% by
-                      the other two.</>
-                    : <>Sleeper has no usable projection for him — under{" "}
-                      {mxMeta?.pts13_floor ?? 25} points is absent data, not a
-                      forecast of nearly zero — so every composite falls back to
-                      its own natural.</>}
-                  {proj.expected && <> Discounted for availability rather than shown
-                    if-healthy, the scalar path is{" "}
-                    {proj.expected.map(v => fmt(v, 2)).join(" · ")}.</>}
-                </div>
               </div>
             )}
 
@@ -654,8 +643,8 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="band">
                   <span className="band-label">Closest comparables · {knn.near.length} of {knn.n}</span>
                   <span className="band-note">
-                    Nearest historical player-seasons, and what each one actually
-                    returned over the three years that followed
+                    What each one actually returned over the three years after ·
+                    cohort median match {knn.sim_med ?? 0}
                   </span>
                 </div>
                 <TScroll>
@@ -669,7 +658,9 @@ export default function Player({ pid }: { pid: string }) {
                         <th key={i} scope="col" className={`n${i === 0 ? " edge" : ""}`}
                           style={{ width: "11%" }}>Year {i + 1}</th>
                       ))}
-                      <th scope="col" className="n edge" style={{ width: "10%" }}>Match</th>
+                      <th scope="col" className="n edge" style={{ width: "10%" }}
+                        title="0–100, higher is more alike: 100 is an identical profile, 0 is nothing in common. Comparable across players, and 50 is exactly the cutoff for joining a cohort — above it he was already in the neighbourhood, below it he was reached for.">
+                        Match</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -706,25 +697,6 @@ export default function Player({ pid }: { pid: string }) {
                   </tbody>
                 </table>
                 </TScroll>
-                <div className="tnote" style={{ padding: "12px 22px 16px" }}>
-                  Matched on his last three seasons of scoring and games played, plus age
-                  and experience — so a player who barely played is compared with players
-                  who barely played, not extrapolated to a full season. He shows as{" "}
-                  {knn.gps.map((g, i) => `${Math.round(knn.seen[i] * 100)} pts in ${g} games`).join(" · ")}.
-                  Match runs 0–100, higher being more alike: 100 is an identical
-                  profile, 0 is nothing in common. It is comparable across players,
-                  and 50 is exactly the cutoff for joining a cohort — above it a
-                  comparable was already in the neighbourhood, below it he was
-                  reached for. The full
-                  cohort of {knn.n} has a median match of {knn.sim_med ?? 0}
-                  {knn.padded ? ", and had to reach past the cutoff to fill" : ""}.
-                  {" "}His own earlier seasons are left out of this list — they are the
-                  nearest matches to him and say nothing about who else he resembles —
-                  but they still count toward the projection.
-                  {" "}Of the whole cohort,{" "}
-                  {knn.share_useful.map(s => `${Math.round(s * 100)}%`).join(" / ")}
-                  {" "}cleared 0.5 WAR in years one, two and three.
-                </div>
               </div>
             )}
 
