@@ -6,8 +6,14 @@ Catches the silent-empty failure class: a script that exited 0 but produced
 gutted output (missing inputs, empty API responses) must not be committed and
 deployed. Floors sit far below current values — they fire on catastrophic
 emptiness, never on normal drift (2026-07: players_min 812, projections 390,
-proj_sleeper 3103, values 550, trades 144, shards 812; 2026-08: pick slots 48,
+values 550, trades 144, shards 812; 2026-08: proj_sleeper 573, pick slots 48,
 pick bands 12, priced odds weeks 66 across five seasons).
+
+A floor read off a current value is only valid while the file means the same
+thing. proj_sleeper went 3103 -> 573 not because anything broke but because
+fetch_projections.py stopped writing an entry for every player Sleeper has ever
+heard of; the floor fired on the fix. When a producer changes what it emits,
+its floor is part of that change.
 
   python scripts/validate_data.py                # full check (data-refresh)
   python scripts/validate_data.py --values-only  # market-values workflow
@@ -25,7 +31,17 @@ FLOORS = {
     "ownership": 400,
     "shards": 400,
     "projections": 200,
-    "proj_sleeper": 1000,
+    # Cut from 1000 on 2026-08-11, when the file legitimately shrank by 82%.
+    # The old floor was read off a file that carried an entry for every NFL
+    # player Sleeper knows about (3103), the overwhelming majority of them
+    # ADP-only records written as `pts13: 0`. fetch_projections.py now omits
+    # those instead of writing a zero, so the file is 573 entries — one per
+    # player Sleeper actually projects — and the old floor fired on the fix.
+    # 300 sits below that and still catches a gutted API response.
+    "proj_sleeper": 300,
+    # rostered players with a usable projection; currently 302 of 390. This is
+    # the one that matters — see the note at the call site.
+    "proj_sleeper_rostered": 200,
     "trades": 100,
     "values": 300,
     "franchises": 10,
@@ -178,7 +194,26 @@ def check_full():
     floor("ownership", len(jload(DATA / "ownership.json")))
     floor("franchises", len(jload(DATA / "franchises.json")))
     floor("projections", len(jload(DATA / "projections.json").get("players") or []))
-    floor("proj_sleeper", len(jload(DATA / "proj_sleeper.json").get("players") or {}))
+    # TWO CHECKS, because the row count alone measures the wrong thing.
+    #
+    # The file's length is mostly incidental: it used to carry an entry for
+    # every player Sleeper has heard of, the vast majority ADP-only listings
+    # written as `pts13: 0`, and the count collapsed 3103 -> 573 the day
+    # fetch_projections.py stopped writing those. Nothing had broken, but a
+    # floor read off the old length fired anyway and discarded a whole run.
+    #
+    # What the pipeline actually depends on is narrower and stable: how many
+    # ROSTERED players have a projection worth using. That is what feeds the
+    # composite, it cannot be moved by the size of the ADP tail, and it is the
+    # number that would really be gutted by a bad API response. 25 points is
+    # project_matrix.py's PTS13_FLOOR — below it Sleeper has no opinion and the
+    # pts->WAR line would price the player near -1.4 WAR.
+    _sp = jload(DATA / "proj_sleeper.json").get("players") or {}
+    floor("proj_sleeper", len(_sp))
+    _ros = {str(p.get("pid")) for p in
+            (jload(DATA / "projections.json").get("players") or [])}
+    floor("proj_sleeper_rostered",
+          sum(1 for p in _ros if (_sp.get(p) or {}).get("pts13", 0) >= 25))
     floor("trades", len(jload(DATA / "trades.json").get("trades") or []))
     if not jload(DATA / "drafts.json"):
         fail("drafts.json is empty")

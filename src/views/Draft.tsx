@@ -315,8 +315,12 @@ export default function Draft() {
   // neither reads. A single flat ink can't cover a ramp this wide.
   const heatFg = (m: number | null) => m == null ? "#3d4650" : Math.abs(m) < 0.005 ? "#7b8794"
     : lum(heatBg(m)) > 0.173 ? "#08170e" : "#fdeee0";
-  const bestSlot = medAll.length ? Math.max(...medAll) : 0;
+  // The ramp's endpoints, and ONLY that — they label the two ends of the
+  // colour legend. They used to also ring the matching cells in the grid,
+  // which marked 1.01 and 4.12 every time: the first and last pick of the
+  // draft, already the darkest green and the darkest rose.
   const worstSlot = medAll.length ? Math.min(...medAll) : 0;
+  const bestSlot = medAll.length ? Math.max(...medAll) : 0;
   const legend = [-1, -0.66, -0.33, -0.08, 0, 0.12, 0.3, 0.5, 0.72, 0.88, 1]
     .map(u => heatBg(u * (u < 0 ? hiNeg : hiPos)));
 
@@ -447,11 +451,16 @@ export default function Draft() {
                 {Array.from({ length: 12 }, (_, j) => {
                   const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
                   const m = corpus.slotMed[slot];
-                  const ring = m != null && m === bestSlot ? "inset 0 0 0 2px rgba(255,255,255,.9)"
-                    : m != null && m === worstSlot ? "inset 0 0 0 2px #ffc9c9" : "none";
+                  /* No ring on the extremes. It marked max and min of the slot
+                     medians, which are 1.01 (+0.69) and 4.12 (-0.32) — the
+                     first and last pick of the draft, every time. The ramp
+                     already renders them as the darkest green and the darkest
+                     rose, so a second encoding of the same fact told a reader
+                     nothing they could not see, and spent two accents doing
+                     it. */
                   return (
                     <div key={slot} className="cell"
-                      style={{ background: heatBg(m), color: heatFg(m), boxShadow: ring }}>
+                      style={{ background: heatBg(m), color: heatFg(m) }}>
                       {m == null ? "—" : sgn(m, 2)}
                     </div>
                   );
@@ -462,7 +471,6 @@ export default function Draft() {
         </TScroll>
         <div className="heat-note">
           <span>Rows are draft rounds, columns are the pick within the round — so column 01 is every team's first-up selection.</span>
-          <span className="end">Ringed cells: best and worst slot on record.</span>
         </div>
 
       </>}
