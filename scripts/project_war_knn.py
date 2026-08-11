@@ -40,9 +40,12 @@ actually done, then find the k most similar (player, season) pairs in
              the player's situation rather than a constant pasted onto
              everyone in an age bucket.
 
-Scale: fit on nfl_history WAR, which uses an NFL-wide replacement level and
-runs ~15% above this league's. A single fitted ratio converts at the end;
-the two are otherwise near-perfectly correlated.
+Scale: fit on nfl_history WAR and published in those units. The corpus uses an
+NFL-wide replacement level rather than this league's, so the two are not
+identical in principle — but measured across four seasons the gap is 0.968 with
+a 95% interval of 0.83 to 1.11, i.e. not distinguishable from 1.0, and it swings
+from 1.065 to 0.866 year to year. There is no conversion, because there is no
+conversion the data supports. See the note in main().
 
 Usage: python scripts/project_war_knn.py [--k 40] [--horizon 3]
 Output: data/<league>/projections_knn.json
@@ -578,8 +581,8 @@ def main():
     # scale nfl_history WAR into this league's units, from the seasons we
     # have in both. Same shape, different replacement level.
     # gsis -> Sleeper pid. Built ONCE, up here, because two things need it: the
-    # scale ratio below and the player join at the end. It used to be built only
-    # at the end, so the ratio fell back to a raw-name join and came out wrong.
+    # player join at the end. Built once, up here, so a name-matching change
+    # cannot silently reach only half the callers.
     gsis_to_pid, sleeper_name = {}, {}
     try:
         _pmin = json.loads((DATA / "players_min.json").read_text(encoding="utf-8"))
@@ -598,37 +601,24 @@ def main():
     except (OSError, ValueError, KeyError, IndexError) as e:
         print(f"  ! could not build the Sleeper id map: {e}")
 
-    ratio, n_r = 1.0, 0
-    try:
-        lmeta = json.loads((DATA / "meta.json").read_text())
-        # Least squares through the origin, NOT a ratio of sums: the two WAR
-        # scales both run negative for replacement-level players, and summing
-        # signed values let the positives and negatives cancel into nonsense
-        # (the first run of this reported a scale of -0.139).
-        # Join through match_meta, NOT raw names, and require a real season on
-        # both sides. Joining on normalized strings silently dropped every
-        # player nflverse indexes under a legal first name and let short
-        # seasons in, which dragged this slope to 0.850 — a 15% haircut on
-        # every projection in the file. Done properly it is 0.969, flat across
-        # every WAR band, which is what nfl_history.py's own sigma calibration
-        # says it should be ("matched ratios centre on 1.0 per season").
-        sxy = sxx = 0.0
-        for s in lmeta["seasons"]:
-            f = DATA / s / "summary.json"
-            if not f.exists() or int(s) not in seasons:
-                continue
-            lg = {r[0]: (r[6], r[2]) for r in json.loads(f.read_text())
-                  if len(r) > 6 and isinstance(r[6], (int, float))}
-            for pid, row in seasons[int(s)].items():
-                lp = gsis_to_pid.get(pid)
-                if not lp or lp not in lg or row["gp"] < 10 or lg[lp][1] < 10:
-                    continue
-                sxy += row["war"] * lg[lp][0]; sxx += row["war"] ** 2; n_r += 1
-        if sxx:
-            ratio = sxy / sxx
-    except (OSError, KeyError, json.JSONDecodeError):
-        pass
-
+    # NO CORPUS->LEAGUE RESCALE. There used to be one here — a least-squares
+    # slope of league WAR on corpus WAR, applied to every number this file
+    # emits. It measured 0.9645 pooled over 920 player-seasons with a standard
+    # error of 0.0036, which looks decisive and is not: that SE treats 920
+    # player-seasons as independent draws when the variance is almost entirely a
+    # SEASON effect.
+    #
+    #     2022  1.065     2023  0.933     2024  1.008     2025  0.866
+    #
+    # A 23% spread across four years, and the season-to-season sd is 24x the
+    # pooled SE. Done on the honest sample size — four seasons, not 920 rows —
+    # k = 0.968 with an SE of 0.043, a 95% interval of 0.83 to 1.11, and t =
+    # -0.74 against 1.0. Indistinguishable from no difference at all, and what
+    # variation there is looks like roster construction and the scoring
+    # environment rather than a stable gap between two replacement levels.
+    #
+    # So corpus WAR is published as-is. If this is ever revisited, it needs
+    # enough seasons for a between-season interval to mean something.
     # Hand corrections, keyed by gsis_id — see the file's own note. Keyed by ID
     # and never by name, for the reason the owner splits are keyed by roster_id:
     # the name is the thing being corrected, so it cannot also be the key.
@@ -680,8 +670,6 @@ def main():
                     "corpus_seasons": [years[0], years[-1]],
                     "corpus_rows": len(corpus),
                     "seed_season": seed,
-                    "league_scale_ratio": round(ratio, 4),
-                    "scale_sample": n_r,
                     "absent": "hurt/inactive skipped; out of the league = 0.0"},
            "players": []}
 
@@ -705,7 +693,7 @@ def main():
         if not r:
             continue
         pos = q["pos"]
-        proj = [round(to_war(x, pos) * ratio, 3) for x in r["median"]]
+        proj = [round(to_war(x, pos), 3) for x in r["median"]]
         out["players"].append({
             "gsis": pid, "name": meta.get(pid, {}).get("name"),
             "pos": pos, "age": q["age"], "exp": q["exp"],
@@ -716,14 +704,14 @@ def main():
             # the cohort's typical match, on the same 0-100 scale as `near.sim`
             "sim_med": similarity(r["d_med"]),
             "avail": r["avail"], "fitted": r["fitted"],
-            "median_flat": [round(to_war(x, pos) * ratio, 3) for x in r["median_flat"]],
+            "median_flat": [round(to_war(x, pos), 3) for x in r["median_flat"]],
             # if-healthy median x the cohort's availability
-            "expected": [round(to_war(r["median"][i], pos) * ratio * r["avail"][i], 3)
+            "expected": [round(to_war(r["median"][i], pos) * r["avail"][i], 3)
                          for i in range(len(r["median"]))],
             "proj": proj,
-            "proj_mean": [round(to_war(x, pos) * ratio, 3) for x in r["mean"]],
-            "low": [round(to_war(x, pos) * ratio, 3) for x in r["p20"]],
-            "high": [round(to_war(x, pos) * ratio, 3) for x in r["p80"]],
+            "proj_mean": [round(to_war(x, pos), 3) for x in r["mean"]],
+            "low": [round(to_war(x, pos), 3) for x in r["p20"]],
+            "high": [round(to_war(x, pos), 3) for x in r["p80"]],
             "raw_median": r["median"],
             "share_useful": r["share_useful"],
             "total": round(sum(proj), 3),
@@ -743,7 +731,7 @@ def main():
                 # year he was hurt or inactive, which is skipped rather than
                 # scored as a zero — a real 0.0 means he left the league, and
                 # those are different facts (METHODOLOGY.md on absence).
-                "then": [None if v is None else round(to_war(v, pos) * ratio, 3)
+                "then": [None if v is None else round(to_war(v, pos), 3)
                          for v in m["future"]],
                 "then_gp": m["future_gp"],
             } for m in r["near"]] if gsis_to_pid.get(pid) else [],
@@ -768,7 +756,7 @@ def main():
     dest = DATA / out_name
     dest.write_text(json.dumps(out, separators=(",", ":")) + "\n")
     print(f"[{args.space}] corpus {len(corpus)} player-seasons {years[0]}-{years[-1]} · "
-          f"seed {seed} · scale x{ratio:.3f} (n={n_r})")
+          f"seed {seed} · corpus WAR, unrescaled")
     print(f"wrote {dest} · {len(out['players'])} players")
 
 

@@ -241,7 +241,7 @@ export interface KnnNeighbour {
 export interface KnnFile {
   meta: { model: string; space: string; k: number; horizon: number;
     corpus_seasons: number[]; corpus_rows: number; seed_season: number;
-    league_scale_ratio: number; absent: string };
+    absent: string };
   players: KnnProjection[];
 }
 
@@ -284,7 +284,6 @@ export interface MatrixFile {
     curves: MatrixCurve[]; horizon: number; blend_w: number[];
     trust_p: number; pad_penalty: number; w_min: number; w_max: number;
     pts13_floor: number; d_ref: Record<string, number>;
-    league_scale_ratio: number;
     players: number; with_analog: number; with_sleeper: number;
     note: string;
   };

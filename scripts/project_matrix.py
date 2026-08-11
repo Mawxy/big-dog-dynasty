@@ -66,7 +66,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from leaguepaths import DataDir
-from project_war import BLEND_W
+from project_war import BLEND_W, composite_path
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = DataDir(ROOT / "data")
@@ -141,36 +141,6 @@ def trust_of(k, d_ref):
     return t * PAD_PENALTY if k.get("padded") else t
 
 
-def composite(natural, sleeper_war, w1, decay):
-    """Blend a natural curve with Sleeper's year-1 read, aged forward.
-
-    The Sleeper number is aged ADDITIVELY, not by the ratio decay[i]/decay[0] —
-    project_war.py learned that the hard way, because a near-zero or signed
-    first year makes that ratio sign-flip and amplify instead of decay.
-
-    `decay` is the path whose SHAPE ages Sleeper forward, and it is always the
-    scalar natural — never the curve being blended. The scalar model is the only
-    one here with an aging model: aging_curves.py fits the year-over-year decline
-    explicitly. The analog's shape is not a decay curve at all, it is three
-    independent cohort medians sitting next to each other, and its year-over-year
-    step carries whatever noise separates those three cohorts.
-
-    Aging Sleeper along the analog's own shape put Christian McCaffrey's year-2
-    analog composite at 0.638 — below his analog natural (1.001), below the
-    scalar (1.004) and below Sleeper itself (1.025), a number no input supported.
-    His analog year 1 is an untrustworthy 1.752 (d_med 3.76, padded), so the step
-    down to 1.001 read as a 0.75 collapse and dragged the Sleeper path with it.
-    Distrusting a curve's level while borrowing its shape is incoherent.
-    """
-    out = []
-    base = decay[0]
-    for i, nat in enumerate(natural):
-        w = w1 * (BLEND_W[i] / BLEND_W[0]) if i < len(BLEND_W) else 0.0
-        path = sleeper_war + (decay[i] - base)
-        out.append(round(w * path + (1 - w) * nat, 3))
-    return out
-
-
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="projections_matrix.json")
@@ -183,8 +153,10 @@ def main():
     scalar = json.loads((DATA / "projections.json").read_text())
     knnf = json.loads((DATA / "projections_knn_hybrid.json").read_text())
     sproj = json.loads((DATA / "proj_sleeper.json").read_text())["players"]
-    ptw = json.loads((HIST / "aging_curves.json").read_text())["pts_to_war"]
-    ratio = knnf["meta"].get("league_scale_ratio", 1.0)
+    # NOTE: pts_to_war is deliberately not read here. Converting Sleeper's
+    # points to WAR is project_war.py's job and its output is taken as given.
+    # The corpus->league rescale this file briefly applied is gone everywhere —
+    # it was never distinguishable from 1.0; see project_war_knn.py.
 
     analog = {p["pid"]: p for p in knnf["players"] if p.get("pid")}
 
@@ -205,9 +177,11 @@ def main():
         k = analog.get(pid)
         sp = sproj.get(pid, {})
         pts13 = sp.get("pts13") or 0.0
-        c = ptw.get(pos)
         scale = sleeper_scale(pts13)
-        sl_war = (c["a"] + c["b"] * pts13) * ratio if c and scale > 0 else None
+        # THE SLEEPER LEG IS READ, NOT RECOMPUTED. project_war.py already
+        # publishes it as `proj_ext`; deriving it a second time from pts_to_war
+        # is what let the two files disagree by the corpus->league ratio.
+        sl_war = p.get("proj_ext") if scale > 0 else None
         if sl_war is not None:
             n_sl += 1
 
@@ -230,11 +204,17 @@ def main():
             w_an = None
         else:
             w_an = W_MIN + (W_MAX - W_MIN) * (1 - t) if t is not None else BLEND_W[0]
-            # the taper multiplies whatever weight the model would otherwise
-            # give Sleeper, so trust and the gate compose rather than compete
-            sc_cmp = composite(sc_nat, sl_war, BLEND_W[0] * scale, sc_nat)
-            an_cmp = composite(an_nat, sl_war, w_an * scale, sc_nat)
-            bl_cmp = composite(bl_nat, sl_war, BLEND_W[0] * scale, sc_nat)
+            # The scalar composite is project_war.py's, verbatim, whenever the
+            # gate is not modifying it — this file must not be a second opinion
+            # about a number that already has an owner. `hard` and `taper` are
+            # experiments, so they recompute; the shipped path reads.
+            sc_cmp = (p["composite"] if scale >= 1.0
+                      else composite_path(sc_nat, sl_war, sc_nat, BLEND_W[0] * scale))
+            # these two exist nowhere else, so the matrix does own them. The
+            # taper multiplies whatever weight the model would otherwise give
+            # Sleeper, so trust and the gate compose rather than compete.
+            an_cmp = composite_path(an_nat, sl_war, sc_nat, w_an * scale)
+            bl_cmp = composite_path(bl_nat, sl_war, sc_nat, BLEND_W[0] * scale)
 
         rows.append({
             "pid": pid, "name": p["name"], "pos": pos, "team": p.get("team"),
@@ -274,7 +254,6 @@ def main():
             "sleeper_gate": SLEEPER_GATE,
             "pts13_floor": PTS13_FLOOR, "pts13_full": PTS13_FULL,
             "d_ref": {k: round(v, 3) for k, v in d_ref.items()},
-            "league_scale_ratio": ratio,
             "players": len(rows), "with_analog": n_an, "with_sleeper": n_sl,
             "note": "analog composite uses a trust-scaled Sleeper weight; "
                     "scalar and blend composites use the flat BLEND_W",

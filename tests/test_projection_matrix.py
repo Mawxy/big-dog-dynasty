@@ -15,9 +15,19 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from project_matrix import (composite, trust_of,                  # noqa: E402
-                            PAD_PENALTY, PTS13_FLOOR, W_MAX, W_MIN)
-from project_war import BLEND_W                                   # noqa: E402
+from project_matrix import (sleeper_scale, trust_of,             # noqa: E402
+                            PAD_PENALTY, PTS13_FLOOR, PTS13_FULL,
+                            W_MAX, W_MIN)
+# THE composite formula lives in project_war.py and is imported by the matrix,
+# not duplicated in it. It used to exist in both, and the copies drifted by the
+# corpus->league ratio — the same player read 1.502 on his page and 1.547 on the
+# value board. These tests follow it to its one home.
+from project_war import BLEND_W, composite_path                   # noqa: E402
+
+
+def composite(natural, ext, w1, decay):
+    """Argument order the older tests were written against."""
+    return composite_path(natural, ext, decay, w1)
 
 
 class TestTrust(unittest.TestCase):
@@ -105,11 +115,16 @@ class TestComposite(unittest.TestCase):
 
 
 class TestGates(unittest.TestCase):
-    def test_pts13_floor_is_not_a_null_check(self):
-        """A `pts13` of 0, 1 or 9 is Sleeper having no opinion, not a forecast
-        of nearly zero points. The pts->WAR line crosses zero near 127 points,
-        so treating those as real prices a benchable backup at about -1.37 WAR."""
-        self.assertGreater(PTS13_FLOOR, 10.0)
+    def test_there_is_no_points_floor_on_the_shipped_path(self):
+        """This test used to assert the opposite. I had gated Sleeper at 25
+        points believing a low projection was an artifact being extrapolated;
+        the corpus says it is a real forecast sitting inside the line's support,
+        and a backup projected for 32 points IS projected below replacement.
+        Projected WAR is production, not worth — the optionality that makes such
+        a player valuable is DVI and CVI's job."""
+        from project_matrix import SLEEPER_GATE
+        self.assertEqual(SLEEPER_GATE, "none")
+        self.assertEqual(sleeper_scale(4.28), 1.0)
 
     def test_the_analog_composite_is_not_the_scalar_composite(self):
         """At the scalar model's flat 0.9 the two composites agree to a mean of
@@ -121,6 +136,70 @@ class TestGates(unittest.TestCase):
         flat = composite(analog, sl, BLEND_W[0], scalar)
         trusted = composite(analog, sl, W_MIN + (W_MAX - W_MIN) * (1 - 0.80), scalar)
         self.assertGreater(abs(flat[0] - trusted[0]), 0.15)
+
+
+class TestSleeperGate(unittest.TestCase):
+    """What counts as a Sleeper projection.
+
+    The shipped gate is `none`: every positive projection counts at full
+    weight. A floor was tried at 25 points and removed after measuring it — the
+    pts->WAR line is fit ON sub-replacement seasons (620 of 1041 QB seasons sit
+    below its zero crossing), so a backup's low projection is in-support, not an
+    extrapolation. `hard` and `taper` survive only so that measurement can be
+    re-run.
+    """
+
+    def test_a_forecast_cannot_be_negative_points(self):
+        for gate in ("none", "hard", "taper"):
+            self.assertEqual(sleeper_scale(-0.31, gate), 0.0, gate)
+            self.assertEqual(sleeper_scale(0.0, gate), 0.0, gate)
+            self.assertEqual(sleeper_scale(None, gate), 0.0, gate)
+
+    def test_none_admits_every_positive_projection(self):
+        for pts in (0.5, 4.28, 24.9, 25.1, 127.0, 271.0):
+            self.assertEqual(sleeper_scale(pts, "none"), 1.0, pts)
+
+    def test_hard_is_a_cliff_and_that_is_why_it_lost(self):
+        self.assertEqual(sleeper_scale(24.93, "hard"), 0.0)
+        self.assertEqual(sleeper_scale(25.10, "hard"), 1.0)
+
+    def test_taper_ramps_between_the_two_anchors(self):
+        self.assertEqual(sleeper_scale(PTS13_FLOOR, "taper"), 0.0)
+        self.assertEqual(sleeper_scale(PTS13_FULL, "taper"), 1.0)
+        mid = sleeper_scale((PTS13_FLOOR + PTS13_FULL) / 2, "taper")
+        self.assertAlmostEqual(mid, 0.5, places=6)
+
+    def test_taper_is_monotone(self):
+        xs = [26, 40, 60, 90, 120, 128, 200]
+        ss = [sleeper_scale(x, "taper") for x in xs]
+        self.assertEqual(ss, sorted(ss))
+
+
+class TestOneOwnerPerNumber(unittest.TestCase):
+    """The matrix must not be a second opinion about a number that already has
+    an owner — see the note on the composite import above."""
+
+    def test_the_matrix_does_not_define_its_own_composite(self):
+        import project_matrix
+        self.assertFalse(
+            "def composite(" in Path(project_matrix.__file__).read_text(encoding="utf-8"),
+            "project_matrix has re-grown its own composite formula")
+
+    def test_scalar_composite_matches_projections_json(self):
+        """The shipped gate reads project_war's number verbatim."""
+        import json
+        from leaguepaths import DataDir
+        d = DataDir(Path(__file__).resolve().parent.parent / "data")
+        f_s, f_m = d / "projections.json", d / "projections_matrix.json"
+        if not (f_s.exists() and f_m.exists()):
+            self.skipTest("no built data")
+        sc = {str(p["pid"]): p for p in json.loads(f_s.read_text())["players"]}
+        for m in json.loads(f_m.read_text())["players"]:
+            p = sc.get(m["pid"])
+            if not p:
+                continue
+            self.assertEqual(m["scalar_natural"], p["proj"], m["name"])
+            self.assertEqual(m["scalar_composite"], p["composite"], m["name"])
 
 
 if __name__ == "__main__":

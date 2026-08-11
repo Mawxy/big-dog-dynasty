@@ -131,6 +131,40 @@ def match_meta(name, pos, idx):
     return None
 
 
+def composite_path(natural, ext, decay=None, w0=None):
+    """Blend a natural path with a year-1 external read, aged forward.
+
+    THE ONE DEFINITION OF A COMPOSITE. project_matrix.py imports this rather
+    than carrying its own copy: it used to have one, and the two drifted — the
+    matrix applied a corpus->league rescale to the Sleeper leg and this file did
+    not, so the same player read 1.502 on his page and 1.547 on the value board.
+    Two implementations of one formula will always end up answering differently;
+    the fix is that there is only one.
+
+    natural  the path being blended toward
+    ext      the year-1 external number (Sleeper, via pts_to_war)
+    decay    whose SHAPE ages `ext` forward. Defaults to `natural`. The matrix
+             passes the scalar path when blending the analog, because a curve
+             whose level you distrust is not a curve whose shape you should
+             borrow — aging along the analog's own steps put McCaffrey's year-2
+             composite below every input that produced it.
+    w0       year-1 weight, defaulting to BLEND_W[0]. Later years scale by
+             BLEND_W[i]/BLEND_W[0], so the horizon decay is preserved whatever
+             the caller starts from.
+
+    Additive, never the ratio decay[i]/decay[0] — a signed or near-zero first
+    year makes that ratio sign-flip and amplify (Brooks yr3 went +0.294).
+    """
+    decay = natural if decay is None else decay
+    out = []
+    for i, nat in enumerate(natural):
+        w = BLEND_W[i] if i < len(BLEND_W) else 0.0
+        if w0 is not None:
+            w = w0 * (BLEND_W[i] / BLEND_W[0]) if i < len(BLEND_W) else 0.0
+        out.append(round(w * (ext + (decay[i] - decay[0])) + (1 - w) * nat, 3))
+    return out
+
+
 def curve_at(model, pos, age, lvl, use_grid=True):
     """next_rate and its 80% band at THIS player's own level.
 
@@ -424,14 +458,7 @@ def main():
         # project_matrix.py for why there is no floor above that.
         if sp is not None and pos in ptw and (sp.get('pts13') or 0) > 0:
             proj_ext = round(ptw[pos]['a'] + ptw[pos]['b'] * sp['pts13'], 3)
-            comp = []
-            for i in range(len(proj)):
-                w = BLEND_W[i] if i < len(BLEND_W) else 0.0
-                # Age proj_ext along the math path's ADDITIVE decay, not the
-                # ratio proj[i]/proj[0] — a signed/near-zero proj[0] made that
-                # ratio sign-flip and amplify (Brooks yr3 went +0.294).
-                proj_path = proj_ext + (proj[i] - proj[0])
-                comp.append(round(w * proj_path + (1 - w) * proj[i], 3))
+            comp = composite_path(proj, proj_ext)
         else:
             proj_ext = None
             comp = list(proj)
