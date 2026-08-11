@@ -1,7 +1,6 @@
-import { useEffect, useState } from "react";
 import type { Ownership, PlayersMin, SeasonData, Team } from "../lib/types";
-import { jl } from "../lib/data";
-import { fmt, clsOf, sd, mean } from "../lib/stats";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, clsOf, sd, mean } from "../lib/stats";
 import { pInfo, ownerOf } from "../lib/league";
 import PosBadge from "./PosBadge";
 import BoxPlot from "./BoxPlot";
@@ -10,12 +9,11 @@ import { PlayerLink } from "./PlayerLink";
 
 interface Props { pid: string; data: SeasonData; seasons: string[]; teams: Team[]; players: PlayersMin }
 
+const NO_OWNERSHIP: Ownership = {};
+
 /** Quick-look dropdown panel in All-time mode (per-season rows). */
 export default function AllTimePanel({ pid, data, seasons, teams, players }: Props) {
-  const [own, setOwn] = useState<Ownership>({});
-  useEffect(() => {
-    jl<Ownership>("ownership.json").catch(() => ({} as Ownership)).then(setOwn);
-  }, []);
+  const own = useJson<Ownership>("ownership.json").data ?? NO_OWNERSHIP;
   const [nm, pos] = pInfo(players, pid);
   const owner = ownerOf(teams)[pid];
   const rows: [string, number, number, number, number, number][] = [];
@@ -44,8 +42,8 @@ export default function AllTimePanel({ pid, data, seasons, teams, players }: Pro
                   {rows.map(r => (
                     <tr key={r[0]}>
                       <td>{r[0]}</td><td>{r[1]}</td><td>{fmt(r[2], 1)}</td><td>{fmt(r[3])}</td>
-                      <td className={clsOf(r[4])}>{fmt(r[4], 3)}</td>
-                      <td className={clsOf(r[5])}>{fmt(r[5], 3)}</td>
+                      <td className={clsOf(r[4])}>{fmtWar(r[4])}</td>
+                      <td className={clsOf(r[5])}>{fmtWar(r[5])}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Trade, TradeSide, TradesPayload } from "../lib/types";
-import { jl } from "../lib/data";
-import { fmt } from "../lib/stats";
-import { pInfo } from "../lib/league";
+import { useMemo } from "react";
+import type { TradesPayload } from "../lib/types";
+import { useJson } from "../lib/useJson";
+import { readTrades, tradeWhen } from "../lib/trades";
+import { fmtWar } from "../lib/stats";
 import { useLeague } from "../lib/context";
+import TradeCard, { sideRealized } from "../components/TradeCard";
 
 /**
  * Trade ledger — every trade, each side scored on the WAR its return actually
@@ -15,40 +16,36 @@ import { useLeague } from "../lib/context";
  */
 export default function Ledger() {
   const { players } = useLeague();
-  const [trades, setTrades] = useState<Trade[] | null>(null);
-  const [err, setErr] = useState(false);
-  useEffect(() => {
-    jl<TradesPayload>("trades.json")
-      .then(p => setTrades(Array.isArray(p) ? p : p.trades))
-      .catch(() => setErr(true));
-  }, []);
+  const file = useJson<TradesPayload>("trades.json");
+  const err = file.error;
+  // readTrades, not an inline Array.isArray: a TradesFile written without its
+  // `trades` key left state undefined here and the page stuck on "Loading".
+  const trades = useMemo(
+    () => (file.data ? readTrades(file.data).trades : null), [file.data]);
 
   const cards = useMemo(() => {
     if (!trades) return [];
-    // realized WAR of a side = its player assets; null when it took only picks
-    const sideWar = (s: TradeSide): number | null =>
-      s.got.some(a => a.kind === "player") ? s.war : null;
     return trades
       .filter(t => t.sides.length >= 2)
       .slice()
       .sort((a, b) => b.ts - a.ts)
       .map((t, i) => {
         const [A, B] = t.sides;
-        const aw = sideWar(A), bw = sideWar(B);
+        const aw = sideRealized(A), bw = sideRealized(B);
         let verdict = "Even so far", cls = "", vcolor = "var(--dim)";
         if (aw != null && bw != null && Math.abs(aw - bw) > 0.15) {
-          verdict = `${aw > bw ? A.team : B.team} ahead by ${fmt(Math.abs(aw - bw), 3)} WAR`;
+          verdict = `${aw > bw ? A.team : B.team} ahead by ${fmtWar(Math.abs(aw - bw))} WAR`;
           cls = "win"; vcolor = "var(--good)";
         } else if (aw != null && bw == null) {
-          verdict = `${A.team} banked ${fmt(aw, 3)} WAR · ${B.team} took picks`; cls = "pick"; vcolor = "var(--acc)";
+          verdict = `${A.team} banked ${fmtWar(aw)} WAR · ${B.team} took picks`; cls = "pick"; vcolor = "var(--acc)";
         } else if (bw != null && aw == null) {
-          verdict = `${B.team} banked ${fmt(bw, 3)} WAR · ${A.team} took picks`; cls = "pick"; vcolor = "var(--acc)";
+          verdict = `${B.team} banked ${fmtWar(bw)} WAR · ${A.team} took picks`; cls = "pick"; vcolor = "var(--acc)";
         }
         // ts is a Sleeper transaction timestamp and two trades processed in the
         // same batch share it — a bare ts as the React key collided and the two
         // cards traded contents on any re-render. Composite with the index, the
         // way the franchise page's trade list already does it.
-        return { key: `${t.ts}-${i}`, wk: t.week, verdict, cls, vcolor, sides: t.sides.map(s => ({ side: s, war: sideWar(s) })) };
+        return { key: `${t.ts}-${i}`, trade: t, when: tradeWhen(t.ts), verdict, cls, vcolor };
       });
   }, [trades]);
 
@@ -71,47 +68,9 @@ export default function Ledger() {
       </div>
       <div className="ledger" style={{ paddingTop: 14 }}>
         {cards.map(c => (
-          <div key={c.key} className={`trade ${c.cls}`}>
-            <div className="trade-head">
-              <span className="trade-wk">WEEK {c.wk}</span>
-              <span className="trade-verdict" style={{ color: c.vcolor }}>{c.verdict}</span>
-            </div>
-            <div className="trade-sides">
-              {c.sides.map(({ side, war }, i) => (
-                <div key={i} className="trade-side">
-                  <div className="hd">
-                    <div>
-                      <div className="k">Received</div>
-                      <div className="team">{side.team}</div>
-                    </div>
-                    <div style={{ textAlign: "right" }}>
-                      <div className="k">Return</div>
-                      <div className="total" style={{ color: war == null ? "var(--dim3)" : undefined }}>
-                        {war == null ? "—" : fmt(war, 3)}
-                      </div>
-                    </div>
-                  </div>
-                  {/* the same asset row the franchise page draws, and
-                      deliberately the same neutral ink on both sides: coloring
-                      each basket's figures green and red made every asset argue
-                      for a winner, which is the verdict line's job (SKILL §5) */}
-                  {side.got.map((a, k) => {
-                    const isPick = a.kind !== "player";
-                    const pos = !isPick && a.pid ? pInfo(players, a.pid)[1] : "PICK";
-                    return (
-                      <div key={k} className="trade-asset">
-                        <span className={`pos sm ${isPick ? "PICK" : pos}`}>{isPick ? "PK" : pos}</span>
-                        <span className={`nm ${isPick ? "pick" : ""}`}>{a.label}</span>
-                        <span className="war" style={{ color: isPick ? "var(--dim3)" : "var(--txt2)" }}>
-                          {isPick ? "—" : fmt(a.war, 3)}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          </div>
+          <TradeCard key={c.key} trade={c.trade} players={players} cls={c.cls}
+            when={c.when} verdict={c.verdict} verdictColor={c.vcolor}
+            sideFig="return" />
         ))}
       </div>
       <div className="tnote screen">

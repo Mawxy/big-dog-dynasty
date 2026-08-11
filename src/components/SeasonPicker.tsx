@@ -1,6 +1,6 @@
 import { useLocation, useNavigate } from "react-router-dom";
 import { useLeague, useLeaguePath } from "../lib/context";
-import { seasonSeg } from "../lib/league";
+import { latestSeasonOf, seasonSeg } from "../lib/league";
 
 /**
  * The season selector, rendered by the views that are actually season-scoped.
@@ -19,8 +19,7 @@ export default function SeasonPicker({ allTime = true }: { allTime?: boolean }) 
   const lp = useLeaguePath();
   const parts = useLocation().pathname.split("/");
   const view = parts[2] || "players";
-  const cur = parts[3] || seasonSeg(meta.latest && meta.seasons.includes(meta.latest)
-    ? meta.latest : meta.seasons[meta.seasons.length - 1]);
+  const cur = parts[3] || seasonSeg(latestSeasonOf(meta));
   // "Week 12" and "the playoffs" are the same question asked of a different
   // year, so the season switch carries that segment across instead of dropping
   // the reader back on the view's index. Only the weekly view has a week

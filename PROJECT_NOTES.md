@@ -55,9 +55,17 @@ nflverse ──> scripts/nfl_history.py ──> nfl_history_data/  (gitignored)
     cached. The daily job restores that cache instead of re-downloading it,
     which is what makes a daily cadence cheap.
   - `values-refresh.yml` — daily: FantasyCalc + KTC market values, no Sleeper.
-  - Every workflow that commits shares `concurrency: data-push` and does
-    `git pull --rebase --autostash` before pushing, so a manual dispatch during
-    a scheduled run can't lose a race to a rejected push.
+  - The three PIPELINE jobs that commit — `data-refresh`, `values-refresh` and
+    `war-history` — share `concurrency: data-push`, so a manual dispatch during
+    a scheduled run can't lose a race to a rejected push. The crawls
+    deliberately do NOT join that group: each owns its own
+    (`crawl-signals`, `crawl-drafts`, `crawl-outcomes-<shard>`,
+    `crawl-trades-<shard>`), because a five-hour crawl holding `data-push`
+    would block the daily refresh behind it. They absorb the race in their own
+    fetch / re-parent / retry loop, and they RE-PARENT rather than rebase:
+    their outputs are generated files rewritten whole on every flush, so a
+    rebase hits a content conflict every time. Reasoning in
+    `data-refresh.yml` (the split) and `crawl-signals.yml` (the re-parent).
   - `war-history.yml` — manual: nflverse → league-shaped WAR for 2014+ via
     `scripts/nfl_history.py` + unchanged engine; commits `nfl_history/*.csv`
     (analysis CSVs + players_meta.csv with birth dates and draft slots).
@@ -91,38 +99,40 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    Max explicitly wants big games in low-scoring weeks to earn more).
 4. Weekly shifts summed over **regular season only** (playoffs excluded;
    `--include-playoffs` flag exists).
-5. **Played rule (SETTLED 2026-07-17, position-dependent — Max's ruling)**:
-   - **QB**: offensive participation only — `off_snp > 0` OR a real offensive
-     stat line. A dressed backup QB with zero snaps is **DNP** (Malik Willis
-     2025 wk1, Bagent's 2024 backup weeks). Rationale: QB is the one position
-     with a clear starter who takes every snap, so merely dressing carries no
-     start-worthiness signal.
-   - **RB / WR / TE**: **dressed = played**. Any record beyond the bare
-     `gms_active` placeholder (i.e., `gp`, `off_snp`, `st_snp`, or `tm_*_snp`
-     present) counts as played; a dressed zero-point game accrues negative
-     value. Rationale: these positions rotate — a dressed player who gave you
-     nothing is a real 0.00, not an absence.
+5. **Played rule (SETTLED 2026-08-07, position-INDEPENDENT)**: **dressed =
+   played, for every position**, and a dressed zero-point game accrues negative
+   value. Any record beyond the bare `gms_active` placeholder (`gp`, `off_snp`,
+   `def_snp`, `st_snp`, `tm_*_snp`, or a real offensive stat line) counts as
+   played. A dressed player who gave you nothing is a real 0.00, not an absence.
    - Byes, game-day inactives, and IR/NFI/practice-squad (bare `gms_active`
      records) are excluded (DNP) for all positions.
    - Saved as `<season>/played/week_NN.json` by sleeper_pull; sleeper_war
      falls back to "0.00 = DNP" if played files are absent.
-   - IMPLEMENTED in `sleeper_pull.row_played()` and mirrored in
-     `nfl_history.row_played_hist()` (2026-07-17; commit + data-refresh rerun
-     may still be pending — check git log).
-   - 2026-07-19: the RB/WR/TE branch of `row_played()` was only testing snaps,
-     never the stat line, so it disagreed with the history pipeline (and with
-     the "snaps OR stat line, never one alone" note below). It now checks
-     `_OFF_STATS` too. This can only ADD played weeks, in the rare case where
-     Sleeper records a stat with no `gp`/snap/`tm_*_snp` field at all — WAR
-     shifts on the next data-refresh should be nil to negligible.
-   - Remaining (unavoidable) asymmetry: nflverse has no counterpart to
-     Sleeper's `tm_*_snp`, so a dressed RB/WR/TE with zero snaps in every phase
-     and no stat line is DNP historically but a played 0.00 in league data.
-     Documented in `nfl_history.py`'s header; population is negligible.
+   - IMPLEMENTED in `sleeper_pull.row_played()`, mirrored in
+     `nfl_history.row_played_hist()`. On nflverse inputs the counterpart to
+     Sleeper's `tm_*_snp` is weekly roster ACT status — which also closed the
+     old asymmetry where a dressed RB/WR/TE with no snaps in any phase read DNP
+     historically but a played 0.00 in league data.
    - Locked down by `tests/test_war_engine.py::TestPlayedRule`.
-   - History: an earlier all-positions "startability" rule (dressed = played
-     for everyone) and an all-positions "participation" rule (off_snp only for
-     everyone) were both considered and rejected in favor of this split.
+   - Decision history (kept — the rule has moved twice):
+     - An all-positions "participation" rule (`off_snp` only, everyone) was
+       considered and rejected early.
+     - **2026-07-17 (superseded)**: settled as POSITION-DEPENDENT. QB required
+       offensive participation — `off_snp > 0` OR a real offensive stat line —
+       so a dressed backup QB with zero snaps was DNP (Malik Willis 2025 wk1,
+       Bagent's 2024 backup weeks); RB/WR/TE took dressed = played. Rationale
+       was that QB is the one position with a clear starter who takes every
+       snap, so merely dressing carried no start-worthiness signal.
+     - 2026-07-19: the RB/WR/TE branch was only testing snaps, never the stat
+       line, so it disagreed with the history pipeline. It now checks
+       `_OFF_STATS` too — this can only ADD played weeks.
+     - **2026-08-07**: the QB carve-out was RETIRED. "Dressing carries no
+       signal" is an argument about OPPORTUNITY, and WAR measures production
+       against replacement, not opportunity. A backup QB is often valuable to
+       OWN and reliably unproductive — different facts, and ownership value is
+       what DVI, CVI and market price measure. Excluding his weeks let a backup
+       keep a per-13 rate built from two mop-up appearances, which was the root
+       of the projection model pricing unproven QBs as startable assets.
 6. Team WAA/WAR (Teams page) = sum over each week's **actual starters**, not
    season totals of the current roster. Lineup WAA runs negative for most
    teams (measured vs the optimal pool) — that's expected, compare relatively.
@@ -154,7 +164,7 @@ regular&position[]=...` (and the per-player `stats/nfl/player/<id>` endpoint):
 ## Tests
 
 `python -m unittest discover -s tests -v` (or `python -m pytest tests -q`) —
-stdlib `unittest`, no network, no third-party runner required. Eight files, one
+stdlib `unittest`, no network, no third-party runner required. Ten files, one
 per figure or engine:
 
 | File | What it locks |
@@ -167,6 +177,8 @@ per figure or engine:
 | `test_franchise.py` | `POS_OVERRIDE`, `FRANCHISE_BAR`, and the shape (not the exact counts) the definition produces on the committed history |
 | `test_outcomes.py` | the crawl's champion / pick-holding / placement / chain-grouping logic |
 | `test_slot_value.py` | lineup-slot pricing: median not mean, hit rate against the position's bar |
+| `test_aging_curves.py` | the aging-curve fit's production weighting — a season a player dressed for but produced nothing must not count as a full observation of what players like him do next year. `MIN_GP` used to enforce that by filtering on `gp`; the played rule redefined `gp` from "games he produced in" to "games he dressed for" and silently disabled the gate |
+| `test_projection_matrix.py` | the six-curve projection matrix stays six curves — it exists to publish a DISAGREEMENT between two models, so these lock down the decisions that stop the curves collapsing into one number or a composite landing where none of its inputs support |
 
 Most tests are pure and synthetic. **Some are not, and do not run in CI:**
 eight are gated on `sleeper_data/` or a local crawl artefact, both gitignored,
@@ -209,9 +221,9 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
   tier, with per-year and 3-year box plots and a median/IQR trajectory chart.
 - **Trades** (`#/trades`, not season-scoped): every trade with each side's
   return scored in WAR.
-- Hand-rolled SVG charts share `components/BoxMarks.tsx` (five-number summary +
-  box geometry + `AXIS` colour + `intTicks`) and `lib/useWidth.ts`; callers own
-  their own axes and labels. recharts is used only by `Projection`/`WarTrend`.
+- Every chart is hand-rolled SVG; there is no charting library in the bundle.
+  They share `components/BoxMarks.tsx` (five-number summary + box geometry +
+  `AXIS` colour) and `lib/useWidth.ts`; callers own their own axes and labels.
 - Methodology lives in a collapsed footer, with KTC/FantasyCalc attribution.
 - Season box plots share one axis from `meta.ptsRange` with dashed, labeled
   boundary lines at the domain min/max (2026-07-17).
@@ -227,9 +239,9 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
 
 ## Known bugs / caveats (tracked, not yet fixed)
 
-1. ~~0.00 vs DNP conflation~~ **FIXED**, including the 2026-07-17
-   position-split refinement (see methodology #5). Played maps regenerate on
-   the next data-refresh run after the split is pushed.
+1. ~~0.00 vs DNP conflation~~ **FIXED**. The rule has since moved off the
+   2026-07-17 position split to the position-independent 2026-08-07 form (see
+   methodology #5). Played maps regenerate on the next data-refresh run.
 2. All-time "Roster" column attributes players to their **current** owner only.
 3. Sleeper rate limit: stay under ~1000 calls/min; the ~19 MB `players/nfl`
    map at most once per day. That one call is why the PLAYER MAP fetch is
@@ -242,7 +254,8 @@ on 2014+ historical WAR (`nfl_history/` CSVs from war-history.yml).
 1. **WAR valuation model / value analysis** — aging curves → pick-value
    bridges → trade analyzer (see section above + HANDOFF.md).
 2. **Trade analyzer** — traded picks + ownership + WAR data already collected.
-3. More interactive charts as ideas arise (recharts in the bundle).
+3. More interactive charts as ideas arise (hand-rolled SVG — adding a charting
+   library would be a deliberate reversal, not a default).
 4. Minor: all-time Roster column (bug #2).
 5. **Team pages — franchise lineage.** A franchise is keyed by `roster_id`
    (stable across seasons), and its name/owner can change year to year. Team

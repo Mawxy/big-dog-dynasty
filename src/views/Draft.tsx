@@ -1,16 +1,18 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
-import { jl, jlDaily } from "../lib/data";
-import { fmt, sgn, warInk } from "../lib/stats";
-import { POS_COLOR } from "../lib/league";
+import { useJson } from "../lib/useJson";
+import { fmt, sgn, sgnWar, warInk } from "../lib/stats";
+import { LEAGUE_TEAMS } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
 import { buildHistory, type History } from "../lib/draftHistory";
 import DraftBoardGrid from "../components/DraftBoardGrid";
+import PickTable from "../components/PickTable";
 import TScroll from "../components/TScroll";
 import { boxStats } from "../components/BoxMarks";
 const ROUNDS = [1, 2, 3, 4];
-const SLOTS = ROUNDS.flatMap(rd => Array.from({ length: 12 }, (_, i) => `${rd}.${String(i + 1).padStart(2, "0")}`));
+const SLOTS = ROUNDS.flatMap(rd =>
+  Array.from({ length: LEAGUE_TEAMS }, (_, i) => `${rd}.${String(i + 1).padStart(2, "0")}`));
 
 /**
  * A finite [lo, hi] plot domain from whatever observations exist.
@@ -92,18 +94,14 @@ export default function Draft() {
   const lp = useLeaguePath();
   /** "returns" (the corpus analytics) or "history" (the draft boards) */
   const scope = useParams().sub === "history" ? "history" : "returns";
-  const [drafts, setDrafts] = useState<Drafts | null>(null);
-  const [fr, setFr] = useState<Franchises | null>(null);
-  const [pv, setPv] = useState<PickValues | null>(null);
-  const [err, setErr] = useState(false);
   // one nested table now: keys are "1" (round), "1E" (tier), "1.01" (slot)
   const [open, setOpen] = useState<Record<string, boolean>>({ "1": true });
 
-  useEffect(() => {
-    jl<Drafts>("drafts.json").then(setDrafts).catch(() => setErr(true));
-    jl<Franchises>("franchises.json").then(setFr).catch(() => setFr({}));
-    jlDaily<PickValues>("pick_values.json").then(setPv).catch(() => setPv(null));
-  }, []);
+  const draftsFile = useJson<Drafts>("drafts.json");
+  const drafts = draftsFile.data;
+  const err = draftsFile.error;
+  const fr = useJson<Franchises>("franchises.json").data;
+  const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
 
   /** slot-value blocks, from the multi-league corpus */
   const corpus = useMemo(() => {
@@ -403,9 +401,9 @@ export default function Draft() {
                       </>}
                     </svg>
                     {b.s && <>
-                      <Lab cls="end" pct={axisPct(b.s.mn)} text={sgn(b.s.mn, 2)} />
-                      <Lab cls="med" pct={axisPct(b.s.md)} text={sgn(b.s.md, 2)} />
-                      <Lab cls="end" pct={axisPct(b.s.mx)} text={sgn(b.s.mx, 2)} />
+                      <Lab cls="end" pct={axisPct(b.s.mn)} text={sgnWar(b.s.mn)} />
+                      <Lab cls="med" pct={axisPct(b.s.md)} text={sgnWar(b.s.md)} />
+                      <Lab cls="end" pct={axisPct(b.s.mx)} text={sgnWar(b.s.mx)} />
                     </>}
                   </div>
                 </div>
@@ -417,6 +415,8 @@ export default function Draft() {
                 {/* every tick label centers on its tick, including the two on
                     the plot edges — they overhang into the panel's padding,
                     which is why .panel keeps 20px of it */}
+                {/* axis ticks are a scale, not figures — they stay at one place so the
+                    labels don't collide; WAR_DP governs the figures themselves */}
                 {TICKS.map(t => <span key={t} style={{ left: pctX(t) }}>{sgn(t, 1)}</span>)}
               </div>
             </div>
@@ -433,22 +433,22 @@ export default function Draft() {
           <span className="band-note">{corpus.cellN}</span>
         </div>
         <div className="heat-legend" style={{ justifyContent: "flex-end", padding: "10px var(--pad) 9px" }}>
-          <span>{sgn(worstSlot, 2)}</span>
+          <span>{sgnWar(worstSlot)}</span>
           <div className="sw">{legend.map((c, i) => <i key={i} style={{ background: c }} />)}</div>
-          <span>{sgn(bestSlot, 2)}</span>
+          <span>{sgnWar(bestSlot)}</span>
         </div>
         {/* twelve 40px cells plus a label is wider than a phone: the grid
             scrolls in its own box, like the draft board and the bracket */}
         <TScroll box="dscroll" hint="The heat map scrolls sideways — twelve picks per round.">
           <div className="heat-head" style={{ padding: "0 var(--pad)" }}>
             <div className="pad" />
-            {Array.from({ length: 12 }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
+            {Array.from({ length: LEAGUE_TEAMS }, (_, j) => <span key={j}>{String(j + 1).padStart(2, "0")}</span>)}
           </div>
           <div className="heat2">
             {ROUNDS.map(rd => (
               <div key={rd} className="heat-row">
                 <div className="lbl">RD {rd}</div>
-                {Array.from({ length: 12 }, (_, j) => {
+                {Array.from({ length: LEAGUE_TEAMS }, (_, j) => {
                   const slot = `${rd}.${String(j + 1).padStart(2, "0")}`;
                   const m = corpus.slotMed[slot];
                   /* No ring on the extremes. It marked max and min of the slot
@@ -461,7 +461,7 @@ export default function Draft() {
                   return (
                     <div key={slot} className="cell"
                       style={{ background: heatBg(m), color: heatFg(m) }}>
-                      {m == null ? "—" : sgn(m, 2)}
+                      {m == null ? "—" : sgnWar(m)}
                     </div>
                   );
                 })}
@@ -533,13 +533,13 @@ export default function Draft() {
                       {n.cells.map((c, i) => (
                         <td key={i} className="n">
                           <span className="v" style={{ color: c.pending || c.v == null ? "var(--dim3)" : warInk(c.v) }}>
-                            {c.v == null ? "—" : sgn(c.v, 2)}
+                            {c.v == null ? "—" : sgnWar(c.v)}
                           </span>
                         </td>
                       ))}
                       <td className="n med">
                         <span className="v" style={{ color: n.med == null ? "var(--dim3)" : warInk(n.med) }}>
-                          {n.med == null ? "—" : sgn(n.med, 2)}
+                          {n.med == null ? "—" : sgnWar(n.med)}
                         </span>
                       </td>
                       <td className="n">
@@ -573,39 +573,18 @@ export default function Draft() {
 
       {/* (d) best / worst value over slot — our picks */}
       {scope === "returns" && <>
+      {/* This table pools every rookie class, so its lead columns are the raw
+          slot label off drafts.json plus the year that tells two 1.01s apart.
+          A single draft's page reads pickLabel instead — it may be the snaking
+          startup, where the file's slot is the column, not the pick. */}
       <div className="pick-tables">
-        {([["Best value over slot", "best", league.best], ["Worst value over slot", "worst", league.worst]] as const).map(([title, cls, rows]) => (
-          <div key={cls}>
-            <div className={`pick-title ${cls}`}>{title}</div>
-            <table>
-              <thead><tr>
-                <th scope="col" className="t" style={{ width: "10%" }}>Slot</th>
-                <th scope="col" className="t" style={{ width: "10%" }}>Yr</th>
-                <th scope="col" className="t" style={{ width: "36%" }}>Player</th>
-                <th scope="col" className="n" style={{ width: "13%" }}>Exp</th>
-                <th scope="col" className="n" style={{ width: "13%" }}>WAR</th>
-                <th scope="col" className="n key" style={{ width: "18%" }}>Vs exp</th>
-              </tr></thead>
-              <tbody>
-                {rows.map(r => (
-                  <tr key={`${r.season}|${r.slot}|${r.pid}`}>
-                    <td className="t" style={{ font: "600 15px/1 var(--cond)", color: "var(--txt2)" }}>{r.slot}</td>
-                    <td className="t sub">{r.season}</td>
-                    <td className="who">
-                      <div className="line">
-                        <span className="pos mini" style={{ background: POS_COLOR[r.pos] || "var(--rule)" }}>{r.pos}</span>
-                        <span className="nm">{r.name}</span>
-                      </div>
-                      <div className="by">{r.drafter}</div>
-                    </td>
-                    <td className="n sub">{r.expected == null ? "—" : sgn(r.expected, 2)}</td>
-                    <td className="n raw">{sgn(r.war, 2)}</td>
-                    <td className="n vs" style={{ color: warInk(r.diff ?? 0) }}>{sgn(r.diff ?? 0, 2)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+        {([["Best value over slot", "best", league.best], ["Worst value over slot", "worst", league.worst]] as const).map(([title, tone, rows]) => (
+          <PickTable key={tone} title={title} tone={tone} rows={rows}
+            rowKey={r => `${r.season}|${r.slot}|${r.pid}`}
+            lead={[{ label: "Slot", w: 10, of: r => r.slot },
+              { label: "Yr", w: 10, of: r => r.season }]}
+            w={{ player: 36, exp: 13, war: 13, vs: 18 }}
+            expLabel="Exp" vsLabel="Vs exp" />
         ))}
       </div>
 
@@ -617,8 +596,8 @@ export default function Draft() {
           Slot value — the box plots, the heat map and the returns table — draws on {corpus.picks.toLocaleString()} drafting
           decisions analyzed across crawled 12-team superflex leagues ({corpus.classes}), weighted by how often real leagues
           made each pick{corpus.distinct ? ` — ${corpus.distinct.toLocaleString()} distinct slot-player observations behind the weights` : ""}, every
-          season calibrated to this league's WAR scale · a first-round pick has returned a median {roundMed(1) != null ? sgn(roundMed(1) as number, 2) : "—"} WAR
-          per season, a third-rounder {roundMed(3) != null ? sgn(roundMed(3) as number, 2) : "—"} · every row of the
+          season calibrated to this league's WAR scale · a first-round pick has returned a median {roundMed(1) != null ? sgnWar(roundMed(1) as number) : "—"} WAR
+          per season, a third-rounder {roundMed(3) != null ? sgnWar(roundMed(3) as number) : "—"} · every row of the
           returns table is the median of its own picks, so a round is not the middle of the three tiers under it ·{" "}
         </>}
         The value tables are our own {league.gradedClasses.join("–")} picks only · every pick is divided

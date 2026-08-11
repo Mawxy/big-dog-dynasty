@@ -1,16 +1,18 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  CviFile, DraftPick, Drafts, DviFile, Franchise, Franchises, Insights,
-  PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload,
+  CviFile, DraftPick, Drafts, DviFile, Franchise, FranchiseSeason, FranchiseTx, Franchises,
+  Insights, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload,
 } from "../lib/types";
-import { jl, jlDaily } from "../lib/data";
-import { fmt, sgn, clsOf, ord } from "../lib/stats";
-import { DEFAULT_LINEUP, optimalLineup, pInfo, POS_COLOR, SLOT_LABEL } from "../lib/league";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, sgnWar, clsOf, ord } from "../lib/stats";
+import { lineupOf, optimalLineup, pInfo, POS_COLOR, pricedLineup, rosterSeasonOf, SLOT_LABEL } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades, tradeWhen } from "../lib/trades";
 import { useMobile } from "../lib/useWidth";
+import DataTable, { type Col, type Grp } from "./DataTable";
 import PosBadge from "./PosBadge";
+import TradeCard from "./TradeCard";
 import TScroll from "./TScroll";
 import { PlayerLink } from "./PlayerLink";
 import QuickJump from "./QuickJump";
@@ -36,6 +38,152 @@ const TAB_SECTION: Record<string, SectionKey> = {
   overview: "roster", draft: "draft", trades: "trades", waivers: "waivers",
 };
 
+/* ---- the two DataTable boards on this page -------------------------------
+   Year by year and Waivers are LOGS, not leaderboards: one is already in the
+   only order it means anything in (newest season first) and the other is a
+   transaction feed. Neither declares a `sort` accessor, so no header is a
+   control and DataTable rests on an order it can never leave — hence the
+   constants below rather than useTableSort, which exists to hold a sort state
+   these two do not have.
+
+   The Roster and Draft-history tables on this page are NOT here; both are
+   built from in-body `tr.grpband` rows and full-width `colSpan` rows, which
+   DataTable has no facility for. See the notes at each one. */
+const NO_SORT = () => {};
+/** a shared constant, not a `{}` literal: a new object every render would
+ *  defeat DataTable's row memoization (see its `sameRow`) */
+const NO_CTX: Record<string, never> = {};
+/** the site's em dash for a figure that does not exist — never a zero */
+const nul = <span className="fig quiet">—</span>;
+
+/* ---- year by year -------------------------------------------------------- */
+
+/** a season with no games yet has no record, seed, PPG or WAR to report */
+const hasPlayed = (s: FranchiseSeason) => s.wins + s.losses + (s.ties || 0) > 0;
+const recOf = (s: FranchiseSeason) => `${s.wins}-${s.losses}${s.ties ? `-${s.ties}` : ""}`;
+
+/** Per-render context for the season rows. `records` is how a cell knows it is
+ *  drawing a phone record rather than a table row — the mode travels through
+ *  ctx, never through `window` inside a renderer. `mgr` is the current
+ *  manager, which the desktop Team cell names only when the season's differs. */
+interface YearCtx { players: PlayersMin; mgr: string; rosterSeason: string; records: boolean }
+
+// records-mode roles (MOBILE.md M6): the season is the spine, that year's team
+// name the identity — the rename history reads there — the record is the
+// headline, and finish/PPG/WAR are the three micros. Seed and the two starter
+// columns are `hm`, so they leave the phone entirely.
+const YEAR_COLS: Col<FranchiseSeason, YearCtx>[] = [
+  {
+    id: "season", label: "Season", grp: 0, w: 7, align: "t", td: "t fig strong", role: "spine",
+    // the accent spine marks a title or the live season; on a table row the
+    // rank spine belongs to `td.spine-cell`, which this column is not
+    cell: (s, x) => x.records
+      ? <>
+        {(s.finish === 1 || s.season === x.rosterSeason)
+          && <span className="spine" style={{ background: "var(--acc)" }} />}
+        {s.season}
+      </>
+      : s.season,
+  },
+  {
+    id: "team", label: "Team", grp: 0, w: 21, align: "t", td: "t sub", role: "identity",
+    cell: (s, x) => x.records
+      ? <>
+        {s.name}
+        <span className="rec-sub">
+          {s.manager}{s.season === x.rosterSeason && !hasPlayed(s) ? " · live" : ""}
+        </span>
+      </>
+      : <>{s.name}{s.manager !== x.mgr && <> · {s.manager}</>}</>,
+  },
+  {
+    id: "rec", label: "Record", grp: 0, w: 8, align: "n", td: "n fig",
+    role: "headline", microKey: "Rec",
+    cell: s => hasPlayed(s) ? recOf(s) : nul,
+  },
+  {
+    id: "seed", label: "Seed", grp: 0, w: 6, align: "n", hm: true, td: "n fig quiet hm",
+    cell: s => hasPlayed(s) ? s.seed ?? "—" : "—",
+  },
+  {
+    id: "fin", label: "Finish", grp: 0, w: 9, align: "n", td: "n fig",
+    role: "micro", microKey: "Fin",
+    // a placing in a dense numeric row is a tabular ordinal, gold for the
+    // title — the CHAMP tag lives in the rail, and on a phone in this cell,
+    // where there is no rail to carry it
+    cell: (s, x) => {
+      if (s.finish == null) return nul;
+      if (s.finish !== 1) return ord(s.finish);
+      return <span style={x.records ? { color: "var(--acc)" } : { color: "var(--acc)", fontWeight: 700 }}>
+        {x.records ? "CHAMP" : ord(1)}
+      </span>;
+    },
+  },
+  {
+    id: "ppg", label: "PPG", grp: 0, w: 7, align: "n", td: "n fig",
+    role: "micro", microKey: "PPG",
+    cell: s => hasPlayed(s) ? fmt(s.ppg, 1) : nul,
+  },
+  {
+    id: "war", label: "Lineup WAR", grp: 1, w: 10, align: "n", edge: true, td: "n edge",
+    role: "micro", microKey: "WAR",
+    cell: s => hasPlayed(s) ? <span className={clsOf(s.war)}>{fmtWar(s.war)}</span> : nul,
+  },
+  {
+    id: "top", label: "Top WAR", grp: 1, w: 16, align: "t", hm: true, td: "t sub hm",
+    cell: (s, x) => s.top
+      ? <><PlayerLink pid={s.top.pid} name={pInfo(x.players, s.top.pid)[0]} />{" "}
+        <span className={clsOf(s.top.war)}>{fmtWar(s.top.war)}</span></>
+      : "—",
+  },
+  {
+    id: "low", label: "Low starter", grp: 1, w: 16, align: "t", hm: true, td: "t sub hm",
+    cell: (s, x) => s.low
+      ? <><PlayerLink pid={s.low.pid} name={pInfo(x.players, s.low.pid)[0]} />{" "}
+        <span className={clsOf(s.low.war)}>{fmtWar(s.low.war)}</span></>
+      : "—",
+  },
+];
+const YEAR_GROUPS: Grp[] = [
+  { id: 0, label: "", cls: "" },
+  { id: 1, label: "Wins added", cls: "edge" },
+];
+
+/* ---- waivers & free agents ----------------------------------------------- */
+
+/** a transaction plus a key: `ts` is not unique (a waiver run settles several
+ *  moves on the same millisecond), so the row carries the index it was read at */
+interface WaiverRow { key: string; tx: FranchiseTx }
+
+const WAIVER_COLS: Col<WaiverRow, Record<string, never>>[] = [
+  {
+    id: "when", label: "When", grp: 0, w: 10, align: "t", td: "t fig quiet",
+    cell: r => `${r.tx.season} W${r.tx.week}`,
+  },
+  {
+    id: "type", label: "Type", grp: 0, w: 9, align: "t", td: "t fig quiet",
+    cell: r => r.tx.type === "waiver" ? "WAIVER" : "FA",
+  },
+  // a move can name half a dozen players, so these two wrap where every other
+  // cell on the site does not — `white-space` on the inline box re-enables
+  // breaking inside a `nowrap` cell
+  {
+    id: "adds", label: "Added", grp: 0, w: 40, align: "t", td: "t sub",
+    cell: r => <span style={{ whiteSpace: "normal", color: "var(--good)" }}>
+      {r.tx.adds?.length ? r.tx.adds.join(", ") : "—"}
+    </span>,
+  },
+  {
+    id: "drops", label: "Dropped", grp: 0, w: 41, align: "t", td: "t sub",
+    cell: r => <span style={{ whiteSpace: "normal", color: "var(--drop)" }}>
+      {r.tx.drops?.length ? r.tx.drops.join(", ") : "—"}
+    </span>,
+  },
+];
+/** four columns, nothing to band — the group row carries no label rather than
+ *  inventing one (SKILL §3: band a table past about seven columns) */
+const WAIVER_GROUPS: Grp[] = [{ id: 0, label: "", cls: "" }];
+
 /**
  * Franchise page (1C): split rail. The rail carries the season ladder — one
  * row per season with that year's team name on the second line, which is
@@ -50,64 +198,90 @@ export default function FranchisePage({ rid, players, tab }:
   // MOBILE.md M6 — the rail becomes a header, the ladder reads at the foot of
   // the page, and every table section renders as records
   const mobile = useMobile();
-  const rosterSeason = league.rosterSeason && league.seasons.includes(league.rosterSeason)
-    ? league.rosterSeason : league.seasons[league.seasons.length - 1];
+  const rosterSeason = rosterSeasonOf(league);
 
-  const [fr, setFr] = useState<Franchise | null | undefined>(undefined);
-  const [insights, setInsights] = useState<Insights | null>(null);
-  const [picks, setPicks] = useState<DraftPick[]>([]);
-  const [draftSeasons, setDraftSeasons] = useState<string[]>([]);
-  const [trades, setTrades] = useState<Trade[] | null>(null);
-  const [team, setTeam] = useState<Team | null>(null);
-  const [proj, setProj] = useState<Map<string, { war: number; age: number }> | null>(null);
-  const [sppg, setSppg] = useState<Map<string, number>>(new Map());
   /** which season's roster the Roster band shows — the ladder sets it */
   const [viewSeason, setViewSeason] = useState<string>(rosterSeason);
-  /** played-season actuals for viewSeason; null while on the roster season */
-  const [actual, setActual] = useState<Map<string, { war: number; ppg: number }> | null>(null);
-  const [dvi, setDvi] = useState<DviFile | null>(null);
-  const [cvi, setCvi] = useState<CviFile | null>(null);
 
-  useEffect(() => {
-    let live = true;
-    jl<Franchises>("franchises.json").then(f => {
-      if (live) setFr(f[String(rid)] ?? null);
-    }).catch(() => { if (live) setFr(null); });
-    jl<Insights>("insights.json").then(x => { if (live) setInsights(x); }).catch(() => {});
-    jl<Drafts>("drafts.json").then(d => {
-      if (!live) return;
-      setPicks(d[String(rid)] || []);
-      const all = new Set<string>();
-      for (const list of Object.values(d))
-        for (const p of list) if (p.kind === "rookie") all.add(p.season);
-      setDraftSeasons([...all].sort((a, b) => b.localeCompare(a)));
-    }).catch(() => {});
-    jl<TradesPayload>("trades.json")
-      .then(p => { if (live) setTrades(readTrades(p).trades.filter(t => t.sides.some(s => s.rid === rid))); })
-      .catch(() => { if (live) setTrades([]); });
-    jl<Team[]>(`${viewSeason}/teams.json`)
-      .then(ts => { if (live) setTeam(ts.find(t => t.roster_id === rid) ?? null); })
-      .catch(() => { if (live) setTeam(null); });
-    // A past roster is priced in what those players ACTUALLY did that year, not
-    // in today's projection: 2022's roster carries 2022 WAR and 2022 PPG. DVI
-    // and CVI are current-market indices with no historical series, so they
-    // read — - see the Roster band's note.
-    if (viewSeason === rosterSeason) setActual(null);
-    else jl<SummaryRow[]>(`${viewSeason}/summary.json`)
-      .then(rows => { if (live) setActual(new Map(rows.map(r => [r[0], { war: r[6], ppg: r[4] }]))); })
-      .catch(() => { if (live) setActual(new Map()); });
-    Promise.all([
-      jl<ProjectionsFile>("projections.json"),
-      jl<SleeperProjFile>("proj_sleeper.json").catch(() => ({ players: {} } as SleeperProjFile)),
-    ]).then(([p, sp]) => {
-      if (!live) return;
-      setProj(new Map(p.players.map(r => [r.pid, { war: r.composite?.[0] ?? 0, age: r.age }])));
-      setSppg(new Map(Object.entries(sp.players ?? {}).map(([pid, x]) => [pid, x.ppg])));
-    }).catch(() => { if (live) setProj(new Map()); });
-    jlDaily<DviFile>("dvi.json").then(d => { if (live) setDvi(d); }).catch(() => {});
-    jlDaily<CviFile>("cvi.json").then(c => { if (live) setCvi(c); }).catch(() => {});
-    return () => { live = false; };
-  }, [rid, rosterSeason, viewSeason]);
+  /* ---- the page's ten files ---------------------------------------------
+     One `useJson` per file, each keyed on its own resolved path. This was a
+     single effect over [rid, rosterSeason, viewSeason] that re-ran ALL ten
+     chains — franchises, insights, drafts, trades, teams, summary,
+     projections, sleeper, dvi, cvi — every time the reader clicked a year in
+     the rail's ladder, although only teams.json and summary.json are scoped
+     to that year. The split is now per file rather than per effect: the eight
+     league-wide files are fetched once for the life of the mount (the route
+     keys FranchisePage on `rid`, so a different franchise is a fresh mount)
+     and only the two season files re-fetch on a ladder click.
+
+     `useJson` also clears its state IN RENDER when the path changes, which is
+     what stops a frame pairing last season's summary with this season's
+     roster — the guard in the roster memo below only ever caught the null. */
+  const frFile = useJson<Franchises>("franchises.json");
+  const insights = useJson<Insights>("insights.json").data;
+  const drafts = useJson<Drafts>("drafts.json").data;
+  const tradesFile = useJson<TradesPayload>("trades.json");
+  const teamsFile = useJson<Team[]>(`${viewSeason}/teams.json`);
+  const projFile = useJson<ProjectionsFile>("projections.json");
+  const sprojFile = useJson<SleeperProjFile>("proj_sleeper.json");
+  // the daily pair, and the scope has to match what the rest of the site uses
+  // for the same file or the cache downloads it twice (useJson.ts)
+  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
+  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
+  // A past roster is priced in what those players ACTUALLY did that year, not
+  // in today's projection: 2022's roster carries 2022 WAR and 2022 PPG. DVI
+  // and CVI are current-market indices with no historical series, so they
+  // read — - see the Roster band's note. On the roster season there is no
+  // summary to read, and `null` is how useJson is told there is nothing yet.
+  const onRosterSeason = viewSeason === rosterSeason;
+  const summaryFile = useJson<SummaryRow[]>(
+    onRosterSeason ? null : `${viewSeason}/summary.json`);
+
+  /** undefined while franchises.json is in flight, null once it has settled
+   *  with no entry for this rid — the two drive different empty states */
+  const fr: Franchise | null | undefined = frFile.data
+    ? frFile.data[String(rid)] ?? null
+    : frFile.error ? null : undefined;
+
+  const picks = useMemo<DraftPick[]>(
+    () => drafts?.[String(rid)] ?? [], [drafts, rid]);
+  const draftSeasons = useMemo(() => {
+    if (!drafts) return [];
+    const all = new Set<string>();
+    for (const list of Object.values(drafts))
+      for (const p of list) if (p.kind === "rookie") all.add(p.season);
+    return [...all].sort((a, b) => b.localeCompare(a));
+  }, [drafts]);
+
+  /** null until trades.json settles — the section reads "Loading trades…" */
+  const trades = useMemo<Trade[] | null>(() => {
+    if (tradesFile.error) return [];
+    if (!tradesFile.data) return null;
+    return readTrades(tradesFile.data).trades.filter(t => t.sides.some(s => s.rid === rid));
+  }, [tradesFile.data, tradesFile.error, rid]);
+
+  const team = useMemo<Team | null>(
+    () => teamsFile.data?.find(t => t.roster_id === rid) ?? null, [teamsFile.data, rid]);
+
+  /** played-season actuals for viewSeason; null while on the roster season */
+  const actual = useMemo<Map<string, { war: number; ppg: number }> | null>(() => {
+    if (onRosterSeason) return null;
+    if (summaryFile.error) return new Map();
+    if (!summaryFile.data) return null;
+    return new Map(summaryFile.data.map(r => [r[0], { war: r[6], ppg: r[4] }]));
+  }, [onRosterSeason, summaryFile.data, summaryFile.error]);
+
+  const proj = useMemo<Map<string, { war: number; age: number }> | null>(() => {
+    if (projFile.error) return new Map();
+    if (!projFile.data) return null;
+    return new Map(projFile.data.players.map(
+      r => [r.pid, { war: r.composite?.[0] ?? 0, age: r.age }]));
+  }, [projFile.data, projFile.error]);
+
+  /** a missing sleeper projection file is an empty map, not an error state */
+  const sppg = useMemo(
+    () => new Map(Object.entries(sprojFile.data?.players ?? {}).map(([pid, x]) => [pid, x.ppg])),
+    [sprojFile.data]);
 
   const refs = useRef<Record<SectionKey, HTMLDivElement | null>>({
     roster: null, strengths: null, years: null, draft: null, trades: null, waivers: null,
@@ -146,7 +320,7 @@ export default function FranchisePage({ rid, players, tab }:
         tag: team.taxi.includes(pid) ? "TAXI" : team.reserve.includes(pid) ? "IR" : "",
       };
     });
-    const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
+    const lineup = lineupOf(meta);
     // taxi and IR players can't start, so they never enter the lineup pool
     const eligible = rows.filter(r => r.tag !== "TAXI" && r.tag !== "IR");
     const { slots, starters } = optimalLineup(eligible, lineup);
@@ -162,30 +336,46 @@ export default function FranchisePage({ rid, players, tab }:
   /** starters/roster totals in an index currency (lineup optimized in it) */
   const indexTotals = useMemo(() => {
     if (!team) return null;
-    const priced = (idx: Record<string, { pos: string }> | undefined, of: (pid: string) => number) => {
+    const priced = <V extends { pos: string }>(
+      idx: Record<string, V> | undefined, of: (pid: string, row: V) => number,
+    ) => {
       if (!idx) return null;
-      const pool = team.players.filter(p => idx[p])
-        .map(p => ({ id: p, pos: idx[p].pos, war: of(p) }));
-      const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
-      const { slots } = optimalLineup(pool, lineup);
-      return {
-        s: slots.reduce((a, sl) => a + (sl.player?.war ?? 0), 0),
-        t: pool.reduce((a, p) => a + p.war, 0),
-      };
+      const { starters, roster } = pricedLineup(team, idx, of, lineupOf(meta));
+      return { s: starters, t: roster };
     };
     return {
-      dvi: priced(dvi?.players, p => dvi!.players[p].dvi),
-      cvi: priced(cvi?.players, p => cvi!.players[p].cvi),
+      dvi: priced(dvi?.players, (_p, r) => r.dvi),
+      cvi: priced(cvi?.players, (_p, r) => r.cvi),
     };
   }, [team, dvi, cvi, meta]);
 
-  if (fr === undefined) return <div className="empty">Loading franchise…</div>;
-  if (!fr) return <div className="empty">No franchise history found.</div>;
-
+  /* ---- the two DataTable boards' rows and context ------------------------
+     Built up here, above the early returns, because they are hooks: the guards
+     below bail on a franchise that hasn't loaded, and a hook can't sit after
+     one. `rows` and `ctx` are both memoized, which is what DataTable's
+     memoized Row needs — a fresh array or a `{}` literal per render would
+     re-run every cell of every row on every keystroke elsewhere on the page. */
   // A franchise row with no seasons is a legal shape in franchises.json (an
   // expansion entry, a roster added mid-offseason) and every read below assumes
   // a last one — `latest.name` on undefined threw and took the SPA with it.
-  const seasons = fr.seasons ?? [];
+  const seasons = useMemo(() => fr?.seasons ?? [], [fr]);
+  /** newest first — the ladder's order, and the only one this log means
+   *  anything in, which is why no column here declares a sort */
+  const yearRows = useMemo(() => seasons.slice().reverse(), [seasons]);
+  const yearCtx = useMemo<YearCtx>(() => ({
+    players, rosterSeason, records: mobile,
+    mgr: seasons[seasons.length - 1]?.manager ?? "",
+  }), [players, rosterSeason, mobile, seasons]);
+
+  /** the transaction log, trades excluded — they have their own section */
+  const waiverRows = useMemo<WaiverRow[]>(
+    () => (fr?.tx ?? []).slice().sort((a, b) => b.ts - a.ts)
+      .filter(t => t.type !== "trade")
+      .map((tx, i) => ({ key: `${tx.ts}-${i}`, tx })),
+    [fr]);
+
+  if (fr === undefined) return <div className="empty">Loading franchise…</div>;
+  if (!fr) return <div className="empty">No franchise history found.</div>;
   if (!seasons.length) return <div className="empty">No seasons recorded for this franchise yet.</div>;
   const latest = seasons[seasons.length - 1];
   const all = seasons.reduce(
@@ -195,6 +385,8 @@ export default function FranchisePage({ rid, players, tab }:
   const champYears = seasons.filter(s => s.finish === 1).map(s => s.season);
   const insight = insights?.teams[String(rid)] ?? null;
 
+  // "" rather than the newest LISTED season, so this is NOT latestSeasonOf:
+  // a listed-but-unplayed season is not a last season played.
   const lastPlayed = meta.latest && meta.seasons.includes(meta.latest)
     ? meta.latest : "";
   /** a rookie class with no played season yet returns —, never 0.00 */
@@ -213,7 +405,6 @@ export default function FranchisePage({ rid, players, tab }:
     arr.reduce((s, p) => s + (p.traded ? 0 : p.war ?? 0), 0);
   const kept = (arr: DraftPick[]) => arr.filter(p => !p.traded).length;
 
-  const waiverTxs = fr.tx.slice().sort((a, b) => b.ts - a.ts).filter(t => t.type !== "trade");
   const myTrades = (trades ?? []).slice().sort((a, b) => b.ts - a.ts)
     .map(t => ({
       ...t,
@@ -236,7 +427,7 @@ export default function FranchisePage({ rid, players, tab }:
       <td className="n last edge">
         <div className="meter-row">
           <div className="meter"><i style={{ width: `${Math.round(Math.max(0, r.war) / warMax * 100)}%` }} /></div>
-          <span className="fig">{fmt(r.war, 2)}</span>
+          <span className="fig">{fmtWar(r.war)}</span>
         </div>
       </td>
     </>
@@ -275,7 +466,7 @@ export default function FranchisePage({ rid, players, tab }:
      their totals — all three figures labeled, since a phone has no column
      headers to name them. */
   const groupTot = (rs: RosterRow[]) =>
-    `WAR ${fmt(rs.reduce((s, r) => s + r.war, 0), 2)}`
+    `WAR ${fmtWar(rs.reduce((s, r) => s + r.war, 0))}`
     + ` · DVI ${fmt(rs.reduce((s, r) => s + (r.dvi ?? 0), 0), 0)}`
     + ` · CVI ${fmt(rs.reduce((s, r) => s + (r.cvi ?? 0), 0), 0)}`;
 
@@ -300,7 +491,7 @@ export default function FranchisePage({ rid, players, tab }:
             {r.pos} · {r.nfl || "—"}{r.age != null && <> · age {r.age}</>}
           </span>
         </span>
-        <span className="rec-fig">{fmt(r.war, 2)}</span>
+        <span className="rec-fig">{fmtWar(r.war)}</span>
         <span className="rec-key">{actual ? `${viewSeason} WAR` : "Proj WAR"}</span>
       </div>
       <div className="rec-l2">
@@ -374,7 +565,7 @@ export default function FranchisePage({ rid, players, tab }:
               </div>
               <div className="figcell">
                 <div className="figkey">{viewSeason} lineup WAR</div>
-                <div className="figval">{roster ? fmt(roster.startTot, 2) : "—"}</div>
+                <div className="figval">{roster ? fmtWar(roster.startTot) : "—"}</div>
                 <div className="figsub">{actual ? "realized, best legal lineup" : "projected, best legal lineup"}</div>
               </div>
               <div className="figcell">
@@ -397,7 +588,22 @@ export default function FranchisePage({ rid, players, tab }:
               </div>
             )}
 
-            {/* ---- roster ---- */}
+            {/* ---- roster ----
+                HAND-ROLLED, deliberately. DataTable draws one <tr> per row out
+                of the column registry and nothing else; this table's whole
+                anatomy is the three things it cannot draw:
+                  · `tr.grpband` section rows — Starting lineup / Bench / Taxi
+                    squad, each a <th colSpan={9}> carrying the section's own
+                    WAR total. DataTable's `Grp` is a COLUMN banner in <thead>,
+                    a different object: it bands columns side to side, not rows
+                    top to bottom, and there is no hook to interleave a row.
+                  · full-width rows — an unfilled lineup slot is one
+                    <td colSpan={9}>, and a cell renderer has no colSpan.
+                  · one <tbody> holding three ordered sections rather than one
+                    sorted population.
+                Expressing it would mean adding a band-row facility to
+                DataTable, which is frozen. Same story for Draft history
+                below. */}
             <div ref={el => { refs.current.roster = el; }}>
               <div className="band">
                 <span className="band-label">Roster · {viewSeason}</span>
@@ -429,7 +635,7 @@ export default function FranchisePage({ rid, players, tab }:
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>{rosterHead}</thead>
                   <tbody>
-                    {grpband("Starting lineup", "best legal lineup by projected WAR", fmt(roster.startTot, 2))}
+                    {grpband("Starting lineup", "best legal lineup by projected WAR", fmtWar(roster.startTot))}
                     {roster.slots.map((s, i) => (
                       <tr key={`${s.slot}-${i}`} className={i % 2 ? "zebra" : ""}>
                         {s.player
@@ -438,12 +644,12 @@ export default function FranchisePage({ rid, players, tab }:
                       </tr>
                     ))}
                     {grpband("Bench", null,
-                      fmt(roster.bench.reduce((s, r) => s + r.war, 0), 2))}
+                      fmtWar(roster.bench.reduce((s, r) => s + r.war, 0)))}
                     {roster.bench.map((r, i) => (
                       <tr key={r.id} className={i % 2 ? "zebra" : ""}>{rosterCell(r, "BN", roster.warMax)}</tr>
                     ))}
                     {roster.taxi.length > 0 && grpband("Taxi squad", null,
-                      fmt(roster.taxi.reduce((s, r) => s + r.war, 0), 2))}
+                      fmtWar(roster.taxi.reduce((s, r) => s + r.war, 0)))}
                     {roster.taxi.map((r, i) => (
                       <tr key={r.id} className={i % 2 ? "zebra" : ""}>{rosterCell(r, "TAXI", roster.warMax)}</tr>
                     ))}
@@ -470,105 +676,25 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-label">Year by year</span>
                 <span className="band-note">Lineup WAR sums each week's actual starters against the league-wide optimal pool</span>
               </div>
-              {mobile ? (
-                /* the season ladder's phone home: one record per season, the
-                   year in the spine cell, that year's team name as the
-                   identity — the rename history reads here */
-                <div className="records wrk t3">
-                  {seasons.slice().reverse().map((s, i) => {
-                    const played = s.wins + s.losses + (s.ties || 0) > 0;
-                    const mark = s.finish === 1 || s.season === rosterSeason;
-                    return (
-                      <div key={s.season} className={`rec${i % 2 ? " zebra" : ""}`}>
-                        <div className="rec-l1">
-                          <span className="rec-rk">
-                            {mark && <span className="spine" style={{ background: "var(--acc)" }} />}
-                            {s.season}
-                          </span>
-                          <span className="rec-id">
-                            {s.name}
-                            <span className="rec-sub">
-                              {s.manager}{s.season === rosterSeason && !played ? " · live" : ""}
-                            </span>
-                          </span>
-                          <span className="rec-fig">
-                            {played ? <>{s.wins}-{s.losses}{s.ties ? `-${s.ties}` : ""}</>
-                              : <span className="quiet">—</span>}
-                          </span>
-                          <span className="rec-key">Rec</span>
-                        </div>
-                        <div className="rec-l2">
-                          <span className="mic"><span className="mk">Fin</span>
-                            <span className="mv" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
-                              {s.finish == null ? <span className="quiet">—</span>
-                                : s.finish === 1 ? "CHAMP" : ord(s.finish)}
-                            </span></span>
-                          <span className="mic"><span className="mk">PPG</span>
-                            <span className="mv">{played ? fmt(s.ppg, 1) : <span className="quiet">—</span>}</span></span>
-                          <span className="mic"><span className="mk">WAR</span>
-                            <span className={`mv ${played ? clsOf(s.war) : ""}`}>
-                              {played ? fmt(s.war, 2) : <span className="quiet">—</span>}
-                            </span></span>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-              <TScroll>
-              <table style={{ tableLayout: "fixed" }}>
-                <thead>
-                  <tr>
-                    <th scope="col" className="t" style={{ width: "7%" }}>Season</th>
-                    <th scope="col" className="t" style={{ width: "21%" }}>Team</th>
-                    <th scope="col" className="n" style={{ width: "8%" }}>Record</th>
-                    <th scope="col" className="n hm" style={{ width: "6%" }}>Seed</th>
-                    <th scope="col" className="n" style={{ width: "9%" }}>Finish</th>
-                    <th scope="col" className="n" style={{ width: "7%" }}>PPG</th>
-                    <th scope="col" className="n edge" style={{ width: "10%" }}>Lineup WAR</th>
-                    <th scope="col" className="t hm" style={{ width: "16%" }}>Top WAR</th>
-                    <th scope="col" className="t hm" style={{ width: "16%" }}>Low starter</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {seasons.slice().reverse().map((s, i) => {
-                    // a season with no games yet has no record, seed, PPG or
-                    // WAR to report — em dashes, never zeros
-                    const played = s.wins + s.losses + (s.ties || 0) > 0;
-                    return (
-                    <tr key={s.season} className={i % 2 ? "zebra" : ""}>
-                      <td className="t fig strong">{s.season}</td>
-                      <td className="t sub">{s.name}
-                        {s.manager !== latest.manager && <> · {s.manager}</>}</td>
-                      <td className="n fig">{played ? <>{s.wins}-{s.losses}{s.ties ? `-${s.ties}` : ""}</> : "—"}</td>
-                      <td className="n fig quiet hm">{played ? s.seed ?? "—" : "—"}</td>
-                      {/* a placing in a dense numeric row is a tabular ordinal,
-                          gold for the title — the CHAMP tag lives in the rail */}
-                      <td className="n fig">
-                        {s.finish == null ? "—" : (
-                          <span style={s.finish === 1 ? { color: "var(--acc)", fontWeight: 700 } : undefined}>
-                            {ord(s.finish)}
-                          </span>
-                        )}
-                      </td>
-                      <td className="n fig">{played ? fmt(s.ppg, 1) : "—"}</td>
-                      <td className={`n edge ${played ? clsOf(s.war) : "fig quiet"}`}>{played ? fmt(s.war, 2) : "—"}</td>
-                      <td className="t sub hm">{s.top
-                        ? <><PlayerLink pid={s.top.pid} name={pInfo(players, s.top.pid)[0]} />{" "}
-                          <span className={clsOf(s.top.war)}>{fmt(s.top.war, 2)}</span></> : "—"}</td>
-                      <td className="t sub hm last">{s.low
-                        ? <><PlayerLink pid={s.low.pid} name={pInfo(players, s.low.pid)[0]} />{" "}
-                          <span className={clsOf(s.low.war)}>{fmt(s.low.war, 2)}</span></> : "—"}</td>
-                    </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-              </TScroll>
-              )}
+              {/* On a phone this is the season ladder's home — the rail drops
+                  it, and DataTable's records mode draws the same two-line
+                  record the hand-rolled branch here used to: the year in the
+                  spine cell, that year's team name as the identity, so the
+                  rename history still reads here. Nothing in it sorts: a
+                  season log is already in its only meaningful order. */}
+              <DataTable cols={YEAR_COLS} groups={YEAR_GROUPS} rows={yearRows} ctx={yearCtx}
+                label="Year by year" rowKey={s => s.season}
+                sortId="" dir={-1} onSort={NO_SORT}
+                recordsOnMobile recordsClass="wrk t3" />
             </div>
 
-            {/* ---- draft history ---- */}
+            {/* ---- draft history ----
+                HAND-ROLLED, for the same reason as the roster and two more: a
+                `tr.grpband` per rookie class, a full-width "no picks — traded
+                away" row, a per-ROW `opacity` on the traded picks and a
+                row-dependent <td> class list (`clsOf` when the pick played,
+                `fig quiet` when it did not). `Col.td` is one static string and
+                `Row` takes no per-row class or style. */}
             <div ref={el => { refs.current.draft = el; }}>
               <div className="band">
                 <span className="band-label">Draft history</span>
@@ -589,7 +715,7 @@ export default function FranchisePage({ rid, players, tab }:
                           <span className="band-note">
                             {kept(rows)} pick{kept(rows) === 1 ? "" : "s"}
                             {rows.length - kept(rows) > 0 && ` · ${rows.length - kept(rows)} traded away`}
-                            {" · "}{np ? "not yet played" : `${fmt(keptTotal(rows), 2)} WAR returned`}
+                            {" · "}{np ? "not yet played" : `${fmtWar(keptTotal(rows))} WAR returned`}
                           </span>
                         </div>
                         {rows.length === 0 && <div className="empty">no picks — traded away</div>}
@@ -607,14 +733,14 @@ export default function FranchisePage({ rid, players, tab }:
                                 <span className="rec-sub">{p.pos}{p.traded ? " · traded away" : ""}</span>
                               </span>
                               <span className="rec-fig">
-                                {np ? <span className="quiet">—</span> : fmt(p.war, 2)}
+                                {np ? <span className="quiet">—</span> : fmtWar(p.war)}
                               </span>
                               <span className="rec-key">WAR</span>
                             </div>
                             {!np && p.diff != null && (
                               <div className="rec-l2">
                                 <span className="mic"><span className="mk">Vs slot</span>
-                                  <span className={`mv ${clsOf(p.diff)}`}>{sgn(p.diff, 2)}</span></span>
+                                  <span className={`mv ${clsOf(p.diff)}`}>{sgnWar(p.diff)}</span></span>
                               </div>
                             )}
                           </div>
@@ -653,7 +779,7 @@ export default function FranchisePage({ rid, players, tab }:
                                   {rows.length - kept(rows) > 0 && ` · ${rows.length - kept(rows)} traded away`}
                                 </span>
                                 <span className="tot">
-                                  {np ? "not yet played" : `${fmt(keptTotal(rows), 2)} WAR returned`}
+                                  {np ? "not yet played" : `${fmtWar(keptTotal(rows))} WAR returned`}
                                 </span>
                               </div>
                             </th>
@@ -672,16 +798,16 @@ export default function FranchisePage({ rid, players, tab }:
                               </td>
                               <td className="c"><PosBadge pos={p.pos} /></td>
                               <td className={`n ${np || p.traded ? "fig quiet" : clsOf(p.war)}`}>
-                                {np ? "—" : fmt(p.war, 2)}</td>
+                                {np ? "—" : fmtWar(p.war)}</td>
                               <td className={`n hm ${np || p.traded ? "fig quiet" : clsOf(p.war_roster ?? 0)}`}>
-                                {np || p.traded ? "—" : fmt(p.war_roster ?? 0, 2)}</td>
-                              <td className="n hm fig quiet">{p.expected == null ? "—" : fmt(p.expected, 2)}</td>
+                                {np || p.traded ? "—" : fmtWar(p.war_roster ?? 0)}</td>
+                              <td className="n hm fig quiet">{p.expected == null ? "—" : fmtWar(p.expected)}</td>
                               <td className={`n ${np || p.diff == null ? "fig quiet" : clsOf(p.diff)}`}>
-                                {np || p.diff == null ? "—" : sgn(p.diff, 2)}</td>
+                                {np || p.diff == null ? "—" : sgnWar(p.diff)}</td>
                               <td className="t sub hm last"
-                                title={p.alts.map(a => `${a.name} (pick ${a.pick_no}) ${a.war.toFixed(2)}`).join(" · ")}>
+                                title={p.alts.map(a => `${a.name} (pick ${a.pick_no}) ${fmtWar(a.war)}`).join(" · ")}>
                                 {np || p.alts.length === 0 ? "—"
-                                  : p.alts.slice(0, 2).map(a => `${a.name} ${a.war.toFixed(2)}`).join(", ")}
+                                  : p.alts.slice(0, 2).map(a => `${a.name} ${fmtWar(a.war)}`).join(", ")}
                               </td>
                             </tr>
                           ))}
@@ -704,48 +830,8 @@ export default function FranchisePage({ rid, players, tab }:
                 {!trades ? <div className="empty">Loading trades…</div>
                   : !myTrades.length ? <div className="empty">No trades yet.</div>
                     : myTrades.map((t, i) => (
-                      <div key={`${t.ts}-${i}`} className="trade">
-                        <div className="trade-head">
-                          <span className="trade-wk">{t.season} · WEEK {t.week}</span>
-                          <span style={{ font: "400 12px/1 var(--sans)", color: "var(--dim)" }}>{tradeWhen(t.ts)}</span>
-                        </div>
-                        <div className="trade-sides">
-                          {t.sides.map(s => (
-                            <div key={s.rid} className="trade-side">
-                              <div className="hd">
-                                <div>
-                                  <div className="k">Received</div>
-                                  <div className="team">{s.team}</div>
-                                </div>
-                                <div style={{ textAlign: "right" }}>
-                                  <div className="k">Realized · to come</div>
-                                  <div className="total">
-                                    {fmt(s.war, 2)}
-                                    <span style={{ font: "400 14px/1 var(--cond)", color: "var(--dim)" }}> · {sgn(s.future ?? 0, 2)}</span>
-                                  </div>
-                                </div>
-                              </div>
-                              {s.got.map((a, k) => {
-                                const isPick = a.kind !== "player";
-                                const pos = !isPick && a.pid ? pInfo(players, a.pid)[1] : "PICK";
-                                const [head, tail] = a.label.split(" → ");
-                                return (
-                                  <div key={k} className="trade-asset">
-                                    <span className={`pos sm ${isPick ? "PICK" : pos}`}>{isPick ? "PK" : pos}</span>
-                                    <span className={`nm ${isPick && !tail ? "pick" : ""}`}>
-                                      {isPick && tail && <span style={{ color: "var(--dim)" }}>{head} → </span>}
-                                      {a.pid ? <PlayerLink pid={a.pid} name={tail ?? head} /> : (tail ?? head)}
-                                    </span>
-                                    <span className="war" style={{ color: "var(--txt2)" }}>
-                                      {a.kind === "player" || tail ? fmt(a.war, 2) : "—"}
-                                    </span>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
+                      <TradeCard key={`${t.ts}-${i}`} trade={t} players={players}
+                        when={tradeWhen(t.ts)} sideFig="realized" />
                     ))}
               </div>
             </div>
@@ -756,49 +842,34 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-label">Waivers &amp; free agents</span>
                 <span className="band-note">Trades live in their own section</span>
               </div>
-              {!waiverTxs.length ? <div className="empty">No moves yet.</div> : mobile ? (
+              {!waiverRows.length ? <div className="empty">No moves yet.</div> : mobile ? (
+                /* NOT DataTable's records mode. A move is one dateline over a
+                   `+ added` / `− dropped` pair of full-width `.rec-line`s, and
+                   Records only emits the two-line record — identity, headline
+                   figure, a grid of labeled micros. Squeezing six names into a
+                   micro cell is not the same object, so this branch stays
+                   hand-rolled; the desktop table below is the DataTable. */
                 <div className="records flat">
-                  {waiverTxs.map((t, i) => (
-                    <div key={`${t.ts}-${i}`} className={`rec${i % 2 ? " zebra" : ""}`}>
+                  {waiverRows.map(({ key, tx }, i) => (
+                    <div key={key} className={`rec${i % 2 ? " zebra" : ""}`}>
                       <div className="rec-l1">
                         <span className="rec-id" style={{ font: "600 11px/1.4 var(--cond)", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)" }}>
-                          {t.season} W{t.week} · {t.type === "waiver" ? "waiver" : "free agent"}
+                          {tx.season} W{tx.week} · {tx.type === "waiver" ? "waiver" : "free agent"}
                         </span>
                       </div>
-                      {!!t.adds?.length && (
-                        <div className="rec-line" style={{ color: "var(--good)" }}>+ {t.adds.join(", ")}</div>
+                      {!!tx.adds?.length && (
+                        <div className="rec-line" style={{ color: "var(--good)" }}>+ {tx.adds.join(", ")}</div>
                       )}
-                      {!!t.drops?.length && (
-                        <div className="rec-line" style={{ color: "var(--drop)" }}>− {t.drops.join(", ")}</div>
+                      {!!tx.drops?.length && (
+                        <div className="rec-line" style={{ color: "var(--drop)" }}>− {tx.drops.join(", ")}</div>
                       )}
                     </div>
                   ))}
                 </div>
               ) : (
-                <TScroll>
-                <table style={{ tableLayout: "fixed" }}>
-                  <thead>
-                    <tr>
-                      <th scope="col" className="t" style={{ width: "10%" }}>When</th>
-                      <th scope="col" className="t" style={{ width: "9%" }}>Type</th>
-                      <th scope="col" className="t" style={{ width: "40%" }}>Added</th>
-                      <th scope="col" className="t" style={{ width: "41%" }}>Dropped</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {waiverTxs.map((t, i) => (
-                      <tr key={`${t.ts}-${i}`} className={i % 2 ? "zebra" : ""}>
-                        <td className="t fig quiet">{t.season} W{t.week}</td>
-                        <td className="t fig quiet">{t.type === "waiver" ? "WAIVER" : "FA"}</td>
-                        <td className="t sub" style={{ whiteSpace: "normal", color: "var(--good)" }}>
-                          {t.adds?.length ? t.adds.join(", ") : "—"}</td>
-                        <td className="t sub last" style={{ whiteSpace: "normal", color: "var(--drop)" }}>
-                          {t.drops?.length ? t.drops.join(", ") : "—"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </TScroll>
+                <DataTable cols={WAIVER_COLS} groups={WAIVER_GROUPS} rows={waiverRows} ctx={NO_CTX}
+                  label="Waivers and free agents" rowKey={r => r.key}
+                  sortId="" dir={-1} onSort={NO_SORT} />
               )}
             </div>
           </div>

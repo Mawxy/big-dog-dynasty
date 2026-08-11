@@ -23,53 +23,20 @@ without writing.
 
 No dependencies beyond the standard library. Read-only API, no auth.
 """
-import argparse, csv, json, sys, time, urllib.error, urllib.request
+import argparse, csv, sys
 from collections import defaultdict
 from pathlib import Path
 
-BASE = "https://api.sleeper.app/v1"
-DELAY = 0.15                # keeps well under Sleeper's ~1000/min limit
-RETRIES = 3
+# Shared Sleeper client. This script already ran the module's defaults — 0.15s
+# pacing, broad retry, 404 -> None, and a 429 budget that raises rather than
+# returning a silent None (which here would read as "league not found" and
+# quietly truncate the corpus) — so nothing is overridden.
+from sleeper_http import get
+
 ROOKIE_MAX_ROUND = 6        # > this many rounds means it's a startup draft
-# Identify ourselves rather than sending urllib's anonymous default, which is
-# indistinguishable from a scraper — same string style as fetch_values.py.
-UA = {"User-Agent": "big-dog-dynasty-warboard/2.0 (github.com/Mawxy/big-dog-dynasty)"}
 ROOT = Path(__file__).resolve().parent.parent
 CSV_PATH = ROOT / "nfl_history" / "rookie_drafts.csv"
 COLUMNS = ["season", "pick_no", "round", "sleeper_id", "name", "pos", "source"]
-
-
-def get(path):
-    """GET a Sleeper endpoint, return parsed JSON (None ONLY on 404/null)."""
-    url = path if path.startswith("http") else BASE + path
-    attempt = rate_hits = 0
-    while True:
-        try:
-            time.sleep(DELAY)
-            with urllib.request.urlopen(
-                    urllib.request.Request(url, headers=UA), timeout=30) as r:
-                body = r.read().decode("utf-8")
-            return json.loads(body) if body and body != "null" else None
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return None
-            if e.code == 429:
-                rate_hits += 1
-                if rate_hits >= 10:
-                    # a silent None here reads as "league not found" and quietly
-                    # truncates the corpus — fail loudly instead
-                    raise RuntimeError(f"rate-limited {rate_hits}x, giving up: {url}")
-                time.sleep(30)
-                continue
-            attempt += 1
-            if attempt >= RETRIES:
-                raise
-            time.sleep(2 ** attempt)
-        except Exception:
-            attempt += 1
-            if attempt >= RETRIES:
-                raise
-            time.sleep(2 ** attempt)
 
 
 def walk_chain(league_id):

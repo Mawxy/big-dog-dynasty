@@ -12,10 +12,10 @@ Outputs:
   data/<season>/teams.json      fantasy teams: manager, record, roster
   data/<season>/weekly.json     player_id -> [[week, pts, pAA, pAR, WAA, WAR], ...]
 """
-import argparse, csv, json, os, re, statistics, tempfile, time
+import argparse, csv, json, re, statistics, time
 from pathlib import Path
 
-from leaguepaths import DataDir
+from ioutil import atomic_write
 
 ALLOW_EMPTY = False   # set by --allow-empty
 
@@ -51,24 +51,6 @@ def guard_write(path, obj, content=None):
     # compact separators everywhere: these files are fetched by the site, and
     # the default ", "/": " separators were 10-14% of their bytes
     atomic_write(path, json.dumps(obj, separators=(",", ":")))
-
-def atomic_write(path, text):
-    """Write via a temp file in the SAME directory, then os.replace.
-
-    A plain write_text truncates first, so an interrupted run (or a crash
-    mid-serialize) leaves a half-written JSON file where the site expects a
-    committed one. os.replace is atomic within a filesystem, which is why the
-    temp file has to be beside the target rather than in the system temp dir."""
-    path = Path(path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=str(path.parent), prefix=path.name + ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8", newline="") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
 
 def main():
     global ALLOW_EMPTY
@@ -348,6 +330,18 @@ def main():
                     trade_note = "; ".join(
                         f"{tname.get(rid, '?')} get {', '.join(a)}" for rid, a in got.items())
                 # franchise transaction log (one entry per roster involved)
+                #
+                # KNOWN LIMITATION, display only. Sleeper's `adds` records who
+                # RECEIVED each asset and nothing about who sent it — there is no
+                # giver attribution in the payload at all. In a two-team trade
+                # that is enough, because everything the other side received came
+                # from you. In a THREE-team trade it is not: `gave` below is
+                # "everything every other roster received", so roster A's entry
+                # lists B<->C assets that were never A's. The `got` side and the
+                # `with` list are correct; only `gave` over-reports, and only for
+                # 3+ team trades. Fixing it needs the giver, which would mean
+                # reconstructing ownership at the transaction timestamp from the
+                # full history — not worth it for a label.
                 if typ == "trade":
                     for rid_g, assets in got.items():
                         others = [o for o in got if o != rid_g]

@@ -1,4 +1,24 @@
-export const fmt = (n: number, d = 2) => n.toFixed(d);
+/** toFixed, with the ASCII hyphen swapped for a true minus (−) — the same
+ *  glyph `sgn` emits, so signed and unsigned figures agree site-wide */
+export const fmt = (n: number, d = 2) => {
+  const s = n.toFixed(d);
+  return s.startsWith("-") ? "−" + s.slice(1) : s;
+};
+
+/**
+ * Decimals for a WAR figure. THE number — before this the board rendered the
+ * same trade asset at 3dp on the ledger and 2dp on the franchise page, and a
+ * player's season at 3dp on the stats board and 2dp on his own page.
+ *
+ * Three, because WAR is small-magnitude: a whole season is single digits and a
+ * week is hundredths, so the third place is signal rather than noise. It is
+ * also what the design system's own figure examples carry — a metered `1.268`,
+ * a week grid reading `+0.134` — and what `sgn` already defaulted to.
+ *
+ * WAR only. Points, PPG, the indices and market values keep their own
+ * precision; they are different quantities at different magnitudes.
+ */
+export const WAR_DP = 3;
 
 /** standard normal CDF (Abramowitz–Stegun 26.2.17, |err| < 7.5e-8) */
 export function normCdf(x: number): number {
@@ -28,8 +48,14 @@ export function normInv(p: number): number {
 /** signed figure with a true minus sign (−, not the ASCII hyphen toFixed
  *  emits). The ONE sgn — Draft, DraftDetail and PlayoffPanel carried local
  *  copies that disagreed on glyph and decimals. */
-export const sgn = (v: number, d = 3) =>
+export const sgn = (v: number, d = WAR_DP) =>
   (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
+
+/** a WAR figure, unsigned */
+export const fmtWar = (v: number) => fmt(v, WAR_DP);
+
+/** a WAR figure, signed with a true minus glyph */
+export const sgnWar = (v: number) => sgn(v, WAR_DP);
 
 /** 1 -> "1st", 12 -> "12th" — teens handled (11th/12th/13th) */
 export const ord = (n: number) => {

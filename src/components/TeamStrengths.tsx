@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type { CviFile, DviFile, ProjectionsFile, Team } from "../lib/types";
-import { jl, jlDaily } from "../lib/data";
+import { useJson } from "../lib/useJson";
 import { fmt, ord } from "../lib/stats";
 import { useLeague } from "../lib/context";
-import { DEFAULT_LINEUP } from "../lib/league";
+import { lineupOf } from "../lib/league";
 import { rosterShapes, type IndexEntry, type RankRow } from "../lib/rosterModel";
 import TScroll from "./TScroll";
 
@@ -65,23 +65,12 @@ function Grid({ rows, n, caption }: { rows: RankRow[]; n: number; caption: strin
  */
 export default function TeamStrengths({ rid }: { rid: number }) {
   const { meta } = useLeague();
-  const [proj, setProj] = useState<ProjectionsFile | null>(null);
-  const [teams, setTeams] = useState<Team[] | null>(null);
-  const [dvi, setDvi] = useState<DviFile | null>(null);
-  const [cvi, setCvi] = useState<CviFile | null>(null);
-
-  useEffect(() => {
-    let live = true;
-    jl<ProjectionsFile>("projections.json").then(p => {
-      if (!live) return;
-      setProj(p);
-      jl<Team[]>(`${p.meta.roster_season}/teams.json`)
-        .then(t => { if (live) setTeams(t); }).catch(() => {});
-    }).catch(() => {});
-    jlDaily<DviFile>("dvi.json").then(x => { if (live) setDvi(x); }).catch(() => {});
-    jlDaily<CviFile>("cvi.json").then(x => { if (live) setCvi(x); }).catch(() => {});
-    return () => { live = false; };
-  }, []);
+  const proj = useJson<ProjectionsFile>("projections.json").data;
+  // the roster season comes out of the projections file, so this path is null
+  // until that lands and the hook fetches it when it resolves
+  const teams = useJson<Team[]>(proj ? `${proj.meta.roster_season}/teams.json` : null).data;
+  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
+  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
 
   const shape = useMemo(() => {
     if (!proj || !teams || !dvi || !cvi) return null;
@@ -94,7 +83,7 @@ export default function TeamStrengths({ rid }: { rid: number }) {
     const flatCvi: Record<string, IndexEntry> = {};
     for (const [pid, r] of Object.entries(cvi.players))
       flatCvi[pid] = { value: r.cvi, posRank: r.pos_rank };
-    const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
+    const lineup = lineupOf(meta);
     return rosterShapes(proj.players, teams,
       { cvi: flatCvi, dvi: flatDvi }, lineup).get(rid) ?? null;
   }, [proj, teams, dvi, cvi, meta, rid]);

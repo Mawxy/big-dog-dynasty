@@ -1,4 +1,4 @@
-import { createContext, useContext } from "react";
+import { createContext, useCallback, useContext } from "react";
 import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./types";
 
 /** `leagues` is the whole registry, not just the resolved entry: the router
@@ -18,12 +18,20 @@ export function useLeague() {
  *  league_id, which every league always has. */
 export const leagueSeg = (l: LeagueEntry) => l.alias || l.key || "league";
 
-/** Prefix an in-app path with the current league. Every internal link goes
- *  through this so no click has to bounce off the legacy redirect. */
+/**
+ * Prefix an in-app path with the current league. Every internal link goes
+ * through this so no click has to bounce off the legacy redirect.
+ *
+ * Memoized on the league SEGMENT, which is the only thing the closure reads —
+ * so the identity holds for the life of the page (switching leagues re-boots).
+ * A fresh closure per render is a dependency that always changes, and it was
+ * invalidating the column memos on Teams and forcing QuickJump to suppress the
+ * exhaustive-deps rule to keep its typeahead off the critical path.
+ */
 export function useLeaguePath() {
-  const { league } = useLeague();
-  const base = `/${leagueSeg(league)}`;
-  return (p: string) => `${base}${p.startsWith("/") ? p : `/${p}`}`;
+  const seg = leagueSeg(useLeague().league);
+  return useCallback(
+    (p: string) => `/${seg}${p.startsWith("/") ? p : `/${p}`}`, [seg]);
 }
 
 /**

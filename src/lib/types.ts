@@ -303,22 +303,6 @@ export interface PlayerShard {
   sproj: SleeperProj | null;
 }
 
-/** data/value_bridge.json — Bridge B: market value -> WAR. Isotonic-fit knots
- *  [[value, war], ...] ascending; predict by linear interpolation, clamped. */
-export type BridgeKnots = [number, number][];
-export interface BridgeFits {
-  /** THE bridge: value -> projected 3-yr composite WAR (per-year + total) */
-  proj: { y1: BridgeKnots; y2: BridgeKnots; y3: BridgeKnots; total: BridgeKnots };
-  /** sanity fit only: value -> last season's realized WAR */
-  war25: BridgeKnots;
-}
-export interface ValueBridge {
-  meta: { values_fetched: string; seed_season: number; sources: Record<string, unknown> };
-  fits: { ktc?: BridgeFits; fc?: BridgeFits };
-  /** per source: [label, market value, implied 3-yr WAR, [y1, y2, y3]] */
-  picks: Record<string, [string, number, number, number[]][]>;
-}
-
 /** data/insights.json — written per-franchise outlooks, keyed by roster_id */
 export interface Insights {
   meta: { generated: string; season: number; note: string };

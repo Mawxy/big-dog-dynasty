@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { SeasonData, SummaryRow, Team, Weekly } from "./types";
 import { jl } from "./data";
-import { sd } from "./stats";
+import { sd, WAR_DP } from "./stats";
 import { useLeague } from "./context";
 import { rosterSeasonOf } from "./league";
 
@@ -30,7 +30,7 @@ export function useSeasonData(season: string | null): SeasonData | null {
         });
         const summary: SummaryRow[] = Object.entries(agg).map(([pid, a]) => [
           pid, a.pos, a.gp, +a.pts.toFixed(1), +(a.pts / a.gp).toFixed(2),
-          +a.waa.toFixed(3), +a.war.toFixed(3), +sd(a.wpts).toFixed(2),
+          +a.waa.toFixed(WAR_DP), +a.war.toFixed(WAR_DP), +sd(a.wpts).toFixed(2),
         ]);
         // all-time: ownership is CURRENT ownership, not ownership in the last
         // season that happened to be played

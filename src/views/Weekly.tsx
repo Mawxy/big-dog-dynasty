@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useLeaguePath } from "../lib/context";
 import type { BracketFile, MatchEntry, Matchups, PlayersMin, SeasonData, WeekOdds, Weekly as WeeklyT } from "../lib/types";
 import { jl } from "../lib/data";
-import { fmt, sgn, clsOf } from "../lib/stats";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, sgn, sgnWar, clsOf } from "../lib/stats";
 import { pInfo, POS_COLOR, weekIndex, seasonSeg } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
 import PosBadge from "../components/PosBadge";
@@ -126,7 +127,7 @@ function MatchupGrid({ season, wk, mw, weekly, players, tnames, odds }: {
                 {/* the same second figure position on both sides: lineup WAR
                     once played, the pregame line before */}
                 {lw != null
-                  ? <span className={`sub2 ${clsOf(lw)}`}>{sgn(lw, 2)}</span>
+                  ? <span className={`sub2 ${clsOf(lw)}`}>{sgnWar(lw)}</span>
                   : od?.wp != null
                     ? <span className="sub2">{fmt(od.wp * 100, 0)}%</span>
                     : <span className="sub2" />}
@@ -190,7 +191,7 @@ function MatchupGrid({ season, wk, mw, weekly, players, tnames, odds }: {
                 {pct && <> · <span style={{ color: (od?.wp ?? 0) >= 0.5 ? "var(--txt2)" : "var(--dim)" }}>
                   {scored ? "was " : ""}{pct}
                 </span></>}
-                {scored && wk < ps ? <> · lineup WAR {sgn(lineupWar(rid), 2)}</> : null}
+                {scored && wk < ps ? <> · lineup WAR {sgnWar(lineupWar(rid))}</> : null}
               </div>
               {top && (
                 <div className="star">
@@ -240,31 +241,26 @@ interface Props {
 export default function Weekly({ data, season, players, week, matchupRid, playoffs }: Props) {
   const [weekly, setWeekly] = useState<WeeklyT | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
-  const [bracket, setBracket] = useState<BracketFile | null>(null);
-  /** the pregame line per matchup — absent for data built before week_odds.py */
-  const [odds, setOdds] = useState<WeekOdds | null>(null);
-  /** the bracket fetch has settled, either way — so the playoffs scope can
-   *  tell "still loading" from "this season has no bracket" */
-  const [brDone, setBrDone] = useState(false);
   const [err, setErr] = useState(false);
   const [reload, setReload] = useState(0);
   const nav = useNavigate();
   const lp = useLeaguePath();
 
+  // A missing bracket or odds file is not an error: the chip just doesn't
+  // appear, the lines just don't render. `loading` is what the playoffs scope
+  // reads to tell "still fetching" from "this season has no bracket".
+  const bracketQ = useJson<BracketFile>(season === "ALL" ? null : `${season}/bracket.json`);
+  const bracket = bracketQ.data;
+  const brDone = !bracketQ.loading;
+  /** the pregame line per matchup — absent for data built before week_odds.py */
+  const odds = useJson<WeekOdds>(season === "ALL" ? null : `${season}/odds.json`).data;
+
+  // weekly and matchups stay hand-rolled: the board reads both or neither, and
+  // this is the pair the empty state's Retry re-runs
   useEffect(() => {
     if (season === "ALL") return;
     let live = true;
     setErr(false);
-    setBracket(null);
-    setBrDone(false);
-    jl<BracketFile>(`${season}/bracket.json`)
-      .then(b => { if (live) setBracket(b); })
-      .catch(() => { /* no bracket yet — the chip just doesn't appear */ })
-      .finally(() => { if (live) setBrDone(true); });
-    setOdds(null);
-    jl<WeekOdds>(`${season}/odds.json`)
-      .then(o => { if (live) setOdds(o); })
-      .catch(() => { /* no odds file — the lines just don't render */ });
     Promise.all([
       jl<WeeklyT>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -388,20 +384,30 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
   const lp = useLeaguePath();
   const [openPid, setOpenPid] = useState<string | null>(null);
   const ps = mw.playoff_start || 15;
-  const tnames: Record<number, string> = {};
-  data.teams.forEach(t => { tnames[t.roster_id] = t.team; });
-  const ent = weekEntries(mw, wk);
-  const pairs = weekPairs(ent, mw, wk);
+
+  // Every derivation here is a function of the week's DATA, not of which
+  // drawer is open — and the performers pass walks ~800 players' whole seasons
+  // and sorts them. Unmemoized, opening or closing a drawer re-ran all of it.
+  const tnames = useMemo(() => {
+    const m: Record<number, string> = {};
+    data.teams.forEach(t => { m[t.roster_id] = t.team; });
+    return m;
+  }, [data]);
+  const ent = useMemo(() => weekEntries(mw, wk), [mw, wk]);
+  const pairs = useMemo(() => weekPairs(ent, mw, wk), [ent, mw, wk]);
 
   /** pid -> the team that actually started him this week */
-  const startedBy: Record<string, string> = {};
-  for (const [rid, e] of Object.entries(ent))
-    for (const p of e[4]) startedBy[p] = tnames[+rid] ?? `Roster ${rid}`;
+  const startedBy = useMemo(() => {
+    const by: Record<string, string> = {};
+    for (const [rid, e] of Object.entries(ent))
+      for (const p of e[4]) by[p] = tnames[+rid] ?? `Roster ${rid}`;
+    return by;
+  }, [ent, tnames]);
 
-  const performers = Object.entries(weekly).flatMap(([pid, rows]) => {
+  const performers = useMemo(() => Object.entries(weekly).flatMap(([pid, rows]) => {
     const w = rows.find(x => x[0] === wk);
     return w ? [{ pid, pts: w[1], paa: w[2], par: w[3], war: w[5], pos: pInfo(players, pid)[1] }] : [];
-  }).sort((a, b) => b.war - a.war).slice(0, 50);
+  }).sort((a, b) => b.war - a.war).slice(0, 50), [weekly, wk, players]);
   const warMax = Math.max(0.001, ...performers.map(p => p.war));
 
   return (
@@ -475,7 +481,7 @@ function WeekDetail({ wk, season, data, weekly, mw, players, allWeeks, hasBracke
                     <td className="n last edge">
                       <div className="meter-row">
                         <div className="meter"><i style={{ width: `${Math.round(Math.max(0, e.war) / warMax * 100)}%` }} /></div>
-                        <span className="fig">{fmt(e.war, 3)}</span>
+                        <span className="fig">{fmtWar(e.war)}</span>
                       </div>
                     </td>
                   </tr>

@@ -1,7 +1,7 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeague, useLeaguePath } from "../lib/context";
-import { jl } from "../lib/data";
+import { useJson } from "../lib/useJson";
 import type { Franchises } from "../lib/types";
 import PosBadge from "./PosBadge";
 
@@ -15,10 +15,9 @@ export default function QuickJump() {
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const [open, setOpen] = useState(false);
-  const [frs, setFrs] = useState<Franchises | null>(null);
   const nav = useNavigate();
   const lp = useLeaguePath();
-  useEffect(() => { jl<Franchises>("franchises.json").then(setFrs).catch(() => {}); }, []);
+  const frs = useJson<Franchises>("franchises.json").data;
 
   const opts = useMemo<Opt[]>(() => {
     const s = q.trim().toLowerCase();
@@ -48,11 +47,7 @@ export default function QuickJump() {
       if (sc >= 0) scored.push([sc, { key: pid, label: name, pos, to: lp(`/player/${pid}`) }]);
     }
     return scored.sort((a, b) => a[0] - b[0]).slice(0, 8).map(x => x[1]);
-    // lp is deliberately not a dep: useLeaguePath returns a fresh closure every
-    // render, and listing it would recompute the whole list on each keystroke's
-    // re-render for a value that never actually changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q, players, frs]);
+  }, [q, players, frs, lp]);
 
   const go = (o: Opt) => { setQ(""); setOpen(false); nav(o.to); };
 

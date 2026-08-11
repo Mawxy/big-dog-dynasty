@@ -23,10 +23,17 @@ adjust PROJ_URL / item parsing below — everything else is stable.
 
 Usage: python scripts/fetch_projections.py [--season 2026] [--league-id ...]
 """
-import argparse, json, sys, time, urllib.request, urllib.error
+import argparse, json, sys, time
 from collections import Counter, defaultdict
 from pathlib import Path
+from ioutil import atomic_write
 from leaguepaths import DataDir
+# The shared Sleeper client, which is a BUG FIX here rather than a tidy-up. The
+# local one this replaces sent no User-Agent, had no 429 handling, and — because
+# HTTPError subclasses URLError — retried a 404 and a rate-limit four times over
+# and then raised either way. It now identifies itself, treats a 404 as None,
+# and backs off properly when Sleeper says slow down.
+from sleeper_http import get
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -38,18 +45,6 @@ POSITIONS = ["QB", "RB", "WR", "TE"]
 LEAGUE_GAMES = 13                           # our fantasy season: 14 weeks minus a bye
 NFL_SEASON_GAMES = 17                       # a full NFL season is 17 GAMES (Sleeper's
                                             # gp=18 is weeks incl. the bye = a zero week)
-
-
-def get(url, tries=4):
-    for i in range(tries):
-        try:
-            with urllib.request.urlopen(url, timeout=30) as r:
-                return json.load(r)
-        except (urllib.error.URLError, TimeoutError) as e:
-            if i == tries - 1:
-                raise
-            time.sleep(1.5 * (i + 1))
-    return None
 
 
 def week_proj_url(season, week, pos):
@@ -120,9 +115,15 @@ def main():
 
     season = args.season
     if season is None:
-        season = int(get(f"{V1}/state/nfl")["season"])
+        state = get(f"{V1}/state/nfl")
+        if not state:
+            sys.exit("/state/nfl returned nothing; pass --season")
+        season = int(state["season"])
 
     league = get(f"{V1}/league/{league_id}")
+    # a 404 is now None rather than an HTTPError, so say which it was
+    if not league:
+        sys.exit(f"league {league_id} not found; cannot score projections")
     scoring = league.get("scoring_settings") or {}
     if not scoring:
         sys.exit("no scoring_settings on league; cannot score projections")
@@ -247,7 +248,7 @@ def main():
                        "league_games": LEAGUE_GAMES, "players": len(out),
                        "note": "pts13 = league-scored projected points scaled to 13 games"},
               "players": out}
-    dest.write_text(json.dumps(result, separators=(",", ":")), encoding="utf-8")
+    atomic_write(dest, json.dumps(result, separators=(",", ":")))
     print(f"wrote {dest}  ({len(out)} players, season {season})")
 
 

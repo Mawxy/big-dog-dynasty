@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { memo, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useMobile } from "../lib/useWidth";
 import TScroll from "./TScroll";
 
@@ -64,11 +64,14 @@ export function applySort<T, X>(rows: T[], col: Col<T, X> | undefined, dir: numb
   if (!get) return rows;
   return rows.slice().sort((a, b) => {
     const av = get(a), bv = get(b);
-    if (typeof av === "string" || typeof bv === "string")
-      return String(av ?? "").localeCompare(String(bv ?? "")) * dir;
+    // nulls are settled BEFORE the string branch. Coercing one to "" and
+    // handing it to localeCompare sorted it above every real name ascending,
+    // which is the opposite of what this function promises.
     if (av == null && bv == null) return 0;
     if (av == null) return 1;
     if (bv == null) return -1;
+    if (typeof av === "string" || typeof bv === "string")
+      return String(av).localeCompare(String(bv)) * dir;
     return (av - bv) * dir;
   });
 }
@@ -83,6 +86,35 @@ export function sortCol<T, X>(cols: Col<T, X>[], id: string, home: string) {
   return cols.find(c => c.id === id)
     ?? cols.find(c => c.id === home)
     ?? cols.find(c => c.sort);
+}
+
+/**
+ * The sort state every board keeps, and the click handler six of them wrote
+ * out identically.
+ *
+ * `homeId` is the column the table sorts by at rest. Three rules, in order:
+ * clicking the rank column returns to the resting sort (the only way back
+ * once you have sorted by something else); an unsortable column is inert; and
+ * a new column takes its own first direction — `asc` for text, descending for
+ * figures — while re-clicking the current one flips it.
+ *
+ * `reset` is the same return-to-rest, for the pages that re-scope (a season
+ * or a lens change) and have to drop a sort that no longer means anything.
+ */
+export function useTableSort(homeId: string, defaultDir: 1 | -1 = -1) {
+  const [sortId, setSortId] = useState(homeId);
+  const [dir, setDir] = useState<number>(defaultDir);
+  const reset = useCallback(() => {
+    setSortId(homeId);
+    setDir(defaultDir);
+  }, [homeId, defaultDir]);
+  const onSort = (c: { id: string; sort?: unknown; asc?: boolean }) => {
+    if (c.id === "rk") { reset(); return; }
+    if (!c.sort) return;
+    if (sortId === c.id) setDir(-dir);
+    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
+  };
+  return { sortId, dir, onSort, reset };
 }
 
 interface Props<T, X> {
@@ -116,11 +148,94 @@ interface Props<T, X> {
   label?: string;
 }
 
+/**
+ * One body row, plus its drawer when it is the open one.
+ *
+ * Split out of the table so it can be memoized: re-sorting or opening a drawer
+ * used to re-render every cell of every row, and a cell can be a meter, a
+ * sparkline or a whole nested block. `drawer` arrives as rendered content
+ * rather than as the renderer — closed rows get a stable `null`, so the only
+ * row whose drawer identity changes per render is the one actually open.
+ */
+interface RowProps<T, X> {
+  r: T; i: number;
+  cols: Col<T, X>[];
+  ctx: X;
+  lastId: string;
+  open: boolean;
+  /** the row is a control (there is a click handler behind it) */
+  act: boolean;
+  /** this table has drawers at all — what makes the row aria-expandable */
+  hasDrawer: boolean;
+  onClick: (r: T) => void;
+  drawer: ReactNode;
+}
+
+function RowBase<T, X>({ r, i, cols, ctx, lastId, open, act, hasDrawer, onClick, drawer }: RowProps<T, X>) {
+  return (
+    <>
+      {/* The row is the same control the records-mode `.rec` is, so it
+          takes the same keyboard contract: a tab stop and Enter/Space.
+          No `role="button"` here, unlike `.rec` — a <tr> whose role is
+          overridden stops being a row, and with it the whole table's
+          structure. `row` already supports aria-expanded, which is the
+          part a drawer needs announced. Where the row NAVIGATES instead
+          of opening a drawer, the identity cell also carries a real
+          anchor (PlayerLink, the standings team cell) — that is the
+          affordance that reaches a new tab. */}
+      <tr className={`${act ? "click" : ""} ${open ? "open" : i % 2 ? "zebra" : ""}`.trim()}
+        tabIndex={act ? 0 : undefined}
+        aria-expanded={act && hasDrawer ? open : undefined}
+        onClick={() => onClick(r)}
+        onKeyDown={act ? e => {
+          // only the row's own key events — a keystroke inside the
+          // identity cell's anchor belongs to the anchor
+          if (e.target !== e.currentTarget) return;
+          if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onClick(r); }
+        } : undefined}>
+        {cols.map(c => (
+          <td key={c.id} className={c.id === lastId ? `${c.td} last` : c.td}>
+            {c.cell(r, ctx, i)}
+          </td>
+        ))}
+      </tr>
+      {drawer != null && (
+        <tr className="drawer-row">
+          {/* The cell spans the whole table, which on a phone is wider
+              than the screen — so an unwrapped drawer opened half off to
+              the right. `.drawer-fit` is pinned to the left edge and
+              sized to the VISIBLE box, so the drawer lands where the
+              reader is looking however far the board is scrolled. */}
+          <td colSpan={cols.length}>
+            <div className="drawer-fit">{drawer}</div>
+          </td>
+        </tr>
+      )}
+    </>
+  );
+}
+
+/** Everything a row draws from, compared by identity. `onClick` is left out on
+ *  purpose: it is the stable wrapper below, never a caller's inline arrow. */
+function sameRow<T, X>(a: RowProps<T, X>, b: RowProps<T, X>) {
+  return a.r === b.r && a.i === b.i && a.cols === b.cols && a.ctx === b.ctx
+    && a.lastId === b.lastId && a.open === b.open && a.act === b.act
+    && a.hasDrawer === b.hasDrawer && a.drawer === b.drawer;
+}
+
+const Row = memo(RowBase, sameRow) as typeof RowBase;
+
 export default function DataTable<T, X>({
   cols, groups, rows, ctx, rowKey, sortId, dir, onSort, homeCol, openKey, onRowClick, renderDrawer,
   recordsOnMobile, recordsClass, label,
 }: Props<T, X>) {
   const mobile = useMobile();
+  // A caller's onRowClick is an inline arrow closing over its own state, so its
+  // identity changes every render and would defeat the memo above. The rows get
+  // this stable wrapper instead, which reads the latest handler when it fires.
+  const clickRef = useRef(onRowClick);
+  useEffect(() => { clickRef.current = onRowClick; });
+  const onClick = useCallback((r: T) => { clickRef.current?.(r); }, []);
   if (mobile && recordsOnMobile) {
     return <Records cols={cols} rows={rows} ctx={ctx} rowKey={rowKey}
       openKey={openKey} onRowClick={onRowClick} renderDrawer={renderDrawer}
@@ -178,46 +293,12 @@ export default function DataTable<T, X>({
         {rows.map((r, i) => {
           const k = rowKey(r);
           const open = openKey === k;
-          const act = !!onRowClick;
-          return [
-            // The row is the same control the records-mode `.rec` is, so it
-            // takes the same keyboard contract: a tab stop and Enter/Space.
-            // No `role="button"` here, unlike `.rec` — a <tr> whose role is
-            // overridden stops being a row, and with it the whole table's
-            // structure. `row` already supports aria-expanded, which is the
-            // part a drawer needs announced. Where the row NAVIGATES instead
-            // of opening a drawer, the identity cell also carries a real
-            // anchor (PlayerLink, the standings team cell) — that is the
-            // affordance that reaches a new tab.
-            <tr key={k} className={`click ${open ? "open" : i % 2 ? "zebra" : ""}`}
-              tabIndex={act ? 0 : undefined}
-              aria-expanded={act && renderDrawer ? open : undefined}
-              onClick={() => onRowClick?.(r)}
-              onKeyDown={act ? e => {
-                // only the row's own key events — a keystroke inside the
-                // identity cell's anchor belongs to the anchor
-                if (e.target !== e.currentTarget) return;
-                if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onRowClick!(r); }
-              } : undefined}>
-              {cols.map(c => (
-                <td key={c.id} className={c.id === lastId ? `${c.td} last` : c.td}>
-                  {c.cell(r, ctx, i)}
-                </td>
-              ))}
-            </tr>,
-            open && renderDrawer ? (
-              <tr key={`${k}-drawer`} className="drawer-row">
-                {/* The cell spans the whole table, which on a phone is wider
-                    than the screen — so an unwrapped drawer opened half off to
-                    the right. `.drawer-fit` is pinned to the left edge and
-                    sized to the VISIBLE box, so the drawer lands where the
-                    reader is looking however far the board is scrolled. */}
-                <td colSpan={cols.length}>
-                  <div className="drawer-fit">{renderDrawer(r)}</div>
-                </td>
-              </tr>
-            ) : null,
-          ];
+          return (
+            <Row key={k} r={r} i={i} cols={cols} ctx={ctx} lastId={lastId}
+              open={open} act={!!onRowClick} hasDrawer={!!renderDrawer}
+              onClick={onClick}
+              drawer={open && renderDrawer ? renderDrawer(r) : null} />
+          );
         })}
       </tbody>
     </table>

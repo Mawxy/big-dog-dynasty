@@ -17,49 +17,13 @@ Usage:
 
 No dependencies beyond the standard library. Read-only API, no auth.
 """
-import argparse, json, sys, time, urllib.request, urllib.error
+import argparse, json, sys
 from pathlib import Path
 
-BASE = "https://api.sleeper.app/v1"
-DELAY = 0.15          # seconds between calls; keeps well under Sleeper's ~1000/min limit
-RETRIES = 3
-RATE_LIMIT_TRIES = 10   # 429s get their own budget, separate from error retries
-# Say who we are. urllib's default agent is anonymous and looks exactly like a
-# scraper, which is the wrong thing to look like against a free read-only API —
-# same string style as fetch_values.py.
-UA = {"User-Agent": "big-dog-dynasty-warboard/2.0 (github.com/Mawxy/big-dog-dynasty)"}
-
-def get(path):
-    """GET a Sleeper endpoint, return parsed JSON (None ONLY on 404/null)."""
-    url = path if path.startswith("http") else BASE + path
-    attempt = rate_hits = 0
-    while True:
-        try:
-            time.sleep(DELAY)
-            with urllib.request.urlopen(
-                    urllib.request.Request(url, headers=UA), timeout=30) as r:
-                body = r.read().decode("utf-8")
-            return json.loads(body) if body and body != "null" else None
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return None
-            if e.code == 429:            # rate limited: back off hard
-                rate_hits += 1
-                if rate_hits >= RATE_LIMIT_TRIES:
-                    # never fall through to None here — a silent None becomes a
-                    # silently incomplete dump that build + commit would publish
-                    raise RuntimeError(f"rate-limited {rate_hits}x, giving up: {url}")
-                time.sleep(30)
-                continue
-            attempt += 1
-            if attempt >= RETRIES:
-                raise
-            time.sleep(2 ** attempt)
-        except Exception:
-            attempt += 1
-            if attempt >= RETRIES:
-                raise
-            time.sleep(2 ** attempt)
+# One Sleeper client for the whole repo. This script's semantics ARE the shared
+# ones — 0.15s pacing, broad retry, 404 -> None, a hard 429 budget that raises
+# rather than returning a silent None — so it takes the defaults unchanged.
+from sleeper_http import get
 
 def save(obj, path: Path):
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -182,8 +146,26 @@ def dump_league(league_id: str, root: Path, state=None):
         if byes:
             save(byes, d / "byes.json")
 
-    # weeks: use last_scored_leg when the season is done, else assume 18
-    last_week = league.get("settings", {}).get("last_scored_leg") or 18
+    # WEEKS TO WALK — derived from the league's own shape, never from progress.
+    #
+    # This used to be `last_scored_leg or 18`. Out of season that field is null
+    # and the `or 18` walked the whole calendar, which is the ONLY reason
+    # schedule/week_NN.json ever got written: Sleeper publishes the season's
+    # pairings up front, and the site's projected records and week-odds pricing
+    # are built from them. The moment week 1 scores, last_scored_leg becomes 1
+    # and range(1, 2) fetches exactly one week — so a fresh CI checkout (this
+    # dump is gitignored and rebuilt every run) would stop writing schedule/
+    # entirely, build_site_data would rebuild matchups.json without the
+    # `schedule` key, and the site would silently lose every future-week pairing
+    # for the rest of the season.
+    #
+    # The season's LENGTH is a league setting, not a function of how much of it
+    # has been played: regular season runs to playoff_week_start - 1, then a
+    # 6-team bracket takes two more (15 -> 17 here). last_scored_leg only ever
+    # raises the cap, for a finished season whose bracket ran longer than that.
+    settings = league.get("settings", {})
+    ps = settings.get("playoff_week_start") or 0
+    last_week = max(ps + 2 if ps else 18, settings.get("last_scored_leg") or 0)
     for wk in range(1, last_week + 1):
         m = get(f"/league/{league_id}/matchups/{wk}")
         # a week is "final" only if it has points AND is fully played — never

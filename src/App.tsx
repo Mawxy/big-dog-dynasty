@@ -4,7 +4,7 @@ import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./lib/types";
 import { j, jl, setLeagueBase, setVersion } from "./lib/data";
 import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
-import { seasonSeg } from "./lib/league";
+import { latestSeasonOf, seasonSeg } from "./lib/league";
 import Home from "./views/Home";
 import SiteFooter from "./components/SiteFooter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -43,17 +43,11 @@ const LABEL = (v: string) =>
       : v === "weekly" ? "Season"
         : v === "trades" ? "Trade machine" : v[0].toUpperCase() + v.slice(1);
 
-/** newest season that actually has WAR data (falls back to newest listed) */
-function defaultSeason(meta: Meta): string {
-  if (meta.latest && meta.seasons.includes(meta.latest)) return meta.latest;
-  return meta.seasons[meta.seasons.length - 1];
-}
-
 /** URL segment -> internal season id, with fallback to the default season */
 function seasonOf(seg: string | undefined, meta: Meta): string {
   if (seg?.toLowerCase() === "all") return "ALL";
   if (seg && meta.seasons.includes(seg)) return seg;
-  return defaultSeason(meta);
+  return latestSeasonOf(meta);
 }
 
 /** Old season-first URLs (#/players/2025) keep working: prefix the league and
@@ -155,7 +149,7 @@ function Shell() {
   useEffect(() => {
     if (navType === "PUSH") window.scrollTo(0, 0);
   }, [loc.pathname, navType]);
-  const latest = defaultSeason(meta);
+  const latest = latestSeasonOf(meta);
   // paths are league-first now: /<league>/<view>[/<season>...]
   const base = `/${leagueSeg(league)}`;
   const parts = loc.pathname.split("/");

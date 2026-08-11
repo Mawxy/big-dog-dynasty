@@ -38,9 +38,13 @@ Usage: python scripts/pick_value.py [--last-season 2025]
 import argparse, csv, json, re, statistics
 from collections import defaultdict
 from pathlib import Path
+from ioutil import atomic_write
 from leaguepaths import DataDir
 # franchise bars live in one place — see METHODOLOGY.md "Franchise players"
 from franchise_players import FRANCHISE_BAR, MIN_SEASONS as FRANCHISE_SEASONS
+# ...and so does the nickname table. This file used to carry its own copy, one
+# entry short of project_war.py's, so 'chig' joined there and not here.
+from names import NICK
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -76,9 +80,8 @@ OUT_MIN_CLASSES = 4      # classes that must complete year k before its
 CRAWL_MIN = 3
 CRAWL_BUDGET = 40
 
-NICK = {'cam': 'cameron', 'tank': 'nathaniel', 'joe': 'joseph', 'trevor': 'william',
-        'matt': 'matthew', 'josh': 'joshua', 'ken': 'kenneth', 'mike': 'michael',
-        'gabe': 'gabriel'}
+# MANUAL stays local: it is a Sleeper-name -> gsis-id table, a correction for
+# THIS join specifically. fetch_ecr's ALIASES solves a different one.
 MANUAL = {'Ray Davis': '00-0039875',          # nflverse legal name Re'Mahn Davis
           'A.J. Brown': '00-0035676',         # nflverse legal name Arthur Brown
           # Position mismatches: nflverse pos != Sleeper pos, so the
@@ -478,7 +481,7 @@ def main():
     dest = DATA / 'pick_values.json'
     # compact separators: the site fetches this file, and indentation was 52%
     # of its bytes — gzip hides the transfer but not the JSON.parse cost
-    dest.write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
+    atomic_write(dest, json.dumps(out, separators=(',', ':')))
 
     print(f"picks {len(picks)}  vets excluded {vets}  unmatched {len(unmatched)}")
     for u in unmatched:

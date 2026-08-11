@@ -4,13 +4,15 @@ import type {
   CviFile, DviFile, Franchises, MatchEntry, Matchups, ProjectionsFile, Team, Values,
   WeekOdds, Weekly,
 } from "../lib/types";
-import { jDaily, jl, jlDaily } from "../lib/data";
-import { fmt, mean, meterWidth, ord, sd } from "../lib/stats";
-import { DEFAULT_LINEUP, optimalLineup, rosterSeasonOf, seasonSeg, weekIndex } from "../lib/league";
+import { jl } from "../lib/data";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, mean, meterWidth, ord, sd } from "../lib/stats";
+import { latestSeasonOf, lineupOf, optimalLineup, pricedLineup, rosterSeasonOf, seasonSeg, weekIndex } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { useSeasonData } from "../lib/useSeasonData";
 import { useMobile } from "../lib/useWidth";
-import DataTable, { applySort, sortCol, type Col, type Grp } from "../components/DataTable";
+import DataTable, { applySort, sortCol, useTableSort, type Col, type Grp } from "../components/DataTable";
+import { RouteLink } from "../components/RouteLink";
 
 /**
  * TEAMS — one franchise per row, two boards.
@@ -36,6 +38,10 @@ import DataTable, { applySort, sortCol, type Col, type Grp } from "../components
  * columns, cut this one.
  */
 const nul = <span className="fig quiet">—</span>;
+/** the two boards that need no per-render context; a shared constant rather
+ *  than a `{}` literal, which would be a new object on every render and defeat
+ *  DataTable's row memoization */
+const NO_CTX: Record<string, never> = {};
 
 export default function FranchisesView() {
   const { meta, league } = useLeague();
@@ -43,8 +49,7 @@ export default function FranchisesView() {
   const lp = useLeaguePath();
   const seg = useParams().season;
 
-  const latest = meta.latest && meta.seasons.includes(meta.latest)
-    ? meta.latest : meta.seasons[meta.seasons.length - 1];
+  const latest = latestSeasonOf(meta);
   const rosterSeason = rosterSeasonOf(league);
   const played = useMemo(
     () => meta.seasons.filter(s => s <= latest).slice().reverse(), [meta, latest]);
@@ -177,27 +182,15 @@ function RosterBoard() {
   const nav = useNavigate();
   const lp = useLeaguePath();
   const rosterSeason = rosterSeasonOf(league);
-  const [fr, setFr] = useState<Franchises | null>(null);
-  const [teams, setTeams] = useState<Team[] | null>(null);
-  const [dvi, setDvi] = useState<DviFile | null>(null);
-  const [cvi, setCvi] = useState<CviFile | null>(null);
-  const [projs, setProjs] = useState<ProjectionsFile | null>(null);
-  const [vals, setVals] = useState<Values | null>(null);
-  const [sortId, setSortId] = useState("dvi");
-  const [dir, setDir] = useState(-1);
+  const { sortId, dir, onSort } = useTableSort("dvi");
 
-  useEffect(() => {
-    let live = true;
-    const set = <T,>(f: (v: T) => void) => (v: T) => { if (live) f(v); };
-    jl<Franchises>("franchises.json").then(set(setFr)).catch(() => {});
-    jl<Team[]>(`${rosterSeason}/teams.json`).then(set(setTeams)).catch(() => {});
-    jlDaily<DviFile>("dvi.json").then(set(setDvi)).catch(() => {});
-    jlDaily<CviFile>("cvi.json").then(set(setCvi)).catch(() => {});
-    jl<ProjectionsFile>("projections.json").then(set(setProjs)).catch(() => {});
-    // global file: the market prices a format, not a league
-    jDaily<Values>("data/values.json").then(set(setVals)).catch(() => {});
-    return () => { live = false; };
-  }, [rosterSeason]);
+  const fr = useJson<Franchises>("franchises.json").data;
+  const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
+  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
+  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
+  const projs = useJson<ProjectionsFile>("projections.json").data;
+  // global file: the market prices a format, not a league
+  const vals = useJson<Values>("data/values.json", "globalDaily").data;
 
   /**
    * Starters = the roster's best legal lineup optimized IN that currency, not
@@ -208,13 +201,8 @@ function RosterBoard() {
    */
   const rows = useMemo<BoardRow[] | null>(() => {
     if (!teams || !dvi || !cvi || !fr) return null;
-    const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
+    const lineup = lineupOf(meta);
     const ageOf = new Map((projs?.players ?? []).map(p => [p.pid, p.age]));
-    const price = (t: Team, idx: Record<string, { pos: string }>, of: (pid: string) => number) => {
-      const pool = t.players.filter(p => idx[p])
-        .map(p => ({ id: p, pos: idx[p].pos, war: of(p) }));
-      return optimalLineup(pool, lineup);
-    };
     /**
      * A roster total sums every player the team holds — bench and taxi
      * included — so it answers depth where the starter figure answers
@@ -231,10 +219,8 @@ function RosterBoard() {
       return n ? sum : null;
     };
     return teams.map(t => {
-      const d = price(t, dvi.players, p => dvi.players[p].dvi);
-      const c = price(t, cvi.players, p => cvi.players[p].cvi);
-      const sDvi = d.slots.reduce((a, sl) => a + (sl.player?.war ?? 0), 0);
-      const sCvi = c.slots.reduce((a, sl) => a + (sl.player?.war ?? 0), 0);
+      const d = pricedLineup(t, dvi.players, (_p, r) => r.dvi, lineup);
+      const c = pricedLineup(t, cvi.players, (_p, r) => r.cvi, lineup);
       // average age of the best nine by DVI — context, not a verdict
       const ages = d.slots.map(sl => sl.player && ageOf.get(sl.player.id))
         .filter((a): a is number => a != null);
@@ -242,7 +228,7 @@ function RosterBoard() {
       const cur = f?.seasons[f.seasons.length - 1];
       return {
         rid: t.roster_id, name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
-        sDvi, sCvi, age: ages.length ? mean(ages) : null,
+        sDvi: d.starters, sCvi: c.starters, age: ages.length ? mean(ages) : null,
         rDvi: total(t, p => dvi.players[p]?.dvi) ?? 0,
         rCvi: total(t, p => cvi.players[p]?.cvi) ?? 0,
         ktc: total(t, p => vals?.players[p]?.ktc),
@@ -262,13 +248,6 @@ function RosterBoard() {
     () => rows ? applySort(rows, sortCol(BOARD_COLS, sortId, "dvi"), dir) : null,
     [rows, sortId, dir]);
 
-  const onSort = (c: Col<BoardRow, Record<string, never>>) => {
-    if (c.id === "rk") { setSortId("dvi"); setDir(-1); return; }
-    if (!c.sort) return;
-    if (sortId === c.id) setDir(-dir);
-    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
-  };
-
   if (!sorted) return <div className="empty">Loading rosters…</div>;
   return (
     <>
@@ -279,7 +258,7 @@ function RosterBoard() {
           win-now nine can differ · index points, not value
         </span>
       </div>
-      <DataTable cols={BOARD_COLS} groups={groups} rows={sorted} ctx={{}}
+      <DataTable cols={BOARD_COLS} groups={groups} rows={sorted} ctx={NO_CTX}
         label={`Roster value · ${rosterSeason}`}
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
@@ -316,7 +295,10 @@ interface StandRow {
   rid: number; seed: number; team: string; manager: string;
   /** real wins plus the summed win probability of every unplayed week */
   wins: number; fpts: number; rec: string;
-  med: string | null; luck: number | null;
+  /** the median record as a label, and the wins in it — the column shows the
+   *  first and sorts on the second; luck is a different quantity with its own
+   *  column, and sorting Vs median by it ordered the table by neither */
+  med: string | null; medWins: number | null; luck: number | null;
   ppg: number; sdv: number | null; war: number | null; ent: MatchEntry[];
   /** any week in this row's record is a projection, not a result */
   proj: boolean;
@@ -335,25 +317,23 @@ function SeasonStandings({ season }: { season: string }) {
   const data = useSeasonData(season);
   const [weekly, setWeekly] = useState<Weekly | null>(null);
   const [mw, setMw] = useState<Matchups | null>(null);
-  const [odds, setOdds] = useState<WeekOdds | null>(null);
   const [err, setErr] = useState(false);
   const [reload, setReload] = useState(0);
   const [openRid, setOpenRid] = useState<number | null>(null);
-  const [sortId, setSortId] = useState("seed");
-  const [dir, setDir] = useState(1);
+  const { sortId, dir, onSort, reset: resetSort } = useTableSort("seed", 1);
 
+  // the pregame lines: present for every season week_odds.py has run over, and
+  // the ONLY source for a week that hasn't been played yet. A missing file is
+  // not an error — an unplayed week simply has no figure.
+  const odds = useJson<WeekOdds>(`${season}/odds.json`).data;
+
+  // weekly and matchups stay hand-rolled: they settle together (the board reads
+  // both or neither) and carry the retry the empty state offers
   useEffect(() => {
     let live = true;
     setErr(false);
     setOpenRid(null);
-    setSortId("seed");
-    setDir(1);
-    setOdds(null);
-    // the pregame lines: present for every season week_odds.py has run over,
-    // and the ONLY source for a week that hasn't been played yet
-    jl<WeekOdds>(`${season}/odds.json`)
-      .then(o => { if (live) setOdds(o); })
-      .catch(() => { /* no odds file — an unplayed week simply has no figure */ });
+    resetSort();
     Promise.all([
       jl<Weekly>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -419,6 +399,7 @@ function SeasonStandings({ season }: { season: string }) {
         // median record and luck are settled facts about weeks that happened;
         // an unplayed week contributes nothing to either
         med: reg.length ? `${mwin}-${mloss}${mtie ? "-" + mtie : ""}` : null,
+        medWins: reg.length ? mwin : null,
         luck: reg.length ? t.wins - mwin : null,
         ppg: all.length ? mean(all) : (g ? t.fpts / g : 0),
         sdv: pts.length > 1 ? sd(pts) : null,
@@ -447,18 +428,7 @@ function SeasonStandings({ season }: { season: string }) {
       // tab, while a plain click stays an in-app navigation that doesn't also
       // toggle the row's drawer
       cell: r => {
-        const to = lp(`/franchise/${r.rid}`);
-        return (
-          <a className="tlink" href={`#${to}`}
-            onClick={e => {
-              e.stopPropagation();
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              e.preventDefault();
-              nav(to);
-            }}>
-            {r.team}
-          </a>
-        );
+        return <RouteLink to={lp(`/franchise/${r.rid}`)}>{r.team}</RouteLink>;
       },
     },
     {
@@ -477,7 +447,7 @@ function SeasonStandings({ season }: { season: string }) {
     },
     {
       id: "med", label: "Vs median", grp: 1, w: 9, align: "n", hm: true,
-      td: "fig quiet hm n", sort: r => r.luck, cell: r => r.med ?? nul,
+      td: "fig quiet hm n", sort: r => r.medWins, cell: r => r.med ?? nul,
     },
     {
       id: "luck", label: "Luck", grp: 1, w: 7, align: "n", td: "n",
@@ -503,10 +473,10 @@ function SeasonStandings({ season }: { season: string }) {
       // WAR is what the manager actually fielded, so there is nothing to show
       // — and nothing to meter — until a week has been played. On a records
       // line the meter goes too: the bare figure is the value.
-      cell: (r, x) => r.war == null ? nul : x.records ? <>{fmt(r.war, 3)}</> : (
+      cell: (r, x) => r.war == null ? nul : x.records ? <>{fmtWar(r.war)}</> : (
         <div className="meter-row">
           <div className="meter"><i style={{ width: meterWidth(Math.max(0, r.war), x.warMax) }} /></div>
-          <span className="fig">{fmt(r.war, 3)}</span>
+          <span className="fig">{fmtWar(r.war)}</span>
         </div>
       ),
     },
@@ -521,15 +491,11 @@ function SeasonStandings({ season }: { season: string }) {
   ];
 
   const mobile = useMobile();
-  const ctx: StandCtx = { warMax: Math.max(0.01, ...rows.map(r => r.war ?? 0)), records: mobile };
+  const ctx = useMemo<StandCtx>(
+    () => ({ warMax: Math.max(0.01, ...rows.map(r => r.war ?? 0)), records: mobile }),
+    [rows, mobile]);
   const sorted = useMemo(
     () => applySort(rows, sortCol(cols, sortId, "seed"), dir), [rows, cols, sortId, dir]);
-
-  const onSort = (c: Col<StandRow, StandCtx>) => {
-    if (!c.sort) return;
-    if (sortId === c.id) setDir(-dir);
-    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
-  };
 
   if (err) return (
     <div className="empty">Couldn't load team data.{" "}
@@ -594,7 +560,7 @@ function TeamDrawer({ r, tnames, ps }: { r: StandRow; tnames: Record<number, str
         <span className="drawer-title">{r.team}</span>
         <span className="drawer-sub">
           {r.manager} · {r.rec}{r.proj ? " projected" : ""} · {fmt(r.ppg, 1)} ppg
-          {r.war != null && <> · lineup WAR {fmt(r.war, 3)}</>}
+          {r.war != null && <> · lineup WAR {fmtWar(r.war)}</>}
         </span>
       </div>
       <div className="week-grid">
@@ -687,15 +653,8 @@ const HIST_GROUPS: Grp[] = [
 function HistoryBoard() {
   const nav = useNavigate();
   const lp = useLeaguePath();
-  const [fr, setFr] = useState<Franchises | null>(null);
-  const [sortId, setSortId] = useState("winPct");
-  const [dir, setDir] = useState(-1);
-
-  useEffect(() => {
-    let live = true;
-    jl<Franchises>("franchises.json").then(f => { if (live) setFr(f); }).catch(() => {});
-    return () => { live = false; };
-  }, []);
+  const { sortId, dir, onSort } = useTableSort("winPct");
+  const fr = useJson<Franchises>("franchises.json").data;
 
   const rows = useMemo<HistRow[] | null>(() => {
     if (!fr) return null;
@@ -724,13 +683,6 @@ function HistoryBoard() {
     () => rows ? applySort(rows, sortCol(HIST_COLS, sortId, "winPct"), dir) : null,
     [rows, sortId, dir]);
 
-  const onSort = (c: Col<HistRow, Record<string, never>>) => {
-    if (c.id === "rk") { setSortId("winPct"); setDir(-1); return; }
-    if (!c.sort) return;
-    if (sortId === c.id) setDir(-dir);
-    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
-  };
-
   if (!sorted) return <div className="empty">Loading history…</div>;
   return (
     <>
@@ -738,7 +690,7 @@ function HistoryBoard() {
         <span className="band-label">All-time · every season played</span>
         <span className="band-note">Win % counts a tie as half a win · a row opens the franchise page</span>
       </div>
-      <DataTable cols={HIST_COLS} groups={HIST_GROUPS} rows={sorted} ctx={{}}
+      <DataTable cols={HIST_COLS} groups={HIST_GROUPS} rows={sorted} ctx={NO_CTX}
         label="All-time franchise records · every season played"
         rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
         homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}

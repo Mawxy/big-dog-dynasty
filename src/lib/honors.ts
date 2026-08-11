@@ -1,5 +1,6 @@
 import type { Franchises, Matchups, SummaryRow, Team, Weekly } from "./types";
 import { jl } from "./data";
+import { REG_WEEKS } from "./league";
 
 /**
  * Career honor marks — the five things a player season can earn.
@@ -347,7 +348,7 @@ export function yearSpan(years: string[]): string {
  * that season's weekly.json — so the fetch happens only for the seasons that
  * actually split. About one player-season in six, and for most players none.
  *
- * Weeks are capped at 14 so a split always sums back to the season's own WAR;
+ * Weeks are capped at the regular season so a split always sums back to the season's own WAR;
  * summary WAR is regular season, while the ownership spans run through the
  * playoffs.
  */
@@ -386,7 +387,8 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
    */
   const primary = (r: CareerSeason) => {
     // Only owners who actually accumulated something are eligible. Production
-    // is capped at week 14, so a manager who traded for him in the playoffs has
+    // is capped at the regular season, so a manager who traded for him in the
+    // playoffs has
     // a span but no weeks and never entered the accumulator — and picking him
     // here would silently drop that season's finish and its championship mark,
     // which is exactly the season a title is most likely to be sitting in.
@@ -414,7 +416,7 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
       continue;
     }
     for (const o of r.owners) {
-      const mine = wk.filter(x => x[0] <= 14 && x[0] >= o.from && x[0] <= o.to);
+      const mine = wk.filter(x => x[0] <= REG_WEEKS && x[0] >= o.from && x[0] <= o.to);
       if (!mine.length) continue;
       bump(o, r.season, mine.length,
         mine.reduce((s, x) => s + x[1], 0),

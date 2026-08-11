@@ -361,9 +361,14 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
    family so the columns read as one family of measurements, stepped down in
    size and brightness so the eye lands on the derived index first. */
 .head-fig.src { font-size: 19px; font-weight: 600; color: var(--txt2); }
-.good { color: var(--good); }
-.bad { color: var(--bad); }
-.flat { color: var(--dim); }
+/* .good/.bad live once, with the .num compounds, in the shared-helpers block
+   further down. They were declared identically here too; clsOf only ever emits
+   them alongside .num, so the compound always governed and this pair was dead
+   weight. .flat was a third value-color helper from the same era — nothing has
+   emitted it as a value class since clsOf moved to num/num good/num bad, but it
+   still matched every `records flat` container and dim-tinted whatever inside
+   had not declared its own color. That was one element; see .rec-side
+   .side-team, which now states the color it always rendered. */
 
 /* position badge — fixed footprint so RB1 and QB12 occupy the same box */
 .pos {
@@ -412,14 +417,11 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   flex: 0 0 auto;
 }
 .meter .fill { background: var(--acc); height: 100%; }
-.meter .track.war  { width: 66px; height: 9px; }
-.meter .track.team { width: 72px; height: 9px; }
-.meter .track.week { width: 56px; height: 8px; }
-.meter .track.cons { width: 48px; height: 5px; }
-.meter .track.cons .fill { background: #4e5d6c; }
+/* .grow is the only surviving track: fixed-width .war/.team/.week/.cons variants
+   went with the screens that used them. The figure beside a meter is a SIBLING
+   of .meter inside .meter-row, never a descendant, so the .val pair that lived
+   here matched nothing — .meter-row .fig is what styles it. */
 .meter .track.grow { flex: 1; height: 10px; }   /* DVI */
-.meter .val { min-width: 54px; text-align: right; }
-.meter .val.sm { min-width: 32px; font: 400 12.5px/1.4 var(--sans); color: var(--dim); }
 
 /* ---------- detail drawer ----------------------------------------------
    Rendered AFTER the table, never as an inserted <tr> — an extra row in a
@@ -491,26 +493,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   max-width: 118px;
 }
 
-/* position columns (Weekly drawer) */
-.pos-cols { display: flex; gap: 14px; flex-wrap: wrap; }
-.pos-col { flex: 1; min-width: 250px; background: var(--bg); border-top: 3px solid; }
-.pos-col > .hd {
-  font: 700 15px/1 var(--cond);
-  letter-spacing: .16em;
-  text-transform: uppercase;
-  padding: 7px 12px 6px;
-  background: var(--deep);
-}
-.pos-col .row {
-  display: flex; align-items: baseline; gap: 9px;
-  padding: 7px 12px;
-  border-bottom: 1px solid var(--hair);
-}
-.pos-col .row .n { font: 400 15px/1 var(--cond); color: var(--dim3); width: 14px; }
-.pos-col .row .nm { font: 600 13.5px/1.4 var(--sans); flex: 1; overflow: hidden; text-overflow: ellipsis; }
-.pos-col .row .pts { font-size: 12px; color: var(--dim); }
-.pos-col .row .war { font: 700 17px/1 var(--cond); color: var(--acc); min-width: 44px; text-align: right; }
-
 /* ---------- draft ------------------------------------------------------- */
 
 .panel {
@@ -543,7 +525,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   color: var(--dim3);
 }
 
-.heat { display: flex; flex-direction: column; gap: 3px; padding: 0 var(--pad) 20px; }
 .heat-row { display: flex; gap: 3px; align-items: stretch; }
 .heat-row .lbl {
   flex: 0 0 58px;
@@ -552,10 +533,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   letter-spacing: .1em;
   color: var(--dim);
 }
-.heat-cell { flex: 1; min-width: 52px; padding: 8px 6px; text-align: center; }
-.heat-cell .slot { font: 400 11px/1 var(--cond); letter-spacing: .1em; }
-.heat-cell .val  { font: 700 17px/1.2 var(--cond); }
-
 .pick-tables { display: flex; gap: 20px; padding: 6px var(--pad) 24px; flex-wrap: wrap; align-items: flex-start; }
 .pick-tables > div { flex: 1; min-width: 420px; }
 .pick-title {
@@ -589,6 +566,11 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   font: 700 15px/1 var(--cond);
   letter-spacing: .12em;
   color: var(--dim3);
+}
+/* the trade's date — was the same inline style pasted into two screens */
+.trade-when {
+  font: 400 12px/1 var(--sans);
+  color: var(--dim);
 }
 .trade-verdict {
   font: 600 15px/1 var(--cond);
@@ -675,10 +657,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 
 /* ---------- responsive -------------------------------------------------- */
 
-@media (max-width: 900px) {
-  .scroll-x { overflow-x: auto; -webkit-overflow-scrolling: touch; }
-}
-
 @media (max-width: 640px) {
   :root { --pad: 14px; }
   .hm { display: none; }                 /* same escape hatch as v1 */
@@ -735,7 +713,7 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 .heat-head { display: flex; gap: 2px; margin-bottom: 3px; }
 .heat-head .pad { flex: 0 0 58px; width: 58px; }
 .heat-head span {
-  flex: 1; min-width: 48px; text-align: center;
+  flex: 1; min-width: 54px; text-align: center;
   font: 400 12px/1 var(--cond); letter-spacing: .14em; color: var(--dim3);
 }
 .heat2 { display: flex; flex-direction: column; gap: 2px; padding: 0 var(--pad) 0; }
@@ -745,7 +723,10 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   font: 700 15px/1 var(--cond); letter-spacing: .1em; color: var(--dim);
 }
 .heat2 .cell {
-  flex: 1; min-width: 48px; height: 38px;
+  /* 54px, not 48: the cell must hold a three-place signed WAR figure
+     ("+0.730") at 18px condensed. The board scrolls sideways, so a wider
+     minimum costs scroll, not legibility. */
+  flex: 1; min-width: 54px; height: 38px;
   display: flex; align-items: center; justify-content: center;
   font: 700 18px/1 var(--cond); font-variant-numeric: tabular-nums;
   /* Ink is set per cell from that cell's own luminance (see Draft.tsx):
@@ -760,12 +741,9 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   font-variant-numeric: tabular-nums;
 }
 .heat-note { display: flex; gap: 16px; padding: 9px var(--pad) 0; font: 400 11.5px/1.5 var(--sans); color: var(--dim3); }
-.heat-note .end { margin-left: auto; white-space: nowrap; color: var(--dim); }
 
 /* ---- draft: the two collapsible round tables ---------------------------- */
 .dwrap { padding: 6px var(--pad) 22px; }
-.dhead { display: flex; align-items: baseline; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
-.dhead .note { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
 /* caption under the table — sits after the figure, out of the gap between the
    title and the first row. Matches .heat-note, the caption under the heat map. */
 .tnote { margin-top: 9px; font: 400 11.5px/1.5 var(--sans); color: var(--dim3); }
@@ -795,28 +773,27 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 .dtbl tr.lvl2 td.lbl { padding-left: 46px; font-weight: 600; font-size: 15px; letter-spacing: .06em; color: #8b96a5; }
 /* leaf caret is a spacer, so every label at a depth starts on the same x */
 .dtbl tr.lvl2 td.lbl .caret { color: transparent; }
-/* One visual treatment, three behaviors — split so the job is readable at the
+/* One visual treatment, two behaviors — split so the job is readable at the
    call site and the semantics can differ: .dlink navigates to another route,
-   .dexpand expands content in place (a <button aria-expanded>), .dmore toggles
-   row count. Zero radius like everything else on the board. */
-.dlink, .dexpand, .dmore {
+   .dexpand expands content in place (a <button aria-expanded>). A third,
+   .dmore, toggled row count; it went with the screens that used it.
+   Zero radius like everything else on the board. */
+.dlink, .dexpand {
   display: inline-block;
   margin-left: auto; padding: 4px 11px; background: transparent;
   border: 1px solid var(--rule); cursor: pointer;
   font: 600 11px/1 var(--sans); letter-spacing: .1em; text-transform: uppercase;
   color: var(--dim2); text-decoration: none;
 }
-.dlink:hover, .dexpand:hover, .dmore:hover {
+.dlink:hover, .dexpand:hover {
   border-color: var(--dim2); color: var(--txt2); text-decoration: none;
 }
-.dtbl td.slot { padding-left: 34px; font: 600 16px/1.3 var(--cond); letter-spacing: .06em; }
 .dtbl td .v { font: 700 16px/1.3 var(--cond); font-variant-numeric: tabular-nums; }
 .dtbl td.med { border-left: 1px solid var(--rule); padding-right: 14px; }
 .dtbl td.med .v { font-size: 18px; }
 /* Hit % is a share, not a signed WAR figure — neutral so it can't be mistaken
    for one of the green/red value columns beside it */
 .dtbl td .v.hit { color: var(--txt2); }
-.dtbl td.slot .who { padding-top: 2px; letter-spacing: 0; }
 .dtbl td .who {
   font: 400 11.5px/1.4 var(--sans); color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -909,7 +886,9 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
 .pick-tables thead th.key { color: var(--dim2); font-weight: 600; }
 
 @media (max-width: 640px) {
-  .heat2 .cell, .heat-head span { min-width: 40px; }
+  /* same figure, one step of size down — the cell still holds "+0.730" whole */
+  .heat2 .cell, .heat-head span { min-width: 46px; }
+  .heat2 .cell { font-size: 15px; }
 }
 
 /* ==========================================================================
@@ -920,12 +899,8 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
    tabular numerals, zero radius.
    ========================================================================== */
 
-/* ---- page title: the 34px identity line of a detail screen --------------- */
-.page-title { font: 700 34px/1.05 var(--cond); letter-spacing: .02em; text-transform: uppercase; }
-
 /* ---- board: the bordered container a screen lives in --------------------- */
 .board { background: var(--bg); border: 1px solid var(--rule); margin: 16px var(--pad) 26px; }
-.board > .bpad { padding: 14px 22px 18px; }
 
 /* ---- section band: full-bleed strip, label left, note right -------------- */
 .band {
@@ -1355,13 +1330,6 @@ tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
   font: 700 15px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
 }
 .basket-head .n { font: 400 11.5px/1.4 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim); }
-.basket-add {
-  display: block; width: calc(100% - 28px); margin: 10px 14px 14px; padding: 8px 12px;
-  background: transparent; border: 1px solid var(--rule); cursor: pointer; text-align: left;
-  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
-}
-.basket-add:hover { border-color: var(--dim2); color: var(--txt2); }
-
 /* verdict band under the baskets */
 .verdict-band { background: var(--deep); border-top: 3px solid var(--acc); margin: 18px var(--pad) 0; padding: 14px 18px 16px; }
 .verdict-band .figs { display: flex; flex-wrap: wrap; gap: 8px 40px; }
@@ -1545,19 +1513,6 @@ table.feed td.who .line { align-items: center; }
 /* ---- matchup detail ----------------------------------------------------- */
 /* the score blocks are .h2h, shared with the week grid — see above */
 .mlineups { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin: 0 var(--pad); }
-
-/* ---- weekly: per-team MVP line ----------------------------------------- */
-.mvp {
-  display: flex; align-items: center; gap: 6px; margin-top: 3px;
-  font: 400 11.5px/1.4 var(--sans); color: var(--dim); white-space: nowrap;
-}
-.mvp .who { color: var(--txt2); }
-.mvp .fig { font-variant-numeric: tabular-nums; }
-.mvp .war { font-variant-numeric: tabular-nums; color: var(--dim2); }
-.mvp .star { color: var(--acc); font-size: 12px; }
-/* the league's best starter that week reads brighter than the rest */
-.mvp.top .who { color: var(--acc); font-weight: 600; }
-.mvp .pos.sm { font-size: 9px; padding: 1px 4px; }
 
 /* ==========================================================================
    Pinned identity block + scroll affordance on a board that overflows its box.
@@ -1744,7 +1699,7 @@ table.feed td.who .line { align-items: center; }
      and the reader lands on a board they then have to pinch back out of */
   input[type="search"] { padding: 11px 11px; font-size: 16px; }
   .tabs button { padding: 14px 18px 13px; }
-  .dlink, .dexpand, .dmore { padding: 11px 14px; }
+  .dlink, .dexpand { padding: 11px 14px; }
   /* a row that opens a drawer is itself the control */
   tbody tr.click td { padding-top: 11px; padding-bottom: 11px; }
 
@@ -1842,8 +1797,12 @@ table.feed td.who .line { align-items: center; }
   /* a trade side: the same 2px left rule the ledger's trade blocks use — a
      border box here would be a card inside a card */
   .rec-side { margin-top: 6px; padding-left: 10px; border-left: 2px solid var(--rule); }
+  /* the franchise name is a label, not a figure, so it takes the label step.
+     It used to arrive here by inheritance from a `.flat { color: var(--dim) }`
+     helper that matched the container by accident; same ink, now declared. */
   .rec-side .side-team {
     font: 600 12px/1.45 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--dim);
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .rec-side .side-got { font: 400 12px/1.45 var(--sans); color: var(--txt2); }
@@ -1941,7 +1900,6 @@ table.feed td.who .line { align-items: center; }
      BOARD CHROME (MOBILE.md M3). Board padding 22px -> 14px, one change for
      the whole system; the figure strip regrids 2-up; section bands stack.
      ------------------------------------------------------------------------ */
-  .board > .bpad { padding: 12px 14px 16px; }
   .band { padding: 7px 14px; }
   .verdict { margin: 14px; }
   .verdict-band { padding: 12px 14px 14px; }

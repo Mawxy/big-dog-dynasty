@@ -12,12 +12,37 @@ export const POS_COLOR: Record<string, string> = {
 /** the position-filter chip row every leaderboard shares */
 export const POS_CHIPS = ["ALL", "QB", "RB", "WR", "TE"];
 
+/**
+ * League shape — the seam a second league would have to cut.
+ *
+ * Nothing derives these yet: `meta` carries the lineup, the seasons and the
+ * taxi size, but neither the regular-season length nor the team count. They
+ * were a `14` and a `12` written into eleven files; here they are at least
+ * named, in one place, and greppable the day meta grows the fields.
+ *
+ * Where a screen already holds a season's matchups.json, derive from its
+ * `playoff_start` instead — that is data, and this is an assumption.
+ */
+/** regular-season weeks. Equivalent to `playoff_start - 1` where that is known */
+export const REG_WEEKS = 14;
+/** franchises in the league; also how wide a draft round is */
+export const LEAGUE_TEAMS = 12;
+
 /** Whose rosters to read for "who owns this player". Current rosters unless a
  *  past season is being viewed — never `latest`, which lags a full year behind
  *  through the offseason. Takes the league registry entry. */
 export const rosterSeasonOf = (l: { seasons: string[]; rosterSeason?: string }) =>
   l.rosterSeason && l.seasons.includes(l.rosterSeason)
     ? l.rosterSeason
+    : l.seasons[l.seasons.length - 1];
+
+/** Newest season that actually has data — what every stats view defaults to.
+ *  `latest` is only trusted when the season list agrees it exists; otherwise
+ *  the newest listed season stands in. The counterpart to rosterSeasonOf:
+ *  `latest` for what happened, `rosterSeason` for who owns whom. */
+export const latestSeasonOf = (l: { seasons: string[]; latest?: string }) =>
+  l.latest && l.seasons.includes(l.latest)
+    ? l.latest
     : l.seasons[l.seasons.length - 1];
 
 export function ownerOf(teams: Team[]): Record<string, string> {
@@ -51,26 +76,10 @@ const NON_STARTING = new Set(["BN", "IR", "TAXI"]);
 /** used until meta.rosterPositions exists (site data predating that field) */
 export const DEFAULT_LINEUP = ["QB", "RB", "RB", "WR", "WR", "WR", "TE", "FLEX", "SUPER_FLEX"];
 
-/**
- * Positional finish: rank within each position by `val`, descending.
- * Returns id -> rank, so 1 is the best at that position (RB1, WR3, ...).
- */
-export function posRanks<T>(
-  rows: T[], idOf: (r: T) => string, posOf: (r: T) => string, valOf: (r: T) => number,
-): Map<string, number> {
-  const byPos = new Map<string, T[]>();
-  for (const r of rows) {
-    const p = posOf(r);
-    const arr = byPos.get(p);
-    if (arr) arr.push(r); else byPos.set(p, [r]);
-  }
-  const out = new Map<string, number>();
-  for (const arr of byPos.values()) {
-    arr.sort((a, b) => valOf(b) - valOf(a));
-    arr.forEach((r, i) => out.set(idOf(r), i + 1));
-  }
-  return out;
-}
+/** The league's starting-lineup shape, with the fallback for site data written
+ *  before meta carried it. Six call sites wrote this ternary out. */
+export const lineupOf = (m: { rosterPositions?: string[] }) =>
+  m.rosterPositions?.length ? m.rosterPositions : DEFAULT_LINEUP;
 
 /** Sleeper-style short labels for lineup slots */
 export const SLOT_LABEL: Record<string, string> = {
@@ -112,3 +121,42 @@ export function optimalLineup<T extends { id: string; pos: string; war: number }
   }
   return { slots, starters };
 }
+
+/** a lineup pool entry: whatever the currency, optimalLineup only wants this */
+export interface Priced { id: string; pos: string; war: number }
+
+/**
+ * A team's best legal lineup priced in one index, with both totals.
+ *
+ * Three screens wrote this out — the League dashboard, the Franchises board
+ * and the franchise page — each building the same pool from a dvi/cvi file,
+ * running the same optimizer and summing the same slots. `starters` answers
+ * quality, `roster` answers depth, and a player the index does not cover is
+ * absent from both rather than counted as zero.
+ *
+ * The index's own `pos` is used, not the roster's: it is the position the
+ * figure was computed for, so a pool built from it can't seat a player in a
+ * slot his price was never measured in.
+ */
+export function pricedLineup<V extends { pos: string }>(
+  team: Team, index: Record<string, V>, valueOf: (pid: string, row: V) => number,
+  lineup?: string[],
+): { pool: Priced[]; slots: LineupSlot<Priced>[]; starters: number; roster: number } {
+  const pool: Priced[] = [];
+  for (const pid of team.players) {
+    const row = index[pid];
+    if (row) pool.push({ id: pid, pos: row.pos, war: valueOf(pid, row) });
+  }
+  const { slots } = optimalLineup(pool, lineup);
+  return {
+    pool, slots,
+    starters: slots.reduce((a, s) => a + (s.player?.war ?? 0), 0),
+    roster: pool.reduce((a, p) => a + p.war, 0),
+  };
+}
+
+/** just the starters figure — the best legal lineup, summed in one currency */
+export const starterTotal = <V extends { pos: string }>(
+  team: Team, index: Record<string, V>, valueOf: (pid: string, row: V) => number,
+  lineup?: string[],
+) => pricedLineup(team, index, valueOf, lineup).starters;

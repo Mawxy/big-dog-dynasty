@@ -53,6 +53,38 @@ jobs:
       - run: npm run build
       - name: Bundle league data into the site
         run: cp -r data dist/data
+      # `cp -r data` is a blunt copy of a 16.4 MB tracked directory, but ~12.8 MB
+      # of it is crawler/research corpora with zero readers in src/ — they are
+      # inputs to the Python pipeline, not to the site. Publishing them costs
+      # every visitor nothing (nothing fetches them) and the Pages artifact
+      # everything, so strip them from dist/data AFTER the copy. The tree in
+      # data/ is untouched; only what ships changes.
+      #
+      # This list is the paths-ignore block at the top of this file, same
+      # rationale: a file the site never fetches should neither trigger a
+      # deploy nor ride along in one. KEEP THE TWO IN LOCKSTEP — if you add a
+      # corpus to one, add it to the other.
+      #
+      # It is currently a strict SUBSET of paths-ignore: trade_corpus*.json and
+      # outcome_corpus*.json are ignored for deploy triggering but still ship,
+      # pending their own read-audit. trade_corpus.json alone is ~4.9 MB, so
+      # closing that gap is most of the remaining win.
+      #
+      # Do NOT add to this list anything the site actually reads:
+      #   leagues.json, benchmarks.json, values.json, and per-league
+      #   projections.json / projections_knn_hybrid.json / pick_values.json /
+      #   proj_sleeper.json, plus the player/ shards.
+      - name: Strip pipeline-only corpora from the published artifact
+        run: |
+          cd dist/data
+          rm -f draft_index.json \
+                rookie_pick_corpus.json \
+                crawl_leagues.json \
+                draft_signals.json \
+                league_signals.json \
+                values_history.json \
+                outcome_signals_*.json
+          rm -f leagues/*/projections_check.json
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

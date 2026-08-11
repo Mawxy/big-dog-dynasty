@@ -1,26 +1,50 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   CviFile, DviFile, Franchises, Matchups, ProjectionsFile, Team,
   Trade, TradesPayload, Values,
 } from "../lib/types";
-import { jDaily, jl, jlDaily } from "../lib/data";
-import { fmt, sgn, mean, normCdf, normInv } from "../lib/stats";
-import { DEFAULT_LINEUP, optimalLineup, pInfo } from "../lib/league";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, sgn, mean, normCdf, normInv } from "../lib/stats";
+import { LEAGUE_TEAMS, lineupOf, optimalLineup, pInfo, REG_WEEKS, rosterSeasonOf, starterTotal } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades, tradeWhen } from "../lib/trades";
 import { useMobile } from "../lib/useWidth";
 import { PlayerLink } from "../components/PlayerLink";
 import PosBadge from "../components/PosBadge";
-import TScroll from "../components/TScroll";
+import { RouteLink } from "../components/RouteLink";
+import DataTable, { type Col, type Grp } from "../components/DataTable";
 
 const MODULE_ROWS = 5;
-const REG_WEEKS = 14;
 
 /** pad a module list to a fixed row count so paired modules measure equal */
 function padTo<T>(a: T[], n: number): (T | null)[] {
   return [...a.slice(0, n), ...Array(Math.max(0, n - a.length)).fill(null)];
 }
+
+/** One power-rankings row: the two starter index totals joined to the projected
+ *  record and the starter age, so the board hands DataTable one array rather
+ *  than reading a second map inside a cell. */
+interface PowerRow {
+  rid: number; name: string; manager: string;
+  sDvi: number; sCvi: number;
+  lastRec: string; lastFin: number | null;
+  /** projected record for the roster season; "—" until a schedule prices it */
+  rec: string;
+  /** WAR-weighted average age of the optimal starters */
+  age: number | null;
+}
+
+/** the power table needs no per-render context; a shared constant rather than a
+ *  `{}` literal, which would be a new object on every render and defeat
+ *  DataTable's row memoization */
+const NO_CTX: Record<string, never> = {};
+/** The board is the front page's summary read, ranked by starters DVI, and no
+ *  column declares a `sort` accessor — so no header is a control and the rank
+ *  spine keeps the one order the band above it claims. Re-ranking lives on
+ *  Teams, which is the breakdown board. DataTable still takes the three sort
+ *  props, so they are handed in inert. */
+const NO_SORT = () => {};
 
 /**
  * League front page (2B): champion + title race hero, power rankings by
@@ -35,34 +59,22 @@ export default function Home() {
   // MOBILE.md M5 — the League page's lists render as records at ≤640px; the
   // hero blocks stack and the equal-height pairing rules stop applying
   const mobile = useMobile();
-  const [fr, setFr] = useState<Franchises | null>(null);
-  const [proj, setProj] = useState<ProjectionsFile | null>(null);
-  const [teams, setTeams] = useState<Team[] | null>(null);
-  const [mw, setMw] = useState<Matchups | null>(null);
-  const [dvi, setDvi] = useState<DviFile | null>(null);
-  const [cvi, setCvi] = useState<CviFile | null>(null);
-  const [trades, setTrades] = useState<Trade[]>([]);
-  const [vals, setVals] = useState<Values | null>(null);
 
-  const rosterSeason = league.rosterSeason && league.seasons.includes(league.rosterSeason)
-    ? league.rosterSeason : league.seasons[league.seasons.length - 1];
+  const rosterSeason = rosterSeasonOf(league);
 
-  useEffect(() => {
-    let live = true;
-    const set = <T,>(f: (v: T) => void) => (v: T) => { if (live) f(v); };
-    jl<Franchises>("franchises.json").then(set(setFr)).catch(() => {});
-    jl<ProjectionsFile>("projections.json").then(set(setProj)).catch(() => {});
-    jl<Team[]>(`${rosterSeason}/teams.json`).then(set(setTeams)).catch(() => {});
-    jl<Matchups>(`${rosterSeason}/matchups.json`).then(set(setMw)).catch(() => {});
-    jlDaily<DviFile>("dvi.json").then(set(setDvi)).catch(() => {});
-    jlDaily<CviFile>("cvi.json").then(set(setCvi)).catch(() => {});
-    jl<TradesPayload>("trades.json")
-      .then(p => { if (live) setTrades(readTrades(p).trades); }).catch(() => {});
-    jDaily<Values>("data/values.json").then(set(setVals)).catch(() => {});
-    return () => { live = false; };
-  }, [league, rosterSeason]);
+  const fr = useJson<Franchises>("franchises.json").data;
+  const proj = useJson<ProjectionsFile>("projections.json").data;
+  const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
+  const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
+  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
+  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
+  // the market prices a format, not a league
+  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const tradesFile = useJson<TradesPayload>("trades.json").data;
+  const trades = useMemo<Trade[]>(
+    () => (tradesFile ? readTrades(tradesFile).trades : []), [tradesFile]);
 
-  const lineup = meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP;
+  const lineup = lineupOf(meta);
 
   /** the reigning champion's full season row */
   const champ = useMemo(() => {
@@ -119,12 +131,6 @@ export default function Home() {
   /** starters totals per franchise in each index currency */
   const indexRows = useMemo(() => {
     if (!teams || !dvi || !cvi || !fr) return null;
-    const price = (t: Team, idx: Record<string, { pos: string }>, of: (pid: string) => number) => {
-      const pool = t.players.filter(p => idx[p])
-        .map(p => ({ id: p, pos: idx[p].pos, war: of(p) }));
-      return optimalLineup(pool, lineup).slots
-        .reduce((a, sl) => a + (sl.player?.war ?? 0), 0);
-    };
     return teams.map(t => {
       const f = fr[String(t.roster_id)];
       const cur = f?.seasons[f.seasons.length - 1];
@@ -132,8 +138,8 @@ export default function Home() {
       return {
         rid: t.roster_id,
         name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
-        sDvi: price(t, dvi.players, p => dvi.players[p].dvi),
-        sCvi: price(t, cvi.players, p => cvi.players[p].cvi),
+        sDvi: starterTotal(t, dvi.players, (_p, r) => r.dvi, lineup),
+        sCvi: starterTotal(t, cvi.players, (_p, r) => r.cvi, lineup),
         lastRec: lastSn ? `${lastSn.wins}-${lastSn.losses}${lastSn.ties ? `-${lastSn.ties}` : ""}` : "—",
         lastFin: lastSn?.finish ?? null,
       };
@@ -144,6 +150,17 @@ export default function Home() {
     if (!indexRows) return null;
     return indexRows.slice().sort((a, b) => b.sCvi - a.sCvi).slice(0, 4);
   }, [indexRows]);
+
+  /** the power table's rows: the index totals with the projected record and
+   *  starter age joined on. The projection is optional — it needs the schedule
+   *  and the projections file, and the board still ranks without them. */
+  const powerRows = useMemo<PowerRow[] | null>(() => {
+    if (!indexRows) return null;
+    return indexRows.map(r => {
+      const p = power?.get(r.rid);
+      return { ...r, rec: p?.rec ?? "—", age: p?.age ?? null };
+    });
+  }, [indexRows, power]);
 
   /** rostered owner per pid, for movers and value plays */
   const ownerOfPid = useMemo(() => {
@@ -195,15 +212,30 @@ export default function Home() {
     }).sort((a, b) => b.ts - a.ts).slice(0, MODULE_ROWS);
   }, [fr]);
 
-  /** newest trades, deduplicated on timestamp — one record per trade */
+  /**
+   * Newest trades, one record per trade.
+   *
+   * The dedupe key is NOT the bare timestamp: `ts` is a Sleeper transaction
+   * time and two trades processed in the same batch carry the same one — the
+   * fact views/Ledger.tsx already keys around. Deduping on it silently dropped
+   * the second real trade out of the feed. The participating rosters are what
+   * tell two same-second trades apart, so they join the key, which then doubles
+   * as the React key the rows need.
+   */
   const recentTrades = useMemo(() => {
-    const seen = new Set<number>();
-    return trades.slice().sort((a, b) => b.ts - a.ts)
-      .filter(t => !seen.has(t.ts) && !!seen.add(t.ts))
-      .slice(0, MODULE_ROWS);
+    const seen = new Set<string>();
+    const out: (Trade & { key: string })[] = [];
+    for (const t of trades.slice().sort((a, b) => b.ts - a.ts)) {
+      const key = `${t.ts}:${t.sides.map(s => s.rid).slice().sort((a, b) => a - b).join("-")}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push({ ...t, key });
+      if (out.length === MODULE_ROWS) break;
+    }
+    return out;
   }, [trades]);
 
-  const nTeams = teams?.length ?? 12;
+  const nTeams = teams?.length ?? LEAGUE_TEAMS;
   const sf = meta.rosterPositions?.includes("SUPER_FLEX") ? "superflex" : "1QB";
   const phase = league.latest === rosterSeason ? "in season" : "offseason";
   const pricedAt = dvi?.generated?.slice(0, 10) ?? meta.updated;
@@ -213,9 +245,103 @@ export default function Home() {
     const top = s.top ? pInfo(players, s.top.pid)[0] : null;
     return `${s.name} took the ${s.season} title at ${s.wins}-${s.losses}`
       + `${s.ties ? `-${s.ties}` : ""}, scoring ${fmt(s.ppg, 1)} points a week on a lineup `
-      + `worth ${fmt(s.war, 2)} WAR against the optimal pool`
-      + (top && s.top ? `. ${top} carried the biggest share at ${fmt(s.top.war, 2)} WAR.` : ".");
+      + `worth ${fmtWar(s.war)} WAR against the optimal pool`
+      + (top && s.top ? `. ${top} carried the biggest share at ${fmtWar(s.top.war)} WAR.` : ".");
   })() : null;
+
+  /** last played season's column header, and its key on a records line */
+  const lastKey = league.latest ?? "Last";
+
+  /**
+   * The power rankings as one registry.
+   *
+   * The roles are what the phone rendering used to be a hand-rolled copy of:
+   * the rank is the spine, the franchise the identity with its manager as the
+   * sub-line, starters DVI the headline figure (it is the order the board is
+   * in), and CVI, last season's record and the projected one the three micros.
+   * Starter age has no role and drops off the record — it is on Teams.
+   *
+   * Both index figures are bare: they are clamped 0–100 scores, and this board
+   * is ordered by one of them, so nothing here is metered (SKILL §3).
+   */
+  const powerCols = useMemo<Col<PowerRow, Record<string, never>>[]>(() => [
+    {
+      id: "rk", label: "Rk", grp: 0, w: 5, align: "c", td: "spine-cell", role: "spine",
+      cell: (_r, _x, i) => <>
+        <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
+        <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
+      </>,
+    },
+    {
+      // the row navigates on click, but a click is not the only way in: the
+      // franchise name is a real anchor, like the standings board's team cell,
+      // so a keyboard and a new tab both reach the same page
+      id: "team", label: "Franchise", grp: 0, w: 23, align: "t", td: "t name",
+      role: "identity",
+      cell: r => (
+        <RouteLink to={lp(`/franchise/${r.rid}`)} className="blocklink">{r.name}</RouteLink>
+      ),
+    },
+    {
+      // NOT flagged `hm`: a column that is drops off the record entirely, and
+      // the manager is the identity block's sub-line there. The class stays on
+      // the cell, which is all the desktop table ever used it for — below 640px
+      // this board is records, not a squeezed table.
+      id: "manager", label: "Manager", grp: 0, w: 13, align: "t", td: "t sub hm",
+      role: "sub", cell: r => r.manager,
+    },
+    {
+      id: "dvi", label: "Starters DVI", grp: 1, w: 11, align: "n", edge: true, keyCol: true,
+      td: "n edge", role: "headline", microKey: "DVI",
+      cell: r => <span className="head-fig sm">{fmt(r.sDvi, 0)}</span>,
+    },
+    {
+      id: "cvi", label: "Starters CVI", grp: 1, w: 11, align: "n", td: "n",
+      role: "micro", microKey: "CVI",
+      cell: r => (
+        <span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.sCvi, 0)}</span>
+      ),
+    },
+    {
+      // the champion's record goes gold — a figure, never a pill inside a dense
+      // numeric row. The tint sits on the figure rather than on the cell:
+      // DataTable owns the <td>, and the ink lands in the same place.
+      id: "last", label: lastKey, grp: 2, w: 12, align: "n", edge: true, td: "n fig edge",
+      role: "micro", microKey: lastKey,
+      cell: r => (
+        <span style={r.lastFin === 1 ? { color: "var(--acc)" } : undefined}
+          title={r.lastFin === 1 ? `${league.latest} champion` : undefined}>
+          {r.lastRec}
+        </span>
+      ),
+    },
+    {
+      id: "proj", label: `Proj ${rosterSeason}`, grp: 2, w: 13, align: "n", td: "n fig",
+      role: "micro", microKey: "Proj", cell: r => r.rec,
+    },
+    {
+      id: "age", label: "Starter age", grp: 3, w: 12, align: "n", hm: true, td: "n fig hm",
+      cell: r => (
+        <span style={{
+          color: r.age == null ? "var(--dim3)"
+            : r.age <= 25.5 ? "var(--good)" : r.age >= 27 ? "var(--warn)" : "var(--txt2)",
+        }}>
+          {r.age == null ? "—" : fmt(r.age, 1)}
+        </span>
+      ),
+    },
+  ], [lp, lastKey, league.latest, rosterSeason]);
+
+  /* Starters carries the key figure and takes the accent; the two records are
+     read against it. Starter age keeps a band of its own rather than joining
+     either — it is neither an index nor a record — and an unlabeled one,
+     because giving it a divider would draw a rule the board never had. */
+  const powerGroups: Grp[] = [
+    { id: 0, label: "", cls: "" },
+    { id: 1, label: `Starters · ${rosterSeason}`, cls: "edge value" },
+    { id: 2, label: "Record", cls: "edge" },
+    { id: 3, label: "", cls: "" },
+  ];
 
   const grpRow = (label: string, cols: number) => (
     <tr className="grp">
@@ -251,22 +377,17 @@ export default function Home() {
           {!champ ? <div className="empty">No completed season yet.</div> : <>
             {/* the champion's name opens his franchise — a real anchor, so it
                 is reachable by keyboard and openable in a new tab */}
-            <a className="blocklink" href={`#${lp(`/franchise/${champ.rid}`)}`}
-              style={{ font: `700 ${mobile ? 32 : 40}px/1.05 var(--cond)`, letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)" }}
-              onClick={e => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                e.preventDefault();
-                nav(lp(`/franchise/${champ.rid}`));
-              }}>
+            <RouteLink to={lp(`/franchise/${champ.rid}`)} className="blocklink"
+              style={{ font: `700 ${mobile ? 32 : 40}px/1.05 var(--cond)`, letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)" }}>
               {champ.s.name}
-            </a>
+            </RouteLink>
             <div style={{ font: "400 14px/1.4 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", marginTop: 5 }}>
               {champ.s.manager} · {champ.s.wins}-{champ.s.losses}{champ.s.ties ? `-${champ.s.ties}` : ""} · {fmt(champ.s.ppg, 1)} ppg
             </div>
             <div style={{ display: "flex", marginTop: 14 }}>
               <div className="figcell">
                 <div className="figkey">Lineup WAR</div>
-                <div className="figval">{fmt(champ.s.war, 2)}</div>
+                <div className="figval">{fmtWar(champ.s.war)}</div>
                 <div className="figsub">actual starters, {champ.s.season}</div>
               </div>
               <div className="figcell">
@@ -276,7 +397,7 @@ export default function Home() {
                     ? <PlayerLink pid={champ.s.top.pid} name={pInfo(players, champ.s.top.pid)[0]} />
                     : "—"}
                 </div>
-                <div className="figsub">{champ.s.top ? `${fmt(champ.s.top.war, 2)} WAR` : ""}</div>
+                <div className="figsub">{champ.s.top ? `${fmtWar(champ.s.top.war)} WAR` : ""}</div>
               </div>
             </div>
             {lede && (
@@ -292,12 +413,7 @@ export default function Home() {
           {!titleRace ? <div className="empty">Loading indices…</div> : titleRace.map((r, i) => (
             // the whole row is the link to that franchise, so it is an anchor
             // rather than a div with a click handler no keyboard could reach
-            <a key={r.rid} className="blocklink" href={`#${lp(`/franchise/${r.rid}`)}`}
-              onClick={e => {
-                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                e.preventDefault();
-                nav(lp(`/franchise/${r.rid}`));
-              }}
+            <RouteLink key={r.rid} to={lp(`/franchise/${r.rid}`)} className="blocklink"
               style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "9px 0", borderTop: i ? "1px solid var(--hair)" : "none" }}>
               <span style={{ font: "600 17px/1 var(--cond)", color: "var(--dim)", flex: "0 0 16px" }}>{i + 1}</span>
               <div style={{ minWidth: 0, flex: 1 }}>
@@ -314,7 +430,7 @@ export default function Home() {
                 <div className="head-fig sm">{fmt(r.sCvi, 0)}</div>
                 <div style={{ font: "400 11.5px/1.4 var(--sans)", color: "var(--dim)" }}>starter CVI</div>
               </div>
-            </a>
+            </RouteLink>
           ))}
         </div>
       </div>
@@ -329,106 +445,14 @@ export default function Home() {
             Standings
           </button>
         </div>
-        {!indexRows ? <div className="empty">Loading indices…</div> : mobile ? (
-          /* records mode: headline starters DVI (the rank order), micros CVI,
-             last season's record and the projected one; age is on Teams */
-          <div className="records t3">
-            {indexRows.map((r, i) => {
-              const p = power?.get(r.rid);
-              return (
-                <div key={r.rid} className={`rec click${i % 2 ? " zebra" : ""}`}
-                  tabIndex={0} role="button"
-                  onClick={() => nav(lp(`/franchise/${r.rid}`))}
-                  onKeyDown={e => {
-                    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); nav(lp(`/franchise/${r.rid}`)); }
-                  }}>
-                  <div className="rec-l1">
-                    <span className="rec-rk">
-                      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
-                      <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
-                    </span>
-                    <span className="rec-id">
-                      {r.name}
-                      <span className="rec-sub">{r.manager}</span>
-                    </span>
-                    <span className="rec-fig">{fmt(r.sDvi, 0)}</span>
-                    <span className="rec-key">DVI</span>
-                  </div>
-                  <div className="rec-l2">
-                    <span className="mic"><span className="mk">CVI</span>
-                      <span className="mv">{fmt(r.sCvi, 0)}</span></span>
-                    <span className="mic"><span className="mk">{league.latest ?? "Last"}</span>
-                      <span className="mv" style={r.lastFin === 1 ? { color: "var(--acc)" } : undefined}>{r.lastRec}</span></span>
-                    <span className="mic"><span className="mk">Proj</span>
-                      <span className="mv">{p?.rec ?? "—"}</span></span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ) : (
-          <TScroll>
-          <table style={{ tableLayout: "fixed" }} aria-label="Power rankings by starters DVI">
-            <thead>
-              <tr>
-                <th scope="col" className="c" style={{ width: "5%" }}>Rk</th>
-                <th scope="col" className="t" style={{ width: "23%" }}>Franchise</th>
-                <th scope="col" className="t hm" style={{ width: "13%" }}>Manager</th>
-                <th scope="col" className="n key edge" style={{ width: "11%" }}>Starters DVI</th>
-                <th scope="col" className="n" style={{ width: "11%" }}>Starters CVI</th>
-                <th scope="col" className="n edge" style={{ width: "12%" }}>{league.latest ?? "Last"}</th>
-                <th scope="col" className="n" style={{ width: "13%" }}>Proj {rosterSeason}</th>
-                <th scope="col" className="n hm" style={{ width: "12%" }}>Starter age</th>
-              </tr>
-            </thead>
-            <tbody>
-              {indexRows.map((r, i) => {
-                const p = power?.get(r.rid);
-                const age = p?.age ?? null;
-                return (
-                  <tr key={r.rid} className={`click ${i % 2 ? "zebra" : ""}`}
-                    onClick={() => nav(lp(`/franchise/${r.rid}`))}>
-                    <td className="spine-cell">
-                      <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
-                      <span className={`rank${i < 4 ? " top" : ""}`}>{i + 1}</span>
-                    </td>
-                    {/* the row navigates on click, but a click is not the only
-                        way in: the franchise name is a real anchor, like the
-                        standings board's team cell, so the keyboard reaches
-                        the same page without the row itself becoming a second
-                        tab stop over the top of it */}
-                    <td className="t name">
-                      <a className="blocklink" href={`#${lp(`/franchise/${r.rid}`)}`}
-                        onClick={e => {
-                          e.stopPropagation();
-                          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                          e.preventDefault();
-                          nav(lp(`/franchise/${r.rid}`));
-                        }}>{r.name}</a>
-                    </td>
-                    <td className="t sub hm">{r.manager}</td>
-                    <td className="n edge"><span className="head-fig sm">{fmt(r.sDvi, 0)}</span></td>
-                    <td className="n"><span className="head-fig sm" style={{ color: "var(--txt2)" }}>{fmt(r.sCvi, 0)}</span></td>
-                    {/* the champion's record goes gold — a figure, never a
-                        pill inside a dense numeric row */}
-                    <td className="n fig edge"
-                      style={r.lastFin === 1 ? { color: "var(--acc)" } : undefined}
-                      title={r.lastFin === 1 ? `${league.latest} champion` : undefined}>
-                      {r.lastRec}
-                    </td>
-                    <td className="n fig">{p?.rec ?? "—"}</td>
-                    <td className="n fig hm" style={{
-                      color: age == null ? "var(--dim3)"
-                        : age <= 25.5 ? "var(--good)" : age >= 27 ? "var(--warn)" : "var(--txt2)",
-                    }}>
-                      {age == null ? "—" : fmt(age, 1)}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-          </TScroll>
+        {!powerRows ? <div className="empty">Loading indices…</div> : (
+          /* records at ≤640px (MOBILE.md M5): the same registry, re-read as
+             two-line records rather than a second hand-rolled copy of it */
+          <DataTable cols={powerCols} groups={powerGroups} rows={powerRows} ctx={NO_CTX}
+            label="Power rankings by starters DVI"
+            rowKey={r => String(r.rid)} sortId="" dir={-1} onSort={NO_SORT}
+            onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+            recordsOnMobile recordsClass="t3" />
         )}
       </div>
 
@@ -647,7 +671,7 @@ export default function Home() {
                     </td>
                   </tr>
                 ) : (
-                  <tr key={`ew${i}`} className={`pad-row ${i % 2 ? "zebra" : ""}`}>
+                  <tr key={`ew${i}`} className={i % 2 ? "zebra" : ""}>
                     {[0, 1, 2, 3].map(k => (
                       <td key={k} className={`t fig quiet${k === 3 ? " last" : ""}`}>
                         <div className="two-line">—</div>
@@ -674,7 +698,7 @@ export default function Home() {
                franchise and haul — the left rule marks where each side starts */
             <div className="records flat">
               {recentTrades.map((t, i) => (
-                <div key={t.ts} className={`rec${i % 2 ? " zebra" : ""}`}>
+                <div key={t.key} className={`rec${i % 2 ? " zebra" : ""}`}>
                   <div className="rec-l1">
                     <span className="rec-id" style={{ font: "600 11px/1.4 var(--cond)", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)" }}>
                       {t.season.slice(2)} W{t.week} · {tradeWhen(t.ts).replace(`, ${t.season}`, "").toUpperCase()}
@@ -706,7 +730,7 @@ export default function Home() {
             </thead>
             <tbody>
               {padTo(recentTrades, MODULE_ROWS).map((t, i) => t ? (
-                <tr key={t.ts} className={i % 2 ? "zebra" : ""}>
+                <tr key={t.key} className={i % 2 ? "zebra" : ""}>
                   <td className="t">
                     <div className="two-line">
                       <span className="fig">{t.season.slice(2)} W{t.week}</span><br />
@@ -732,7 +756,7 @@ export default function Home() {
                   })}
                 </tr>
               ) : (
-                <tr key={`et${i}`} className={`pad-row ${i % 2 ? "zebra" : ""}`}>
+                <tr key={`et${i}`} className={i % 2 ? "zebra" : ""}>
                   {[0, 1, 2].map(k => (
                     <td key={k} className={`t fig quiet${k === 2 ? " last" : ""}`}>
                       <div className="two-line">—</div>

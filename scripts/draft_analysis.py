@@ -92,6 +92,15 @@ def main():
         drafts = load(RAW / str(s) / "drafts.json") or []
         if not drafts:
             continue
+        # Every Big Dog season has had exactly one draft, which is why reading
+        # drafts[0] has been fine. A supplemental or re-run draft would land here
+        # as a second entry and be dropped without a word — its picks simply
+        # absent from the Draft page — so say so rather than silently pick one.
+        if len(drafts) > 1:
+            print(f"  !! {s}: {len(drafts)} drafts in drafts.json; using only "
+                  f"{drafts[0].get('draft_id')} ({drafts[0].get('type')}). Picks "
+                  f"from {', '.join(str(d.get('draft_id')) for d in drafts[1:])} "
+                  "are NOT analyzed.", file=sys.stderr)
         did = drafts[0].get("draft_id")
         picks = load(RAW / str(s) / f"draft_{did}_picks.json") or []
         if not picks:

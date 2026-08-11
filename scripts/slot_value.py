@@ -39,13 +39,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from franchise_players import FRANCHISE_BAR          # noqa: E402
 from leaguepaths import DataDir                      # noqa: E402
+from crawl_schema import LINEUP_SLOTS, ROW_FIELDS    # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 # Slot -> the position whose bar decides whether the slot "hit". QB2 is judged
 # against the QB bar: a superflex starter is a starting quarterback, and
 # holding him to a lower standard would hide the very hole we are measuring.
-SLOTS = [("QB1", "QB"), ("QB2", "QB"), ("RB1", "RB"), ("RB2", "RB"),
-         ("WR1", "WR"), ("WR2", "WR"), ("WR3", "WR"), ("TE1", "TE")]
+SLOTS = [(f"{p}{n}", p) for p, n in LINEUP_SLOTS]
 MIN_OBS = 8              # below this a median is noise; the slot publishes null
 
 
@@ -120,17 +120,10 @@ def main():
     rows = load_rows(args.corpus)
     if not rows:
         raise SystemExit("no rows found — check the corpus path")
-    # the crawler stamps its own layout into the signals file; corpora carry it
-    # implicitly, so take it from the crawler itself to stay in lockstep
-    if args.fields:
-        fields = args.fields.split(",")
-    else:
-        import importlib.util
-        spec = importlib.util.spec_from_file_location(
-            "sleeper_crawl", ROOT / "scripts" / "sleeper_crawl.py")
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        fields = mod.ROW_FIELDS
+    # A corpus carries its layout implicitly — the rows are bare lists — so the
+    # column names come from the shared schema the crawler writes them with.
+    # This used to importlib-exec the entire 68 KB crawler to read one list.
+    fields = args.fields.split(",") if args.fields else ROW_FIELDS
     by_slot, n_champ, n_field = collect(rows, fields)
     slots = []
     for slot, pos in SLOTS:

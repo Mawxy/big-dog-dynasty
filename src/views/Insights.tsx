@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
-import type { Benchmarks, Franchises, Matchups, Weekly } from "../lib/types";
-import { j, jl } from "../lib/data";
-import { fmt, rate, sgn } from "../lib/stats";
+import type { BenchFig, Benchmarks, Franchises, Matchups, Weekly } from "../lib/types";
+import { jl } from "../lib/data";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, rate, sgnWar, WAR_DP } from "../lib/stats";
 import { useLeague } from "../lib/context";
 import TScroll from "../components/TScroll";
 
@@ -16,11 +17,8 @@ import TScroll from "../components/TScroll";
  * place that distinction is rendered, so it can't be lost per-table.
  */
 
-/** a rate or per-unit figure with the sample behind it */
-type F = { v: number | null; n: number; of?: number };
-
 /** the one renderer for "figure or not enough data" */
-function Fig({ f, as = "pct", d = 2 }: { f?: F; as?: "pct" | "num"; d?: number }) {
+function Fig({ f, as = "pct", d = 2 }: { f?: BenchFig; as?: "pct" | "num"; d?: number }) {
   if (!f || f.v == null) {
     return <span className="fig quiet" title={f ? `n = ${f.n}` : undefined}>—</span>;
   }
@@ -33,19 +31,13 @@ function Fig({ f, as = "pct", d = 2 }: { f?: F; as?: "pct" | "num"; d?: number }
 
 export default function Insights() {
   const { players, league } = useLeague();
-  const [b, setB] = useState<Benchmarks | null>(null);
-  const [err, setErr] = useState(false);
-  const [fr, setFr] = useState<Franchises | null>(null);
   const [ours, setOurs] = useState<Record<string, number[]> | null>(null);
 
-  useEffect(() => {
-    let live = true;
-    j<Benchmarks>("data/benchmarks.json")
-      .then(x => { if (live) setB(x); })
-      .catch(() => { if (live) setErr(true); });
-    jl<Franchises>("franchises.json").then(x => { if (live) setFr(x); }).catch(() => {});
-    return () => { live = false; };
-  }, [league]);
+  // the crawl corpus is global — it belongs to no league
+  const bench = useJson<Benchmarks>("data/benchmarks.json", "global");
+  const b = bench.data;
+  const err = bench.error;
+  const fr = useJson<Franchises>("franchises.json").data;
 
   /** our own champions' slot values, computed the same way the crawl does:
    *  each season's best n-th player at a position, by that season's WAR */
@@ -158,10 +150,10 @@ export default function Insights() {
               return (
                 <tr key={s.slot} className={i % 2 ? "zebra" : ""}>
                   <td className="t name">{s.slot}</td>
-                  <td className="n edge"><Fig f={s.champ} as="num" /></td>
-                  <td className="n"><Fig f={s.field} as="num" /></td>
+                  <td className="n edge"><Fig f={s.champ} as="num" d={WAR_DP} /></td>
+                  <td className="n"><Fig f={s.field} as="num" d={WAR_DP} /></td>
                   <td className="n fig strong" style={{ color: "var(--good)" }}>
-                    {edge == null ? "—" : sgn(edge, 2)}
+                    {edge == null ? "—" : sgnWar(edge)}
                   </td>
                   <td className="t">
                     <div className="meter-row">
@@ -173,7 +165,7 @@ export default function Insights() {
                       <span className="fig val sm">{ratio ? `${fmt(ratio, 2)}x` : "—"}</span>
                     </div>
                   </td>
-                  <td className="n fig hm last">{ourV == null ? "—" : fmt(ourV, 2)}</td>
+                  <td className="n fig hm last">{ourV == null ? "—" : fmtWar(ourV)}</td>
                 </tr>
               );
             })}

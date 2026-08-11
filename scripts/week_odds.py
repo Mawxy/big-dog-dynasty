@@ -71,6 +71,7 @@ import argparse, json, math, statistics, sys
 from collections import defaultdict
 from pathlib import Path
 
+from ioutil import atomic_write
 from leaguepaths import DataDir
 from playoff_wpa import MIN_SD, shrink, win_prob
 
@@ -157,7 +158,7 @@ def snapshot_projections(season, ld, sproj, week, teams):
     if not snap:
         return False
     hist[str(week)] = snap
-    f.write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
+    atomic_write(f, json.dumps(hist, separators=(",", ":")))
     return True
 
 
@@ -190,6 +191,11 @@ def season_odds(season, ld, raw_root, sproj):
     played_weeks = sorted({e[0] for lst in mw["teams"].values() for e in lst
                            if e[0] < ps})
     sched_weeks = sorted(int(k) for k in (mw.get("schedule") or {}) if int(k) < ps)
+    # The earliest week ANY player has form in. The "is there prior form?" test
+    # below is exactly `first_form < wk`, and hoisting it out of the week loop
+    # replaces a full rescan of every player's every week — per priced week —
+    # with one scan per season.
+    first_form = min((w for wks in form.values() for w in wks), default=None)
 
     out = {}
     for wk in played_weeks + sched_weeks:
@@ -207,8 +213,8 @@ def season_odds(season, ld, raw_root, sproj):
         # week either. Emitting a line here would print 50% for every game and
         # read as a forecast, when in fact it is the absence of one. Week 1 of
         # every season before snapshots existed lands here.
-        if not is_proj and not phist.get(str(wk)) and not any(
-                w in prior for wks in form.values() for w in wks):
+        if not is_proj and not phist.get(str(wk)) and not (
+                first_form is not None and first_form in prior):
             continue
         # What was projected FOR THIS WEEK. The archived snapshot when we kept
         # one; otherwise the live file, but ONLY for a week that hasn't been
@@ -337,7 +343,7 @@ def main():
         print(f"  {s}: {len(wks)} weeks ({len(wks) - npro} played, {npro} projected)")
         if args.probe:
             continue
-        (ld / s / "odds.json").write_text(json.dumps(got, separators=(",", ":")), encoding="utf-8")
+        atomic_write(ld / s / "odds.json", json.dumps(got, separators=(",", ":")))
         n += 1
     print(f"\n{'probe: nothing written' if args.probe else f'wrote {n} odds.json'}")
 

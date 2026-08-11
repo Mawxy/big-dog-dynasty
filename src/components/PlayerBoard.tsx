@@ -4,6 +4,7 @@ import type { Col, Grp } from "./DataTable";
 import { POS_CHIPS, POS_COLOR } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
 import { PlayerLink } from "./PlayerLink";
+import PosBadge from "./PosBadge";
 
 /**
  * Shared parts of the two player leaderboards.
@@ -75,7 +76,7 @@ export function identityCols(opts: { nfl?: boolean } = {}): PlayerCol[] {
     },
     {
       id: "pos", label: "Pos", grp: 0, w: 6, align: "c", td: "c",
-      cell: r => <span className={`pos ${r.pos}`}>{r.pos}{r.posRank || ""}</span>,
+      cell: r => <PosBadge pos={r.pos} rank={r.posRank || ""} />,
     },
     ...(nfl ? [{
       id: "nfl", label: "NFL", grp: 0, w: 6, align: "c", hm: true, td: "sub hm c",

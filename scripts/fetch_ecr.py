@@ -29,6 +29,7 @@ page as an `ecrData` payload, so no disallowed endpoint is ever touched.
 import argparse, json, re, sys, time, urllib.request
 from pathlib import Path
 
+from ioutil import atomic_write
 from leaguepaths import DataDir
 from fetch_values import name_index, norm    # same name->sleeper-id matching
 
@@ -284,7 +285,7 @@ def main():
               f"{out['fetched']}")
     # a player stripped from his last remaining format is an empty record
     out["players"] = {pid: rec for pid, rec in out["players"].items() if rec}
-    Path(args.out).write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    atomic_write(args.out, json.dumps(out, separators=(",", ":")))
     print(f"\nwrote {args.out} · {len(out['players'])} players across "
           f"{len(out['formats'])} format(s)")
 

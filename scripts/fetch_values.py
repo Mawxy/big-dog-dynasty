@@ -20,6 +20,7 @@ Usage:
 import argparse, json, re, urllib.request
 from pathlib import Path
 
+from ioutil import atomic_write
 from leaguepaths import DataDir
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -36,8 +37,19 @@ def get(url):
         return r.read().decode("utf-8")
 
 def norm(name):
+    # The suffix set must match the one pick_value.py, project_war.py and
+    # sleeper_crawl.py strip, or a player carries a suffix on one side of the
+    # join and not the other and simply never matches. "v" was missing here and
+    # present in all three of those, so every Roman-numeral-V player was dropped
+    # by KTC matching (this) and by FantasyPros matching (fetch_ecr imports it).
+    # Order matters: the longer numerals are tested before the shorter ones they
+    # end with, so "iii" is not read as "ii" and "iv" is not read as "v".
+    # tests/test_names.py pins the parity.
     n = re.sub(r"[^a-z]", "", name.lower())   # strip punctuation/spaces first
-    for suf in ("jr", "sr", "iii", "ii", "iv"):
+    for suf in ("jr", "sr", "iii", "ii", "iv", "v"):
+        # the length guard is what stops a genuinely short name ending in one of
+        # these from being mangled — this normalizer has already thrown the
+        # word boundaries away, so it cannot tell a suffix from a last syllable
         if n.endswith(suf) and len(n) > len(suf) + 3:
             n = n.removesuffix(suf)
             break
@@ -223,12 +235,10 @@ def main():
                     trends[str(d)] = cur - base
             if trends:
                 e[name + "T"] = trends
-    hist_path.write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_text(json.dumps({
+    atomic_write(hist_path, json.dumps(hist, separators=(",", ":")))
+    atomic_write(out_path, json.dumps({
         "fetched": time.strftime("%Y-%m-%d", time.gmtime()),
-        "sources": ok, "picks": picks, "players": vals}, separators=(",", ":")),
-        encoding="utf-8")
+        "sources": ok, "picks": picks, "players": vals}, separators=(",", ":")))
     print(f"wrote {out_path} ({len(vals)} players; fresh: {', '.join(ok)})")
 
 if __name__ == "__main__":

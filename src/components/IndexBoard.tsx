@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
-import type { Team } from "../lib/types";
-import { jl, jlDaily } from "../lib/data";
+import { useMemo, type ReactNode } from "react";
+import type { CviFile, CviRow, DviFile, DviRow, Team } from "../lib/types";
+import { useJson } from "../lib/useJson";
 import { ownerOf, rosterSeasonOf, POS_COLOR } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { PlayerLink } from "./PlayerLink";
+import PosBadge from "./PosBadge";
 import { usePlayerFilters } from "./PlayerBoard";
-import TScroll from "./TScroll";
+import DataTable, { type Col, type Grp } from "./DataTable";
 
 /**
  * A 0–100 index leaderboard: rank, player, position, roster, one figure.
@@ -20,16 +21,70 @@ import TScroll from "./TScroll";
  * row and drop the alignment classes, so the two index pages were the only
  * leaderboards on the site that didn't read like the rest of them.
  */
-interface IndexFile {
-  generated: string;
-  players: Record<string, { name: string; pos: string; pos_rank: number }
-    & Partial<Record<"dvi" | "cvi", number>>>;
-}
+/** The index this row carries — the file names it, so the row is narrowed by
+ *  which key it has rather than by the `pick` prop it was fetched with. */
+const valueOf = (r: DviRow | CviRow) => ("dvi" in r ? r.dvi : r.cvi) ?? 0;
 
 /** what the shared filter bar needs, plus what this board draws */
 interface IdxRow {
   pid: string; nm: string; pos: string; posRank: number; value: number;
 }
+
+/** The roster column's data is per-render, not per-row: `owners` is built from
+ *  teams.json and lands after the index file, and the population memo is keyed
+ *  on the FILE alone so a name search never re-sorts ~800 rows. So the owners
+ *  map travels as DataTable's context rather than being folded into the row. */
+interface IdxCtx { owners: Record<string, string> }
+
+/**
+ * Rank, player, position, roster, one figure — the same identity block every
+ * board on the site opens with, so the two index pages read like the rest of
+ * them. Declared once, at module scope: DataTable memoizes a row on the
+ * identity of the column array, and a registry rebuilt per render would defeat
+ * it on a board that runs to 780 rows.
+ */
+const COLS: Col<IdxRow, IdxCtx>[] = [
+  {
+    /* 7%, not 5%: this board runs to 780 scored players, so the rank reaches
+       three digits — and at 5% of a phone-width table that is a ~30px column
+       holding a ~43px figure, drawn over the name */
+    id: "rk", label: "Rk", grp: 0, w: 7, align: "c", td: "spine-cell",
+    cell: (r, _x, i) => <>
+      <span className="spine" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }} />
+      <span className="rank">{i + 1}</span>
+    </>,
+  },
+  {
+    id: "nm", label: "Player", grp: 0, w: 0, align: "t", td: "t name",
+    cell: r => <PlayerLink pid={r.pid} name={r.nm} />,
+  },
+  {
+    id: "pos", label: "Pos", grp: 0, w: 8, align: "c", td: "c",
+    cell: r => (
+      <PosBadge pos={r.pos} size="wide" rank={r.posRank}
+        color={POS_COLOR[r.pos] || "var(--rule-2)"} />
+    ),
+  },
+  {
+    id: "team", label: "Roster", grp: 0, w: 22, align: "t", hm: true, td: "t sub hm",
+    cell: (r, x) => x.owners[r.pid] || "—",
+  },
+  {
+    /* a bare figure, no meter: the index is a clamped 0–100 score, and a bar
+       would restate the number (SKILL §3) */
+    id: "idx", label: "Index", grp: 1, w: 28, align: "n", keyCol: true, td: "n",
+    cell: r => <span className="head-fig md">{r.value.toFixed(1)}</span>,
+  },
+];
+
+/**
+ * No column declares a `sort` accessor, so no header is a control and the board
+ * keeps the file's own order — which is what the rank spine and the file's own
+ * `pos_rank` on the badge both describe. Re-sorting by name would leave the
+ * badge claiming a rank the table is no longer in (SKILL §3). DataTable still
+ * takes the three sort props, so they are handed in inert.
+ */
+const NO_SORT = () => {};
 
 export default function IndexBoard({ file, pick, title, note, footnote }: {
   file: string; pick: "dvi" | "cvi"; title: string;
@@ -38,26 +93,17 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
   footnote: ReactNode;
 }) {
   const { league } = useLeague();
-  const [data, setData] = useState<IndexFile | null>(null);
-  const [owners, setOwners] = useState<Record<string, string>>({});
-  const [err, setErr] = useState(false);
   const { bar, apply } = usePlayerFilters<IdxRow>();
 
-  useEffect(() => {
-    // DVI and CVI are the same component on two routes, so without this guard
-    // a switch between them could land the slow fetch after the fast one and
-    // print the other index's numbers under this one's title
-    let live = true;
-    setData(null);
-    setErr(false);
-    jlDaily<IndexFile>(file)
-      .then(d => { if (live) setData(d); })
-      .catch(() => { if (live) setErr(true); });
-    jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`)
-      .then(t => { if (live) setOwners(ownerOf(t)); })
-      .catch(() => { if (live) setOwners({}); });
-    return () => { live = false; };
-  }, [league, file]);
+  // DVI and CVI are the same component on two routes: useJson clears the old
+  // file's data the moment `file` changes, so a switch between them can never
+  // print one index's numbers under the other's title, however the two fetches
+  // happen to race.
+  const idx = useJson<DviFile | CviFile>(file, "leagueDaily");
+  const data = idx.data;
+  const err = idx.error;
+  const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
+  const owners = useMemo(() => (teams ? ownerOf(teams) : {}), [teams]);
 
   /** Sorted on the full population — keyed on the FILE only, so typing a name
    *  doesn't rebuild and re-sort ~800 rows per keystroke. */
@@ -65,16 +111,25 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
     if (!data) return [];
     return Object.entries(data.players)
       .map(([pid, r]): IdxRow => ({
-        pid, nm: r.name, pos: r.pos, posRank: r.pos_rank, value: r[pick] ?? 0,
+        pid, nm: r.name, pos: r.pos, posRank: r.pos_rank, value: valueOf(r),
       }))
       .sort((a, b) => b.value - a.value);
-  }, [data, pick]);
+  }, [data]);
 
   /** …then filtered, so a position view keeps the ranks the whole board gave
    *  it (`posRank` comes from the file and is never recomputed here). */
   const rows = useMemo(() => apply(population), [population, apply]);
+  const ctx = useMemo<IdxCtx>(() => ({ owners }), [owners]);
 
   const label = pick.toUpperCase();
+  /* the band above the table names the index; the group banner names it again
+     over the one column that carries it, and takes the accent because that is
+     the screen's headline figure. No `edge`: the index column has never had a
+     divider on its left and adding one would be a new rule on the board. */
+  const groups: Grp[] = [
+    { id: 0, label: "", cls: "" },
+    { id: 1, label, cls: "value" },
+  ];
   if (err) return <div className="empty">No {label} data yet.</div>;
   if (!data) return <div className="empty">Loading {label}…</div>;
 
@@ -93,47 +148,15 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
         <span className="band-note">{note}</span>
       </div>
 
-      <TScroll>
       {/* the band above says what this is, but a band is a sibling of the
           table, not part of it — a reader landing on the table hears only
-          "table" without this */}
-      <table style={{ tableLayout: "fixed" }} aria-label={`${label} · every scored player`}>
-        <thead>
-          <tr>
-            {/* 7%, not 5%: this board runs to 780 scored players, so the rank
-                reaches three digits — and at 5% of a phone-width table that is
-                a ~30px column holding a ~43px figure, drawn over the name */}
-            <th scope="col" className="c" style={{ width: "7%" }}>Rk</th>
-            <th scope="col" className="t">Player</th>
-            <th scope="col" className="c" style={{ width: "8%" }}>Pos</th>
-            <th scope="col" className="t hm" style={{ width: "22%" }}>Roster</th>
-            <th scope="col" className="n key" style={{ width: "28%" }}>Index</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((r, i) => (
-            <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
-              <td className="spine-cell">
-                <span className="spine" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }} />
-                <span className="rank">{i + 1}</span>
-              </td>
-              <td className="t name"><PlayerLink pid={r.pid} name={r.nm} /></td>
-              <td className="c">
-                <span className="pos wide" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }}>
-                  {r.pos}{r.posRank}
-                </span>
-              </td>
-              <td className="t sub hm">{owners[r.pid] || "—"}</td>
-              {/* a bare figure, no meter: the index is a clamped 0–100 score,
-                  and a bar would restate the number (SKILL §3) */}
-              <td className="n last">
-                <span className="head-fig md">{r.value.toFixed(1)}</span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      </TScroll>
+          "table" without the label DataTable puts on it. This board PANS on a
+          phone rather than becoming records: it is the Players leaderboard's
+          own family, and the pinned identity block is what keeps a figure
+          attached to its player while it scrolls (MOBILE.md). */}
+      <DataTable cols={COLS} groups={groups} rows={rows} ctx={ctx}
+        label={`${label} · every scored player`}
+        rowKey={r => r.pid} sortId="" dir={-1} onSort={NO_SORT} />
 
       <div className="tnote screen">{footnote}</div>
     </>

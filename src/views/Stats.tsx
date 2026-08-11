@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { meterWidth, fmt } from "../lib/stats";
-import { ownerOf, pInfo, seasonSeg } from "../lib/league";
+import { meterWidth, fmt, fmtWar } from "../lib/stats";
+import { latestSeasonOf, ownerOf, pInfo, seasonSeg } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { useSeasonData } from "../lib/useSeasonData";
 import PlayerPanel from "../components/PlayerPanel";
 import AllTimePanel from "../components/AllTimePanel";
-import DataTable, { applySort, sortCol } from "../components/DataTable";
+import DataTable, { applySort, sortCol, useTableSort } from "../components/DataTable";
 import { useMobile } from "../lib/useWidth";
 import {
   BoardScope, blankRow, identityCols, mobileCols, TAIL_GRP, usePlayerFilters,
@@ -51,13 +51,13 @@ const seasonCols = (allTime: boolean): PlayerCol[] => [
     cell: (r, x) => (
       <div className="meter-row">
         <div className="meter"><i style={{ width: meterWidth(Math.max(0, r.war), x.warMax) }} /></div>
-        <span className="fig">{fmt(r.war, 3)}</span>
+        <span className="fig">{fmtWar(r.war)}</span>
       </div>
     ),
   },
   {
     id: "warG", label: "WAR/G", grp: 2, w: 8, align: "n", hm: true,
-    td: "fig quiet hm n", sort: r => r.warG, cell: r => fmt(r.warG, 3),
+    td: "fig quiet hm n", sort: r => r.warG, cell: r => fmtWar(r.warG),
   },
 ];
 const GROUPS = [
@@ -72,8 +72,7 @@ export default function Stats() {
   const lp = useLeaguePath();
   const seg = useParams().season;
 
-  const latest = meta.latest && meta.seasons.includes(meta.latest)
-    ? meta.latest : meta.seasons[meta.seasons.length - 1];
+  const latest = latestSeasonOf(meta);
   /** newest first — the year a reader wants is almost always the last one played */
   const played = useMemo(
     () => meta.seasons.filter(s => s <= latest).slice().reverse(), [meta, latest]);
@@ -86,17 +85,15 @@ export default function Stats() {
 
   const data = useSeasonData(scope);
 
-  const [sortId, setSortId] = useState("war");
-  const [dir, setDir] = useState(-1);
+  const { sortId, dir, onSort, reset: resetSort } = useTableSort("war");
   const [openPid, setOpenPid] = useState<string | null>(null);
   const { bar, apply } = usePlayerFilters(() => setOpenPid(null));
 
   // a scope change resets to the resting order and closes the drawer
   useEffect(() => {
-    setSortId("war");
-    setDir(-1);
+    resetSort();
     setOpenPid(null);
-  }, [scope]);
+  }, [scope, resetSort]);
 
   // MOBILE.md M4 — pan the board, six-column budget. WAR leads (it is the
   // resting sort), then PPG and GP, then Roster; volatility and the per-game
@@ -153,13 +150,6 @@ export default function Stats() {
   // little league.
   const rows = useMemo(() => apply(population), [population, apply]);
   const count = rows.length;
-
-  const onSort = (c: PlayerCol) => {
-    if (c.id === "rk") { setSortId("war"); setDir(-1); return; }
-    if (!c.sort) return;
-    if (sortId === c.id) setDir(-dir);
-    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
-  };
 
   const yearChip = (label: string, to: string, on: boolean) => (
     <button key={to} type="button" className={`chip ${on ? "on" : ""}`}

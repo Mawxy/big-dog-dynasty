@@ -24,13 +24,6 @@ export function boxStats(values: number[], whisker: Whisker = "minmax"): BoxStat
   return { mn: lo, q1: quart(v, .25), md: quart(v, .5), q3: quart(v, .75), mx: hi };
 }
 
-/** Integer gridline positions spanning [lo, hi]. */
-export function intTicks(lo: number, hi: number): number[] {
-  const t: number[] = [];
-  for (let v = Math.ceil(lo); v <= Math.floor(hi); v++) t.push(v);
-  return t;
-}
-
 /** The box-and-whisker marks themselves — whiskers, end caps, IQR box, median
  *  rule — on a caller-supplied x scale. Callers own the axis, the labels and
  *  the layout; this owns the geometry so every chart draws an identical box.

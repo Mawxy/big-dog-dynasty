@@ -1,4 +1,5 @@
 import type { DraftPick, Drafts, Franchises } from "./types";
+import { LEAGUE_TEAMS } from "./league";
 
 /**
  * The draft-history data model shared by the Draft tab's boards and the
@@ -60,7 +61,7 @@ export function buildHistory(drafts: Drafts, fr: Franchises | null): History {
  * what draws the snake weaving back — that part is right.
  */
 export const pickLabel = (r: HistRow) =>
-  `${r.round}.${String(((r.pickNo - 1) % 12) + 1).padStart(2, "0")}`;
+  `${r.round}.${String(((r.pickNo - 1) % LEAGUE_TEAMS) + 1).padStart(2, "0")}`;
 
 /** first name / rest, so every board cell is the same two-line shape */
 export const nameSplit = (name: string): [string, string] => {

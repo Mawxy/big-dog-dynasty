@@ -1,18 +1,20 @@
-import { useEffect, useState } from "react";
+import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Absences, PlayersMin, Team, Weekly, WeeklyRow } from "../lib/types";
-import { jl } from "../lib/data";
-import { fmt, sgn, sd, mean, quart } from "../lib/stats";
-import { pInfo, ownerOf } from "../lib/league";
+import { useJson } from "../lib/useJson";
+import { fmt, sgnWar, sd, mean, quart } from "../lib/stats";
+import { pInfo, ownerOf, REG_WEEKS } from "../lib/league";
 import { useLeaguePath } from "../lib/context";
 import PosBadge from "./PosBadge";
 import WeekGrid from "./WeekGrid";
 
 interface Props { pid: string; season: string; teams: Team[]; players: PlayersMin }
 
+const NO_ABSENCES: Record<string, string> = {};
+
 /**
  * Row drawer (1E): one season at a glance. Six figures and a link to the full
- * player page on the left, the fixed 14-cell week strip on the right.
+ * player page on the left, the fixed regular-season week strip on the right.
  *
  * The drawer answers "was this season good, and when". The signed reference
  * columns (vs avg / vs replacement) and ownership history deliberately live on
@@ -20,39 +22,26 @@ interface Props { pid: string; season: string; teams: Team[]; players: PlayersMi
  * ownership is a career fact, not a season one.
  */
 export default function PlayerPanel({ pid, season, teams, players }: Props) {
-  const [wks, setWks] = useState<WeeklyRow[] | null>(null);
-  const [abs, setAbs] = useState<Record<string, string>>({});
-  const [err, setErr] = useState(false);
   const nav = useNavigate();
   const lp = useLeaguePath();
 
-  useEffect(() => {
-    let live = true;
-    setErr(false);
-    (async () => {
-      try {
-        const [weekly, absences] = await Promise.all([
-          jl<Weekly>(`${season}/weekly.json`),
-          jl<Absences>(`${season}/absence.json`).catch(() => ({} as Absences)),
-        ]);
-        if (!live) return;
-        setWks((weekly[pid] || []).slice().sort((a, b) => a[0] - b[0]));
-        setAbs(absences[pid] || {});
-      } catch {
-        // a transient weekly.json failure otherwise hangs on "loading…" forever
-        if (live) setErr(true);
-      }
-    })();
-    return () => { live = false; };
-  }, [pid, season]);
+  const weekly = useJson<Weekly>(`${season}/weekly.json`);
+  // a season with no absence file is a legal shape — the strip just carries no
+  // BYE/DNP flags, which is not the same as a failure to load the week scores
+  const absences = useJson<Absences>(`${season}/absence.json`).data;
+  const wks = useMemo<WeeklyRow[] | null>(
+    () => (weekly.data ? (weekly.data[pid] || []).slice().sort((a, b) => a[0] - b[0]) : null),
+    [weekly.data, pid]);
+  const abs = absences?.[pid] ?? NO_ABSENCES;
 
-  if (err) return <div className="empty">couldn't load — reopen to retry</div>;
+  // a transient weekly.json failure otherwise hangs on "loading…" forever
+  if (weekly.error) return <div className="empty">couldn't load — reopen to retry</div>;
   if (!wks) return <div className="empty">loading…</div>;
 
   const [nm, pos, nfl] = pInfo(players, pid);
   const owner = ownerOf(teams)[pid];
-  // the strip is the 14 regular-season cells; playoff rows never enter it
-  const reg = wks.filter(w => w[0] <= 14);
+  // the strip is the regular season only; playoff rows never enter it
+  const reg = wks.filter(w => w[0] <= REG_WEEKS);
   const pts = reg.map(w => w[1]);
   const med = pts.length ? quart(pts.slice().sort((a, b) => a - b), 0.5) : 0;
   const waa = reg.reduce((s, w) => s + w[4], 0);
@@ -63,8 +52,8 @@ export default function PlayerPanel({ pid, season, teams, players }: Props) {
     ["PPG", fmt(mean(pts), 1), false],
     ["Volatility", fmt(sd(pts), 1), false],
     ["Median", fmt(med, 1), false],
-    ["WAA", sgn(waa), false],
-    ["WAR", sgn(war), true],
+    ["WAA", sgnWar(waa), false],
+    ["WAR", sgnWar(war), true],
   ];
 
   return (

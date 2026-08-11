@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { Drafts, Franchises, Trade, TradesPayload } from "../lib/types";
+import type { Drafts, Franchises, SummaryRow, Trade, TradesPayload } from "../lib/types";
 import { jl } from "../lib/data";
-import { fmt, sgn, warInk } from "../lib/stats";
-import { pInfo, POS_COLOR } from "../lib/league";
+import { useJson } from "../lib/useJson";
+import { readTrades } from "../lib/trades";
+import { sgnWar, warInk } from "../lib/stats";
+import { latestSeasonOf, POS_COLOR } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { buildHistory, pickLabel, type HistRow } from "../lib/draftHistory";
 import DraftBoardGrid from "../components/DraftBoardGrid";
+import PickTable from "../components/PickTable";
+import PosBadge from "../components/PosBadge";
+import TradeCard from "../components/TradeCard";
 import { PlayerLink } from "../components/PlayerLink";
-import DataTable, { applySort, sortCol, type Col, type Grp } from "../components/DataTable";
+import DataTable, { applySort, sortCol, useTableSort, type Col, type Grp } from "../components/DataTable";
 
 const nul = <span className="fig quiet">—</span>;
-
-/** summary.json rows are [pid, pos, gp, pts, ppg, waa, war, ...] */
-type SummaryRow = [string, string, number, number, number, number, number, ...unknown[]];
 
 interface YearCtx { years: string[] }
 
@@ -27,30 +29,29 @@ export default function DraftDetail() {
   const { meta, players } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
-  const [drafts, setDrafts] = useState<Drafts | null>(null);
-  const [fr, setFr] = useState<Franchises | null>(null);
-  const [trades, setTrades] = useState<Trade[] | null>(null);
   const [warBy, setWarBy] = useState<Record<string, Record<string, number>> | null>(null);
-  const [err, setErr] = useState(false);
-  const [sortId, setSortId] = useState("pick");
-  const [dir, setDir] = useState(1);
+  const { sortId, dir, onSort } = useTableSort("pick", 1);
   // every section collapses; the board is the page's face, so it starts open
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({ board: true });
 
-  const latest = meta.latest && meta.seasons.includes(meta.latest)
-    ? meta.latest : meta.seasons[meta.seasons.length - 1];
+  const latest = latestSeasonOf(meta);
   /** seasons this class has actually played (drafted season .. latest) */
   const played = useMemo(
     () => meta.seasons.filter(s => s >= season && s <= latest),
     [meta, season, latest]);
 
-  useEffect(() => {
-    jl<Drafts>("drafts.json").then(setDrafts).catch(() => setErr(true));
-    jl<Franchises>("franchises.json").then(setFr).catch(() => setFr({}));
-    jl<TradesPayload>("trades.json")
-      .then(p => setTrades(Array.isArray(p) ? p : p.trades))
-      .catch(() => setTrades([]));
-  }, []);
+  const draftsFile = useJson<Drafts>("drafts.json");
+  const drafts = draftsFile.data;
+  const err = draftsFile.error;
+  const fr = useJson<Franchises>("franchises.json").data;
+  // readTrades, not an inline Array.isArray: a TradesFile written without its
+  // `trades` key otherwise leaves this undefined
+  const tradesFile = useJson<TradesPayload>("trades.json");
+  const trades = useMemo<Trade[] | null>(
+    () => (tradesFile.data ? readTrades(tradesFile.data).trades
+      : tradesFile.error ? [] : null),
+    [tradesFile.data, tradesFile.error]);
+
   useEffect(() => {
     let live = true;
     Promise.all(played.map(y =>
@@ -66,6 +67,9 @@ export default function DraftDetail() {
     });
     return () => { live = false; };
   }, [played]);
+
+  /** the per-render table context, held stable so DataTable's rows can memoize */
+  const yearCtx = useMemo<YearCtx>(() => ({ years: played }), [played]);
 
   const history = useMemo(
     () => (drafts ? buildHistory(drafts, fr) : null), [drafts, fr]);
@@ -120,7 +124,7 @@ export default function DraftDetail() {
     },
     {
       id: "pos", label: "Pos", grp: 0, w: 5, align: "c", td: "c",
-      cell: r => <span className={`pos ${r.pos}`}>{r.pos}</span>,
+      cell: r => <PosBadge pos={r.pos} />,
     },
     {
       id: "by", label: "Drafted by", grp: 0, w: 16, align: "t", hm: true, td: "t sub hm",
@@ -133,14 +137,14 @@ export default function DraftDetail() {
       sort: r => warBy?.[r.pid]?.[y],
       cell: r => {
         const v = warBy?.[r.pid]?.[y];
-        return v == null ? nul : <span style={{ color: warInk(v) }}>{sgn(v, 2)}</span>;
+        return v == null ? nul : <span style={{ color: warInk(v) }}>{sgnWar(v)}</span>;
       },
     })),
     {
       id: "tot", label: "Total", grp: 1, w: 9, align: "n", keyCol: true, td: "n",
       sort: r => r.years > 0 ? r.war : null,
       cell: r => r.years > 0 || played.length
-        ? <span className="fig" style={{ color: warInk(r.war) }}>{sgn(r.war, 2)}</span> : nul,
+        ? <span className="fig" style={{ color: warInk(r.war) }}>{sgnWar(r.war)}</span> : nul,
     },
   ], [played, warBy]);
 
@@ -151,12 +155,6 @@ export default function DraftDetail() {
   const sorted = useMemo(
     () => rows ? applySort(rows, sortCol(cols, sortId, "pick"), dir) : [],
     [rows, cols, sortId, dir]);
-  const onSort = (c: Col<HistRow, YearCtx>) => {
-    if (!c.sort) return;
-    if (sortId === c.id) setDir(-dir);
-    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
-  };
-
   if (err) return <div className="empty">No draft data yet.</div>;
   if (!history) return <div className="empty">Loading draft…</div>;
   if (!rows) return <div className="empty">No {season} draft on record.</div>;
@@ -197,7 +195,7 @@ export default function DraftDetail() {
         played.length ? "each season's WAR vs replacement, wherever he played"
           : "no seasons played yet")}
       {openSec.returns && (played.length ? (
-        <DataTable cols={cols} groups={groups} rows={sorted} ctx={{ years: played }}
+        <DataTable cols={cols} groups={groups} rows={sorted} ctx={yearCtx}
           label={`Returns by pick · ${season} draft`}
           rowKey={r => `${r.slot}|${r.pid}`} sortId={sortId} dir={dir}
           onSort={onSort} homeCol="pick" />
@@ -213,39 +211,8 @@ export default function DraftDetail() {
           {/* two trades processed in one Sleeper batch share a ts — key on the
               pair, the way the franchise page's trade list already does */}
           {pickTrades.map((t, i) => (
-            <div key={`${t.ts}-${i}`} className="trade">
-              <div className="trade-head">
-                <span className="trade-wk">{t.season} · WEEK {t.week}</span>
-              </div>
-              <div className="trade-sides">
-                {t.sides.map((side, i) => (
-                  <div key={i} className="trade-side">
-                    <div className="hd">
-                      <div>
-                        <div className="k">Received</div>
-                        <div className="team">{side.team}</div>
-                      </div>
-                    </div>
-                    {side.got.map((a, k) => {
-                      const isPick = a.kind !== "player";
-                      const ours = isPick && a.label.startsWith(`${season} `);
-                      const pos = !isPick && a.pid ? pInfo(players, a.pid)[1] : "PICK";
-                      return (
-                        <div key={k} className="trade-asset">
-                          <span className={`pos sm ${isPick ? "PICK" : pos}`}>{isPick ? "PK" : pos}</span>
-                          <span className={`nm ${isPick && !ours ? "pick" : ""}`}
-                            style={ours ? { color: "var(--txt)" } : undefined}>{a.label}</span>
-                          {/* both baskets in the same neutral ink — see Ledger */}
-                          <span className="war" style={{ color: isPick ? "var(--dim3)" : "var(--txt2)" }}>
-                            {isPick ? "—" : fmt(a.war, 3)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
-            </div>
+            <TradeCard key={`${t.ts}-${i}`} trade={t} players={players}
+              emphasize={a => a.kind !== "player" && a.label.startsWith(`${season} `)} />
           ))}
         </div>
       ) : (
@@ -261,36 +228,17 @@ export default function DraftDetail() {
       )}
       {openSec.value && value && (
         <div className="pick-tables" style={{ marginTop: 22 }}>
-          {([["Best value", "best", value.best], ["Worst value", "worst", value.worst]] as const).map(([title, cls, list]) => (
-            <div key={cls}>
-              <div className={`pick-title ${cls}`}>{title}</div>
-              <table>
-                <thead><tr>
-                  <th scope="col" className="t" style={{ width: "12%" }}>Pick</th>
-                  <th scope="col" className="t" style={{ width: "40%" }}>Player</th>
-                  <th scope="col" className="n" style={{ width: "16%" }}>{value.mode === "exp" ? "Exp" : "Rd med"}</th>
-                  <th scope="col" className="n" style={{ width: "14%" }}>WAR</th>
-                  <th scope="col" className="n key" style={{ width: "18%" }}>{value.mode === "exp" ? "Vs exp" : "Vs med"}</th>
-                </tr></thead>
-                <tbody>
-                  {list.map(r => (
-                    <tr key={`${r.slot}|${r.pid}`}>
-                      <td className="t" style={{ font: "600 15px/1 var(--cond)", color: "var(--txt2)" }}>{pickLabel(r)}</td>
-                      <td className="who">
-                        <div className="line">
-                          <span className="pos mini" style={{ background: POS_COLOR[r.pos] || "var(--rule)" }}>{r.pos}</span>
-                          <span className="nm">{r.name}</span>
-                        </div>
-                        <div className="by">{r.drafter}</div>
-                      </td>
-                      <td className="n sub">{r.expected == null ? "—" : sgn(r.expected, 2)}</td>
-                      <td className="n raw">{sgn(r.war, 2)}</td>
-                      <td className="n vs" style={{ color: warInk(r.diff ?? 0) }}>{sgn(r.diff ?? 0, 2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          {/* One draft, so no year column — and the pick label comes from
+              pickLabel, not the file's `slot`: the startup snaked and its slot
+              is the draft COLUMN, so 2.12 and 2.01 read backwards. The Draft
+              tab pools rookie classes only, where the two coincide. */}
+          {([["Best value", "best", value.best], ["Worst value", "worst", value.worst]] as const).map(([title, tone, list]) => (
+            <PickTable<HistRow> key={tone} title={title} tone={tone} rows={list}
+              rowKey={r => `${r.slot}|${r.pid}`}
+              lead={[{ label: "Pick", w: 12, of: r => pickLabel(r) }]}
+              w={{ player: 40, exp: 16, war: 14, vs: 18 }}
+              expLabel={value.mode === "exp" ? "Exp" : "Rd med"}
+              vsLabel={value.mode === "exp" ? "Vs exp" : "Vs med"} />
           ))}
         </div>
       )}

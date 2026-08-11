@@ -4,12 +4,14 @@ import type {
   Drafts, Franchises, Matchups, Trade, TradesPayload, Weekly,
 } from "../lib/types";
 import { jl } from "../lib/data";
-import { fmt, ord, rate } from "../lib/stats";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, ord, rate } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades } from "../lib/trades";
 import { PlayerLink } from "../components/PlayerLink";
-import TScroll from "../components/TScroll";
+import { RouteLink } from "../components/RouteLink";
+import DataTable, { type Col, type Grp } from "../components/DataTable";
 
 /**
  * League summary — the year-by-year story.
@@ -49,6 +51,26 @@ type SeasonRow = {
   topPid: string | null; topWar: number | null;
 };
 
+/** the standings board needs no per-render context; a shared constant rather
+ *  than a `{}` literal, which would be a new object on every render and defeat
+ *  DataTable's row memoization */
+const NO_CTX: Record<string, never> = {};
+/** The table is the season's settled result, ordered by finish, and no column
+ *  declares a `sort` accessor — so no header is a control and the order cannot
+ *  be taken away from the placing the spine marks. DataTable still takes the
+ *  three sort props, so they are handed in inert. */
+const NO_SORT = () => {};
+
+/** Record, PPG and lineup WAR are the season; Prev and Move are the same
+ *  franchise a year earlier. Both bands carry the divider their first column
+ *  already drew; neither takes the accent, because nothing in this table is the
+ *  screen's headline figure — the champion block above it is. */
+const HIST_GROUPS: Grp[] = [
+  { id: 0, label: "", cls: "" },
+  { id: 1, label: "Results", cls: "edge" },
+  { id: 2, label: "Last season", cls: "edge" },
+];
+
 type SeasonStory = {
   season: string;
   rows: SeasonRow[];                   // ordered by finish
@@ -68,11 +90,18 @@ export default function History() {
   const { meta, players, league } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
-  const [fr, setFr] = useState<Franchises | null>(null);
-  const [drafts, setDrafts] = useState<Drafts | null>(null);
-  const [trades, setTrades] = useState<Trade[] | null>(null);
   const [play, setPlay] = useState<Record<string, { m: Matchups; w: Weekly }> | null>(null);
-  const [err, setErr] = useState(false);
+
+  const frFile = useJson<Franchises>("franchises.json");
+  const fr = frFile.data;
+  const err = frFile.error;
+  // both are tolerated absences — the story just loses that column
+  const drafts = useJson<Drafts>("drafts.json").data;
+  const tradesFile = useJson<TradesPayload>("trades.json");
+  const trades = useMemo<Trade[] | null>(
+    () => (tradesFile.data ? readTrades(tradesFile.data).trades
+      : tradesFile.error ? [] : null),
+    [tradesFile.data, tradesFile.error]);
 
   /** seasons that have actually been played out (a finish exists) */
   const played = useMemo(() => {
@@ -82,20 +111,6 @@ export default function History() {
       for (const sn of f.seasons) if (sn.finish) s.add(sn.season);
     return [...s].sort();
   }, [fr]);
-
-  useEffect(() => {
-    let live = true;
-    Promise.all([
-      jl<Franchises>("franchises.json"),
-      jl<Drafts>("drafts.json").catch(() => null),
-      jl<TradesPayload>("trades.json").catch(() => null),
-    ]).then(([f, d, t]) => {
-      if (!live) return;
-      setFr(f); setDrafts(d);
-      setTrades(t ? readTrades(t).trades : []);
-    }).catch(() => { if (live) setErr(true); });
-    return () => { live = false; };
-  }, [league]);
 
   /** starters + weekly WAR, only for seasons that were played */
   useEffect(() => {
@@ -239,8 +254,85 @@ export default function History() {
     };
   }, [trades, stories]);
 
+  /**
+   * One registry, drawn once for every season's table below.
+   *
+   * Records mode (MOBILE.md M5) is what this board was missing: at ≤640px the
+   * `hm` class hid the manager and left the rest of an eight-column table to be
+   * squeezed into a phone. The roles say what each column becomes on the
+   * two-line record — the placing is the spine, the franchise the identity, the
+   * record the headline figure, and PPG, WAR and the move are the micros. Prev
+   * has no role and drops: the move already states it, and the full ladder is
+   * on the franchise page.
+   */
+  const cols = useMemo<Col<SeasonRow, Record<string, never>>[]>(() => [
+    {
+      id: "fin", label: "Fin", grp: 0, w: 6, align: "c", td: "spine-cell", role: "spine",
+      cell: (r, _x, i) => <>
+        <span className="spine" style={{ background: i < 4 ? "var(--acc)" : "var(--rule-2)" }} />
+        <span className={`rank${i ? "" : " top"}`}>{r.finish}</span>
+      </>,
+    },
+    {
+      // the row opens the franchise on click; the name is the anchor that gets
+      // a keyboard there and opens in a new tab. The champion's gold moves from
+      // the cell to the anchor inside it — DataTable owns the <td>, and
+      // `.blocklink` takes its own ink, so the painted text is unchanged.
+      id: "team", label: "Franchise", grp: 0, w: 26, align: "t", td: "t name",
+      role: "identity",
+      cell: (r, _x, i) => (
+        <RouteLink to={lp(`/franchise/${r.rid}`)} className="blocklink"
+          style={i ? undefined : { color: "var(--acc)" }}>
+          {r.name}
+        </RouteLink>
+      ),
+    },
+    {
+      // NOT flagged `hm`: a column that is loses its place on the record
+      // entirely, and the manager is the identity block's sub-line there. The
+      // class stays on the cell, which is all the desktop table ever used it
+      // for — below 640px this board is records, not a squeezed table.
+      id: "manager", label: "Manager", grp: 0, w: 14, align: "t", td: "t sub hm",
+      role: "sub", cell: r => r.manager,
+    },
+    {
+      id: "rec", label: "Record", grp: 1, w: 12, align: "n", edge: true, td: "n fig edge",
+      role: "headline", microKey: "Rec",
+      cell: r => `${r.wins}-${r.losses}${r.ties ? `-${r.ties}` : ""}`,
+    },
+    {
+      id: "ppg", label: "PPG", grp: 1, w: 11, align: "n", td: "n fig",
+      role: "micro", microKey: "PPG", cell: r => fmt(r.ppg, 1),
+    },
+    {
+      id: "war", label: "Lineup WAR", grp: 1, w: 12, align: "n", td: "n fig",
+      role: "micro", microKey: "WAR", cell: r => fmtWar(r.war),
+    },
+    {
+      id: "prev", label: "Prev", grp: 2, w: 9, align: "n", edge: true, td: "n fig edge",
+      cell: r => <span style={{ color: "var(--dim)" }}>{r.prev == null ? "—" : r.prev}</span>,
+    },
+    {
+      id: "move", label: "Move", grp: 2, w: 10, align: "n", td: "n fig strong",
+      role: "micro", microKey: "Move",
+      cell: r => {
+        const mv = r.prev == null ? null : r.prev - r.finish;
+        return (
+          <span style={{
+            color: mv == null ? "var(--dim3)"
+              : mv > 0 ? "var(--good)" : mv < 0 ? "var(--bad)" : "var(--dim)",
+          }}>
+            {mv == null ? "—" : mv === 0 ? "0" : `${mv > 0 ? "+" : "−"}${Math.abs(mv)}`}
+          </span>
+        );
+      },
+    },
+  ], [lp]);
+
   if (err) return <div className="empty">No league history yet.</div>;
-  if (!fr || !stories.length) return <div className="empty">Loading league history…</div>;
+  // trades gate the story too: it counts them per season, and painting before
+  // they land would show every year as having had none
+  if (!fr || !trades || !stories.length) return <div className="empty">Loading league history…</div>;
 
   return (
     <>
@@ -308,21 +400,19 @@ export default function History() {
               </button>
             </div>
 
-            {/* the year's verdict — prose over the figures beside it */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 18, padding: "16px var(--pad) 4px" }}>
+            {/* the year's verdict — prose over the figures beside it. `.feeds`
+                is the sheet's own two-panel row (auto-fit, 320px floor, 18px
+                gutter), the same pattern the League page and Insights pair
+                their modules with; the magic number lived inline here. */}
+            <div className="feeds" style={{ padding: "16px var(--pad) 4px" }}>
               <div className="panel" style={{ margin: 0, borderLeft: "3px solid var(--acc)" }}>
                 <div className="chart-label" style={{ color: "var(--acc)" }}>Champion</div>
                 {/* an anchor, not a div with a handler: the champion's name is
                     the panel's one navigation and has to be keyboard-reachable */}
-                <a className="blocklink" href={`#${lp(`/franchise/${s.champ.rid}`)}`}
-                  style={{ font: "700 34px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase" }}
-                  onClick={e => {
-                    if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                    e.preventDefault();
-                    nav(lp(`/franchise/${s.champ.rid}`));
-                  }}>
+                <RouteLink to={lp(`/franchise/${s.champ.rid}`)} className="blocklink"
+                  style={{ font: "700 34px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase" }}>
                   {s.champ.name}
-                </a>
+                </RouteLink>
                 <div style={{ font: "400 14px/1.4 var(--cond)", letterSpacing: ".1em", textTransform: "uppercase", color: "var(--dim)", marginTop: 5 }}>
                   {s.champ.manager} · {s.champ.wins}-{s.champ.losses}
                   {s.champ.ties ? `-${s.champ.ties}` : ""} · {fmt(s.champ.ppg, 1)} ppg
@@ -331,7 +421,7 @@ export default function History() {
                 <div style={{ display: "flex", marginTop: 14 }}>
                   <div className="figcell">
                     <div className="figkey">Lineup WAR</div>
-                    <div className="figval">{fmt(s.champ.war, 2)}</div>
+                    <div className="figval">{fmtWar(s.champ.war)}</div>
                     <div className="figsub">actual starters</div>
                   </div>
                   <div className="figcell">
@@ -348,7 +438,7 @@ export default function History() {
                         ? <PlayerLink pid={s.champ.topPid} name={pInfo(players, s.champ.topPid)[0]} />
                         : "—"}
                     </div>
-                    <div className="figsub">{s.champ.topWar != null ? `${fmt(s.champ.topWar, 2)} WAR` : ""}</div>
+                    <div className="figsub">{s.champ.topWar != null ? `${fmtWar(s.champ.topWar)} WAR` : ""}</div>
                   </div>
                 </div>
               </div>
@@ -380,7 +470,7 @@ export default function History() {
                         <span key={b.pid}>
                           {k ? ", " : ""}
                           <PlayerLink pid={b.pid} name={pInfo(players, b.pid)[0]} />
-                          {` (${fmt(b.war, 2)} WAR, drafted by ${b.from})`}
+                          {` (${fmtWar(b.war)} WAR, drafted by ${b.from})`}
                         </span>
                       ))}.
                     </p>
@@ -392,64 +482,13 @@ export default function History() {
               </div>
             </div>
 
-            <TScroll>
-              <table style={{ tableLayout: "fixed", marginTop: 10 }}
-                aria-label={`${s.season} final standings`}>
-                <thead>
-                  <tr>
-                    <th scope="col" className="c" style={{ width: "6%" }}>Fin</th>
-                    <th scope="col" className="t" style={{ width: "26%" }}>Franchise</th>
-                    <th scope="col" className="t hm" style={{ width: "14%" }}>Manager</th>
-                    <th scope="col" className="n edge" style={{ width: "12%" }}>Record</th>
-                    <th scope="col" className="n" style={{ width: "11%" }}>PPG</th>
-                    <th scope="col" className="n" style={{ width: "12%" }}>Lineup WAR</th>
-                    <th scope="col" className="n edge" style={{ width: "9%" }}>Prev</th>
-                    <th scope="col" className="n" style={{ width: "10%" }}>Move</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {s.rows.map((r, k) => {
-                    const mv = r.prev == null ? null : r.prev - r.finish;
-                    return (
-                      <tr key={r.rid} className={`click ${k % 2 ? "zebra" : ""}`}
-                        onClick={() => nav(lp(`/franchise/${r.rid}`))}>
-                        <td className="spine-cell">
-                          <span className="spine" style={{ background: k < 4 ? "var(--acc)" : "var(--rule-2)" }} />
-                          <span className={`rank${k ? "" : " top"}`}>{r.finish}</span>
-                        </td>
-                        {/* the row opens the franchise on click; the name is
-                            the anchor that gets a keyboard there, without the
-                            row becoming a second tab stop over it */}
-                        <td className="t name" style={k ? undefined : { color: "var(--acc)" }}>
-                          <a className="blocklink" href={`#${lp(`/franchise/${r.rid}`)}`}
-                            onClick={e => {
-                              e.stopPropagation();
-                              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                              e.preventDefault();
-                              nav(lp(`/franchise/${r.rid}`));
-                            }}>{r.name}</a>
-                        </td>
-                        <td className="t sub hm">{r.manager}</td>
-                        <td className="n fig edge">
-                          {r.wins}-{r.losses}{r.ties ? `-${r.ties}` : ""}
-                        </td>
-                        <td className="n fig">{fmt(r.ppg, 1)}</td>
-                        <td className="n fig">{fmt(r.war, 2)}</td>
-                        <td className="n fig" style={{ color: "var(--dim)" }}>
-                          {r.prev == null ? "—" : r.prev}
-                        </td>
-                        <td className="n fig strong last" style={{
-                          color: mv == null ? "var(--dim3)"
-                            : mv > 0 ? "var(--good)" : mv < 0 ? "var(--bad)" : "var(--dim)",
-                        }}>
-                          {mv == null ? "—" : mv === 0 ? "0" : `${mv > 0 ? "+" : "−"}${Math.abs(mv)}`}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </TScroll>
+            <div style={{ marginTop: 10 }}>
+              <DataTable cols={cols} groups={HIST_GROUPS} rows={s.rows} ctx={NO_CTX}
+                label={`${s.season} final standings`}
+                rowKey={r => String(r.rid)} sortId="" dir={-1} onSort={NO_SORT}
+                onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+                recordsOnMobile recordsClass="t3" />
+            </div>
           </div>
         );
       })}

@@ -1,4 +1,4 @@
-import type { PicksOwned, PickValues, Projection, Team } from "./types";
+import type { PickValues, Projection, Team } from "./types";
 import { DEFAULT_LINEUP, optimalLineup } from "./league";
 
 /**
@@ -7,40 +7,17 @@ import { DEFAULT_LINEUP, optimalLineup } from "./league";
  *  - `rosterShapes` — a franchise's optimal lineup and bench, ranked slot by
  *    slot against the league, in each of the two currencies (CVI and DVI).
  *    Consumed by the franchise page's strengths panel.
- *  - `computePostures` / `pickLabel` / `pickStream` — per-year window weights
- *    and rookie-pick streams. Consumed by the Trade Calculator.
+ *  - `pickStream` — a rookie pick's net option value as a three-year stream,
+ *    by tier and round. Consumed by the Trade Calculator.
  *
  * (`suggestTrades`, the marginal-lineup trade search, lived here until the
- * franchise page's "Suggested trades" card was removed — recover it from git
- * history if a trade-finder ever comes back.)
+ * franchise page's "Suggested trades" card was removed. `computePostures` and
+ * the contend/rebuild window weights it fed went the same way once the Trade
+ * Calculator stopped tilting by posture — recover either from git history.)
  */
 
-export const NEUTRAL: number[] = [1, 0.9, 0.81];   // no team context: pure decay
 /** round names for pick labels — TradeCalc used to carry its own copy */
 export const ROUND_ORD = ["1st", "2nd", "3rd", "4th"];
-
-/** weight for team-year n (0-based); beyond the horizon decay 0.9/yr */
-export const wAt = (w: number[], n: number) =>
-  n < w.length ? w[n] : w[w.length - 1] * 0.9 ** (n - w.length + 1);
-
-export interface Posture {
-  rid: number; name: string;
-  /** strength per team-year (lineup + owned picks' production) */
-  s: number[];
-  rankNow: number; status: string;
-  /** per-year window weights (normalized budget; tilt only) */
-  w: number[];
-  /** WAR-weighted average age of the current optimal lineup */
-  age: number | null;
-}
-
-export const tierFor = (postures: Posture[], orig: number) => {
-  const rk = postures.find(p => p.rid === orig)?.rankNow ?? 6;
-  return rk >= 9 ? "Early" : rk >= 5 ? "Mid" : "Late";
-};
-export const pickLabel = (postures: Posture[],
-  pk: { season: number; round: number; orig: number }) =>
-  `${pk.season} ${tierFor(postures, pk.orig)} ${ROUND_ORD[pk.round - 1]}`;
 
 const optStream = (pv: PickValues, label: string): number[] => {
   const b = pv.bands.find(x => x.label === label);
@@ -113,65 +90,6 @@ const poolOf = (t: Team, byPid: Map<string, Projection>): PoolP[] =>
   t.players.map(pid => byPid.get(pid))
     .filter((p): p is Projection => !!p)
     .map(p => ({ id: p.pid, pos: p.pos, comp: p.composite, age: p.age }));
-
-// waiver floor: no rational lineup starts a negative-composite player when
-// free agency offers ~0-WAR bodies, so lineup value clamps each starter at 0.
-// This also kills "addition by subtraction" trades — shipping away a bad
-// player gains nothing, because benching him was always free.
-const lwY = (pool: PoolP[], y: number) =>
-  optimalLineup(pool.map(p => ({ id: p.id, pos: p.pos, war: Math.max(0, p.comp[y] ?? 0) })))
-    .slots.reduce((a, s) => a + (s.player?.war ?? 0), 0);
-
-/** Per-franchise posture: strength per year = aged optimal lineup + owned
- *  picks' landed production (tiered by the original owner's projected finish).
- *  Each year is weighted by ABSOLUTE strength (+1 WAR liquidity floor) times
- *  0.9/yr uncertainty decay, normalized to a common budget — an aging #1
- *  tilts to now, an ascending rebuilder weights year 3 above year 1. */
-export function computePostures(players: Projection[], teams: Team[],
-  pv: PickValues, owned: PicksOwned | null, rosterSeason: number): Posture[] {
-  const byPid = new Map(players.map(p => [p.pid, p]));
-  const base = teams.map(t => ({ t, pool: poolOf(t, byPid) }));
-  const n = base.length;
-  const nowOf = new Map(base.map(b => [b.t.roster_id, lwY(b.pool, 0)]));
-  const rankNowOf = new Map([...nowOf.entries()].sort((a, b) => b[1] - a[1])
-    .map(([rid], i) => [rid, i + 1]));
-  const preTier = (orig: number) => {
-    const rk = rankNowOf.get(orig) ?? 6;
-    return rk >= 9 ? "Early" : rk >= 5 ? "Mid" : "Late";
-  };
-  const strength = (b: typeof base[number], y: number) => {
-    let s = lwY(b.pool, y - 1);
-    for (const pk of owned?.owned?.[String(b.t.roster_id)] ?? []) {
-      const k = (rosterSeason + y - 1) - pk.season;
-      if (k >= 0 && k <= 2)
-        s += pickStream(pv, preTier(pk.orig), pk.round)[k] ?? 0;
-    }
-    return s;
-  };
-  const lineupAge = (pool: PoolP[]) => {
-    const starters = optimalLineup(pool.map(p => ({ ...p, war: p.comp[0] ?? 0 })))
-      .slots.map(s => s.player).filter((p): p is NonNullable<typeof p> => !!p)
-      .filter(p => p.age != null);
-    const wt = starters.map(p => Math.max(0.1, p.war));
-    const tot = wt.reduce((a, b) => a + b, 0);
-    return tot ? starters.reduce((a, p, i) => a + p.age! * wt[i], 0) / tot : null;
-  };
-  const BUDGET = NEUTRAL.reduce((a, b) => a + b, 0);
-  return base.map(b => {
-    const rid = b.t.roster_id;
-    const s = [1, 2, 3].map(y => strength(b, y));
-    const raw = [0, 1, 2].map(y => (1 + Math.max(0, s[y])) * 0.9 ** y);
-    const k = BUDGET / raw.reduce((a, x) => a + x, 0);
-    const rankNow = rankNowOf.get(rid)!;
-    return {
-      rid, name: b.t.team.trim(), s: s.map(x => Math.round(x * 100) / 100),
-      rankNow,
-      status: rankNow <= 4 ? "contender" : rankNow <= 8 ? "middling" : "rebuilding",
-      w: raw.map(x => Math.round(x * k * 100) / 100),
-      age: lineupAge(b.pool),
-    };
-  }).sort((a, b) => a.name.localeCompare(b.name));
-}
 
 const STRENGTH_POS = ["QB", "RB", "WR", "TE"];
 

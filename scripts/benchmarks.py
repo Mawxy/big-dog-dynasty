@@ -26,11 +26,16 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from leaguepaths import DataDir                      # noqa: E402
+# The crawl's own layout rather than a second copy of it. This file merges
+# counters the crawler emitted: a slot it does not know about is a slot silently
+# dropped, and a LEAGUE_YEAR_CAP below the crawler's silently drops every deeper
+# league-year — neither failure shows up anywhere except in the published rates.
+from crawl_schema import LEAGUE_YEAR_CAP, LINEUP_SLOTS   # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
-SLOTS = ["qb1", "qb2", "rb1", "rb2", "wr1", "wr2", "wr3", "te1"]
+# counter names are lowercase (champ_qb1_war_sum); the published label is not
+SLOTS = [f"{p.lower()}{n}" for p, n in LINEUP_SLOTS]
 MIN_N = 20            # below this a rate is noise and publishes null
-LEAGUE_YEAR_CAP = 8
 
 
 def merge(patterns):

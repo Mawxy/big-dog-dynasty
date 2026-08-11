@@ -60,11 +60,14 @@ Usage: python scripts/project_matrix.py
 Output: data/<league>/projections_matrix.json
 """
 import argparse
+import datetime
 import json
 import statistics
+import sys
 from collections import defaultdict
 from pathlib import Path
 
+from ioutil import atomic_write
 from leaguepaths import DataDir
 from project_war import BLEND_W, composite_path
 
@@ -117,6 +120,21 @@ SLEEPER_GATE = "none"
 PTS13_FLOOR = 25.0   # `hard` cutoff / `taper` lower end
 PTS13_FULL = 128.0   # `taper` upper end: the pts->WAR zero crossing
 
+# THE TWO ARMS DO NOT REFRESH ON THE SAME CADENCE.
+#
+# projections.json is rebuilt every night by data-refresh.yml.
+# projections_knn_hybrid.json is not rebuilt by ANY workflow — nothing runs
+# project_war_knn.py on a schedule, so the analog arm is exactly as fresh as the
+# last time someone ran it by hand. This file blends the two, and a stale analog
+# leg is invisible in the output: the six curves still render, still disagree,
+# still read as two live opinions about the same season.
+#
+# A one-day lag is structural, not a fault — the scalar arm regenerates nightly
+# and the analog one cannot. STALE_DAYS is where a lag stops being the cadence
+# and starts being neglect. A seed-season mismatch is reported at any size: that
+# is not lag, it is the two arms projecting forward from different histories.
+STALE_DAYS = 7
+
 
 def sleeper_scale(pts13, gate=None):
     """How much of Sleeper's weight this projection earns, in [0, 1]."""
@@ -141,6 +159,66 @@ def trust_of(k, d_ref):
     return t * PAD_PENALTY if k.get("padded") else t
 
 
+def _as_date(s):
+    try:
+        return datetime.date.fromisoformat(str(s)[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def check_arm_freshness(scalar_meta, knn_meta, knn_path):
+    """Report how far the analog arm trails the scalar one. See STALE_DAYS.
+
+    The two files do not carry the same stamps, so this compares what is
+    comparable: `seed_season` is on both, and is the honest one — it says which
+    season each arm projected FORWARD from. Dates are messier. projections.json
+    stamps `generated`; the knn writer stamps none at all, so its file mtime
+    stands in. That is imperfect (a fresh clone rewrites every mtime) which is
+    exactly why a mtime lag needs STALE_DAYS to fire while a seed mismatch does
+    not.
+
+    Warning only, on stderr, and never fatal: a stale analog arm is still an
+    arm, and taking the nightly run down over it would remove six curves to
+    complain that two of them are old.
+    """
+    scalar_seed, knn_seed = scalar_meta.get("seed_season"), knn_meta.get("seed_season")
+    scalar_gen = _as_date(scalar_meta.get("generated"))
+    knn_gen, knn_src = _as_date(knn_meta.get("generated")), "generated"
+    if knn_gen is None:
+        knn_src = "mtime"           # the analog file stamps no generation date
+        try:
+            knn_gen = datetime.date.fromtimestamp(Path(knn_path).stat().st_mtime)
+        except OSError:
+            knn_gen = None
+    print(f"  arms: scalar seed {scalar_seed}, generated {scalar_gen} · "
+          f"analog seed {knn_seed}, {knn_src} {knn_gen}")
+
+    why = []
+    if scalar_seed and knn_seed and knn_seed < scalar_seed:
+        why.append(f"SEED SEASON: scalar projects from {scalar_seed}, analog from "
+                   f"{knn_seed} — the arms are reading different histories")
+    lag = (scalar_gen - knn_gen).days if scalar_gen and knn_gen else None
+    if lag is not None and lag >= STALE_DAYS:
+        why.append(f"AGE: analog arm is {lag} days behind the scalar arm "
+                   f"({knn_gen} by {knn_src} vs {scalar_gen})")
+    if not why:
+        return False
+    bar = "!" * 78
+    print(f"\n{bar}", file=sys.stderr)
+    print("!! STALE ANALOG ARM — data/projections_knn_hybrid.json is out of date.",
+          file=sys.stderr)
+    for w in why:
+        print(f"!!   {w}", file=sys.stderr)
+    print("!! No workflow refreshes that file; project_war_knn.py is hand-run only.",
+          file=sys.stderr)
+    print("!! Every analog_* and blend_* curve below is built on the old numbers,",
+          file=sys.stderr)
+    print("!! blended against a scalar arm rebuilt last night. Rerun it.",
+          file=sys.stderr)
+    print(f"{bar}\n", file=sys.stderr)
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="projections_matrix.json")
@@ -151,8 +229,11 @@ def main():
         SLEEPER_GATE = args.sleeper_gate
 
     scalar = json.loads((DATA / "projections.json").read_text())
-    knnf = json.loads((DATA / "projections_knn_hybrid.json").read_text())
+    knn_path = DATA / "projections_knn_hybrid.json"
+    knnf = json.loads(knn_path.read_text())
     sproj = json.loads((DATA / "proj_sleeper.json").read_text())["players"]
+    # before anything else: is the arm this file blends in actually current?
+    check_arm_freshness(scalar.get("meta") or {}, knnf.get("meta") or {}, knn_path)
     # NOTE: pts_to_war is deliberately not read here. Converting Sleeper's
     # points to WAR is project_war.py's job and its output is taken as given.
     # The corpus->league rescale this file briefly applied is gone everywhere —
@@ -261,7 +342,7 @@ def main():
         "players": rows,
     }
     dest = DATA / args.out
-    dest.write_text(json.dumps(out, separators=(",", ":")) + "\n")
+    atomic_write(dest, json.dumps(out, separators=(",", ":")) + "\n")
 
     tv = [r["trust"] for r in rows if r["trust"] is not None]
     print(f"wrote {dest} · {len(rows)} players")

@@ -22,7 +22,7 @@ skipped until its per-mode timestamp is older than --cooldown-days, so repeated
 
 Seeds (signals): the Big Dog Dynasty chain, 2022-2026.
 """
-import argparse, csv, datetime, hashlib, json, os, re, sys, tempfile, time, urllib.error, urllib.request
+import argparse, csv, datetime, hashlib, json, re, sys, time
 from collections import defaultdict, deque
 from pathlib import Path
 
@@ -31,17 +31,15 @@ from pathlib import Path
 from franchise_players import ELITE_BAR, FRANCHISE_BAR, MIN_SEASONS as MIN_FRANCHISE_SEASONS
 # season dirs live under data/leagues/<founding_id>/<season>/, not data/<season>
 from leaguepaths import DataDir
+# the corpus row layout and the lineup slots it prices — shared with
+# benchmarks.py and slot_value.py so a column can only be added in one place
+from crawl_schema import LEAGUE_YEAR_CAP, LINEUP_SLOTS, ROW_FIELDS, SLOT_FIELDS
+import sleeper_http
+from ioutil import write_json
 
 ROOT = Path(__file__).resolve().parent.parent
-BASE = "https://api.sleeper.app/v1"
-# Identify the crawler to Sleeper. The default urllib agent is anonymous and
-# indistinguishable from a scraper, which is a bad thing to be when you make
-# six figures of calls a day against a free API — same string style as
-# fetch_values.py.
-UA = {"User-Agent": "big-dog-dynasty-warboard/2.0 (github.com/Mawxy/big-dog-dynasty)"}
-DELAY = 0.12
-RETRIES = 3
-RATE_LIMIT_TRIES = 10
+DELAY = 0.12               # this crawler paces itself harder than the one-shot
+                           # scripts: it makes six figures of calls a day
 STARTUP_MIN_ROUNDS = 10
 CHECKPOINT_EVERY = 250
 PLAYERS_CACHE_V = 1        # bump when a field is added to the shared player map
@@ -63,41 +61,24 @@ DEFAULT_SEEDS = ["1312221243742621696", "1180090288907112448",
 _calls = 0
 
 
-def get(path):
+def _count():
+    """One call attempt, for the rate line in hb(). Counts ATTEMPTS, not gets —
+    a retried request really did hit Sleeper twice."""
     global _calls
-    url = path if path.startswith("http") else BASE + path
-    attempt = rate_hits = 0
-    while True:
-        try:
-            time.sleep(DELAY)
-            _calls += 1
-            with urllib.request.urlopen(
-                    urllib.request.Request(url, headers=UA), timeout=30) as r:
-                body = r.read().decode("utf-8")
-            return json.loads(body) if body and body != "null" else None
-        except urllib.error.HTTPError as e:
-            if e.code == 404:
-                return None
-            if e.code == 429:
-                rate_hits += 1
-                if rate_hits >= RATE_LIMIT_TRIES:
-                    raise RuntimeError(f"rate-limited {rate_hits}x, giving up: {url}")
-                time.sleep(30)
-                continue
-            attempt += 1
-            if attempt >= RETRIES:
-                raise
-            time.sleep(2 ** attempt)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
-            # JSONDecodeError is retryable, not fatal: a connection cut
-            # mid-body reads as valid HTTP and unparseable JSON, and without
-            # it the caller's `except Exception` skips the whole league for
-            # what is a transport blip. The other two Sleeper clients already
-            # retry it (their handlers are bare `except Exception`).
-            attempt += 1
-            if attempt >= RETRIES:
-                raise
-            time.sleep(2 ** attempt)
+    _calls += 1
+
+
+def get(path):
+    """Shared Sleeper client on THIS crawler's policy.
+
+    NARROW retry is deliberate and not a candidate for the broad default: only
+    transport-shaped failures earn another attempt, so an unexpected bug in the
+    crawl surfaces as a skipped league instead of three silent retries.
+    JSONDecodeError is in that set because a connection cut mid-body reads as
+    valid HTTP and unparseable JSON — a blip, not a dead resource.
+    """
+    return sleeper_http.get(path, delay=DELAY, retry=sleeper_http.NARROW,
+                            on_request=_count)
 
 
 def shard_of(lid, nshards):
@@ -154,26 +135,15 @@ def jload(p, default):
 
 
 def jdump(p, obj):
-    """Write through a temp file in the same directory, then os.replace.
+    """Atomic JSON write — see ioutil.write_json.
 
     Every file this writes is read back — state on the next run, outputs by
     benchmarks.py and the site — and this crawler is *routinely* killed
     mid-write: the job timeout, a cancelled run and a rate-limit abort all land
-    while a multi-megabyte flush is in flight. A bare write_text truncates in
-    place, so the next run starts from unparseable state or the commit step
-    publishes half a corpus. os.replace is atomic on POSIX and on Windows when
-    both paths share a volume, which a same-directory temp file guarantees.
+    while a multi-megabyte flush is in flight. That is the case the shared
+    writer exists for, and it is why every other producer now uses it too.
     """
-    p = Path(p)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix=p.name + ".", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            json.dump(obj, fh)
-        os.replace(tmp, p)
-    except BaseException:
-        Path(tmp).unlink(missing_ok=True)
-        raise
+    write_json(p, obj)
 
 
 def git_push(paths, message):
@@ -268,16 +238,6 @@ def _last(name):
     n = (name or "").lower().replace(".", "").replace("'", "").replace("-", " ")
     n = re.sub(r"\s+(jr|sr|ii|iii|iv|v)$", "", n.strip())
     return (n.split() or [""])[-1]
-
-
-# Lineup slots priced on a championship roster. Mirrors ROSTER_POSITIONS
-# (QB, RB, RB, WR, WR, WR, TE, FLEX, SUPER_FLEX): QB2 is the superflex slot.
-# Slot n = the roster's nth-best player at that position by THAT season's WAR,
-# which prices the lineup a manager could actually field rather than the one he
-# did — the same "best legal lineup" convention the rest of the board uses.
-LINEUP_SLOTS = [("QB", 1), ("QB", 2), ("RB", 1), ("RB", 2),
-                ("WR", 1), ("WR", 2), ("WR", 3), ("TE", 1)]
-SLOT_FIELDS = [f"{p.lower()}{n}_war" for p, n in LINEUP_SLOTS]
 
 
 def slot_wars(players, wars, season):
@@ -1044,20 +1004,12 @@ def mode_outcomes(args, t0):
           file=sys.stderr, flush=True)
 
 
-# roster row layout, so a consumer never indexes by magic number
-ROW_FIELDS = ["rid", "wins", "losses", "fpts",
-              "held_r1", "held_r2", "held_r3", "held_r4",
-              "kept_own_1st", "homegrown_n", "roster_n", "place",
-              "qb", "rb", "wr", "te", "exp_sum", "exp_n",
-              # THAT season: cleared the starter bar / the elite bar within it
-              "start_qb", "start_rb", "start_wr", "start_te",
-              "elite_qb", "elite_rb", "elite_wr", "elite_te",
-              # CAREER: already had 3 qualifying seasons by then
-              "fran_qb", "fran_rb", "fran_wr", "fran_te"] + SLOT_FIELDS
+# ROW_FIELDS / SLOT_FIELDS / LINEUP_SLOTS / LEAGUE_YEAR_CAP now live in
+# crawl_schema.py, imported at the top and re-exported by that import: every
+# consumer of this corpus reads the layout from one file instead of restating it.
 ELITE_CAP = 3            # 3 means "3 or more" — deeper buckets are too thin
 F = {name: i for i, name in enumerate(ROW_FIELDS)}
 TURN_HORIZON = 5          # seasons to look ahead from a bottom-third finish
-LEAGUE_YEAR_CAP = 8       # year 8+ pooled: chains that deep are a handful
 
 
 def summarize_outcomes(rows, shard, nshards):

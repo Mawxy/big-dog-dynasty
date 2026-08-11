@@ -21,6 +21,9 @@ its floor is part of that change.
 import argparse, json, sys
 from pathlib import Path
 from leaguepaths import DataDir
+# the eight lineup slots, from the crawler's own schema — a validator that
+# restated them would pass a file whose slots had been renamed underneath it
+from crawl_schema import LEAGUE_YEAR_CAP, SLOT_NAMES
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -53,7 +56,23 @@ FLOORS = {
     # season legitimately prices only a handful, and a floor per season would
     # fire on week 1 rather than on a gutted run. Currently 66.
     "odds_weeks": 40,
+    # Cross-league crawl outputs. These are merged COUNTERS, so the denominators
+    # only ever grow as the crawl reaches more leagues — a floor here is not
+    # tracking a moving target, it is catching a merge that read no shards.
+    # 2026-08: benchmarks league_seasons 61431, champions 61431, rosters 311383.
+    # Floors sit two orders of magnitude below that: one shard's worth of a bad
+    # run still clears them, a merge over zero parseable shards does not.
+    "benchmark_seasons": 500,
+    "benchmark_rosters": 2000,
+    # slot_values.json is hand-run (no workflow writes it), so it is validated
+    # only when present. Its own corpus is the same one benchmarks merges.
+    "slot_value_seasons": 500,
 }
+
+# Sane bounds for a published WAR figure. A lineup slot's median WAR runs 0.46
+# (WR3, field) to 1.41 (QB1, champion) today; nothing legitimate lands outside
+# this, and a gutted or mis-indexed corpus lands far outside it.
+WAR_RANGE = (-5.0, 10.0)
 
 
 def fail(msg):
@@ -127,6 +146,103 @@ def check_pick_values():
             if not n.get(str(k)):
                 fail(f"pick_values.json {b}: year {k} is published with "
                      f"{n.get(str(k))} observations")
+
+
+def _num(v, lo, hi, what):
+    """A published number must BE a number and sit in range. None is allowed —
+    every figure in these files publishes null rather than a thin estimate."""
+    if v is None:
+        return
+    if not isinstance(v, (int, float)) or isinstance(v, bool):
+        fail(f"{what} is {v!r}, not a number")
+    if not lo <= v <= hi:
+        fail(f"{what} is {v} (outside {lo}..{hi})")
+
+
+def check_benchmarks():
+    """data/benchmarks.json — the cross-league Insights tab.
+
+    Committed by the outcomes crawl, whose commit step only checks that the file
+    PARSES. An empty merge parses perfectly: benchmarks.py reads no shards, every
+    counter defaults to 0, and it writes a full-shaped document in which every
+    rate is null. That is the failure this catches, so the checks are structural
+    (the keys and slots the site indexes) plus denominators that a real merge
+    cannot be without.
+    """
+    b = jload(DATA / "benchmarks.json")
+    for k in ("meta", "slots", "construction", "picks", "by_league_year", "playoffs"):
+        if not b.get(k):
+            fail(f"benchmarks.json has no {k}")
+    meta = b["meta"]
+    floor("benchmark_seasons", meta.get("league_seasons") or 0)
+    floor("benchmark_seasons", meta.get("champions") or 0)
+    floor("benchmark_rosters", meta.get("rosters") or 0)
+
+    got = [s.get("slot") for s in b["slots"]]
+    if got != SLOT_NAMES:
+        fail(f"benchmarks.json slots are {got}, expected {SLOT_NAMES}")
+    for s in b["slots"]:
+        for scope in ("champ", "field"):
+            cell = s.get(scope) or {}
+            if "v" not in cell:
+                fail(f"benchmarks.json slot {s['slot']} has no {scope} value")
+            _num(cell["v"], *WAR_RANGE, what=f"benchmarks.json {s['slot']}.{scope}")
+
+    # roster construction: every position counted, on both sides of the split
+    for pos in ("qb", "rb", "wr", "te"):
+        for scope in ("champ", "field"):
+            cell = (b["construction"].get(pos) or {}).get(scope) or {}
+            _num(cell.get("v"), 0, 40, f"benchmarks.json construction.{pos}.{scope}")
+    for scope in ("champ", "field"):
+        cell = (b["construction"].get("homegrown") or {}).get(scope) or {}
+        _num(cell.get("v"), 0, 1, f"benchmarks.json construction.homegrown.{scope}")
+
+    # league years 1..CAP, contiguous — the site reads them as a series, and a
+    # gap or a short tail is exactly what a cap drifting out of step looks like
+    years = [y.get("year") for y in b["by_league_year"]]
+    if years != list(range(1, LEAGUE_YEAR_CAP + 1)):
+        fail(f"benchmarks.json by_league_year years {years}, expected "
+             f"1..{LEAGUE_YEAR_CAP} — did LEAGUE_YEAR_CAP drift?")
+    for row in b["by_league_year"]:
+        for scope in ("champ", "field"):
+            _num((row.get(scope) or {}).get("v"), 0, 1,
+                 f"benchmarks.json y{row['year']}.{scope} homegrown share")
+
+
+def check_slot_values():
+    """data/slot_values.json — lineup-slot pricing, the analogue of Bridge A.
+
+    NOT required. slot_value.py is hand-run against a gitignored crawl corpus;
+    no workflow produces this file, so on a clean checkout there is nothing to
+    check and its absence is normal rather than a gutted run. When it IS there it
+    gets the same structural floors as pick_values.json.
+    """
+    f = DATA / "slot_values.json"
+    if not f.exists():
+        return
+    sv = jload(f)
+    meta, slots = sv.get("meta") or {}, sv.get("slots") or []
+    floor("slot_value_seasons", meta.get("league_seasons") or 0)
+    got = [s.get("bucket") for s in slots]
+    if got != SLOT_NAMES:
+        fail(f"slot_values.json buckets are {got}, expected {SLOT_NAMES}")
+    for s in slots:
+        b = s["bucket"]
+        if not s.get("pos"):
+            fail(f"slot_values.json {b} has no position")
+        _num(s.get("bar"), *WAR_RANGE, what=f"slot_values.json {b}.bar")
+        for scope in ("all", "champ", "field"):
+            if scope not in (s.get("n") or {}):
+                fail(f"slot_values.json {b} has no {scope} count")
+            _num((s.get("raw") or {}).get(scope), *WAR_RANGE,
+                 what=f"slot_values.json {b}.raw.{scope}")
+            _num((s.get("hit_rate") or {}).get(scope), 0, 1,
+                 what=f"slot_values.json {b}.hit_rate.{scope}")
+        # `all` is every roster-season, so it can never be thinner than a subset
+        n = s.get("n") or {}
+        if n.get("all", 0) < max(n.get("champ", 0), n.get("field", 0)):
+            fail(f"slot_values.json {b}: n.all {n.get('all')} is smaller than "
+                 f"champ {n.get('champ')} / field {n.get('field')}")
 
 
 def check_odds(sd, weeks_seen, scored):
@@ -222,6 +338,8 @@ def check_full():
     floor("cvi", len(jload(DATA / "cvi.json").get("players") or {}))
     floor("odds_weeks", odds_weeks)
     check_pick_values()
+    check_benchmarks()
+    check_slot_values()
     check_values()
 
 

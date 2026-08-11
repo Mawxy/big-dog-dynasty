@@ -27,7 +27,11 @@ Output: data/projections.json + diagnostics.
 import argparse, csv, datetime, json, math, re, statistics
 from collections import defaultdict
 from pathlib import Path
+from ioutil import atomic_write
 from leaguepaths import DataDir
+# one nickname table for the whole repo — it had drifted between here and
+# pick_value.py, which is a join that works in one file and not the other
+from names import NICK
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -61,9 +65,6 @@ def prior_weight(exp, level):
     base = max(0.0, min(0.5, (4 - exp) / 6.0))
     proven = max(0.0, min(1.0, (level - 0.5) / 0.7))
     return base * (1 - proven)
-NICK = {'cam': 'cameron', 'tank': 'nathaniel', 'joe': 'joseph', 'trevor': 'william',
-        'matt': 'matthew', 'josh': 'joshua', 'ken': 'kenneth', 'mike': 'michael',
-        'gabe': 'gabriel', 'chig': 'chigoziem'}
 DEFAULT_AGE = {"QB": 28, "RB": 25, "WR": 26, "TE": 27}
 ROOKIE_AGE = 22                     # typical age on Sep 1 of a player's draft year;
                                     # used when birthdate is unknown but draft class is
@@ -210,13 +211,6 @@ def group_for(groups, age):
     return groups[-1] if groups else None
 
 
-def tier_of(pick, tiers):
-    for label, lo, hi in tiers:
-        if lo <= pick <= hi:
-            return label
-    return "udfa"
-
-
 def wlevel(rates, gps, upto):
     """recency-weighted per-13 rate over upto, upto-1, upto-2, softened by
     sqrt(games): short seasons count less than full ones, but rate dominates."""
@@ -228,11 +222,6 @@ def wlevel(rates, gps, upto):
         w = rw * min(gps.get(upto - k, 0), FULL_GP) ** 0.5
         num += w * rt; den += w
     return (num / den, den) if den else (None, 0.0)
-
-
-def depth_of(gps, upto):
-    return sum(min(gps.get(upto - k, 0), FULL_GP) / FULL_GP for k in range(3)
-               if gps.get(upto - k))
 
 
 def main():
@@ -516,7 +505,7 @@ def main():
     }, 'players': rows}
     # compact separators: the site fetches this on the landing page and
     # indentation was 40% of its bytes
-    (DATA / args.out).write_text(json.dumps(out, separators=(',', ':')), encoding='utf-8')
+    atomic_write(DATA / args.out, json.dumps(out, separators=(',', ':')))
 
     print(f"seed {seed}  rosters {roster_season}  projected {len(rows)}  "
           f"skipped no-history {skipped}  age-default {age_def}  "

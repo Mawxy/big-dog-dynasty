@@ -35,6 +35,14 @@ def build_slot_maps(seasons, raw: Path, load=_load, warn=print):
         if not drafts:
             continue
         d = drafts[0]
+        # drafts[0] is the whole story only while a season has one draft, which
+        # every Big Dog season has. A supplemental draft would sit at [1] with
+        # its own draft_order and be dropped in silence, so the slot map would
+        # quietly describe the wrong seating for that season.
+        if len(drafts) > 1:
+            warn(f"  ! {s}: {len(drafts)} drafts found; slot map built from "
+                 f"{d.get('draft_id')} only, ignoring "
+                 f"{', '.join(str(x.get('draft_id')) for x in drafts[1:])}")
         own = {r.get("owner_id"): r["roster_id"] for r in rosters}
         m = {own[u]: slot for u, slot in (d.get("draft_order") or {}).items() if u in own}
         for (fs, frid), slot in SLOT_FIX.items():           # known vacant seats

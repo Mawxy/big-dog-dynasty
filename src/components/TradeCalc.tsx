@@ -1,9 +1,9 @@
-import { useEffect, useId, useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import type { CviFile, DviFile, PicksOwned, PickValues, ProjectionsFile } from "../lib/types";
-import { jl, jlDaily } from "../lib/data";
-import { fmt, sgn } from "../lib/stats";
+import { useJson } from "../lib/useJson";
+import { fmt, sgn, sgnWar, WAR_DP } from "../lib/stats";
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
-import { POS_COLOR } from "../lib/league";
+import { LEAGUE_TEAMS, POS_COLOR } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
@@ -30,24 +30,18 @@ export default function TradeCalc() {
   // MOBILE.md M7 — baskets stack and each asset is a two-line record with its
   // figures named; each basket closes with its own labeled total band
   const mobile = useMobile();
-  const [proj, setProj] = useState<ProjectionsFile | null>(null);
-  const [pv, setPv] = useState<PickValues | null>(null);
-  const [owned, setOwned] = useState<PicksOwned | null>(null);
-  const [dvi, setDvi] = useState<DviFile | null>(null);
-  const [cvi, setCvi] = useState<CviFile | null>(null);
   // keys, not Asset snapshots: an asset added before the index files resolve
   // re-resolves against the live options each render, so late loads fill in
   const [sideKeys, setSideKeys] = useState<[string[], string[]]>([[], []]);
 
-  useEffect(() => {
-    jl<ProjectionsFile>("projections.json").then(setProj).catch(() => {});
-    // jlDaily, NOT jl: Draft.tsx fetches this file via jlDaily and the cache
-    // keys on the path string — a bare jl here made two 1.4 MB downloads
-    jlDaily<PickValues>("pick_values.json").then(setPv).catch(() => {});
-    jl<PicksOwned>("picks_owned.json").then(setOwned).catch(() => {});
-    jlDaily<DviFile>("dvi.json").then(setDvi).catch(() => {});
-    jlDaily<CviFile>("cvi.json").then(setCvi).catch(() => {});
-  }, []);
+  const proj = useJson<ProjectionsFile>("projections.json").data;
+  // the daily scope, NOT the plain one: Draft.tsx reads this file on the daily
+  // cache-bust and the cache keys on the finished path — a mismatch here made
+  // two 1.4 MB downloads
+  const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
+  const owned = useJson<PicksOwned>("picks_owned.json").data;
+  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
+  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
 
   const options = useMemo<Asset[]>(() => {
     if (!proj) return [];
@@ -66,7 +60,7 @@ export default function TradeCalc() {
       const sum = (s: number[]) => s.reduce((a, x) => a + x, 0);
       // current-year picks: every exact slot; Bridge A knows each one
       for (let r = 0; r < 4; r++)
-        for (let s = 1; s <= 12; s++) {
+        for (let s = 1; s <= LEAGUE_TEAMS; s++) {
           const bucket = `${r + 1}.${String(s).padStart(2, "0")}`;
           const tier = TIERS[Math.min(2, Math.floor((s - 1) / 4))];
           out.push({
@@ -121,7 +115,7 @@ export default function TradeCalc() {
     if (!any) return "Add players or picks to each side. Every asset is priced in dynasty index points, win-now index points, and projected 3-year WAR.";
     const lean = (d: number, unit: string, what: string) =>
       Math.abs(d) < 0.05 ? `the two sides are even on ${what}`
-        : `Side ${d > 0 ? "A" : "B"} sends ${fmt(Math.abs(d), unit === "WAR" ? 2 : 1)} more ${what}`;
+        : `Side ${d > 0 ? "A" : "B"} sends ${fmt(Math.abs(d), unit === "WAR" ? WAR_DP : 1)} more ${what}`;
     const pickNote = tA.picks + tB.picks > 0
       ? " Picks carry projected WAR from the pick-value bridge but no index points until they convert to a player."
       : "";
@@ -170,7 +164,7 @@ export default function TradeCalc() {
                   <span className="mic"><span className="mk">CVI</span>
                     <span className="mv">{a.cvi == null ? <span className="quiet">—</span> : fmt(a.cvi, 1)}</span></span>
                   <span className="mic"><span className="mk">Proj WAR</span>
-                    <span className="mv">{sgn(a.war, 2)}</span></span>
+                    <span className="mv">{sgnWar(a.war)}</span></span>
                 </div>
               </div>
             ))}
@@ -178,7 +172,7 @@ export default function TradeCalc() {
             <div className="band">
               <span className="band-label">Total</span>
               <span className="band-note">
-                DVI {fmt(t.dvi, 1)} · CVI {fmt(t.cvi, 1)} · WAR {sgn(t.war, 2)}
+                DVI {fmt(t.dvi, 1)} · CVI {fmt(t.cvi, 1)} · WAR {sgnWar(t.war)}
               </span>
             </div>
           </div>
@@ -201,14 +195,14 @@ export default function TradeCalc() {
                 <tr key={a.key} className={k % 2 ? "zebra" : ""}>
                   <td className="c">{a.kind === "player"
                     ? <PosBadge pos={a.pos!} />
-                    : <span className="pos PICK">PICK</span>}</td>
+                    : <PosBadge pos="PICK" />}</td>
                   <td className="t name" style={{ whiteSpace: "normal" }}>
                     {a.kind === "player" ? <PlayerLink pid={a.pid!} name={a.label} /> : a.label}
                   </td>
                   <td className="n fig quiet">{a.age ?? "—"}</td>
                   <td className="n fig edge">{a.dvi == null ? "—" : fmt(a.dvi, 1)}</td>
                   <td className="n fig">{a.cvi == null ? "—" : fmt(a.cvi, 1)}</td>
-                  <td className="n fig strong edge">{sgn(a.war, 2)}</td>
+                  <td className="n fig strong edge">{sgnWar(a.war)}</td>
                   <td className="c">
                     <span style={{ color: "var(--dim)", cursor: "pointer" }} title="remove"
                       onClick={() => remove(i, a.key)}>×</span>
@@ -221,7 +215,7 @@ export default function TradeCalc() {
                 <td className="n"></td>
                 <td className="n edge"><span className="head-fig sm">{fmt(t.dvi, 1)}</span></td>
                 <td className="n"><span className="head-fig sm">{fmt(t.cvi, 1)}</span></td>
-                <td className="n edge"><span className="head-fig sm">{sgn(t.war, 2)}</span></td>
+                <td className="n edge"><span className="head-fig sm">{sgnWar(t.war)}</span></td>
                 <td className="c"></td>
               </tr>
             </tbody>
@@ -265,7 +259,7 @@ export default function TradeCalc() {
           </div>
           <div>
             <div className="figkey">Proj WAR Δ · A − B</div>
-            <div className="figval">{any ? sgn(tA.war - tB.war, 2) : "—"}</div>
+            <div className="figval">{any ? sgnWar(tA.war - tB.war) : "—"}</div>
             <div className="figsub">3-year composite WAR</div>
           </div>
         </div>
@@ -344,7 +338,7 @@ function AssetSearch({ options, taken, onPick, placeholder }: {
                 {o.kind === "player" ? o.pos : "PICK"}
               </span>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{o.label}</span>
-              <span style={{ marginLeft: "auto", color: "var(--dim)", fontSize: 12 }}>{sgn(o.war, 2)}</span>
+              <span style={{ marginLeft: "auto", color: "var(--dim)", fontSize: 12 }}>{sgnWar(o.war)}</span>
             </div>
           ))}
         </div>

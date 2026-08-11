@@ -4,9 +4,10 @@ import type {
   Absences, CviFile, DviFile, KnnFile, KnnProjection, MatrixFile, MatrixModel,
   MatrixRow, Ownership, PlayerShard, SummaryRow, Team, Values, Weekly, WeeklyRow,
 } from "../lib/types";
-import { jDaily, jl, jlDaily } from "../lib/data";
-import { fmt, mean } from "../lib/stats";
-import { pInfo, POS_COLOR, rosterSeasonOf } from "../lib/league";
+import { jl } from "../lib/data";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar, sgnWar, mean } from "../lib/stats";
+import { latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import PosBadge from "../components/PosBadge";
 import TScroll from "../components/TScroll";
@@ -20,6 +21,10 @@ import {
 
 const num = (n: number) => n.toLocaleString("en-US");
 const WINDOWS = ["7", "14", "30"] as const;
+/** stable empty stand-ins, so a not-yet-loaded file doesn't hand every memo a
+ *  fresh object literal on each render */
+const NO_OWNERSHIP: Ownership = {};
+const NO_ABSENCES: Record<string, string> = {};
 
 /** The projection streams, restored as a lens. Every one is a full 3-year path
  *  in projections.json; the control picks which is the headline and whose 80%
@@ -62,13 +67,8 @@ export default function Player({ pid }: { pid: string }) {
   const { meta, players, league } = useLeague();
   const nav = useNavigate();
   const [shard, setShard] = useState<PlayerShard | null | undefined>(undefined);
-  const [dvi, setDvi] = useState<{ dvi: number; rank: number; pos_rank: number } | null>(null);
-  const [cvi, setCvi] = useState<{ cvi: number; rank: number; pos_rank: number } | null>(null);
-  const [own, setOwn] = useState<Ownership>({});
   const [wks, setWks] = useState<WeeklyRow[] | null>(null);
-  const [abs, setAbs] = useState<Record<string, string>>({});
-  const [teams, setTeams] = useState<Team[] | null>(null);
-  const [vals, setVals] = useState<Values | null>(null);
+  const [abs, setAbs] = useState<Record<string, string>>(NO_ABSENCES);
   /** league-season WAR by year — the ladder fallback when there's no shard */
   const [leagueCareer, setLeagueCareer] = useState<[number, number][] | null>(null);
   /** which projection stream leads the table (the restored lens) */
@@ -81,15 +81,28 @@ export default function Player({ pid }: { pid: string }) {
   const [career, setCareer] = useState<CareerSeason[] | null>(null);
   /** career split by the franchise that held him — the table's footer */
   const [splits, setSplits] = useState<OwnerSplit[]>([]);
-  /** the experimental analog projection, shown beside the parametric one */
-  const [knn, setKnn] = useState<KnnProjection | null>(null);
-  /** the six-curve matrix, and which model the comparison table accents */
-  const [mx, setMx] = useState<MatrixRow | null>(null);
-  const [mxMeta, setMxMeta] = useState<MatrixFile["meta"] | null>(null);
+  /** which model the six-curve comparison table accents */
   const [model, setModel] = useState<MatrixModel>("blend");
 
-  const last = meta.latest && meta.seasons.includes(meta.latest)
-    ? meta.latest : meta.seasons[meta.seasons.length - 1];
+  // Everything the page reads whole and picks this player out of. Each is one
+  // cached download shared with every other view that wants the same file.
+  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data?.players[pid] ?? null;
+  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data?.players[pid] ?? null;
+  const own = useJson<Ownership>("ownership.json").data ?? NO_OWNERSHIP;
+  const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
+  // global file: the market prices a format, not a league
+  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  /** the experimental analog projection, shown beside the parametric one */
+  const knnFile = useJson<KnnFile>("projections_knn_hybrid.json").data;
+  const knn = useMemo<KnnProjection | null>(
+    () => knnFile?.players.find(p => p.pid === pid) ?? null, [knnFile, pid]);
+  /** the six-curve matrix */
+  const mxFile = useJson<MatrixFile>("projections_matrix.json").data;
+  const mxMeta: MatrixFile["meta"] | null = mxFile?.meta ?? null;
+  const mx = useMemo<MatrixRow | null>(
+    () => mxFile?.players.find(p => p.pid === pid) ?? null, [mxFile, pid]);
+
+  const last = latestSeasonOf(meta);
   /** the open career row. Null means every row is collapsed — the week grid is
    *  a drawer now, so nothing is fetched until a season is actually opened. */
   const wkSeason = weekSeason && meta.seasons.includes(weekSeason) ? weekSeason : null;
@@ -111,23 +124,7 @@ export default function Player({ pid }: { pid: string }) {
         setLeagueCareer(career);
         setShard(null);
       });
-    jlDaily<DviFile>("dvi.json").then(d => { if (live) setDvi(d.players[pid] ?? null); }).catch(() => {});
-    jlDaily<CviFile>("cvi.json").then(d => { if (live) setCvi(d.players[pid] ?? null); }).catch(() => {});
-    jl<Ownership>("ownership.json").then(o => { if (live) setOwn(o); }).catch(() => {});
-    jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`)
-      .then(t => { if (live) setTeams(t); }).catch(() => {});
-    jDaily<Values>("data/values.json").then(v => { if (live) setVals(v); }).catch(() => {});
     loadHonors(meta.seasons).then(h => { if (live) setHonors(h); }).catch(() => {});
-    jl<KnnFile>("projections_knn_hybrid.json")
-      .then(k => { if (live) setKnn(k.players.find(p => p.pid === pid) ?? null); })
-      .catch(() => {});
-    jl<MatrixFile>("projections_matrix.json")
-      .then(m => {
-        if (!live) return;
-        setMxMeta(m.meta);
-        setMx(m.players.find(p => p.pid === pid) ?? null);
-      })
-      .catch(() => {});
     loadCareer(meta.seasons).then(c => {
       if (!live) return;
       const rows = c[pid] ?? [];
@@ -147,15 +144,22 @@ export default function Player({ pid }: { pid: string }) {
    * honor index and the career build. All of it cached, none of it free, and it
    * reset state the page was already showing. A drawer toggle is a drawer
    * fetch.
+   *
+   * Both files settle together, deliberately. `wks` alone gates the grid, so
+   * letting weekly.json land first drew the new season's weeks against the
+   * PREVIOUS season's BYE/DNP flags until absence.json caught up.
    */
   useEffect(() => {
     if (!wkSeason) return;
     let live = true;
-    jl<Weekly>(`${wkSeason}/weekly.json`)
-      .then(w => { if (live) setWks((w[pid] || []).slice().sort((a, b) => a[0] - b[0])); })
-      .catch(() => { if (live) setWks([]); });
-    jl<Absences>(`${wkSeason}/absence.json`)
-      .then(a => { if (live) setAbs(a[pid] || {}); }).catch(() => { if (live) setAbs({}); });
+    Promise.all([
+      jl<Weekly>(`${wkSeason}/weekly.json`).catch(() => ({} as Weekly)),
+      jl<Absences>(`${wkSeason}/absence.json`).catch(() => ({} as Absences)),
+    ]).then(([w, a]) => {
+      if (!live) return;
+      setWks((w[pid] || []).slice().sort((x, y) => x[0] - y[0]));
+      setAbs(a[pid] || NO_ABSENCES);
+    });
     return () => { live = false; };
   }, [pid, wkSeason]);
 
@@ -233,7 +237,7 @@ export default function Player({ pid }: { pid: string }) {
   // wks goes null again whenever a different season is opened. That is a
   // reload of ONE drawer, not of the page — gating the whole render on it
   // flashed "Loading player…" over everything on every click.
-  const reg = (wks ?? []).filter(w => w[0] <= 14);
+  const reg = (wks ?? []).filter(w => w[0] <= REG_WEEKS);
   /** newest league season, for the figure strip. Read from the career rows
    *  rather than the week fetch, so the strip no longer depends on a drawer
    *  being open. */
@@ -263,7 +267,8 @@ export default function Player({ pid }: { pid: string }) {
   const openSeason = (s: string, scroll = false) => {
     const next = weekSeason === s ? null : s;
     setWeekSeason(next);
-    if (next) setWks(null);
+    // both, together: `abs` left behind here is the previous season's flags
+    if (next) { setWks(null); setAbs(NO_ABSENCES); }
     if (scroll) refs.career.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
@@ -295,12 +300,12 @@ export default function Player({ pid }: { pid: string }) {
     const width = (proj.comp_high[0] ?? 0) - (proj.comp_low[0] ?? 0);
     const fin = proj.posFin?.[0] ? `, a ${pos}${proj.posFin[0]} finish` : "";
     return {
-      meta: `${years[0]} composite ${fmt(c[0], 2)} WAR · band ${fmt(proj.comp_low[0], 2)} to ${fmt(proj.comp_high[0], 2)}`,
-      body: `Year one projects ${fmt(c[0], 2)} WAR${fin}. The three-year path is ${trend} — `
-        + `${fmt(c[0], 2)} in ${years[0]} to ${fmt(c[lastIdx], 2)} by ${years[lastIdx]}. `
+      meta: `${years[0]} composite ${fmtWar(c[0])} WAR · band ${fmtWar(proj.comp_low[0])} to ${fmtWar(proj.comp_high[0])}`,
+      body: `Year one projects ${fmtWar(c[0])} WAR${fin}. The three-year path is ${trend} — `
+        + `${fmtWar(c[0])} in ${years[0]} to ${fmtWar(c[lastIdx])} by ${years[lastIdx]}. `
         + `The composite reads ${curveGap >= 0 ? "above" : "below"} the pure age-curve path by `
-        + `${fmt(Math.abs(curveGap), 2)} WAR a year, and the 80% band on year one spans `
-        + `${fmt(width, 2)} WAR.`,
+        + `${fmtWar(Math.abs(curveGap))} WAR a year, and the 80% band on year one spans `
+        + `${fmtWar(width)} WAR.`,
     };
   })() : null;
 
@@ -382,7 +387,7 @@ export default function Player({ pid }: { pid: string }) {
                           background: isProj ? "var(--dim)" : barColor(w),
                         }} />
                       </span>
-                      <span className="v">{fmt(w, 2)}</span>
+                      <span className="v">{fmtWar(w)}</span>
                     </div>
                   );
                 })}
@@ -412,19 +417,19 @@ export default function Player({ pid }: { pid: string }) {
               </div>
               <div className="figcell">
                 <div className="figkey">{lastRow?.season ?? last} WAR</div>
-                <div className="figval">{lastRow ? fmt(lastRow.war, 2) : "—"}</div>
+                <div className="figval">{lastRow ? fmtWar(lastRow.war) : "—"}</div>
                 <div className="figsub">{lastRow
                   ? `${pos}${lastRow.posRank ?? "—"} · ${lastRow.gp} games`
                   : `did not play ${last}`}</div>
               </div>
               <div className="figcell">
                 <div className="figkey">Career WAR</div>
-                <div className="figval">{played.length ? fmt(careerWar, 2) : "—"}</div>
+                <div className="figval">{played.length ? fmtWar(careerWar) : "—"}</div>
                 <div className="figsub">{firstYear ? `since ${firstYear}` : "no seasons"}</div>
               </div>
               <div className="figcell">
                 <div className="figkey">Next 3 years</div>
-                <div className="figval">{proj ? fmt(proj.total_comp, 2) : "—"}</div>
+                <div className="figval">{proj ? fmtWar(proj.total_comp) : "—"}</div>
                 <div className="figsub">composite WAR</div>
               </div>
             </div>
@@ -459,7 +464,7 @@ export default function Player({ pid }: { pid: string }) {
                     </>}
                     {mx.w_sleeper != null && <>
                       {" · "}
-                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmt(mx.sleeper_war ?? 0, 2)} WAR. The analog composite takes it at this weight in year one; scalar and blend take it at ${Math.round((mxMeta?.blend_w?.[0] ?? 0.9) * 100)}%.`}>
+                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmtWar(mx.sleeper_war ?? 0)} WAR. The analog composite takes it at this weight in year one; scalar and blend take it at ${Math.round((mxMeta?.blend_w?.[0] ?? 0.9) * 100)}%.`}>
                         Sleeper {Math.round(mx.w_sleeper * 100)}%
                       </span>
                     </>}
@@ -527,8 +532,8 @@ export default function Player({ pid }: { pid: string }) {
                                   <td key={s} className={`n${k === 0 ? " edge" : ""}${on && !echo ? "" : " fig quiet"}`}>
                                     {off ? <span className="fig quiet">—</span>
                                       : on && !echo
-                                        ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(v, 2)}</span>
-                                        : fmt(v, 2)}
+                                        ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(v)}</span>
+                                        : fmtWar(v)}
                                   </td>
                                 );
                               })}
@@ -545,14 +550,14 @@ export default function Player({ pid }: { pid: string }) {
                               <div className="tick" style={{ left: `${(Math.max(0, mx[`${modelOn}_natural` as const][i]) / rangeMax * 100).toFixed(1)}%` }} />
                             </div>
                             <div className="range-ends">
-                              <span>{fmt(band.lo[i] ?? 0, 2)}</span>
-                              <span>{fmt(band.hi[i] ?? 0, 2)}</span>
+                              <span>{fmtWar(band.lo[i] ?? 0)}</span>
+                              <span>{fmtWar(band.hi[i] ?? 0)}</span>
                             </div>
                           </> : <span className="fig quiet">—</span>}
                         </td>
                         <td className="n last">
                           {proj.posFin?.[i]
-                            ? <span className="pos wide" style={{ background: POS_COLOR[pos] || "var(--rule-2)" }}>{pos}{proj.posFin[i]}</span>
+                            ? <PosBadge pos={pos} size="wide" rank={proj.posFin[i]} color={POS_COLOR[pos] || "var(--rule-2)"} />
                             : <span className="fig quiet">—</span>}
                         </td>
                       </tr>
@@ -607,8 +612,8 @@ export default function Player({ pid }: { pid: string }) {
                           return (
                             <td key={s.key} className={`n${k === 0 ? " edge" : ""}${on ? "" : " fig quiet"}`}>
                               {v == null ? <span className="fig quiet">—</span>
-                                : on ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(v, 2)}</span>
-                                  : fmt(v, 2)}
+                                : on ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(v)}</span>
+                                  : fmtWar(v)}
                             </td>
                           );
                         })}
@@ -621,13 +626,13 @@ export default function Player({ pid }: { pid: string }) {
                             <div className="tick" style={{ left: `${(Math.max(0, stLine?.[i] ?? 0) / rangeMax * 100).toFixed(1)}%` }} />
                           </div>
                           <div className="range-ends">
-                            <span>{fmt(stLo?.[i] ?? 0, 2)}</span>
-                            <span>{fmt(stHi?.[i] ?? 0, 2)}</span>
+                            <span>{fmtWar(stLo?.[i] ?? 0)}</span>
+                            <span>{fmtWar(stHi?.[i] ?? 0)}</span>
                           </div>
                         </td>
                         <td className="n last">
                           {proj.posFin?.[i]
-                            ? <span className="pos wide" style={{ background: POS_COLOR[pos] || "var(--rule-2)" }}>{pos}{proj.posFin[i]}</span>
+                            ? <PosBadge pos={pos} size="wide" rank={proj.posFin[i]} color={POS_COLOR[pos] || "var(--rule-2)"} />
                             : <span className="fig quiet">—</span>}
                         </td>
                       </tr>
@@ -684,7 +689,7 @@ export default function Player({ pid }: { pid: string }) {
                               : <span className="fig" style={{
                                 color: v > 0.005 ? "var(--good)"
                                   : v < -0.005 ? "var(--bad)" : "var(--dim)",
-                              }}>{v > 0.005 ? "+" : v < -0.005 ? "−" : ""}{fmt(Math.abs(v), 2)}</span>}
+                              }}>{sgnWar(v)}</span>}
                           </td>
                         ))}
                         {/* a 0-100 score is an index: a bare figure, never a
@@ -748,10 +753,10 @@ export default function Player({ pid }: { pid: string }) {
                               <td className="n fig quiet">{r.gp}</td>
                               <td className="n fig">{num(Math.round(r.pts))}</td>
                               <td className="n fig">{fmt(r.ppg, 1)}</td>
-                              <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(r.war, 2)}</span></td>
+                              <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(r.war)}</span></td>
                               <td className="n fig">
                                 {r.posRank
-                                  ? <span className="pos wide" style={{ background: POS_COLOR[r.pos] || "var(--rule-2)" }}>{r.pos}{r.posRank}</span>
+                                  ? <PosBadge pos={r.pos} size="wide" rank={r.posRank} color={POS_COLOR[r.pos] || "var(--rule-2)"} />
                                   : <span className="fig quiet">—</span>}
                               </td>
                               <td className="t last edge">
@@ -787,7 +792,7 @@ export default function Player({ pid }: { pid: string }) {
                           <td className="n fig">{tot.gp}</td>
                           <td className="n fig">{num(Math.round(tot.pts))}</td>
                           <td className="n fig">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
-                          <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmt(tot.war, 2)}</span></td>
+                          <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(tot.war)}</span></td>
                           {/* Finish is a per-season rank and does not add up.
                               Best-of is a different statistic wearing this
                               column's header, so the career row leaves it. */}
@@ -803,7 +808,7 @@ export default function Player({ pid }: { pid: string }) {
                           <td className="n fig quiet">{fmt(tot.gp / tot.seasons, 1)}</td>
                           <td className="n fig quiet">{num(Math.round(tot.pts / tot.seasons))}</td>
                           <td className="n fig quiet">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
-                          <td className="n fig quiet edge">{fmt(tot.war / tot.seasons, 2)}</td>
+                          <td className="n fig quiet edge">{fmtWar(tot.war / tot.seasons)}</td>
                           {/* a MEAN finish, so a figure rather than the badge the
                               per-season rows use — those are placings, this is
                               not, and rendering them alike would say he finished
@@ -830,7 +835,7 @@ export default function Player({ pid }: { pid: string }) {
                             <td className="n fig quiet">{s.gp}</td>
                             <td className="n fig quiet">{num(Math.round(s.pts))}</td>
                             <td className="n fig quiet">{s.gp ? fmt(s.pts / s.gp, 1) : "—"}</td>
-                            <td className="n fig edge">{fmt(s.war, 2)}</td>
+                            <td className="n fig edge">{fmtWar(s.war)}</td>
                             <td className="n fig quiet">
                               {s.finish == null ? "—" : `${pos} ${fmt(s.finish, 1)}`}
                             </td>
@@ -939,7 +944,7 @@ export default function Player({ pid }: { pid: string }) {
                         <td className="n fig edge">{m.ovr == null ? "—" : `#${m.ovr}`}</td>
                         <td className="n fig">{m.posRank == null ? "—" : `${pos}${m.posRank}`}</td>
                         <td className="t sub">{m.pick ? `${m.pick[0]} (${num(m.pick[1])})` : "—"}</td>
-                        <td className="n last edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{m.imp == null ? "—" : fmt(m.imp, 2)}</span></td>
+                        <td className="n last edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{m.imp == null ? "—" : fmtWar(m.imp)}</span></td>
                       </tr>
                     ))}
                   </tbody>

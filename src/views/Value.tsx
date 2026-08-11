@@ -1,13 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   CviFile, DviFile, EcrFile, KnnFile, ProjectionsFile, Team, Values,
 } from "../lib/types";
-import { jDaily, jl, jlDaily } from "../lib/data";
-import { fmt } from "../lib/stats";
-import { ownerOf, rosterSeasonOf } from "../lib/league";
+import { useJson } from "../lib/useJson";
+import { fmt, fmtWar } from "../lib/stats";
+import { latestSeasonOf, ownerOf, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import PlayerPanel from "../components/PlayerPanel";
-import DataTable, { applySort, sortCol } from "../components/DataTable";
+import DataTable, { applySort, sortCol, useTableSort } from "../components/DataTable";
 import { useMobile } from "../lib/useWidth";
 import {
   BoardScope, blankRow, identityCols, idxCell, mobileCols, srcCell, TAIL_GRP,
@@ -44,11 +44,11 @@ const COLS: PlayerCol[] = [
   },
   {
     id: "war1", label: "Proj WAR", grp: 1, w: 10, align: "n", td: "fig n",
-    sort: r => r.war1, cell: r => r.war1 == null ? nul : fmt(r.war1, 3),
+    sort: r => r.war1, cell: r => r.war1 == null ? nul : fmtWar(r.war1),
   },
   {
     id: "warK", label: "Analog", grp: 1, w: 10, align: "n", td: "fig n",
-    sort: r => r.warK, cell: r => r.warK == null ? nul : fmt(r.warK, 3),
+    sort: r => r.warK, cell: r => r.warK == null ? nul : fmtWar(r.warK),
   },
   {
     id: "ktc", label: "KTC", grp: 2, w: 9, align: "n", edge: true,
@@ -81,46 +81,28 @@ const GROUPS = [
 export default function Value() {
   const { meta, players, league } = useLeague();
 
-  const latest = meta.latest && meta.seasons.includes(meta.latest)
-    ? meta.latest : meta.seasons[meta.seasons.length - 1];
+  const latest = latestSeasonOf(meta);
   const rosterSeason = rosterSeasonOf(league);
 
-  const [projs, setProjs] = useState<ProjectionsFile | null>(null);
-  const [dvi, setDvi] = useState<DviFile | null>(null);
-  const [cvi, setCvi] = useState<CviFile | null>(null);
-  const [vals, setVals] = useState<Values | null>(null);
-  const [ecr, setEcr] = useState<EcrFile | null>(null);
-  const [curTeams, setCurTeams] = useState<Team[] | null>(null);
-  const [knn, setKnn] = useState<KnnFile | null>(null);
-  const [ready, setReady] = useState(false);
-  useEffect(() => {
-    let live = true;
-    Promise.allSettled([
-      jl<ProjectionsFile>("projections.json"),
-      jlDaily<DviFile>("dvi.json"),
-      jlDaily<CviFile>("cvi.json"),
-      // global files: the market and the consensus price a format, not a league
-      jDaily<Values>("data/values.json"),
-      jDaily<EcrFile>("data/ecr.json"),
-      jl<Team[]>(`${rosterSeason}/teams.json`),
-      // experimental; allSettled means its absence costs the board nothing
-      jl<KnnFile>("projections_knn_hybrid.json"),
-    ]).then(([p, d, c, v, e, t, k]) => {
-      if (!live) return;
-      if (p.status === "fulfilled") setProjs(p.value);
-      if (d.status === "fulfilled") setDvi(d.value);
-      if (c.status === "fulfilled") setCvi(c.value);
-      if (v.status === "fulfilled") setVals(v.value);
-      if (e.status === "fulfilled") setEcr(e.value);
-      if (t.status === "fulfilled") setCurTeams(t.value);
-      if (k.status === "fulfilled") setKnn(k.value);
-      setReady(true);
-    });
-    return () => { live = false; };
-  }, [rosterSeason]);
+  // Seven sources, each optional: a failure costs the board that file's columns
+  // and nothing else, which is what the merge below already assumes. The board
+  // paints once they have all settled — a partial merge would rank the
+  // population on whichever half arrived first and then re-rank under the
+  // reader.
+  const projsQ = useJson<ProjectionsFile>("projections.json");
+  const dviQ = useJson<DviFile>("dvi.json", "leagueDaily");
+  const cviQ = useJson<CviFile>("cvi.json", "leagueDaily");
+  // global files: the market and the consensus price a format, not a league
+  const valsQ = useJson<Values>("data/values.json", "globalDaily");
+  const ecrQ = useJson<EcrFile>("data/ecr.json", "globalDaily");
+  const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
+  // experimental; its absence costs the board nothing
+  const knnQ = useJson<KnnFile>("projections_knn_hybrid.json");
+  const projs = projsQ.data, dvi = dviQ.data, cvi = cviQ.data;
+  const vals = valsQ.data, ecr = ecrQ.data, curTeams = teamsQ.data, knn = knnQ.data;
+  const ready = ![projsQ, dviQ, cviQ, valsQ, ecrQ, teamsQ, knnQ].some(q => q.loading);
 
-  const [sortId, setSortId] = useState("dvi");
-  const [dir, setDir] = useState(-1);
+  const { sortId, dir, onSort } = useTableSort("dvi");
   const [openPid, setOpenPid] = useState<string | null>(null);
   const { bar, apply } = usePlayerFilters(() => setOpenPid(null));
 
@@ -199,13 +181,6 @@ export default function Value() {
   // filtering cannot change them — RB4 is still RB4 in the RB-only view.
   const rows = useMemo(() => apply(population), [population, apply]);
   const count = rows.length;
-
-  const onSort = (c: PlayerCol) => {
-    if (c.id === "rk") { setSortId("dvi"); setDir(-1); return; }
-    if (!c.sort) return;
-    if (sortId === c.id) setDir(-dir);
-    else { setSortId(c.id); setDir(c.asc ? 1 : -1); }
-  };
 
   const priced = [dvi?.generated && `Priced ${dvi.generated}`,
   vals?.fetched && `market ${vals.fetched}`].filter(Boolean).join(" · ");

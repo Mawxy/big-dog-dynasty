@@ -1,10 +1,13 @@
 import type { WeeklyRow } from "../lib/types";
-import { fmt, sgn, clsOf } from "../lib/stats";
+import { fmt, sgnWar, clsOf } from "../lib/stats";
+import { REG_WEEKS } from "../lib/league";
 
 /**
- * The fixed 14-cell season strip, 7 per row: week + points on the top line, a
+ * The fixed season strip — one cell per regular-season week, 7 per row: week
+ * + points on the top line, a
  * points meter, then the week's WAR colored by sign. Cells are built
- * positionally (weeks 1–14, never from the rows that happen to exist), so any
+ * positionally (every regular-season week, never from the rows that happen to
+ * exist), so any
  * two players' seasons compare cell for cell.
  *
  * A bye and a missing week are different facts: a week absent because
@@ -18,7 +21,7 @@ export default function WeekGrid({ weeks, absent = {} }: {
   const max = Math.max(1, ...weeks.map(w => w[1]));
   return (
     <div className="weekgrid">
-      {Array.from({ length: 14 }, (_, i) => {
+      {Array.from({ length: REG_WEEKS }, (_, i) => {
         const wk = i + 1;
         const w = byWk.get(wk);
         if (!w) {
@@ -43,7 +46,7 @@ export default function WeekGrid({ weeks, absent = {} }: {
             <div className="bar">
               <i style={{ width: `${Math.round(Math.max(0, w[1]) / max * 100)}%` }} />
             </div>
-            <div className={`war ${clsOf(w[5])}`}>{sgn(w[5])}</div>
+            <div className={`war ${clsOf(w[5])}`}>{sgnWar(w[5])}</div>
           </div>
         );
       })}

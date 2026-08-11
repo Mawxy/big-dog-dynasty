@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo } from "react";
 import type {
   Matchups, PlayersMin, SeasonData, SleeperProjFile, Weekly as WeeklyT,
 } from "../lib/types";
-import { jl } from "../lib/data";
-import { fmt, sgn, normCdf } from "../lib/stats";
-import { pInfo, DEFAULT_LINEUP, SLOT_LABEL, optimalLineup } from "../lib/league";
+import { useJson } from "../lib/useJson";
+import { fmt, sgnWar, normCdf } from "../lib/stats";
+import { pInfo, lineupOf, SLOT_LABEL, optimalLineup } from "../lib/league";
 import { useLeague } from "../lib/context";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
@@ -40,8 +40,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
   back: () => void;
 }) {
   const { meta } = useLeague();
-  const [sproj, setSproj] = useState<SleeperProjFile | null>(null);
-  const lineup = (meta.rosterPositions?.length ? meta.rosterPositions : DEFAULT_LINEUP)
+  const lineup = lineupOf(meta)
     .filter(s => !["BN", "IR", "TAXI"].includes(s));
 
   // the entry for this week, if it was played
@@ -52,13 +51,8 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
     ?? null;
   const played = !!mine && mine[1] > 0;
 
-  useEffect(() => {
-    if (played) return;
-    let live = true;
-    jl<SleeperProjFile>("proj_sleeper.json")
-      .then(p => { if (live) setSproj(p); }).catch(() => {});
-    return () => { live = false; };
-  }, [played]);
+  // only an unplayed week needs a projection to stand in for a result
+  const sproj = useJson<SleeperProjFile>(played ? null : "proj_sleeper.json").data;
 
   /** league-wide weekly scoring sigma, for the win probability. Same shape the
    *  WAR engine uses: a margin is worth more in a low-scoring week. */
@@ -153,8 +147,12 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
         <div className="res">{" "}</div>
       </div>
     );
+    // against the OPPONENT, not against the higher of the two: a tied played
+    // matchup matched both sides to the max and accented both as winners.
+    // A tie is neither. A bye has no opponent, so the lone side keeps it.
+    const opp = i === 0 ? B : A;
     const win = played
-      ? s.total === Math.max(A.total, B?.total ?? 0)
+      ? (opp ? s.total > opp.total : true)
       : (i === 0 ? pA >= 0.5 : pA < 0.5);
     return (
       <div className={`h2h-side${win ? " win" : ""}`}>
@@ -217,7 +215,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
                         </span> : <span className="sub">— empty —</span>}
                       </td>
                       <td className="n"><b>{fmt(sl.pts, 1)}</b></td>
-                      <td className="n sub">{sl.war == null ? "" : sgn(sl.war, 2)}</td>
+                      <td className="n sub">{sl.war == null ? "" : sgnWar(sl.war)}</td>
                     </tr>
                   ))}
                 </tbody>

@@ -53,6 +53,7 @@ Usage: python scripts/value_bridge.py [--seed-season 2025]
 import argparse
 import json
 from pathlib import Path
+from ioutil import atomic_write
 from leaguepaths import DataDir
 
 
@@ -217,7 +218,7 @@ def main():
               f"knots total={len(proj_fit['total'])}")
 
     dest = DATA / "value_bridge.json"
-    dest.write_text(json.dumps(out, separators=(",", ":")) + "\n", encoding="utf-8")
+    atomic_write(dest, json.dumps(out, separators=(",", ":")) + "\n")
     print(f"wrote {dest.relative_to(ROOT)}")
 
     # Precompute the player-page numbers into values.json itself, so the site
@@ -249,7 +250,7 @@ def main():
         if pid in proj:
             d["modelWar"] = proj[pid]["total_comp"]
     vdest = DATA / "values.json"
-    vdest.write_text(json.dumps(values, separators=(",", ":")) + "\n", encoding="utf-8")
+    atomic_write(vdest, json.dumps(values, separators=(",", ":")) + "\n")
     print(f"augmented {vdest.relative_to(ROOT)}: impWar for {n_imp} players "
           f"({n_pos} priced on a per-position curve)")
 

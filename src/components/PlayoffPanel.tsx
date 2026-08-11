@@ -1,11 +1,17 @@
 import { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import type { BracketFile, BracketGame } from "../lib/types";
-import { fmt, sgn } from "../lib/stats";
+import { fmt, sgn, sgnWar } from "../lib/stats";
 import { pInfo, POS_COLOR } from "../lib/league";
-import { useLeague, useLeaguePath } from "../lib/context";
-import PlayoffBracket from "./PlayoffBracket";
+import { useLeague } from "../lib/context";
+import PlayoffBracket, { GameCard } from "./PlayoffBracket";
 import { PlayerLink } from "./PlayerLink";
+import PosBadge from "./PosBadge";
+
+/** WPA is win probability added, not WAR — this panel's own note says WAR
+ *  doesn't extend to the postseason. It wants three places for its own
+ *  reasons, and states them rather than riding sgn's default, which now
+ *  tracks WAR_DP and would otherwise drag the postseason along with it. */
+const WPA_DP = 3;
 
 interface Perf {
   pid: string; rid: number; pts: number;
@@ -34,8 +40,6 @@ interface Perf {
  */
 export default function PlayoffPanel({ season, bracket }: { season: string; bracket: BracketFile }) {
   const { players } = useLeague();
-  const nav = useNavigate();
-  const lp = useLeaguePath();
   const [openSec, setOpenSec] = useState<Record<string, boolean>>({ bracket: true, mvp: true });
 
   /** Every starter, ranked by MVP score. WPA is shown raw — the win
@@ -123,30 +127,13 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
     </button>
   );
 
-  const gameCard = (g: BracketGame, caption: string) => {
-    // no near-side team means the card opens nothing — not a control, not a
-    // tab stop (same rule as the bracket's cards)
-    const act = g.t1 != null;
-    const go = () => act && nav(lp(`/weekly/${season}/${g.week}/${g.t1}`));
-    return (
-    <div className="bgame tap" style={{ maxWidth: 420 }}
-      title={`Open the week ${g.week} matchup`}
-      tabIndex={act ? 0 : undefined} role={act ? "button" : undefined}
-      onClick={go}
-      onKeyDown={act ? e => {
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); }
-      } : undefined}>
-      <div className="bgame-head"><span>{caption}</span><span>WK {g.week}</span></div>
-      {[[g.t1, g.t1_pts] as const, [g.t2, g.t2_pts] as const].map(([rid, pts], i) => (
-        <div key={i} className={`bside ${rid != null && g.w === rid ? "won" : ""}`}>
-          <span className="seed">{seedOf(rid) ?? "—"}</span>
-          <span className="team">{nameOf(rid)}</span>
-          <span className="pts">{pts == null ? "—" : fmt(pts, 2)}</span>
-        </div>
-      ))}
-    </div>
-    );
-  };
+  /** The bracket's own game card, captioned with why the game is on screen
+   *  rather than with the round it decides. Half of this panel used to be a
+   *  second copy of it — markup, tab-stop rule and Enter/Space handler alike. */
+  const gameCard = (g: BracketGame, caption: string) => (
+    <GameCard season={season} bracket={bracket} g={g} caption={caption}
+      style={{ maxWidth: 420 }} />
+  );
 
   /** A compact WPA leaderboard, half-width so the two ends sit side by side.
    *  Raw win probability only — no win share, no award: this pair answers
@@ -173,7 +160,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               </td>
               <td className="who">
                 <div className="line">
-                  <span className="pos mini" style={{ background: POS_COLOR[pos] || "var(--rule)" }}>{pos}</span>
+                  <PosBadge pos={pos} size="mini" color={POS_COLOR[pos] || "var(--rule)"} />
                   <span className="nm">{nm}</span>
                 </div>
                 <div className="by">{nameOf(p.rid)}</div>
@@ -185,7 +172,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   // `fig`, not `sub`: sub carries text-overflow:ellipsis, which
                   // clipped these to "+0…" in a half-width table
                   <td key={w} className="fig quiet n">
-                    {v == null ? (started ? "·" : "—") : sgn(v)}
+                    {v == null ? (started ? "·" : "—") : sgn(v, WPA_DP)}
                   </td>
                 );
               })}
@@ -194,7 +181,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   : (p.wpa ?? 0) < -0.005 ? "var(--bad)" : "var(--dim)",
                 font: "700 17px/1 var(--cond)",
               }}>
-                {p.wpa == null ? "—" : sgn(p.wpa)}
+                {p.wpa == null ? "—" : sgn(p.wpa, WPA_DP)}
               </td>
             </tr>
           );
@@ -243,7 +230,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                 <PlayerLink pid={p.pid} name={nm} />
                 {i === 0 && <span className="name-note" style={{ color: "var(--acc)" }}>MVP</span>}
               </td>
-              <td className="c"><span className={`pos ${pos}`}>{pos}</span></td>
+              <td className="c"><PosBadge pos={pos} /></td>
               <td className="t sub">{nameOf(p.rid)}</td>
               {weeks.map(w => {
                 // MVP points — the weighted win share on the award scale.
@@ -260,7 +247,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               })}
               {/* production, not the award: this one counts in a loss too */}
               <td className="fig n">
-                {p.war == null ? <span className="quiet">—</span> : sgn(p.war, 2)}
+                {p.war == null ? <span className="quiet">—</span> : sgnWar(p.war)}
               </td>
               <td className="n fig">
                 <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
@@ -307,7 +294,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                 // MVP+ is the figure worth carrying here: the season score is
                 // always 100 for whoever leads it, so it says nothing on its own
                 ? `${mvp.mvpp != null ? `${fmt(mvp.mvpp, 0)} MVP+ · ` : ""}`
-                  + `${sgn(mvp.wpa ?? 0)} WPA · ${nameOf(mvp.rid)}`
+                  + `${sgn(mvp.wpa ?? 0, WPA_DP)} WPA · ${nameOf(mvp.rid)}`
                 : `${fmt(mvp.pts, 1)} pts · ${nameOf(mvp.rid)}`],
         ].map(([k, v, sub]) => (
           <div key={k} className="figcell">
