@@ -267,7 +267,12 @@ def main():
             "horizon": len(BLEND_W),
             "blend_w": BLEND_W,
             "trust_p": TRUST_P, "pad_penalty": PAD_PENALTY,
-            "w_min": W_MIN, "w_max": W_MAX, "pts13_floor": PTS13_FLOOR,
+            "w_min": W_MIN, "w_max": W_MAX,
+            # which gate produced this file, so a reader never has to infer it
+            # from the numbers — an earlier edit failed to land this key and I
+            # misread its absence as evidence of a stale build
+            "sleeper_gate": SLEEPER_GATE,
+            "pts13_floor": PTS13_FLOOR, "pts13_full": PTS13_FULL,
             "d_ref": {k: round(v, 3) for k, v in d_ref.items()},
             "league_scale_ratio": ratio,
             "players": len(rows), "with_analog": n_an, "with_sleeper": n_sl,
