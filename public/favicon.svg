@@ -1,9 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
-  <!-- Broadcast mark: the board's surface carrying the MVP big-dog silhouette
-       from HonorMarks.tsx (mask id hm-dog there), drawn in the accent token
-       (#f5c518) on the board background (#0c0f13). The mask is inlined because
-       a favicon is a standalone document: it can reference nothing on the
-       page. Interior detail is negative space, same rule as the 20px honor
+  <!-- Broadcast mark: the MVP big-dog silhouette from HonorMarks.tsx (mask id
+       hm-dog there), drawn in the accent token (#f5c518) on a transparent
+       field so the tab strip's own surface shows through. The mask is inlined
+       because a favicon is a standalone document: it can reference nothing on
+       the page. Interior detail is negative space, same rule as the 20px honor
        mark, so it stays legible at 16px. Keep this comment free of doubled
        hyphens: XML forbids them inside a comment and a malformed SVG will
        not render. -->
@@ -16,6 +16,5 @@
       <path d="M11 16.6h2l-.35 1.6h-1.3Z" fill="#000"/>
     </mask>
   </defs>
-  <rect width="24" height="24" fill="#0c0f13"/>
   <path d="M4 5.5 6.8 3 9.4 6h5.2L17.2 3 20 5.5v7l-2.8 3v4H6.8v-4L4 12.5Z" fill="#f5c518" mask="url(#dog)"/>
 </svg>
