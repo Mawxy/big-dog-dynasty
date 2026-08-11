@@ -417,7 +417,12 @@ def main():
         # of the file); treat that as absent, not a real 0-point projection —
         # otherwise proj_ext collapses to the intercept and prices backups as
         # deeply negative assets.
-        if sp is not None and pos in ptw and sp.get('pts13'):
+        # `> 0`, not truthiness. A truthy test admits a NEGATIVE pts13, and
+        # Sleeper emits one (-0.31): a forecast cannot be negative points, so
+        # that is arithmetic residue from a partial stat line, not an opinion.
+        # Every positive projection counts — see SLEEPER_GATE in
+        # project_matrix.py for why there is no floor above that.
+        if sp is not None and pos in ptw and (sp.get('pts13') or 0) > 0:
             proj_ext = round(ptw[pos]['a'] + ptw[pos]['b'] * sp['pts13'], 3)
             comp = []
             for i in range(len(proj)):

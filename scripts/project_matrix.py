@@ -50,22 +50,11 @@ Sleeper's weight decays across the horizon on the scalar model's existing shape
 (BLEND_W, 0.9/0.5/0.1 -> ratios 1.0/0.556/0.111). It knows this year's role and
 nothing about 2028.
 
-THE pts13 FLOOR IS NOT A NULL CHECK. Sleeper carries a projection for 3,112
-players and means it for a few hundred; the rest come through as 0, 1, 4, 9.
-The pts->WAR line crosses zero at ~127 points, so a `pts13` of 1 converts to
-about -1.37 WAR — the cost of starting someone every week who scores nothing,
-which is not what anybody does with him. Bucketed by analog decile, the two
-sources agree to within 0.08 WAR in the top two deciles and diverge by up to
-0.58 below decile 8, entirely on players whose `pts13` bottoms out near zero.
-Hence PTS13_FLOOR: below it Sleeper is treated as ABSENT, and every composite
-falls back to its own natural.
-
-NOTE: projections.json's own `composite` field uses the older `if sp['pts13']`
-guard, which catches exact zeros but not the 1s and 4s. This script recomputes
-the scalar composite under the shared floor rather than carrying that field
-through, so all six curves are gated identically. The two will differ for
-players with a small nonzero pts13, and project_war.py's guard should be
-tightened to match.
+EVERY POSITIVE SLEEPER PROJECTION COUNTS. There is no points floor — see
+SLEEPER_GATE below for the measurement that removed the one I had put here. The
+only rejection is pts13 <= 0, which is arithmetic residue rather than a forecast.
+This matches project_war.py, so projections.json's own `composite` and the
+scalar_composite here agree player for player.
 
 Usage: python scripts/project_matrix.py
 Output: data/<league>/projections_matrix.json
@@ -95,7 +84,54 @@ W_MIN = 0.25         # Sleeper's floor even for a perfect cohort. It is never
                      # zero: however good the comparables, they cannot know he
                      # was traded in March.
 W_MAX = 0.90         # ceiling, matching the scalar model's flat year-1 weight.
-PTS13_FLOOR = 25.0   # below this, Sleeper has no opinion — see the docstring.
+# WHAT COUNTS AS A SLEEPER PROJECTION.
+#
+# `none` — every positive projection counts, at full weight. This is the
+# shipped behaviour of project_war.py and, after measuring it, the right one.
+#
+# I previously gated this at 25 points, on the theory that the pts->WAR line was
+# being extrapolated past its support and that a backup's low projection encoded
+# missed games rather than bad production. Both were wrong, and the corpus says
+# so plainly. `gp` counts DRESSED games since the played rule, so a quarterback
+# who suits up all year and never plays HAS played a full season by this model's
+# definition — `pts/17` and `pts/games_played` are the same number for him. And
+# the line is fit ON that population, not stretched to reach it:
+#
+#     x (pts13)      0-15    15-30   30-60   60-128
+#     QB seasons      323       48      70      104
+#     observed WAR  -1.37    -1.15   -0.90    -0.35
+#     fitted line   -1.28@10 -1.11@25 -0.95@40 -0.52@80
+#
+# 620 of 1041 QB seasons sit below the zero crossing. A backup projected for 32
+# points is projected to produce below replacement, and projected WAR should say
+# so. That Anthony Richardson carries a 2,019 KTC is the market pricing his
+# optionality — DVI and CVI's job, not this file's. The two disagreeing is the
+# two numbers doing different work.
+#
+# The remaining gate is arithmetic, not judgement: a forecast cannot be negative
+# points, so pts13 <= 0 is not a forecast.
+#
+# `hard` and `taper` are kept because the measurement that rejected them is
+# worth being able to re-run, not because either should ship.
+SLEEPER_GATE = "none"
+PTS13_FLOOR = 25.0   # `hard` cutoff / `taper` lower end
+PTS13_FULL = 128.0   # `taper` upper end: the pts->WAR zero crossing
+
+
+def sleeper_scale(pts13, gate=None):
+    """How much of Sleeper's weight this projection earns, in [0, 1]."""
+    gate = gate or SLEEPER_GATE
+    if pts13 is None or pts13 <= 0:
+        return 0.0                      # not a forecast; a forecast cannot be
+    if gate == "none":                  # negative points
+        return 1.0
+    if gate == "hard":
+        return 1.0 if pts13 >= PTS13_FLOOR else 0.0
+    if pts13 >= PTS13_FULL:
+        return 1.0
+    if pts13 <= PTS13_FLOOR:
+        return 0.0
+    return (pts13 - PTS13_FLOOR) / (PTS13_FULL - PTS13_FLOOR)
 
 
 def trust_of(k, d_ref):
@@ -138,7 +174,11 @@ def composite(natural, sleeper_war, w1, decay):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="projections_matrix.json")
+    ap.add_argument("--sleeper-gate", choices=("hard", "taper", "none"), default=None)
     args = ap.parse_args()
+    global SLEEPER_GATE
+    if args.sleeper_gate:
+        SLEEPER_GATE = args.sleeper_gate
 
     scalar = json.loads((DATA / "projections.json").read_text())
     knnf = json.loads((DATA / "projections_knn_hybrid.json").read_text())
@@ -166,8 +206,8 @@ def main():
         sp = sproj.get(pid, {})
         pts13 = sp.get("pts13") or 0.0
         c = ptw.get(pos)
-        sl_war = ((c["a"] + c["b"] * pts13) * ratio
-                  if c and pts13 >= PTS13_FLOOR else None)
+        scale = sleeper_scale(pts13)
+        sl_war = (c["a"] + c["b"] * pts13) * ratio if c and scale > 0 else None
         if sl_war is not None:
             n_sl += 1
 
@@ -190,9 +230,11 @@ def main():
             w_an = None
         else:
             w_an = W_MIN + (W_MAX - W_MIN) * (1 - t) if t is not None else BLEND_W[0]
-            sc_cmp = composite(sc_nat, sl_war, BLEND_W[0], sc_nat)
-            an_cmp = composite(an_nat, sl_war, w_an, sc_nat)
-            bl_cmp = composite(bl_nat, sl_war, BLEND_W[0], sc_nat)
+            # the taper multiplies whatever weight the model would otherwise
+            # give Sleeper, so trust and the gate compose rather than compete
+            sc_cmp = composite(sc_nat, sl_war, BLEND_W[0] * scale, sc_nat)
+            an_cmp = composite(an_nat, sl_war, w_an * scale, sc_nat)
+            bl_cmp = composite(bl_nat, sl_war, BLEND_W[0] * scale, sc_nat)
 
         rows.append({
             "pid": pid, "name": p["name"], "pos": pos, "team": p.get("team"),
@@ -206,7 +248,8 @@ def main():
             "sleeper_war": round(sl_war, 3) if sl_war is not None else None,
             "pts13": round(pts13, 1),
             "trust": round(t, 3) if t is not None else None,
-            "w_sleeper": round(w_an, 3) if w_an is not None else None,
+            "w_sleeper": round(w_an * scale, 3) if w_an is not None else None,
+            "sleeper_scale": round(scale, 3),
             "d_med": k["d_med"] if k else None,
             "padded": k["padded"] if k else None,
             "totals": {n: round(sum(v), 3) for n, v in (
