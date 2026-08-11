@@ -119,7 +119,12 @@ MISSING_PEN = 0.50
 # population. Swept jointly: 0.50/1.2 keeps a full three-season match ranked
 # ahead of a one-season match (Derrick Henry 0.85 vs Doug Martin 0.94) while
 # holding padded cohorts to 25 of 602. At 0.35 the ordering inverts again.
-MAX_DIST = 1.2        # in standard deviations of the position's own features
+# Re-anchored from 1.2 when distance() started returning a real distance rather
+# than a squared one: sqrt(1.2) = 1.0954, so cohort membership is unchanged to
+# the digit. The historical notes above quote the old squared figures — Derrick
+# Henry 0.85 and Doug Martin 0.94 are 0.92 and 0.97 in these units, and the
+# ordering they were chosen to protect still holds.
+MAX_DIST = 1.0954     # in standard deviations of the position's own features
 MIN_COHORT = 12
 MAX_COHORT = 100
 # Neighbours are weighted by distance, not counted equally. A fixed k forces a
@@ -129,7 +134,17 @@ MAX_COHORT = 100
 # neighbourhood stay honest: the far members are still there, they just stop
 # deciding the answer. `eff_n` reports how many players the weight is really
 # spread across.
-KERNEL_H = 1.0        # bandwidth as a multiple of the cohort's median distance
+# Bandwidth as a multiple of the cohort's median distance. Halved from 1.0 when
+# the kernel was corrected: on true distance a bandwidth of one median is flatter
+# still (effective sample 98.9% of n, against 96.7% for the old quartic), which
+# defeats the point of weighting at all. At 0.5 the effective sample is 83% of n
+# and a 99-match finally outvotes a 90-match by a visible margin.
+#
+# It is NOT tuned for accuracy, because accuracy does not move: pooled over four
+# holdout seasons the mae is 0.634 at every setting from 1.0 to 0.6 and 0.635
+# here, and for players who have a >=95 match it runs 0.580 / 0.578 / 0.577. The
+# gain is that the weights now mean what the table says they mean.
+KERNEL_H = 0.5
 TOP_N = 3             # how many named comparables to publish per player
 
 
@@ -290,7 +305,15 @@ def distance(a, b, sc):
         d += AGE_W * ((a["age"] - b["age"]) / sc["age"]) ** 2
     if a["exp"] is not None and b["exp"] is not None:
         d += EXP_W * ((a["exp"] - b["exp"]) / sc["exp"]) ** 2
-    return d
+    # SQUARE ROOT, so what leaves here is a distance and not a squared one.
+    # Every term above is squared, so `d` is squared distance; it used to be
+    # returned that way and then fed to exp(-(d*d)/(2h*h)), which squares it
+    # AGAIN. The kernel was therefore exp(-distance**4 / 2h**2) — very flat near
+    # the centre and a cliff further out, which is why a 99-match got only 1.6%
+    # of the weight where a flat average gives 1.0%. The bandwidth had the same
+    # problem: h came from the median of squared distances while a gaussian's h
+    # belongs in distance units.
+    return d ** 0.5
 
 
 def local_linear(pts, xq):
