@@ -62,10 +62,42 @@ nflverse ──> scripts/nfl_history.py ──> nfl_history_data/  (gitignored)
     (`crawl-signals`, `crawl-drafts`, `crawl-outcomes-<shard>`,
     `crawl-trades-<shard>`), because a five-hour crawl holding `data-push`
     would block the daily refresh behind it. They absorb the race in their own
-    fetch / re-parent / retry loop, and they RE-PARENT rather than rebase:
-    their outputs are generated files rewritten whole on every flush, so a
-    rebase hits a content conflict every time. Reasoning in
-    `data-refresh.yml` (the split) and `crawl-signals.yml` (the re-parent).
+    fetch / re-parent / retry loop.
+  - **Every committing workflow now RE-PARENTS rather than rebases**
+    (2026-08-12; the three pipeline jobs were the last holdouts). Everything any
+    of them commits is a generated file rewritten whole, so a rebase that lands
+    on a conflicting edit conflicts identically on all five retries and the run
+    exits 1 with the day's work dropped. Fetch, mixed-reset onto origin, stage
+    our own paths, commit, push: ours wins by construction, everything else on
+    main carries forward. Reasoning in `crawl-signals.yml`; the concurrency
+    split in `data-refresh.yml`.
+  - The corollary is that **a re-parenting job may not `git add <dir>`** unless
+    it is the sole writer of that directory. After the reset the index is at
+    origin while the tree is still at checkout, so a directory add stages a
+    *reversion* of anything that pushed mid-run. `war-history` is a sole writer
+    and keeps `git add nfl_history`; `values-refresh` and `data-refresh` stage
+    explicit allow-lists. `data-refresh`'s entire committed surface is
+    `data/leagues/`, `data/leagues.json` and `data/values.json` — everything
+    else under `data/` is crawl-owned, and a guard in that step fails the run
+    loudly if a crawl-owned path is ever staged.
+  - **The analog projection arm is nightly as of 2026-08-12.** `data-refresh`
+    runs `project_war_knn.py --space hybrid` between `build_site_data` (which
+    writes the `players_min.json` it joins against) and `project_matrix` (which
+    consumes it). ~3s, ~45 MB, stdlib-only, no network — every input is
+    committed. `--space hybrid` is not the script's default; the writer names
+    its output `projections_knn_<space>.json` and the matrix only reads the
+    hybrid one, so changing the space here silently orphans it.
+    `data/leagues/*/projections_knn.json` is a pre-`--space` relic that nothing
+    reads — untracking candidate.
+  - That closes the DATE half of the staleness check only. The analog corpus is
+    `nfl_history/*.csv`, rebuilt solely by the manual `war-history.yml`, so
+    after a season is played the scalar arm advances to it nightly and the
+    analog arm does not until someone dispatches that job. A SEED warning means
+    run war-history; a DATE warning now means the nightly step broke.
+  - `data/values.json` has TWO writers: `fetch_values.py` creates it and
+    `value_bridge.py` writes it back with `impWar`/`modelWar`, and value_bridge
+    runs in both `values-refresh` and `data-refresh`. Safe only because those
+    two share `data-push`. A third writer outside that group would corrupt it.
   - `war-history.yml` — manual: nflverse → league-shaped WAR for 2014+ via
     `scripts/nfl_history.py` + unchanged engine; commits `nfl_history/*.csv`
     (analysis CSVs + players_meta.csv with birth dates and draft slots).

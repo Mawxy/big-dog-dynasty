@@ -56,6 +56,7 @@ import json
 import math
 import statistics
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 
 from leaguepaths import DataDir
@@ -666,6 +667,14 @@ def main():
 
     out = {"meta": {"model": f"analog / k-nearest historical comparables ({args.space})",
                     "space": args.space,
+                    # Same stamp and format projections.json carries, so
+                    # project_matrix's freshness check can compare the two arms
+                    # directly. It used to fall back to this file's mtime, which
+                    # a fresh clone rewrites — and once the nightly job builds
+                    # this file the mtime is ALWAYS today's date, so the check
+                    # would read as fresh even if the step were removed. A stamp
+                    # written at generation time cannot lie that way.
+                    "generated": date.today().isoformat(),
                     "max_dist": args.max_dist, "horizon": args.horizon,
                     "corpus_seasons": [years[0], years[-1]],
                     "corpus_rows": len(corpus),

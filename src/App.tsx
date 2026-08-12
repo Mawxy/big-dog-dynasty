@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./lib/types";
-import { j, jl, setLeagueBase, setVersion } from "./lib/data";
+import { j, jl, retry, setLeagueBase, setVersion } from "./lib/data";
 import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
 import { latestSeasonOf, seasonSeg } from "./lib/league";
@@ -98,12 +98,18 @@ export default function App() {
   const [league, setLeague] = useState<LeagueEntry | null>(null);
   const [leagues, setLeagues] = useState<Leagues | null>(null);
   const [err, setErr] = useState("");
+  // Bumped by the boot error screen's Try again. Every boot fetch already
+  // retries three times on its own; this is the manual arm for the case where
+  // the outage outlasts that budget — a deploy still in flight, a phone that
+  // hasn't reconnected yet. Without it the only exit was a reload, and on an
+  // iOS web clip that means killing and reopening the app.
+  const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     (async () => {
       // The registry comes FIRST and is global — it is what tells us where the
       // rest of this league's data lives. Everything after it is league-scoped
       // and goes through jl().
-      const reg = await j<Leagues>("data/leagues.json")
+      const reg = await retry(() => j<Leagues>("data/leagues.json"))
         .catch(() => null as Leagues | null);
       // The URL's own first segment picks the league — by key, then by alias,
       // then the registry default. Resolving with no `want` at all is what made
@@ -117,8 +123,8 @@ export default function App() {
       // players_min is fetched before setVersion and so carries no ?v= — it
       // rides the same short max-age meta.json does, an accepted staleness.
       const [m, pl] = await Promise.all([
-        jl<Meta>("meta.json"),
-        jl<PlayersMin>("players_min.json"),
+        retry(() => jl<Meta>("meta.json")),
+        retry(() => jl<PlayersMin>("players_min.json")),
       ]);
       setVersion(m.updated);
       // data built before the registry existed: synthesize an entry from meta
@@ -128,8 +134,25 @@ export default function App() {
       setPlayers(pl);
       setMeta(m);
     })().catch(e => setErr(String(e)));
-  }, []);
-  if (err) return <div className="empty">Failed to load data: {err}</div>;
+  }, [attempt]);
+  // Same panel the render boundary uses, for the same reason: a dead end with
+  // a raw exception string and no button is the worst version of this screen.
+  if (err) return (
+    <div className="errbox">
+      <div className="k">Couldn't load the board</div>
+      <div className="body">
+        The league data didn't come back. That's usually a deploy still landing or a
+        dropped connection, not a broken board — try again in a moment.
+      </div>
+      <div className="acts">
+        <button type="button" className="retry"
+          onClick={() => { setErr(""); setAttempt(a => a + 1); }}>Try again</button>
+        <button type="button" className="retry"
+          onClick={() => window.location.reload()}>Reload</button>
+      </div>
+      <div className="tnote">{err}</div>
+    </div>
+  );
   if (!meta || !players || !league || !leagues) return <div className="empty">Loading…</div>;
   return (
     <LeagueContext.Provider value={{ meta, players, league, leagues }}>

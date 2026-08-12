@@ -36,14 +36,23 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           # heal a stale conflicted rebase (detached HEAD) before staging anything
           git rebase --abort 2>/dev/null || true
-          # values*.json and ecr.json are global; value_bridge.json is league-scoped
-          git add data/values.json data/values_history.json data/ecr.json data/leagues/*/value_bridge.json
-          git diff --cached --quiet && { echo "no value changes to commit"; exit 0; }
-          git commit -m "Market values $(date -u +%F)"
-          # retry rebase+push so a concurrent push doesn't drop this run
+          # RE-PARENT, never rebase — see crawl-signals.yml, and data-refresh.yml
+          # for why the stage list stays explicit. Every path here is regenerated
+          # whole, so ours-wins is the correct resolution and a rebase conflict
+          # would just be an unclearable way to lose the day's values.
+          #
+          # values*.json and ecr.json are global; value_bridge.json is
+          # league-scoped. No crawl writes any of them. data/values.json does have
+          # a second writer — value_bridge.py augments it with impWar/modelWar and
+          # runs in data-refresh too — but that workflow shares the `data-push`
+          # concurrency group, so the two can never be in flight at once.
           for i in 1 2 3 4 5; do
-            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
-            git rebase --abort 2>/dev/null || true
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            git add data/values.json data/values_history.json data/ecr.json data/leagues/*/value_bridge.json
+            git diff --cached --quiet && { echo "no value changes to commit"; exit 0; }
+            git commit -m "Market values $(date -u +%F)"
+            git push origin HEAD:main && exit 0
             echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
           done
           echo "push failed after 5 attempts"; exit 1

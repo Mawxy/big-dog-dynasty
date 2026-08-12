@@ -104,6 +104,22 @@ jobs:
         run: python scripts/value_bridge.py
       # after project_war and the analog model: the matrix reads both, so it
       # cannot run earlier or it publishes six curves off a stale scalar arm
+      # The analog arm of the six-curve matrix. Hand-run until 2026-08-12, which
+      # meant the file below was as fresh as the last time someone remembered —
+      # project_matrix's staleness check could see the drift but nothing fixed
+      # it. Cheap enough that there was never a real reason to leave it out:
+      # ~3s, ~45 MB, pure stdlib, no network. Every input is committed
+      # (nfl_history/*.csv, aging_curves.json, players_min.json), so it needs
+      # nothing the checkout doesn't already have.
+      #
+      # --space hybrid is not a default: the writer names its output
+      # projections_knn_<space>.json and project_matrix reads the hybrid one.
+      # Change the space here and the matrix silently keeps reading the old file.
+      #
+      # Runs AFTER build_site_data (which writes players_min.json, the Sleeper
+      # side of the join) and BEFORE project_matrix, which consumes it.
+      - name: Analog projection (kNN comparables -> projections_knn_hybrid.json)
+        run: python scripts/project_war_knn.py --space hybrid
       - name: Six-curve projection matrix (scalar / analog / blend)
         run: python scripts/project_matrix.py
       - name: DVI (ensemble trade value -> data/dvi.json)
@@ -119,14 +135,39 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           # heal a stale conflicted rebase (detached HEAD) before staging anything
           git rebase --abort 2>/dev/null || true
-          git add data
-          git diff --cached --quiet && { echo "no data changes to commit"; exit 0; }
-          git commit -m "Daily data update $(date -u +%F)"
-          # retry rebase+push: a human/bot push in the window would otherwise
-          # fail the run outright and drop this week's update
+          # RE-PARENT, never rebase — see crawl-signals.yml for the full
+          # reasoning. Everything below is a generated file rewritten whole, so a
+          # rebase that lands on a conflicting edit conflicts on every retry and
+          # no number of attempts clears it; the run then exits 1 and the day's
+          # update is lost. A mixed reset onto origin keeps the working tree,
+          # drops the local commit and stages only our own paths, so ours wins by
+          # construction and anything else on main is carried forward untouched.
+          #
+          # STAGING IS AN EXPLICIT ALLOW-LIST, not `git add data`, and that is
+          # load-bearing under re-parent: after the reset the index sits at
+          # origin while the tree is still at checkout, so a directory add would
+          # stage a REVERSION of any crawl that pushed mid-run. These three paths
+          # are this pipeline's entire committed surface (verified against its
+          # commit history) — data/leagues.json from build_site_data, values.json
+          # written back by value_bridge, and the league tree itself.
+          PATHS="data/leagues data/leagues.json data/values.json"
+          # Files under data/ this workflow must never touch: every one is owned
+          # by a crawl (crawl-signals, crawl-drafts, crawl-outcomes), which is a
+          # different concurrency group and so genuinely can push mid-run. The
+          # allow-list above already excludes them; this catches the future edit
+          # that widens it back to a directory without thinking about ownership.
+          CRAWL='^data/(league_signals|crawl_leagues|draft_signals|rookie_pick_corpus|draft_index|benchmarks|outcome_signals_[0-9]+)\.json$'
           for i in 1 2 3 4 5; do
-            git pull --rebase --autostash origin main && git push origin HEAD:main && exit 0
-            git rebase --abort 2>/dev/null || true
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            git add $PATHS
+            if git diff --cached --name-only | grep -Eq "$CRAWL"; then
+              echo "::error title=Crawl-owned path staged::$(git diff --cached --name-only | grep -E "$CRAWL" | tr '\n' ' ')— refusing to revert a crawl"
+              exit 1
+            fi
+            git diff --cached --quiet && { echo "no data changes to commit"; exit 0; }
+            git commit -m "Daily data update $(date -u +%F)"
+            git push origin HEAD:main && exit 0
             echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
           done
           echo "push failed after 5 attempts"; exit 1

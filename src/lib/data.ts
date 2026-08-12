@@ -30,6 +30,35 @@ export function jDaily<T>(path: string): Promise<T> {
 }
 
 /**
+ * Retry a fetch that had no business failing.
+ *
+ * Only the BOOT files use this — leagues.json, meta.json, players_min.json.
+ * Those three always exist, so a failure is transient by definition: a flaky
+ * connection, or a Pages deploy swapping the artifact underneath a reader
+ * mid-request. One such blip used to dead-end the whole app on the boot error
+ * screen with no way out but a manual reload.
+ *
+ * Deliberately NOT wired into `j()` itself. Everywhere else a failed fetch is
+ * routine and expected — a player with no shard, a season with no odds.json or
+ * absence.json — and retrying those would multiply every expected 404, which is
+ * the exact cost `jl()`'s layout fallback was deleted to stop paying.
+ *
+ * Each attempt is a real request: `j()` evicts a rejected promise from the
+ * cache, so the retry doesn't inherit the same rejection.
+ */
+export async function retry<T>(fn: () => Promise<T>, tries = 3, delay = 400): Promise<T> {
+  for (let i = 1; ; i++) {
+    try { return await fn(); }
+    catch (e) {
+      if (i >= tries) throw e;
+      // linear, not exponential: the whole budget is 1.2s. This runs in front
+      // of a blank page, so a reader is watching it.
+      await new Promise(r => setTimeout(r, delay * i));
+    }
+  }
+}
+
+/**
  * Where this league's data lives. Set once at boot from the resolved league.
  * Empty means the flat pre-restructure layout.
  */

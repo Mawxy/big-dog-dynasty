@@ -120,19 +120,24 @@ SLEEPER_GATE = "none"
 PTS13_FLOOR = 25.0   # `hard` cutoff / `taper` lower end
 PTS13_FULL = 128.0   # `taper` upper end: the pts->WAR zero crossing
 
-# THE TWO ARMS DO NOT REFRESH ON THE SAME CADENCE.
+# THE TWO ARMS REFRESH TOGETHER NOW, BUT SEED FROM DIFFERENT PLACES.
 #
-# projections.json is rebuilt every night by data-refresh.yml.
-# projections_knn_hybrid.json is not rebuilt by ANY workflow — nothing runs
-# project_war_knn.py on a schedule, so the analog arm is exactly as fresh as the
-# last time someone ran it by hand. This file blends the two, and a stale analog
-# leg is invisible in the output: the six curves still render, still disagree,
-# still read as two live opinions about the same season.
+# Both projections.json and projections_knn_hybrid.json are rebuilt every night
+# by data-refresh.yml (the analog arm joined it 2026-08-12; before that nothing
+# ran project_war_knn.py on a schedule and the arm was as fresh as the last time
+# someone remembered). A date lag should now be zero, which is what makes it
+# worth checking: a nonzero one means the step failed or was dropped, not that
+# somebody forgot.
 #
-# A one-day lag is structural, not a fault — the scalar arm regenerates nightly
-# and the analog one cannot. STALE_DAYS is where a lag stops being the cadence
-# and starts being neglect. A seed-season mismatch is reported at any size: that
-# is not lag, it is the two arms projecting forward from different histories.
+# The SEED check is the one that still fires in normal operation, and no
+# schedule can fix it. The analog corpus is nfl_history/*.csv, rebuilt only by
+# the manual war-history.yml workflow, so after a season is played the scalar
+# arm advances to it on the next nightly run and the analog arm does not until
+# someone dispatches that job. That is a real divergence — the two arms reading
+# different histories — and it is reported at any size, unlike the date lag.
+#
+# Either way a stale analog leg is invisible in the output: the six curves still
+# render, still disagree, still read as two live opinions about the same season.
 STALE_DAYS = 7
 
 
@@ -209,12 +214,16 @@ def check_arm_freshness(scalar_meta, knn_meta, knn_path):
           file=sys.stderr)
     for w in why:
         print(f"!!   {w}", file=sys.stderr)
-    print("!! No workflow refreshes that file; project_war_knn.py is hand-run only.",
+    print("!! data-refresh.yml rebuilds it nightly, so a DATE lag means that step",
           file=sys.stderr)
+    print("!! failed or was removed. A SEED lag means nfl_history/ is behind the",
+          file=sys.stderr)
+    print("!! league — dispatch war-history.yml, which is the only thing that",
+          file=sys.stderr)
+    print("!! rebuilds the analog corpus.", file=sys.stderr)
     print("!! Every analog_* and blend_* curve below is built on the old numbers,",
           file=sys.stderr)
-    print("!! blended against a scalar arm rebuilt last night. Rerun it.",
-          file=sys.stderr)
+    print("!! blended against a scalar arm rebuilt last night.", file=sys.stderr)
     print(f"{bar}\n", file=sys.stderr)
     return True
 
