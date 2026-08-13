@@ -1,5 +1,5 @@
 import { useCallback, useId, useMemo, useRef, useState } from "react";
-import type { PicksOwned, PickValues, ProjectionsFile } from "../lib/types";
+import type { PicksOwned, PickValues, ProjectionsFile, Values } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi, useProjWar } from "../lib/useIndices";
 import { fmt, sgn, sgnWar, warInk, WAR_DP } from "../lib/stats";
@@ -38,6 +38,11 @@ interface Asset {
   key: string; label: string; kind: "player" | "pick";
   pid?: string; pos?: string; age: number | null;
   dvi: number | null; cvi: number | null;
+  /** KeepTradeCut's market price. The one currency here the projection model
+   *  does NOT touch — it is what the market says, not what we project, which is
+   *  exactly why it earns a column beside three figures that all descend from
+   *  one projection. Picks have one too, by tier. */
+  ktc: number | null;
   /** players: 3-yr composite; picks: Bridge A slot/tier stream, summed */
   war: number;
 }
@@ -79,6 +84,8 @@ export default function TradeCalc() {
   // two 1.4 MB downloads
   const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
   const owned = useJson<PicksOwned>("picks_owned.json").data;
+  // global, not league-scoped: a market price is a property of the format
+  const vals = useJson<Values>("data/values.json", "globalDaily").data;
   // model-aware: these follow the masthead's projection-model control
   const dvi = useDvi();
   const cvi = useCvi();
@@ -88,6 +95,11 @@ export default function TradeCalc() {
 
   const options = useMemo<Asset[]>(() => {
     if (!proj) return [];
+    // KTC prices picks by TIER ("2027 Early 1st"), which is exactly the label
+    // shape the future-pick assets below already carry, so the join is the
+    // label itself. Current-year picks are named by exact slot, so they map
+    // through the same tier the Bridge A stream uses.
+    const pickKtc = new Map(vals?.picks?.ktc ?? []);
     const out: Asset[] = [];
     for (const p of proj.players) {
       out.push({
@@ -95,6 +107,7 @@ export default function TradeCalc() {
         age: p.age ?? null,
         dvi: dvi?.players[p.pid]?.dvi ?? null,
         cvi: cvi?.players[p.pid]?.cvi ?? null,
+        ktc: vals?.players[p.pid]?.ktc ?? null,
         war: projWar?.[p.pid] ?? p.total_comp,
       });
     }
@@ -109,6 +122,7 @@ export default function TradeCalc() {
           out.push({
             key: `k${cur} Pick ${bucket}`, label: `${cur} Pick ${bucket}`, kind: "pick",
             age: null, dvi: null, cvi: null,
+            ktc: pickKtc.get(`${cur} ${tier} ${ROUND_ORD[r]}`) ?? null,
             war: sum(pickStream(pv, tier, r + 1)),
           });
         }
@@ -120,11 +134,12 @@ export default function TradeCalc() {
             out.push({
               key: `k${y} ${tier} ${ROUND_ORD[r]}`, label: `${y} ${tier} ${ROUND_ORD[r]}`, kind: "pick",
               age: null, dvi: null, cvi: null,
+              ktc: pickKtc.get(`${y} ${tier} ${ROUND_ORD[r]}`) ?? null,
               war: sum(pickStream(pv, tier, r + 1)),
             });
     }
     return out;
-  }, [proj, pv, owned, dvi, cvi, projWar]);
+  }, [proj, pv, owned, dvi, cvi, projWar, vals]);
 
   const optByKey = useMemo(() => new Map(options.map(o => [o.key, o])), [options]);
   const resolve = useCallback(
@@ -166,6 +181,7 @@ export default function TradeCalc() {
   const tot = useCallback((s: Asset[]) => ({
     dvi: s.reduce((a, x) => a + (x.dvi ?? 0), 0),
     cvi: s.reduce((a, x) => a + (x.cvi ?? 0), 0),
+    ktc: s.reduce((a, x) => a + (x.ktc ?? 0), 0),
     war: s.reduce((a, x) => a + x.war, 0),
     picks: s.filter(x => x.kind === "pick").length,
   }), []);
@@ -179,41 +195,27 @@ export default function TradeCalc() {
     const t = tot(got);
     return {
       id: o.id, got, n: got.length,
-      dvi: t.dvi - tOut.dvi, cvi: t.cvi - tOut.cvi, war: t.war - tOut.war,
+      dvi: t.dvi - tOut.dvi, cvi: t.cvi - tOut.cvi,
+      ktc: t.ktc - tOut.ktc, war: t.war - tOut.war,
       picks: t.picks,
     };
   }), [offers, resolve, tot, tOut]);
   /** the leader per currency — marked per column, never combined into one
    *  "best offer", because the columns disagree and that disagreement is the
    *  information */
-  const bestOf = (k: "dvi" | "cvi" | "war") => {
+  const bestOf = (k: "dvi" | "cvi" | "ktc" | "war") => {
     const live = scored.filter(s => s.n > 0);
     if (live.length < 2) return null;
     return live.reduce((a, b) => (b[k] > a[k] ? b : a)).id;
   };
-  const best = { dvi: bestOf("dvi"), cvi: bestOf("cvi"), war: bestOf("war") };
+  const best = { dvi: bestOf("dvi"), cvi: bestOf("cvi"), ktc: bestOf("ktc"), war: bestOf("war") };
 
-  /** prose that reads the signs. It names who gains on each axis — that is what
-   *  this screen is for — but never collapses the three into one verdict. */
-  const prose = (() => {
-    if (!any) return "Pin what you're shopping on the left, then build an offer on the right. Add more offers to compare them against the same outgoing side.";
-    const lean = (d: number, dp: number, what: string) =>
-      Math.abs(d) < (dp === WAR_DP ? 0.0005 : 0.05) ? `even on ${what}`
-        : `${d > 0 ? "you gain" : "you give up"} ${fmt(Math.abs(d), dp)} ${what}`;
-    const pickNote = tOut.picks + tIn.picks > 0
-      ? " Picks carry projected WAR from the pick-value bridge but no index points until they convert to a player."
-      : "";
-    const agree = [tIn.dvi - tOut.dvi, tIn.cvi - tOut.cvi, tIn.war - tOut.war]
-      .filter(d => Math.abs(d) > 0.05);
-    const split = agree.length > 1 && !(agree.every(d => d > 0) || agree.every(d => d < 0));
-    return `On this offer: ${lean(tIn.dvi - tOut.dvi, 1, "dynasty index points")}; `
-      + `${lean(tIn.cvi - tOut.cvi, 1, "win-now index points")}; `
-      + `${lean(tIn.war - tOut.war, WAR_DP, "projected 3-year WAR")}. `
-      + (split
-        ? "The currencies disagree, which is the useful case: a dynasty gain bought with a win-now loss is a real choice, not a rounding error. There is no combined figure here because averaging them would hide exactly that."
-        : "Each figure is its own currency — dynasty and win-now answer different questions and are not added together.")
-      + pickNote;
-  })();
+  /* NO PROSE UNDER THE DELTAS. It used to restate every figure in the table
+     directly above it — "you give up 100.0 dynasty index points" next to a cell
+     reading −100.0 — which is the table failing to be read, not the reader
+     needing help. The only sentence kept is the empty state, where there are no
+     figures to restate. Column headers and the row keys carry the units. */
+  const empty = "Pin what you're shopping on the left, then build an offer on the right. Add more offers to compare them against the same outgoing side.";
 
   if (!proj) return <div className="empty">Loading…</div>;
 
@@ -337,21 +339,17 @@ export default function TradeCalc() {
           and a segmented control that gains a segment every time you add one
           stops reading as a fixed set of choices. */}
       <div className="offerbar">
-        {offers.map((o, i) => {
-          const sc = scored.find(x => x.id === o.id)!;
-          return (
-            <button key={o.id} type="button"
-              className={`chip${o.id === active ? " on" : ""}`}
-              onClick={() => setActive(o.id)}>
-              Offer {i + 1}
-              <span className="ct">{sc.n || "empty"}</span>
-              {offers.length > 1 && (
-                <span className="x" role="button" tabIndex={-1} aria-label={`Remove offer ${i + 1}`}
-                  onClick={e => { e.stopPropagation(); dropOffer(o.id); }}>×</span>
-              )}
-            </button>
-          );
-        })}
+        {offers.map((o, i) => (
+          <button key={o.id} type="button"
+            className={`chip${o.id === active ? " on" : ""}`}
+            onClick={() => setActive(o.id)}>
+            Offer {i + 1}
+            {offers.length > 1 && (
+              <span className="x" role="button" tabIndex={-1} aria-label={`Remove offer ${i + 1}`}
+                onClick={e => { e.stopPropagation(); dropOffer(o.id); }}>×</span>
+            )}
+          </button>
+        ))}
         <button type="button" className="chip add" onClick={addOffer}>+ Offer</button>
       </div>
 
@@ -368,9 +366,10 @@ export default function TradeCalc() {
           </tr></thead>
           <tbody>
             {([
+              ["Proj WAR", tIn.war - tOut.war, WAR_DP, "3-year, this model"],
+              ["KTC", tIn.ktc - tOut.ktc, 0, "market price, no model"],
               ["Dynasty", tIn.dvi - tOut.dvi, 1, "index points, not value"],
               ["Win now", tIn.cvi - tOut.cvi, 1, "index points, not value"],
-              ["Proj WAR", tIn.war - tOut.war, WAR_DP, "3-year, this model"],
             ] as const).map(([label, d, dp, note]) => (
               <tr key={label}>
                 <td className="t k">{label}</td>
@@ -381,7 +380,7 @@ export default function TradeCalc() {
             ))}
           </tbody>
         </table>
-        <div className="prose">{prose}</div>
+        {!any && <div className="prose">{empty}</div>}
       </div>
 
       {/* Every offer against the one outgoing basket. The shared denominator is
@@ -395,14 +394,48 @@ export default function TradeCalc() {
               never combined into a best offer
             </span>
           </div>
+          {/* MOBILE.md M7 — five numeric columns cannot hold at 375px, and a
+              sideways-scrolling comparison defeats the point of a comparison.
+              Same two-line record the baskets use: identity on line one, every
+              figure NAMED on line two, so a delta is never an unlabeled number. */}
+          {mobile ? (
+            <div className="records flat" style={{ padding: "0 var(--pad)" }}>
+              {scored.map((sc, i) => (
+                <div key={sc.id} className={`rec${sc.id === active ? " on" : i % 2 ? " zebra" : ""}`}
+                  onClick={() => setActive(sc.id)}>
+                  <div className="rec-l1">
+                    <span className="rec-id">
+                      Offer {i + 1}
+                      <span className="rec-sub">
+                        {sc.n === 0 ? "empty" : sc.got.map(a => a.label).join(" · ")}
+                      </span>
+                    </span>
+                    <span className="rec-fig">
+                      {sc.n ? <Delta v={sc.war} dp={WAR_DP} /> : <span className="quiet">—</span>}
+                    </span>
+                    <span className="rec-key">WAR</span>
+                  </div>
+                  <div className="rec-l2 three">
+                    <span className="mic"><span className="mk">KTC</span>
+                      <span className="mv">{sc.n ? <Delta v={sc.ktc} dp={0} /> : <span className="quiet">—</span>}</span></span>
+                    <span className="mic"><span className="mk">DVI</span>
+                      <span className="mv">{sc.n ? <Delta v={sc.dvi} dp={1} /> : <span className="quiet">—</span>}</span></span>
+                    <span className="mic"><span className="mk">CVI</span>
+                      <span className="mv">{sc.n ? <Delta v={sc.cvi} dp={1} /> : <span className="quiet">—</span>}</span></span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
           <div className="tscroll">
             <table className="offers">
               <thead><tr>
-                <th scope="col" className="t" style={{ width: "10%" }}>Offer</th>
-                <th scope="col" className="t" style={{ width: "46%" }}>You receive</th>
-                <th scope="col" className="n edge" style={{ width: "14%" }}>Dynasty</th>
-                <th scope="col" className="n" style={{ width: "14%" }}>Win now</th>
-                <th scope="col" className="n edge" style={{ width: "16%" }}>Proj WAR</th>
+                <th scope="col" className="t" style={{ width: "9%" }}>Offer</th>
+                <th scope="col" className="t" style={{ width: "37%" }}>You receive</th>
+                <th scope="col" className="n edge" style={{ width: "15%" }}>Proj WAR</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>KTC</th>
+                <th scope="col" className="n edge" style={{ width: "13%" }}>Dynasty</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>Win now</th>
               </tr></thead>
               <tbody>
                 {scored.map((sc, i) => (
@@ -415,28 +448,33 @@ export default function TradeCalc() {
                           <span key={a.key}>{j > 0 && <span className="quiet"> · </span>}{a.label}</span>
                         ))}
                     </td>
+                    <td className={`n fig strong edge${best.war === sc.id ? " lead" : ""}`}>
+                      {sc.n ? <Delta v={sc.war} dp={WAR_DP} /> : <span className="quiet">—</span>}
+                    </td>
+                    <td className={`n fig${best.ktc === sc.id ? " lead" : ""}`}>
+                      {sc.n ? <Delta v={sc.ktc} dp={0} /> : <span className="quiet">—</span>}
+                    </td>
                     <td className={`n fig edge${best.dvi === sc.id ? " lead" : ""}`}>
                       {sc.n ? <Delta v={sc.dvi} dp={1} /> : <span className="quiet">—</span>}
                     </td>
                     <td className={`n fig${best.cvi === sc.id ? " lead" : ""}`}>
                       {sc.n ? <Delta v={sc.cvi} dp={1} /> : <span className="quiet">—</span>}
                     </td>
-                    <td className={`n fig edge${best.war === sc.id ? " lead" : ""}`}>
-                      {sc.n ? <Delta v={sc.war} dp={WAR_DP} /> : <span className="quiet">—</span>}
-                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+          )}
         </>
       )}
 
       <div className="tnote" style={{ padding: "10px var(--pad) 0" }}>
-        Players are priced by DVI (dynasty), CVI (win now) and their 3-year WAR projection —
-        all three under whichever projection model the masthead is set to. Picks are priced by
-        Bridge A's empirical slot and tier WAR, which the model control does not reach: a pick
-        has no index and no analog cohort until it converts to a player.
+        Projected WAR leads because it is the only figure in its own units rather than an
+        index. It, DVI and CVI all move with whichever projection model the masthead is set to;
+        KTC does not — it is the market's price, and it earns its place beside them precisely
+        because it is the one number here that isn't ours. Picks carry a KTC tier price and
+        Bridge A's slot WAR, but no index until they convert to a player.
       </div>
     </>
   );

@@ -693,6 +693,37 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   .drawer-body { gap: 20px; }
   .trade-side { min-width: 100%; border-right: 0; }
   input[type="search"] { min-width: 0; flex: 1; }
+
+  /* TRADE MACHINE ON A PHONE.
+     The deltas table keeps all three currencies — they are the screen — and
+     drops only the unit note, which is explanatory and already carried by the
+     column headers. Three columns at 33/34/33 hold at 320px; four did not, and
+     shrinking the figures to fit would have made the one thing you came for
+     the smallest thing on screen. */
+  .verdict-band { padding: 12px 12px 14px; }
+  .verdict-band table.deltas td.sub,
+  .verdict-band table.deltas th:last-child { display: none; }
+  .verdict-band table.deltas th,
+  .verdict-band table.deltas td { padding: 4px 6px; }
+  .verdict-band table.deltas td.fig { font-size: 18px; }
+  /* the fixed widths above are for the 4-column desktop shape */
+  .verdict-band table.deltas { table-layout: auto; }
+
+  /* The offer strip stays a wrapping row, but a phone tap target is bigger than
+     a mouse one and the remove `x` sits inside the chip that selects it. */
+  .offerbar { gap: 5px; }
+  .offerbar .chip { padding: 7px 10px; }
+  .offerbar .chip .x { padding: 0 2px 0 4px; }
+
+  /* The comparison table renders as .records on a phone — see TradeCalc.
+     The selected row's fill is pulled 8px wider than the text on both sides
+     and the margin gives it back, so the highlight reads as a band the row
+     sits inside rather than as a box clamped to the glyphs. Without this the
+     fill stopped exactly at the first and last character. */
+  .records .rec { padding-left: 8px; padding-right: 8px; margin-left: -8px; margin-right: -8px; }
+  .records .rec.on { background: var(--sel); }
+  /* KTC, DVI and CVI under the headline WAR figure */
+  .records .rec-l2.three { grid-template-columns: repeat(3, 1fr); gap: 4px 10px; }
   /* A phone can't fit twelve columns and shouldn't try, so the floor stops
      being a legibility minimum and becomes a deliberate count: four across,
      sized off the viewport rather than a guessed pixel value. 100vw less the
@@ -1412,13 +1443,11 @@ tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
 /* verdict band under the baskets */
 /* The trade machine's offer strip. Chips, not a segmented control: the set
    grows as you add offers, and a segmented control that gains a segment on
-   click stops reading as a fixed set of choices. */
+   click stops reading as a fixed set of choices.
+   The chip carries no asset count — the figures below it are the reason to
+   look at an offer, and a count competed with them while answering nothing. */
 .offerbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 14px var(--pad) 0; }
 .offerbar .chip { display: inline-flex; align-items: center; gap: 7px; }
-.offerbar .chip .ct {
-  font: 400 11px/1 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim3);
-}
-.offerbar .chip.on .ct { color: var(--acc-ink); }
 .offerbar .chip .x { color: var(--dim); padding-left: 2px; }
 .offerbar .chip .x:hover { color: var(--bad); }
 .offerbar .chip.add { color: var(--dim); }
