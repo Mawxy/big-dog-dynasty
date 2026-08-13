@@ -1,11 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Absences, CviFile, DviFile, KnnFile, KnnProjection, MatrixFile, MatrixModel,
-  MatrixRow, Ownership, PlayerShard, SummaryRow, Team, Values, Weekly, WeeklyRow,
+  Absences, KnnFile, KnnProjection, MatrixFile, MatrixModel, MatrixRow, Ownership, PlayerShard, SummaryRow, Team, Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
+import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, fmtWar, sgnWar, mean } from "../lib/stats";
 import { latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
@@ -86,8 +86,9 @@ export default function Player({ pid }: { pid: string }) {
 
   // Everything the page reads whole and picks this player out of. Each is one
   // cached download shared with every other view that wants the same file.
-  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data?.players[pid] ?? null;
-  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data?.players[pid] ?? null;
+  // model-aware: these follow the masthead's projection-model control
+  const dvi = useDvi()?.players[pid] ?? null;
+  const cvi = useCvi()?.players[pid] ?? null;
   const own = useJson<Ownership>("ownership.json").data ?? NO_OWNERSHIP;
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   // global file: the market prices a format, not a league

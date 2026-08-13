@@ -170,7 +170,74 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    teams (measured vs the optimal pool) — that's expected, compare relatively.
 7. Reference points: ~2 WAR in a 14-week season is a superstar (CMC 2025 ≈ 2);
    a 12-2 team's lineup WAA can be slightly negative — verified correct.
-8. **FINISH (final placing) is a SPLIT column** — **2026-08-12**. Places 1..N
+8. **DVI and CVI are computed under ALL SIX projection curves** —
+   **2026-08-13**. `scripts/curves.py` owns the vocabulary (mirrors
+   `MATRIX_CURVES` in `src/lib/types.ts`, locked by `tests/test_curves.py`) and
+   the year-1 lookup into `projections_matrix.json`. `blend_values.py` and
+   `contender_index.py` each split into `load_inputs()` / `compute(war_of)` /
+   `to_*()`; `scripts/index_models.py` drives both across the six curves from
+   ONE load (the ~19 MB Sleeper map would otherwise be read fourteen times) in
+   about a second, and writes `dvi.json` + `cvi.json` on the default plus
+   `index_models.json` (~181 KB) with all six.
+   - **The published default is `blend_composite`**, not the scalar composite
+     that was hardcoded. `--curve scalar_composite` reproduces the old numbers
+     exactly — proven against the pre-refactor scripts, 393/393 on both indices,
+     and locked by a test. That equivalence is what makes any future diff here
+     readable: a repricing bug and an intended model change look identical
+     otherwise.
+   - Both indices clamp on **year-1** WAR, which is inherited and is the odd
+     part of a DYNASTY index. Left alone deliberately — changing the horizon
+     moves every published figure and is a separate argument from changing the
+     model.
+   - **`has_analog` / `has_sleeper` are claims about the PROJECTION, never about
+     the figure.** 65 players have no analog cohort; their WAR is identical
+     across curves in all 65 cases and their published DVI in only 4, because
+     both indices clamp on percentiles of the whole field and changing the model
+     reprices everyone around them. Any UI copy must read these as "no second
+     opinion was measured for him", never as "this number won't move".
+   - `validate_data.check_index_models` catches the quiet failure — a curve loop
+     that runs six times but reads one projection, publishing six identical sets
+     that look like six models agreeing. Proven to reject a file collapsed that
+     way while the default stayed self-consistent.
+9. **The projection model is a SITE-WIDE control** — **2026-08-13**. The
+   masthead carries the one global switch on the site (`components/
+   ModelPicker`, state in `lib/model.ts`): three models x two streams, driving
+   DVI, CVI and projected WAR everywhere at once.
+   - It lives in the masthead precisely because it is NOT view-scoped — the
+     deliberate opposite of the season picker, which is per-view. A global
+     control that changes figures on screens where it isn't visible is a trap;
+     the masthead is on every screen, so it can't be out of sight while biting.
+   - **The URL carries it** (`?m=analog_natural`), so a shared link shows the
+     numbers the sender was reading. localStorage only remembers it between
+     sessions, and the URL wins when they disagree. The default is stored as
+     the ABSENCE of the param.
+   - `lib/useIndices.ts` returns the same `DviFile`/`CviFile` shapes the screens
+     already expected, so eight consumers changed by one line. Everything comes
+     from `index_models.json` — one ~181 KB fetch instead of two ~37 KB ones,
+     after which every model flip is free and no two screens can show different
+     curves. `IndexBoard`'s `file` prop is gone: both indices come from one
+     file now, so the DVI/CVI race it guarded against is impossible.
+   - NOT accent-filled, unlike the design system's lens control. That pattern
+     is for a control inside a view; this one sits above every view, where an
+     accent would compete with each screen's headline figure.
+10. **The trade machine shops one basket against many offers** —
+   **2026-08-13**. The outgoing side is pinned and each offer is a return
+   scored against it, so every row of the comparison table shares a
+   denominator. Deltas are signed on BOTH sides, per currency, and never
+   combined.
+   - This is a deliberate, scoped exception to "never colour a trade". That
+     rule is right for the Ledger, which records a settled fact; this screen
+     evaluates a hypothetical and refusing to say who gains is refusing the
+     job. What is still refused is a SINGLE verdict — DVI and CVI answer
+     different questions and routinely point at different sides.
+   - Worked example, sending Josh Allen: under `blend_composite` one offer led
+     all three columns; under `analog_natural` the WAR leader flipped to a
+     different offer while dynasty and win-now did not. The model control
+     changes the answer, which is the point of shipping it.
+   - The model does NOT reach picks — they are priced by Bridge A's slot/tier
+     WAR and have no index or analog cohort until they convert. Said out loud
+     in the screen's footnote.
+11. **FINISH (final placing) is a SPLIT column** — **2026-08-12**. Places 1..N
    come from the winners bracket; places N+1.. are the regular-season
    standings, NOT the consolation bracket. The toilet bowl is a tournament a
    bad team can win, and in 2025 one did: it placed a 1-13 / 90.9 ppg roster

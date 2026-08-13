@@ -50,6 +50,7 @@ FLOORS = {
     "franchises": 10,
     "dvi": 150,      # currently ~391
     "cvi": 150,      # currently ~391
+    "index_models": 150,   # same population as dvi/cvi, six curves each
     "pick_slots": 40,    # every rookie slot 1.01-4.12; currently 48
     "pick_bands": 12,    # 4 rounds x Early/Mid/Late, so exactly 12
     # priced weeks summed over EVERY season, not per season: an in-progress
@@ -92,6 +93,52 @@ def jload(p):
 def floor(name, n):
     if n < FLOORS[name]:
         fail(f"{name}: {n} entries (< floor {FLOORS[name]})")
+
+
+def check_index_models():
+    """index_models.json against the two files it is supposed to agree with.
+
+    The failure this catches is the quiet one: a curve loop that runs but reads
+    the same projection every time, publishing six identical sets that look like
+    six models agreeing. So the checks are (1) every curve is present for every
+    player, (2) the default curve reproduces dvi.json and cvi.json exactly — if
+    those two ever disagree the site shows one number on a player page and
+    another in the trade machine — and (3) the curves actually SEPARATE for the
+    players who have a second opinion. Nothing here asserts a direction; the
+    point is only that the six are six.
+    """
+    im = jload(DATA / "index_models.json")
+    players = im.get("players") or {}
+    floor("index_models", len(players))
+    curves = im.get("curves") or []
+    if len(curves) != 6:
+        fail(f"index_models.json lists {len(curves)} curves, expected 6")
+    default = im.get("default")
+    if default not in curves:
+        fail(f"index_models.json default {default!r} is not one of its own curves")
+
+    missing = [pid for pid, r in players.items()
+               if len(r.get("dvi") or {}) != 6 or len(r.get("cvi") or {}) != 6]
+    if missing:
+        fail(f"{len(missing)} players missing a curve in index_models.json "
+             f"(e.g. {missing[0]})")
+
+    for name, key in (("dvi.json", "dvi"), ("cvi.json", "cvi")):
+        pub = (jload(DATA / name).get("players") or {})
+        bad = [pid for pid, r in pub.items()
+               if pid in players and players[pid][key][default][0] != r[key]]
+        if bad:
+            fail(f"{name} disagrees with index_models.json on its own default "
+                 f"curve for {len(bad)} players (e.g. {bad[0]})")
+
+    measured = [r for r in players.values() if r.get("has_analog") and r.get("has_sleeper")]
+    if measured:
+        moved = sum(1 for r in measured
+                    if len({tuple(v) for v in r["dvi"].values()}) > 1)
+        if moved < 0.5 * len(measured):
+            fail(f"only {moved}/{len(measured)} fully-measured players have two "
+                 f"distinct DVI curves — the curve loop is probably reading one "
+                 f"projection six times")
 
 
 def check_values():
@@ -336,6 +383,7 @@ def check_full():
     floor("shards", len(list((DATA / "player").glob("*.json"))))
     floor("dvi", len(jload(DATA / "dvi.json").get("players") or {}))
     floor("cvi", len(jload(DATA / "cvi.json").get("players") or {}))
+    check_index_models()
     floor("odds_weeks", odds_weeks)
     check_pick_values()
     check_benchmarks()

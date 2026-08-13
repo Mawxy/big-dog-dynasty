@@ -1,6 +1,7 @@
 import { useMemo, type ReactNode } from "react";
 import type { CviFile, CviRow, DviFile, DviRow, Team } from "../lib/types";
 import { useJson } from "../lib/useJson";
+import { useCviQuery, useDviQuery } from "../lib/useIndices";
 import { ownerOf, rosterSeasonOf, POS_COLOR } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { PlayerLink } from "./PlayerLink";
@@ -11,7 +12,7 @@ import DataTable, { type Col, type Grp } from "./DataTable";
 /**
  * A 0–100 index leaderboard: rank, player, position, roster, one figure.
  *
- * DVI and CVI render the same board with a different file and field — they
+ * DVI and CVI render the same board off ONE file, picking a field — they
  * were two byte-identical views before this. `pick` names the value field in
  * the file's player records ("dvi" in dvi.json, "cvi" in cvi.json).
  *
@@ -86,8 +87,8 @@ const COLS: Col<IdxRow, IdxCtx>[] = [
  */
 const NO_SORT = () => {};
 
-export default function IndexBoard({ file, pick, title, note, footnote }: {
-  file: string; pick: "dvi" | "cvi"; title: string;
+export default function IndexBoard({ pick, title, note, footnote }: {
+  pick: "dvi" | "cvi"; title: string;
   /** the band's methodology line — what this index is measured against */
   note: string;
   footnote: ReactNode;
@@ -95,12 +96,15 @@ export default function IndexBoard({ file, pick, title, note, footnote }: {
   const { league } = useLeague();
   const { bar, apply } = usePlayerFilters<IdxRow>();
 
-  // DVI and CVI are the same component on two routes: useJson clears the old
-  // file's data the moment `file` changes, so a switch between them can never
-  // print one index's numbers under the other's title, however the two fetches
-  // happen to race.
-  const idx = useJson<DviFile | CviFile>(file, "leagueDaily");
-  const data = idx.data;
+  // DVI and CVI are the same component on two routes, and now on one FILE:
+  // both indices come out of index_models.json for whichever curve the
+  // masthead is set to. `pick` alone decides which half is read, so the old
+  // race — one index's numbers under the other's title while two fetches
+  // settled — is gone by construction rather than by cache-key discipline.
+  const dviQ = useDviQuery();
+  const cviQ = useCviQuery();
+  const idx = pick === "dvi" ? dviQ : cviQ;
+  const data = idx.data as DviFile | CviFile | null;
   const err = idx.error;
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   const owners = useMemo(() => (teams ? ownerOf(teams) : {}), [teams]);

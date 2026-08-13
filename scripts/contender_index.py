@@ -23,6 +23,8 @@ import argparse, json
 from datetime import date
 from pathlib import Path
 
+from curves import CURVES, DEFAULT_CURVE, war_reader
+from ioutil import atomic_write
 from leaguepaths import DataDir
 # One definition of the shared machinery. start% in particular is subtle (it
 # blends a season average with the current snapshot on a week schedule) and
@@ -64,13 +66,12 @@ def ecr_to_war(ecr_rank_order, war_sorted_desc):
     return out
 
 
-def main():
-    ap = argparse.ArgumentParser()
-    ap.add_argument("--format", default=DEFAULT_FORMAT,
-                    help="which ECR format in data/ecr.json to read")
-    ap.add_argument("--out", default=str(DATA / "cvi.json"))
-    args = ap.parse_args()
+def load_inputs(fmt=DEFAULT_FORMAT):
+    """Everything CVI reads that does NOT depend on the projection curve.
 
+    Split out for the same reason blend_values' version is: index_models.py
+    prices six curves from one load, and sleeper_data/players.json is ~19 MB.
+    """
     proj = {p["pid"]: p
             for p in json.load(open(DATA / "projections.json", encoding="utf-8"))["players"]}
 
@@ -80,18 +81,32 @@ def main():
         print("!! no data/ecr.json — run scripts/fetch_ecr.py first")
     ecr_rank = {}
     for pid, per_fmt in ecr_all.items():
-        row = per_fmt.get(args.format)
+        row = per_fmt.get(fmt)
         if row and row.get("ecr") and pid in proj:
             ecr_rank[pid] = row["ecr"]
 
     sf = DATA / "league_signals.json"
     sigf = json.load(open(sf, encoding="utf-8")) if sf.exists() else {}
-    sig = sigf.get("players", {})
-    week = sigf.get("week", 0)
     players_meta = json.load(open(ROOT / "sleeper_data" / "players.json", encoding="utf-8")) \
         if (ROOT / "sleeper_data" / "players.json").exists() else {}
+    return {"proj": proj, "ecr_all": ecr_all, "ecr_rank": ecr_rank,
+            "sig": sigf.get("players", {}), "week": sigf.get("week", 0),
+            "players_meta": players_meta}
 
-    wars = [(p.get("composite") or [0])[0] for p in proj.values()]
+
+def compute(inp, war_of):
+    """The per-pid detail rows, priced with `war_of`: pid -> year-1 WAR.
+
+    Every place the projection enters routes through `war_of` — the clamp
+    bounds, the ECR-to-WAR ladder, and the per-player component. They have to
+    share a curve: `ecr_to_war` maps a consensus rank onto the WAR
+    distribution, so a ladder built on one model and a component clamped on
+    another would put the two halves of the index on different scales.
+    """
+    proj, ecr_all, ecr_rank = inp["proj"], inp["ecr_all"], inp["ecr_rank"]
+    sig, week, players_meta = inp["sig"], inp["week"], inp["players_meta"]
+
+    wars = [war_of.get(pid, 0.0) for pid in proj]
     # DVI clamps war at p95 and gets its top-end spread from the markets at p99.
     # CVI has no market and rides the WAR curve on BOTH halves, so a p95 ceiling
     # collapses everyone above it into a tie at 100 — exactly the range a
@@ -124,7 +139,7 @@ def main():
 
         comps = {
             "ecr": ecr_c,
-            "war": clamp((p.get("composite") or [0])[0], *rng_war),
+            "war": clamp(war_of.get(pid, 0.0), *rng_war),
             "roster": clamp(s.get("roster_rate", 0.0), *rng_roster),
             "start": start_c,
         }
@@ -146,10 +161,12 @@ def main():
                            for k, c in comps.items()},
             "start_used": round(sv, 3) if sv is not None else None,
         }
+    return out
 
-    # component breakdown stays local for tuning, same as blended_values.json
-    (DATA / "cvi_detail.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
 
+def to_cvi(out):
+    """The site-facing shape: value + rank only. Ranks are within a curve —
+    see to_dvi in blend_values.py for why that is the point."""
     ranked = sorted((pid for pid in out if out[pid]["rating"] is not None),
                     key=lambda pid: -out[pid]["rating"])
     cvi, pos_seen = {}, {}
@@ -162,15 +179,35 @@ def main():
         cvi[pid] = {"name": r["name"], "pos": r["pos"], "cvi": r["rating"],
                     "rank": i, "pos_rank": pos_seen[r["pos"]],
                     "components": sum(1 for c in r["components"].values() if c is not None)}
-    Path(args.out).write_text(json.dumps(
-        {"generated": date.today().isoformat(), "format": args.format,
-         "ecrRanked": len(ecr_rank), "players": cvi}, separators=(",", ":")),
-        encoding="utf-8")
+    return cvi
 
-    print(f"wrote {args.out}: {len(cvi)} players · {len(ecr_rank)} with an ECR "
-          f"rank · week={week} · start snap-weight={snap_weight(week)}")
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--format", default=DEFAULT_FORMAT,
+                    help="which ECR format in data/ecr.json to read")
+    ap.add_argument("--curve", default=DEFAULT_CURVE, choices=CURVES,
+                    help="which projection curve prices the WAR signal")
+    ap.add_argument("--out", default=str(DATA / "cvi.json"))
+    args = ap.parse_args()
+
+    inp = load_inputs(args.format)
+    out = compute(inp, war_reader(DATA, args.curve))
+    week, ecr_rank = inp["week"], inp["ecr_rank"]
+
+    # component breakdown stays local for tuning, same as blended_values.json
+    (DATA / "cvi_detail.json").write_text(json.dumps(out, indent=1), encoding="utf-8")
+
+    cvi = to_cvi(out)
+    atomic_write(Path(args.out), json.dumps(
+        {"generated": date.today().isoformat(), "format": args.format,
+         "curve": args.curve, "ecrRanked": len(ecr_rank), "players": cvi},
+        separators=(",", ":")))
+
+    print(f"wrote {args.out} [{args.curve}]: {len(cvi)} players · {len(ecr_rank)} "
+          f"with an ECR rank · week={week} · start snap-weight={snap_weight(week)}")
     print("\n=== top 20 ===")
-    for pid in ranked[:20]:
+    for pid in sorted(cvi, key=lambda p: cvi[p]["rank"])[:20]:
         r = out[pid]
         print(f"  {cvi[pid]['rank']:>3}. {r['name'][:22]:23}{r['pos']:4}"
               f"{r['rating']:>6}  (ECR {r['ecrRank'] or '--'})")

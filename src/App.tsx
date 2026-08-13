@@ -1,7 +1,10 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
-import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./lib/types";
+import type { IndexModelsFile, LeagueEntry, Leagues, MatrixCurve, Meta, PlayersMin } from "./lib/types";
 import { j, jl, retry, setLeagueBase, setVersion } from "./lib/data";
+import { useJson } from "./lib/useJson";
+import { DEFAULT_CURVE, ModelContext, isCurve } from "./lib/model";
+import ModelPicker from "./components/ModelPicker";
 import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
 import { latestSeasonOf, seasonSeg } from "./lib/league";
@@ -157,10 +160,48 @@ export default function App() {
   return (
     <LeagueContext.Provider value={{ meta, players, league, leagues }}>
       <HashRouter>
-        <Shell />
+        <ModelProvider>
+          <Shell />
+        </ModelProvider>
       </HashRouter>
     </LeagueContext.Provider>
   );
+}
+
+/**
+ * The projection-model switch, held for the whole site.
+ *
+ * Inside the router, because the URL is where the choice actually lives:
+ * `?m=analog_natural` travels with a shared link, so two people reading the
+ * same address see the same numbers. localStorage only remembers it between
+ * sessions — if the two ever disagree the URL wins, since the URL is the one
+ * the sender chose deliberately.
+ *
+ * `available` is false for data built before index_models.json, which keeps the
+ * control from offering six choices that all return the same file.
+ */
+function ModelProvider({ children }: { children: ReactNode }) {
+  const loc = useLocation();
+  const nav = useNavigate();
+  const mx = useJson<IndexModelsFile>("index_models.json", "leagueDaily");
+  const fromUrl = new URLSearchParams(loc.search).get("m");
+  const stored = (() => {
+    try { return window.localStorage.getItem("warboard.curve"); } catch { return null; }
+  })();
+  const curve = isCurve(fromUrl) ? fromUrl : isCurve(stored) ? stored : DEFAULT_CURVE;
+  const setCurve = useCallback((c: MatrixCurve) => {
+    try { window.localStorage.setItem("warboard.curve", c); } catch { /* private mode */ }
+    const q = new URLSearchParams(loc.search);
+    // the default is the absence of the param, so a link to the site as it
+    // ships doesn't carry a setting that only means "unchanged"
+    if (c === DEFAULT_CURVE) q.delete("m"); else q.set("m", c);
+    const s = q.toString();
+    nav({ pathname: loc.pathname, search: s ? `?${s}` : "" }, { replace: true });
+  }, [loc.pathname, loc.search, nav]);
+  const value = useMemo(() => ({
+    curve, setCurve, loading: mx.loading, available: !!mx.data,
+  }), [curve, setCurve, mx.loading, mx.data]);
+  return <ModelContext.Provider value={value}>{children}</ModelContext.Provider>;
 }
 
 function Shell() {
@@ -227,8 +268,14 @@ function Shell() {
             <span className="wordmark-tag">War Board</span>
           </div>
           <div className="mast-meta">
-            {/* the season selector lives in the views that are season-scoped,
-                not here — see components/SeasonPicker */}
+            {/* The season selector lives in the views that are season-scoped,
+                not here — see components/SeasonPicker. The MODEL picker is the
+                deliberate opposite: it is the one control that is not
+                view-scoped, and it belongs beside the freshness line because
+                the two say the same kind of thing. That line says when what
+                you are looking at was built; the picker says under which
+                assumptions. */}
+            <ModelPicker />
             <span className="mast-updated">Data refreshes Wed 1:00 AM ET · {meta.updated}</span>
           </div>
         </div>

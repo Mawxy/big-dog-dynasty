@@ -143,6 +143,31 @@ a:hover { text-decoration: underline; }
   text-transform: uppercase;
   color: var(--dim);
 }
+/* The projection-model control (components/ModelPicker), the site's ONE global
+   switch. Two segmented groups — model, then stream — because the six curves
+   are 3x2 and a flat six hides that.
+
+   DELIBERATELY NOT ACCENT-FILLED, unlike the lens control in §5 of the design
+   system. That pattern fills the selected segment with --acc, which works
+   inside a view; this sits above every view, so an accent here would compete
+   with each screen's headline figure for the one accent it is allowed. Selected
+   is --txt on --band, which still wins clearly against --dim2 without spending
+   the gold. Zero radius, as everywhere. */
+.mpick { display: flex; gap: 8px; }
+.mpick .mseg { display: flex; border: 1px solid var(--rule); }
+.mpick .mseg button {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  padding: 5px 8px; background: none; border: 0; cursor: pointer;
+  color: var(--dim2);
+}
+.mpick .mseg button + button { border-left: 1px solid var(--rule); }
+.mpick .mseg button:hover { color: var(--txt2); }
+.mpick .mseg button.on { background: var(--band); color: var(--txt); }
+@media (max-width: 640px) {
+  /* the masthead drops the freshness line on a phone; the model stays, because
+     it changes what the figures MEAN rather than just when they were built */
+  .mpick .mseg button { padding: 5px 6px; letter-spacing: .06em; }
+}
 /* The season chip. A SPAN carries the text and the <select> is laid over it
    transparently: a styled <select> sizes itself to its text without counting
    the trailing letter-space or the condensed font's overhang, so the last
@@ -1385,6 +1410,46 @@ tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
 }
 .basket-head .n { font: 400 11.5px/1.4 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim); }
 /* verdict band under the baskets */
+/* The trade machine's offer strip. Chips, not a segmented control: the set
+   grows as you add offers, and a segmented control that gains a segment on
+   click stops reading as a fixed set of choices. */
+.offerbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 14px var(--pad) 0; }
+.offerbar .chip { display: inline-flex; align-items: center; gap: 7px; }
+.offerbar .chip .ct {
+  font: 400 11px/1 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim3);
+}
+.offerbar .chip.on .ct { color: var(--acc-ink); }
+.offerbar .chip .x { color: var(--dim); padding-left: 2px; }
+.offerbar .chip .x:hover { color: var(--bad); }
+.offerbar .chip.add { color: var(--dim); }
+
+/* Both sides of the trade, signed, one row per currency. Mirrored on purpose:
+   a single "A − B" figure makes one side the subject and the other the
+   reference, and in a trade neither is. Two signed cells state the same fact
+   without choosing whose row it is. */
+.verdict-band table.deltas { width: 100%; table-layout: fixed; margin-bottom: 12px; }
+.verdict-band table.deltas th {
+  font: 600 11px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim2); padding: 0 10px 6px; text-align: right;
+}
+.verdict-band table.deltas th.t { text-align: left; }
+.verdict-band table.deltas td { padding: 4px 10px; }
+.verdict-band table.deltas td.k {
+  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+}
+.verdict-band table.deltas td.fig { font: 700 20px/1.1 var(--cond); font-variant-numeric: tabular-nums; }
+.verdict-band table.deltas td.sub { font: 400 11.5px/1.4 var(--sans); color: var(--dim3); }
+
+/* the comparison table: one row per offer, all against the same outgoing side */
+table.offers { width: 100%; table-layout: fixed; margin-top: 2px; }
+table.offers tbody tr.on { background: var(--sel); }
+table.offers tbody tr:hover { background: var(--band); }
+/* `lead` marks the best offer in THAT column only. Deliberately a rule under
+   the figure rather than a fill: three columns can each have a different
+   leader, and three filled cells across three rows would read as three winners
+   of one thing. */
+table.offers td.lead { box-shadow: inset 0 -2px 0 var(--acc); }
+
 .verdict-band { background: var(--deep); border-top: 3px solid var(--acc); margin: 18px var(--pad) 0; padding: 14px 18px 16px; }
 .verdict-band .figs { display: flex; flex-wrap: wrap; gap: 8px 40px; }
 .verdict-band .prose { font: 400 13.5px/1.6 var(--sans); color: var(--txt2); margin-top: 12px; max-width: 860px; text-wrap: pretty; }

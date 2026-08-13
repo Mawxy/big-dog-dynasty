@@ -1,8 +1,7 @@
 import { useMemo, useState } from "react";
-import type {
-  CviFile, DviFile, EcrFile, KnnFile, ProjectionsFile, Team, Values,
-} from "../lib/types";
+import type { EcrFile, KnnFile, ProjectionsFile, Team, Values } from "../lib/types";
 import { useJson } from "../lib/useJson";
+import { useCviQuery, useDviQuery } from "../lib/useIndices";
 import { fmt, fmtWar } from "../lib/stats";
 import { latestSeasonOf, ownerOf, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
@@ -90,8 +89,10 @@ export default function Value() {
   // population on whichever half arrived first and then re-rank under the
   // reader.
   const projsQ = useJson<ProjectionsFile>("projections.json");
-  const dviQ = useJson<DviFile>("dvi.json", "leagueDaily");
-  const cviQ = useJson<CviFile>("cvi.json", "leagueDaily");
+  // model-aware: these follow the masthead's projection-model control,
+  // and keep the query shape because `ready` below gates on .loading
+  const dviQ = useDviQuery();
+  const cviQ = useCviQuery();
   // global files: the market and the consensus price a format, not a league
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
   const ecrQ = useJson<EcrFile>("data/ecr.json", "globalDaily");

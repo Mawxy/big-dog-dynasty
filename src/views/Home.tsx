@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  CviFile, DviFile, Franchises, Matchups, ProjectionsFile, Team,
-  Trade, TradesPayload, Values,
+  Franchises, Matchups, ProjectionsFile, Team, Trade, TradesPayload, Values,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
+import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, fmtWar, sgn, mean, normCdf, normInv } from "../lib/stats";
 import { LEAGUE_TEAMS, lineupOf, optimalLineup, pInfo, REG_WEEKS, rosterSeasonOf, starterTotal } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
@@ -66,8 +66,9 @@ export default function Home() {
   const proj = useJson<ProjectionsFile>("projections.json").data;
   const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
-  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
-  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
+  // model-aware: these follow the masthead's projection-model control
+  const dvi = useDvi();
+  const cvi = useCvi();
   // the market prices a format, not a league
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
   const tradesFile = useJson<TradesPayload>("trades.json").data;

@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  CviFile, DraftPick, Drafts, DviFile, Franchise, FranchiseSeason, FranchiseTx, Franchises,
-  Insights, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload,
+  DraftPick, Drafts, Franchise, FranchiseSeason, FranchiseTx, Franchises, Insights, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
+import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, fmtWar, sgnWar, clsOf, ord } from "../lib/stats";
 import { lineupOf, optimalLineup, pInfo, POS_COLOR, pricedLineup, rosterSeasonOf, SLOT_LABEL } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
@@ -226,8 +226,9 @@ export default function FranchisePage({ rid, players, tab }:
   const sprojFile = useJson<SleeperProjFile>("proj_sleeper.json");
   // the daily pair, and the scope has to match what the rest of the site uses
   // for the same file or the cache downloads it twice (useJson.ts)
-  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
-  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
+  // model-aware: these follow the masthead's projection-model control
+  const dvi = useDvi();
+  const cvi = useCvi();
   // A past roster is priced in what those players ACTUALLY did that year, not
   // in today's projection: 2022's roster carries 2022 WAR and 2022 PPG. DVI
   // and CVI are current-market indices with no historical series, so they

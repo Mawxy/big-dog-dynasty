@@ -346,6 +346,37 @@ export interface CviFile {
   players: Record<string, CviRow>;
 }
 
+/**
+ * data/<league>/index_models.json — DVI and CVI under every projection curve,
+ * written by scripts/index_models.py.
+ *
+ * dvi.json and cvi.json still ship and still hold the DEFAULT curve; this file
+ * is what lets the masthead's model control reprice the whole site without a
+ * fetch per flip. Identity is stored once per player and each curve carries
+ * only `[value, rank, pos_rank]`, which is what keeps it near one dvi.json
+ * rather than twelve.
+ *
+ * has_analog / has_sleeper are claims about the PROJECTION, not about the
+ * figure. False means his analog and blend projections are the scalar one, or
+ * every composite is its own natural — NOT that his index is model-independent.
+ * Both indices clamp on percentiles of the whole field, so changing the model
+ * reprices everyone and drags him with it: of the 65 players with no analog
+ * cohort, all 65 had identical WAR across curves and only 4 an identical DVI.
+ * Copy that says "this number won't move" is wrong and will be caught out.
+ */
+export type IndexTriple = [value: number, rank: number, posRank: number];
+export interface IndexModelsRow {
+  name: string; pos: string;
+  has_analog: boolean; has_sleeper: boolean;
+  dvi: Record<MatrixCurve, IndexTriple>;
+  cvi: Record<MatrixCurve, IndexTriple>;
+}
+export interface IndexModelsFile {
+  generated: string; curves: MatrixCurve[]; default: MatrixCurve;
+  format?: string; note?: string;
+  players: Record<string, IndexModelsRow>;
+}
+
 /** data/picks_owned.json — who holds which future draft picks right now */
 export interface PicksOwned {
   meta: { seasons: number[]; as_of: string };

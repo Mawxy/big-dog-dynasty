@@ -122,11 +122,14 @@ jobs:
         run: python scripts/project_war_knn.py --space hybrid
       - name: Six-curve projection matrix (scalar / analog / blend)
         run: python scripts/project_matrix.py
-      - name: DVI (ensemble trade value -> data/dvi.json)
-        run: python scripts/blend_values.py
+      # ONE step, not two: index_models.py runs blend_values and contender_index
+      # across all six projection curves and writes dvi.json + cvi.json on the
+      # default (blend_composite) plus index_models.json with all six. It loads
+      # the ~19 MB Sleeper player map once for the lot — twelve invocations
+      # would have made that the whole cost of the feature. ~1s for all six.
+      - name: DVI + CVI under every projection curve
+        run: python scripts/index_models.py
       # after DVI: CVI reads dvi.json to publish the gap between them
-      - name: CVI (one-year contender value -> data/cvi.json)
-        run: python scripts/contender_index.py
       - name: Validate built data before committing
         run: python scripts/validate_data.py
       - name: Commit updated data

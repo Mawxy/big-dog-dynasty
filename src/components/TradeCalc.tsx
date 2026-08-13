@@ -1,7 +1,8 @@
-import { useId, useMemo, useState } from "react";
-import type { CviFile, DviFile, PicksOwned, PickValues, ProjectionsFile } from "../lib/types";
+import { useCallback, useId, useMemo, useRef, useState } from "react";
+import type { PicksOwned, PickValues, ProjectionsFile } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { fmt, sgn, sgnWar, WAR_DP } from "../lib/stats";
+import { useCvi, useDvi, useProjWar } from "../lib/useIndices";
+import { fmt, sgn, sgnWar, warInk, WAR_DP } from "../lib/stats";
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 import { LEAGUE_TEAMS, POS_COLOR } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
@@ -9,12 +10,29 @@ import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 
 /**
- * Trade machine (1G): two baskets, each line priced in every currency the
- * site keeps — DVI, CVI, and 3-year composite WAR. Picks carry projected WAR
- * from the pick-value bridge and read — on both indices until they convert.
+ * Trade machine: one outgoing basket, many competing offers for it, each line
+ * priced in every currency the site keeps — DVI, CVI, and 3-year WAR, all three
+ * following the masthead's projection model.
  *
- * The verdict never converts an index gap into a "side X wins": the two
- * indices answer different questions, and the copy says so.
+ * SHOPPING ONE PLAYER IS THE SHAPE. You are almost never comparing two
+ * unrelated trades; you are asking what five teams will give you for Josh
+ * Allen. So the outgoing side is pinned and edited once, and each offer is a
+ * return basket against it. That makes the comparison table honest — every row
+ * shares a denominator — where independent two-sided scenarios would leave the
+ * reader diffing rows whose outgoing halves also differ.
+ *
+ * SIGNED ON BOTH SIDES, PER CURRENCY, NEVER OVERALL. The design system calls
+ * colouring the two halves of a trade an anti-pattern, and it is right about
+ * the surface it was written for: a Ledger card records what happened, and
+ * inking a winner there editorialises a settled fact. This screen is the other
+ * case — it exists to evaluate a hypothetical, and refusing to say who gains is
+ * refusing to do the job.
+ *
+ * What is still refused is a SINGLE verdict. DVI and CVI answer different
+ * questions and routinely point at different sides; averaging them into one
+ * number would invent a composite the data does not support. So each currency
+ * carries its own signed pair, and when they disagree the reader sees the
+ * disagreement rather than its mean.
  */
 interface Asset {
   key: string; label: string; kind: "player" | "pick";
@@ -24,15 +42,36 @@ interface Asset {
   war: number;
 }
 
+/** One competing return for the pinned outgoing basket. Ids are stable and
+ *  monotonic so removing the middle offer never renumbers the others under the
+ *  reader's cursor. */
+interface Offer { id: number; keys: string[] }
+
 const TIERS = ["Early", "Mid", "Late"];
+
+/** A signed figure in a currency, inked pos/neg and neutral inside the dead
+ *  band. Both halves of a trade get one, so neither side is the implied
+ *  subject — the design system's objection to colouring a trade is about
+ *  implying a WINNER, and a pair of mirrored signs states a difference. */
+function Delta({ v, dp }: { v: number; dp: number }) {
+  const dead = dp === WAR_DP ? 0.0005 : 0.05;
+  return <span style={{ color: Math.abs(v) < dead ? "var(--dim)" : warInk(v) }}>
+    {dp === WAR_DP ? sgnWar(v) : sgn(v, dp)}
+  </span>;
+}
 
 export default function TradeCalc() {
   // MOBILE.md M7 — baskets stack and each asset is a two-line record with its
   // figures named; each basket closes with its own labeled total band
   const mobile = useMobile();
   // keys, not Asset snapshots: an asset added before the index files resolve
-  // re-resolves against the live options each render, so late loads fill in
-  const [sideKeys, setSideKeys] = useState<[string[], string[]]>([[], []]);
+  // re-resolves against the live options each render, so late loads fill in.
+  // `out` is the pinned side — what you are shopping — and every offer is a
+  // return against it.
+  const [outKeys, setOutKeys] = useState<string[]>([]);
+  const [offers, setOffers] = useState<Offer[]>([{ id: 1, keys: [] }]);
+  const [active, setActive] = useState(1);
+  const nextId = useRef(2);
 
   const proj = useJson<ProjectionsFile>("projections.json").data;
   // the daily scope, NOT the plain one: Draft.tsx reads this file on the daily
@@ -40,8 +79,12 @@ export default function TradeCalc() {
   // two 1.4 MB downloads
   const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
   const owned = useJson<PicksOwned>("picks_owned.json").data;
-  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
-  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
+  // model-aware: these follow the masthead's projection-model control
+  const dvi = useDvi();
+  const cvi = useCvi();
+  // the third currency. Without it the masthead would reprice two of the
+  // three columns and leave WAR still, which reads as a broken control.
+  const projWar = useProjWar();
 
   const options = useMemo<Asset[]>(() => {
     if (!proj) return [];
@@ -52,7 +95,7 @@ export default function TradeCalc() {
         age: p.age ?? null,
         dvi: dvi?.players[p.pid]?.dvi ?? null,
         cvi: cvi?.players[p.pid]?.cvi ?? null,
-        war: p.total_comp,
+        war: projWar?.[p.pid] ?? p.total_comp,
       });
     }
     if (pv) {
@@ -81,60 +124,106 @@ export default function TradeCalc() {
             });
     }
     return out;
-  }, [proj, pv, owned, dvi, cvi]);
+  }, [proj, pv, owned, dvi, cvi, projWar]);
 
   const optByKey = useMemo(() => new Map(options.map(o => [o.key, o])), [options]);
-  const sides = useMemo<[Asset[], Asset[]]>(() => [
-    sideKeys[0].map(k => optByKey.get(k)).filter((a): a is Asset => !!a),
-    sideKeys[1].map(k => optByKey.get(k)).filter((a): a is Asset => !!a),
-  ], [sideKeys, optByKey]);
+  const resolve = useCallback(
+    (keys: string[]) => keys.map(k => optByKey.get(k)).filter((a): a is Asset => !!a),
+    [optByKey]);
 
-  const add = (side: 0 | 1, a: Asset) => setSideKeys(prev => {
-    if (prev[0].includes(a.key) || prev[1].includes(a.key)) return prev;
-    const next: [string[], string[]] = [[...prev[0]], [...prev[1]]];
-    next[side] = [...next[side], a.key];
-    return next;
-  });
-  const remove = (side: 0 | 1, key: string) => setSideKeys(prev => {
-    const next: [string[], string[]] = [[...prev[0]], [...prev[1]]];
-    next[side] = next[side].filter(k => k !== key);
-    return next;
+  const outgoing = useMemo(() => resolve(outKeys), [resolve, outKeys]);
+  const offer = offers.find(o => o.id === active) ?? offers[0];
+  const incoming = useMemo(() => resolve(offer?.keys ?? []), [resolve, offer]);
+
+  /** An asset can sit in the outgoing basket or in THIS offer, never both — but
+   *  the same player may headline two competing offers, which is the whole
+   *  point of comparing them. So the taken-set is per offer, not global. */
+  const add = (side: "out" | "in", a: Asset) => {
+    if (side === "out") {
+      setOutKeys(p => (p.includes(a.key) ? p : [...p, a.key]));
+    } else {
+      setOffers(p => p.map(o => (o.id !== active || o.keys.includes(a.key)
+        ? o : { ...o, keys: [...o.keys, a.key] })));
+    }
+  };
+  const remove = (side: "out" | "in", key: string) => {
+    if (side === "out") setOutKeys(p => p.filter(k => k !== key));
+    else setOffers(p => p.map(o => (o.id !== active ? o : { ...o, keys: o.keys.filter(k => k !== key) })));
+  };
+
+  const addOffer = () => {
+    const id = nextId.current++;
+    setOffers(p => [...p, { id, keys: [] }]);
+    setActive(id);
+  };
+  const dropOffer = (id: number) => setOffers(p => {
+    const next = p.filter(o => o.id !== id);
+    const kept = next.length ? next : [{ id: nextId.current++, keys: [] }];
+    if (id === active) setActive(kept[0].id);
+    return kept;
   });
 
-  const tot = (s: Asset[]) => ({
+  const tot = useCallback((s: Asset[]) => ({
     dvi: s.reduce((a, x) => a + (x.dvi ?? 0), 0),
     cvi: s.reduce((a, x) => a + (x.cvi ?? 0), 0),
     war: s.reduce((a, x) => a + x.war, 0),
     picks: s.filter(x => x.kind === "pick").length,
-  });
-  const tA = tot(sides[0]), tB = tot(sides[1]);
-  const any = sides[0].length + sides[1].length > 0;
+  }), []);
+  const tOut = tot(outgoing), tIn = tot(incoming);
+  const any = outgoing.length + incoming.length > 0;
 
-  /** prose that reads the signs without ever naming a winner */
+  /** Every offer scored against the same outgoing basket, for the table. The
+   *  shared denominator is what makes the rows comparable at a glance. */
+  const scored = useMemo(() => offers.map(o => {
+    const got = resolve(o.keys);
+    const t = tot(got);
+    return {
+      id: o.id, got, n: got.length,
+      dvi: t.dvi - tOut.dvi, cvi: t.cvi - tOut.cvi, war: t.war - tOut.war,
+      picks: t.picks,
+    };
+  }), [offers, resolve, tot, tOut]);
+  /** the leader per currency — marked per column, never combined into one
+   *  "best offer", because the columns disagree and that disagreement is the
+   *  information */
+  const bestOf = (k: "dvi" | "cvi" | "war") => {
+    const live = scored.filter(s => s.n > 0);
+    if (live.length < 2) return null;
+    return live.reduce((a, b) => (b[k] > a[k] ? b : a)).id;
+  };
+  const best = { dvi: bestOf("dvi"), cvi: bestOf("cvi"), war: bestOf("war") };
+
+  /** prose that reads the signs. It names who gains on each axis — that is what
+   *  this screen is for — but never collapses the three into one verdict. */
   const prose = (() => {
-    if (!any) return "Add players or picks to each side. Every asset is priced in dynasty index points, win-now index points, and projected 3-year WAR.";
-    const lean = (d: number, unit: string, what: string) =>
-      Math.abs(d) < 0.05 ? `the two sides are even on ${what}`
-        : `Side ${d > 0 ? "A" : "B"} sends ${fmt(Math.abs(d), unit === "WAR" ? WAR_DP : 1)} more ${what}`;
-    const pickNote = tA.picks + tB.picks > 0
+    if (!any) return "Pin what you're shopping on the left, then build an offer on the right. Add more offers to compare them against the same outgoing side.";
+    const lean = (d: number, dp: number, what: string) =>
+      Math.abs(d) < (dp === WAR_DP ? 0.0005 : 0.05) ? `even on ${what}`
+        : `${d > 0 ? "you gain" : "you give up"} ${fmt(Math.abs(d), dp)} ${what}`;
+    const pickNote = tOut.picks + tIn.picks > 0
       ? " Picks carry projected WAR from the pick-value bridge but no index points until they convert to a player."
       : "";
-    return `${lean(tA.dvi - tB.dvi, "pts", "dynasty index points")}; `
-      + `${lean(tA.cvi - tB.cvi, "pts", "win-now index points")}; `
-      + `${lean(tA.war - tB.war, "WAR", "projected 3-year WAR")}. `
-      + `The two indices answer different questions — a dynasty edge and a win-now edge can point at different sides, and neither converts into a verdict on who wins the trade.`
+    const agree = [tIn.dvi - tOut.dvi, tIn.cvi - tOut.cvi, tIn.war - tOut.war]
+      .filter(d => Math.abs(d) > 0.05);
+    const split = agree.length > 1 && !(agree.every(d => d > 0) || agree.every(d => d < 0));
+    return `On this offer: ${lean(tIn.dvi - tOut.dvi, 1, "dynasty index points")}; `
+      + `${lean(tIn.cvi - tOut.cvi, 1, "win-now index points")}; `
+      + `${lean(tIn.war - tOut.war, WAR_DP, "projected 3-year WAR")}. `
+      + (split
+        ? "The currencies disagree, which is the useful case: a dynasty gain bought with a win-now loss is a real choice, not a rounding error. There is no combined figure here because averaging them would hide exactly that."
+        : "Each figure is its own currency — dynasty and win-now answer different questions and are not added together.")
       + pickNote;
   })();
 
   if (!proj) return <div className="empty">Loading…</div>;
 
-  const basket = (i: 0 | 1) => {
-    const t = i ? tB : tA;
-    const rows = sides[i];
+  const basket = (i: "out" | "in") => {
+    const t = i === "out" ? tOut : tIn;
+    const rows = i === "out" ? outgoing : incoming;
     return (
       <div className="basket" key={i}>
         <div className="basket-head">
-          <span>Side {i ? "B" : "A"} sends</span>
+          <span>{i === "out" ? "You send" : "You receive"}</span>
           <span className="n">{rows.length ? `${rows.length} asset${rows.length === 1 ? "" : "s"}` : "empty"}</span>
         </div>
         {rows.length > 0 && mobile && (
@@ -223,7 +312,7 @@ export default function TradeCalc() {
         )}
         <div style={{ padding: "10px 14px 14px" }}>
           <AssetSearch options={options}
-            taken={new Set([...sides[0], ...sides[1]].map(a => a.key))}
+            taken={new Set([...outgoing, ...incoming].map(a => a.key))}
             onPick={a => add(i, a)}
             placeholder="+ Add player or pick (e.g. 2027 Early 1st)…" />
         </div>
@@ -234,42 +323,120 @@ export default function TradeCalc() {
   return (
     <>
       <div className="band">
-        <span className="band-label">Build the two sides</span>
+        <span className="band-label">What you're shopping</span>
         <span className="band-note">
-          Each column lists what that team sends away · both sides in the same neutral ink,
-          and index deltas are index points, not value
+          Pinned — every offer below is scored against this same outgoing side
         </span>
       </div>
       <div className="baskets" style={{ marginTop: 14 }}>
-        {basket(0)}
-        {basket(1)}
+        {basket("out")}
+        {basket("in")}
       </div>
 
+      {/* The offer strip. Chips rather than a segmented control: the set grows,
+          and a segmented control that gains a segment every time you add one
+          stops reading as a fixed set of choices. */}
+      <div className="offerbar">
+        {offers.map((o, i) => {
+          const sc = scored.find(x => x.id === o.id)!;
+          return (
+            <button key={o.id} type="button"
+              className={`chip${o.id === active ? " on" : ""}`}
+              onClick={() => setActive(o.id)}>
+              Offer {i + 1}
+              <span className="ct">{sc.n || "empty"}</span>
+              {offers.length > 1 && (
+                <span className="x" role="button" tabIndex={-1} aria-label={`Remove offer ${i + 1}`}
+                  onClick={e => { e.stopPropagation(); dropOffer(o.id); }}>×</span>
+              )}
+            </button>
+          );
+        })}
+        <button type="button" className="chip add" onClick={addOffer}>+ Offer</button>
+      </div>
+
+      {/* Both sides signed, in every currency, mirrored. Reading down a column
+          answers "who gains on this axis"; reading across answers "do the axes
+          agree". Neither is summed into a verdict. */}
       <div className="verdict-band">
-        <div className="figs">
-          <div>
-            <div className="figkey">Dynasty Δ · A − B</div>
-            <div className="figval">{any ? sgn(tA.dvi - tB.dvi, 1) : "—"}</div>
-            <div className="figsub">index points, not value</div>
-          </div>
-          <div>
-            <div className="figkey">Win-now Δ · A − B</div>
-            <div className="figval">{any ? sgn(tA.cvi - tB.cvi, 1) : "—"}</div>
-            <div className="figsub">index points, not value</div>
-          </div>
-          <div>
-            <div className="figkey">Proj WAR Δ · A − B</div>
-            <div className="figval">{any ? sgnWar(tA.war - tB.war) : "—"}</div>
-            <div className="figsub">3-year composite WAR</div>
-          </div>
-        </div>
+        <table className="deltas">
+          <thead><tr>
+            <th scope="col" className="t" style={{ width: "34%" }}></th>
+            <th scope="col" className="n" style={{ width: "22%" }}>You</th>
+            <th scope="col" className="n" style={{ width: "22%" }}>Them</th>
+            <th scope="col" className="t" style={{ width: "22%" }}></th>
+          </tr></thead>
+          <tbody>
+            {([
+              ["Dynasty", tIn.dvi - tOut.dvi, 1, "index points, not value"],
+              ["Win now", tIn.cvi - tOut.cvi, 1, "index points, not value"],
+              ["Proj WAR", tIn.war - tOut.war, WAR_DP, "3-year, this model"],
+            ] as const).map(([label, d, dp, note]) => (
+              <tr key={label}>
+                <td className="t k">{label}</td>
+                <td className="n fig">{any ? <Delta v={d} dp={dp} /> : <span className="quiet">—</span>}</td>
+                <td className="n fig">{any ? <Delta v={-d} dp={dp} /> : <span className="quiet">—</span>}</td>
+                <td className="t sub">{note}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
         <div className="prose">{prose}</div>
       </div>
 
+      {/* Every offer against the one outgoing basket. The shared denominator is
+          what makes a five-row scan mean anything. */}
+      {offers.length > 1 && (
+        <>
+          <div className="band" style={{ marginTop: 22 }}>
+            <span className="band-label">Offers side by side</span>
+            <span className="band-note">
+              Each figure is what you gain — return minus what you send · best per column marked,
+              never combined into a best offer
+            </span>
+          </div>
+          <div className="tscroll">
+            <table className="offers">
+              <thead><tr>
+                <th scope="col" className="t" style={{ width: "10%" }}>Offer</th>
+                <th scope="col" className="t" style={{ width: "46%" }}>You receive</th>
+                <th scope="col" className="n edge" style={{ width: "14%" }}>Dynasty</th>
+                <th scope="col" className="n" style={{ width: "14%" }}>Win now</th>
+                <th scope="col" className="n edge" style={{ width: "16%" }}>Proj WAR</th>
+              </tr></thead>
+              <tbody>
+                {scored.map((sc, i) => (
+                  <tr key={sc.id} className={sc.id === active ? "on" : i % 2 ? "zebra" : ""}
+                    onClick={() => setActive(sc.id)} style={{ cursor: "pointer" }}>
+                    <td className="t k">Offer {i + 1}</td>
+                    <td className="t name" style={{ whiteSpace: "normal" }}>
+                      {sc.n === 0 ? <span className="quiet">empty</span>
+                        : sc.got.map((a, j) => (
+                          <span key={a.key}>{j > 0 && <span className="quiet"> · </span>}{a.label}</span>
+                        ))}
+                    </td>
+                    <td className={`n fig edge${best.dvi === sc.id ? " lead" : ""}`}>
+                      {sc.n ? <Delta v={sc.dvi} dp={1} /> : <span className="quiet">—</span>}
+                    </td>
+                    <td className={`n fig${best.cvi === sc.id ? " lead" : ""}`}>
+                      {sc.n ? <Delta v={sc.cvi} dp={1} /> : <span className="quiet">—</span>}
+                    </td>
+                    <td className={`n fig edge${best.war === sc.id ? " lead" : ""}`}>
+                      {sc.n ? <Delta v={sc.war} dp={WAR_DP} /> : <span className="quiet">—</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+
       <div className="tnote" style={{ padding: "10px var(--pad) 0" }}>
-        Players are priced by DVI (dynasty), CVI (win now) and their 3-year composite WAR
-        projection. Picks are priced by Bridge A's empirical slot and tier WAR; a pick has
-        no index until it converts to a player.
+        Players are priced by DVI (dynasty), CVI (win now) and their 3-year WAR projection —
+        all three under whichever projection model the masthead is set to. Picks are priced by
+        Bridge A's empirical slot and tier WAR, which the model control does not reach: a pick
+        has no index and no analog cohort until it converts to a player.
       </div>
     </>
   );

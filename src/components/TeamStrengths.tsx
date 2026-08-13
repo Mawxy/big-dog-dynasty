@@ -1,6 +1,7 @@
 import { useMemo } from "react";
-import type { CviFile, DviFile, ProjectionsFile, Team } from "../lib/types";
+import type { ProjectionsFile, Team } from "../lib/types";
 import { useJson } from "../lib/useJson";
+import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, ord } from "../lib/stats";
 import { useLeague } from "../lib/context";
 import { lineupOf } from "../lib/league";
@@ -69,8 +70,9 @@ export default function TeamStrengths({ rid }: { rid: number }) {
   // the roster season comes out of the projections file, so this path is null
   // until that lands and the hook fetches it when it resolves
   const teams = useJson<Team[]>(proj ? `${proj.meta.roster_season}/teams.json` : null).data;
-  const dvi = useJson<DviFile>("dvi.json", "leagueDaily").data;
-  const cvi = useJson<CviFile>("cvi.json", "leagueDaily").data;
+  // model-aware: these follow the masthead's projection-model control
+  const dvi = useDvi();
+  const cvi = useCvi();
 
   const shape = useMemo(() => {
     if (!proj || !teams || !dvi || !cvi) return null;
