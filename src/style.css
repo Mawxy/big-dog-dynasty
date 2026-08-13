@@ -668,6 +668,21 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   .drawer-body { gap: 20px; }
   .trade-side { min-width: 100%; border-right: 0; }
   input[type="search"] { min-width: 0; flex: 1; }
+  /* A phone can't fit twelve columns and shouldn't try, so the floor stops
+     being a legibility minimum and becomes a deliberate count: four across,
+     sized off the viewport rather than a guessed pixel value. 100vw less the
+     board's left padding (the right one is off-screen while scrolled) less the
+     three gaps between the four. On a 390px phone that lands at ~92px — near
+     the 90px desktop floor, which is the sanity check that 90 was the right
+     floor to pick. TScroll's right-edge fade is what says the board continues.
+
+     Clamped at both ends, because a pure quarter-of-the-viewport breaks at both
+     extremes. A 320px phone would take it to 75px and clip surnames that hold
+     everywhere else, so the desktop floor wins there and you get 3.3 columns
+     instead of 4 — legible beats exact. At the 640px edge it would reach 155px,
+     wider than the columns a 1440px desktop draws, and then snap back to 90 one
+     pixel later; 130px caps that at a shade under 5 across. */
+  .dboard { --dcol: clamp(90px, (100vw - var(--pad) - 6px) / 4, 130px); }
 }
 
 /* ==========================================================================
@@ -927,59 +942,93 @@ button.dband:hover .band-label { color: var(--txt2); }
 /* Sleeper-style draft board: rows are rounds, columns the pick within the
    round. Cells are tinted 16% by position over --bg — the one background the
    position colors are allowed, because the board is a position map with no
-   figures on it — with the standard 3px position spine as the primary
-   encoding. Zero radius, as everywhere. */
+   figures on it to misread.
+   NO POSITION SPINE HERE, which is a deliberate exception to the rule that the
+   3px spine is the primary encoding. Everywhere else the spine carries position
+   against a neutral row; here the whole cell is already the position, so the
+   spine restated it, and a full-height bar with a tinted cell behind it just
+   read as an edge that stops for no reason. The `RB` on the pick row is the
+   literal fallback for anyone not reading the tint. Zero radius, as everywhere. */
+/* 90px columns, not 116. Twelve slots at 116 needed 1460px and scrolled
+   sideways on every laptop; at 90 the whole board is 1150px and fits. The width
+   came from three places, in order of what they cost: the NFL club came off the
+   pick row, side padding went 8px -> 3px, and the condensed tracking on the
+   pick row / header / exception line went .10em -> .03em. The tracking was the
+   cheapest of the three — a broadcast flourish, not legibility.
+   What clips at 90px is the hyphenated surnames (Thompson-Robinson,
+   Valdes-Scantling), which clipped at 116px too; the cell tooltip carries the
+   full name. */
 .dboard {
+  /* THE COLUMN FLOOR, and the only number to change. Everything below is
+     derived from it, including min-width — which used to be a hand-computed
+     1460px that silently stopped matching the column the moment either moved. */
+  --dcol: 90px;
   display: grid;
-  grid-template-columns: repeat(12, minmax(116px, 1fr));
+  /* minmax(floor, 1fr): the columns SHARE whatever width the screen gives them
+     and only fall back to the floor when there isn't enough to go round. So a
+     1600px desktop draws 12 columns at ~128px with no scrollbar, a 1280px one
+     at ~101px, and anything under the floor's total scrolls at exactly --dcol.
+     Nothing is hardcoded to a screen size. */
+  grid-template-columns: repeat(12, minmax(var(--dcol), 1fr));
   gap: 2px;
-  padding: 12px var(--pad) 6px;
-  /* padding-right vanishes at the end of a horizontal scroll (overflow width
-     is the content box); a transparent border survives it */
+  /* BOTH side gutters are transparent borders, not padding. Padding-right is
+     dropped from a horizontal scroll container's overflow width (that width is
+     the content box), so the old rule paid --pad as padding on both sides AND a
+     --pad border on the right to survive the scroll — which meant the right
+     gutter was double the left whenever the board fit without scrolling.
+     Borders are inside the overflow width on both sides, so one mechanism used
+     twice is symmetric by construction and still survives the scroll. */
+  padding: 12px 0 6px;
+  border-left: var(--pad) solid transparent;
   border-right: var(--pad) solid transparent;
-  min-width: 1460px;
+  /* 12 columns + 11 gaps + both --pad edges. Derived, so it can never drift
+     from --dcol the way the old literal did. */
+  min-width: calc(12 * var(--dcol) + 22px + 2 * var(--pad));
 }
-/* column heads: the franchise whose draft slot the column is. 13px of left
-   inset mirrors the cells' 3px spine + 10px padding so the text aligns. */
+/* column heads: the manager whose draft slot the column is */
 .dboard .ownlbl {
   align-self: end;
-  padding: 0 4px 3px 13px;
-  font: 600 11px/1.3 var(--cond); letter-spacing: .08em; text-transform: uppercase;
-  color: var(--dim);
+  /* left inset matches the cells' padding exactly, so the handle sits on the
+     same vertical line as every player name under it */
+  padding: 0 5px 3px 5px;
+  /* --txt2, not --dim: this is the ONLY place a column's manager is written
+     now that the cells no longer repeat it, so it stopped being a label over
+     the data and became part of it. 11.5px for the same reason. */
+  font: 600 11.5px/1.3 var(--cond); letter-spacing: .03em; text-transform: uppercase;
+  color: var(--txt2);
   /* wrap to two lines as needed rather than truncating */
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
   overflow: hidden; overflow-wrap: anywhere;
 }
 .dcell {
-  border-left: 3px solid var(--rule);
-  padding: 7px 9px 8px 10px;
-  min-height: 66px;
+  /* 5px each side, which is exactly what the old 3px spine + 4px left + 3px
+     right cost — dropping the spine bought symmetry, not width */
+  padding: 6px 5px;
+  min-height: 52px;
   overflow: hidden;
 }
-.dcell.empty { background: var(--zebra); border-left-color: var(--hair); }
+.dcell.empty { background: var(--zebra); }
 .dcell .pk {
-  display: flex; justify-content: space-between;
-  font: 600 11.5px/1 var(--cond); letter-spacing: .1em; color: var(--dim);
+  display: flex; justify-content: space-between; gap: 5px;
+  font: 600 11.5px/1 var(--cond); letter-spacing: .03em; color: var(--dim);
 }
 /* ALWAYS two lines: first name over surname, every cell the same shape. A
-   mix of one- and two-line names reads as misalignment, not economy. */
+   mix of one- and two-line names reads as misalignment, not economy.
+   13px rather than 14: the drafting franchise left the cell for the column
+   header, so the name lost the line under it that used to give it room. */
 .dcell .nm {
   /* block: the name is an <a> now, and the fixed two-line height only
      applies to a block box */
   display: block;
-  margin: 4px 0 3px;
-  font: 600 14px/1.3 var(--sans); color: var(--txt);
-  height: calc(2 * 1.3em);
+  margin: 3px 0 1px;
+  font: 600 13px/1.25 var(--sans); color: var(--txt);
+  height: calc(2 * 1.25em);
 }
 .dcell .nm span {
   display: block;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .dcell .nm.tlink { color: var(--txt); }
-.dcell .by {
-  font: 400 11.5px/1.3 var(--sans); color: var(--dim);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 /* playoff bracket: round 1 (byes + games) feeding semis, semis feeding the
    final, each round centered against what feeds it. Connectors are drawn off
    the cells so the shape holds at any column width. Winner takes the accent
@@ -1063,9 +1112,14 @@ button.dband:hover .band-label { color: var(--txt2); }
 .bside.won .pts { color: var(--acc); }
 
 /* a pick acquired by trade: quiet condensed line naming the original owner */
+/* The franchise that made the selection, printed ONLY when it isn't the one in
+   the column header — see DraftBoardGrid. Same uppercase condensed shape as
+   `.ownlbl` on purpose: it is the same kind of thing (a franchise), and the
+   echo is what lets it read as "not the team above" with no label in front of
+   it. --warn carries the exception; the header stays achromatic. */
 .dcell .via {
   margin-top: 1px;
-  font: 600 10.5px/1.3 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  font: 600 10.5px/1.3 var(--cond); letter-spacing: .03em; text-transform: uppercase;
   color: var(--warn);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }

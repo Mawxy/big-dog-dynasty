@@ -170,6 +170,16 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    teams (measured vs the optimal pool) — that's expected, compare relatively.
 7. Reference points: ~2 WAR in a 14-week season is a superstar (CMC 2025 ≈ 2);
    a 12-2 team's lineup WAA can be slightly negative — verified correct.
+8. **FINISH (final placing) is a SPLIT column** — **2026-08-12**. Places 1..N
+   come from the winners bracket; places N+1.. are the regular-season
+   standings, NOT the consolation bracket. The toilet bowl is a tournament a
+   bad team can win, and in 2025 one did: it placed a 1-13 / 90.9 ppg roster
+   8th and a 7-7 / 118.3 roster 10th. A team that made the playoffs is placed
+   by the playoffs; a team that missed never got that chance and is placed by
+   the season it played. Consistent with `playoff_war.py` and `playoff_wpa.py`,
+   which already refuse to let consolation games into any pool. Gated on a
+   DECIDED winners-bracket game, so an unplayed season still has no placings.
+   Written in `build_site_data.py`; the History footnote states the split.
 
 ### Sleeper stats-feed signatures (probed 2026-07-17, verified on 2024 + 2025 data)
 

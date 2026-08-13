@@ -493,8 +493,14 @@ export default function History() {
         );
       })}
 
+      {/* The old line read "finish is the final placing, not the seed", which
+          stopped being true of the bottom half when the consolation bracket
+          stopped deciding it (build_site_data.py has the reasoning). The split
+          is the honest thing to state: playoff teams are placed by the
+          playoffs, everyone else by the season they played. */}
       <div className="footnote">
-        Finish is the final placing, not the seed · move is places gained on the previous season ·
+        Finish is the playoff result for teams that made it, regular-season standings for those
+        that didn't · move is places gained on the previous season ·
         homegrown share credits each week's WAR to the roster that started the player
       </div>
     </>

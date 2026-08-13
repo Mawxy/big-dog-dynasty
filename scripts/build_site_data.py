@@ -408,9 +408,35 @@ def main():
         for m in wb:                                 # winners bracket: places 1..N
             if m.get("p") and m.get("w") and m.get("l"):
                 finish[m["w"]] = m["p"]; finish[m["l"]] = m["p"] + 1
-        for m in lb:                                 # losers bracket: places N+1..2N
-            if m.get("p") and m.get("w") and m.get("l"):
-                finish[m["w"]] = n_playoff + m["p"]; finish[m["l"]] = n_playoff + m["p"] + 1
+        # PLACES N+1.. ARE THE REGULAR-SEASON STANDINGS, NOT THE LOSERS BRACKET.
+        #
+        # The consolation bracket is a tournament a bad team can win, and in 2025
+        # one did: it placed Baby Billys (1-13, 90.9 ppg) 8th and Cam Skattebo
+        # (7-7, 118.3) 10th. Nobody reads that column as "who won three
+        # meaningless games in December" — they read 8th as the eighth best team
+        # of the season, and a 1-13 roster is not that.
+        #
+        # So the two halves of this column answer two different questions on
+        # purpose. A team that made the playoffs is placed by the playoffs,
+        # because that is what the playoffs are for. A team that missed them
+        # never got that chance and is placed by the season it actually played.
+        # The toilet bowl still renders on the Playoffs tab — it just no longer
+        # decides anyone's final placing.
+        #
+        # Gated on a DECIDED winners-bracket game for the same reason the bracket
+        # file is: Sleeper seeds a bracket months ahead, and an undecided one must
+        # not hand out placings for a season nobody has played. `lb` is still read
+        # above for bracket.json.
+        if any(m.get("w") for m in wb):
+            in_playoffs = {r for m in wb for r in (m.get("t1"), m.get("t2")) if r}
+            # `standing` is already -wins then -fpts, so this ranks the teams that
+            # missed among themselves. Derived from the standings rather than from
+            # `seed` directly so it stays right if the playoff field is ever not
+            # simply the top N seeds.
+            missed = [t["roster_id"] for t in standing
+                      if t["roster_id"] not in in_playoffs]
+            for i, mrid in enumerate(missed):
+                finish[mrid] = n_playoff + i + 1
 
         # --- the playoff bracket, self-contained for the site's Playoffs tab:
         #     each game carries its week (playoff_start + round - 1), both
