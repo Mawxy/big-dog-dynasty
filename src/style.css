@@ -724,6 +724,8 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   .records .rec.on { background: var(--sel); }
   /* KTC, DVI and CVI under the headline WAR figure */
   .records .rec-l2.three { grid-template-columns: repeat(3, 1fr); gap: 4px 10px; }
+  /* "3yr WAR" needs more room than the 26px a three-letter key wanted */
+  .records .rec-key { width: 46px; }
   /* A phone can't fit twelve columns and shouldn't try, so the floor stops
      being a legibility minimum and becomes a deliberate count: four across,
      sized off the viewport rather than a guessed pixel value. 100vw less the
@@ -1918,7 +1920,7 @@ table.feed td.who .line { align-items: center; }
     display: grid; grid-template-columns: 122px 92px 56px 1fr;
     padding-left: 27px; margin-top: 6px;
   }
-  .records.t3 .rec-l2 { grid-template-columns: 122px 92px 1fr; }
+  .records.t3 .rec-l2 { grid-template-columns: repeat(3, 1fr); gap: 4px 10px; }
   .mic { display: flex; align-items: baseline; gap: 4px; min-width: 0; white-space: nowrap; overflow: hidden; }
   .mk {
     font: 600 9.5px/1.5 var(--cond); letter-spacing: .14em; text-transform: uppercase;

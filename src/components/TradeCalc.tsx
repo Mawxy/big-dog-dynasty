@@ -229,7 +229,7 @@ export default function TradeCalc() {
           <span className="n">{rows.length ? `${rows.length} asset${rows.length === 1 ? "" : "s"}` : "empty"}</span>
         </div>
         {rows.length > 0 && mobile && (
-          <div className="records flat">
+          <div className="records flat t3">
             {rows.map((a, k) => (
               <div key={a.key} className={`rec${k % 2 ? " zebra" : ""}`}>
                 <div className="rec-l1">
@@ -244,18 +244,18 @@ export default function TradeCalc() {
                         : "rookie pick · no index until it converts"}
                     </span>
                   </span>
-                  <span className="rec-fig">
-                    {a.dvi == null ? <span className="quiet">—</span> : fmt(a.dvi, 1)}
-                  </span>
-                  <span className="rec-key">DVI</span>
+                  <span className="rec-fig">{sgnWar(a.war)}</span>
+                  <span className="rec-key">3yr WAR</span>
                   <button type="button" className="rec-x" title="remove"
                     onClick={() => remove(i, a.key)}>×</button>
                 </div>
                 <div className="rec-l2">
+                  <span className="mic"><span className="mk">KTC</span>
+                    <span className="mv">{a.ktc == null ? <span className="quiet">—</span> : a.ktc.toLocaleString()}</span></span>
+                  <span className="mic"><span className="mk">DVI</span>
+                    <span className="mv">{a.dvi == null ? <span className="quiet">—</span> : fmt(a.dvi, 1)}</span></span>
                   <span className="mic"><span className="mk">CVI</span>
                     <span className="mv">{a.cvi == null ? <span className="quiet">—</span> : fmt(a.cvi, 1)}</span></span>
-                  <span className="mic"><span className="mk">Proj WAR</span>
-                    <span className="mv">{sgnWar(a.war)}</span></span>
                 </div>
               </div>
             ))}
@@ -263,7 +263,7 @@ export default function TradeCalc() {
             <div className="band">
               <span className="band-label">Total</span>
               <span className="band-note">
-                DVI {fmt(t.dvi, 1)} · CVI {fmt(t.cvi, 1)} · WAR {sgnWar(t.war)}
+                DVI {fmt(t.dvi, 1)} · CVI {fmt(t.cvi, 1)} · 3yr WAR {sgnWar(t.war)}
               </span>
             </div>
           </div>
@@ -272,12 +272,12 @@ export default function TradeCalc() {
           <table style={{ tableLayout: "fixed" }}>
             <thead>
               <tr>
-                <th scope="col" className="c" style={{ width: "12%" }}>Pos</th>
-                <th scope="col" className="t" style={{ width: "37%" }}>Asset</th>
-                <th scope="col" className="n" style={{ width: "9%" }}>Age</th>
-                <th scope="col" className="n edge" style={{ width: "12%" }}>DVI</th>
-                <th scope="col" className="n" style={{ width: "12%" }}>CVI</th>
-                <th scope="col" className="n edge" style={{ width: "13%" }}>Proj WAR</th>
+                <th scope="col" className="c" style={{ width: "10%" }}>Pos</th>
+                <th scope="col" className="t" style={{ width: "31%" }}>Asset</th>
+                <th scope="col" className="n edge" style={{ width: "15%" }}>3yr WAR</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>KTC</th>
+                <th scope="col" className="n edge" style={{ width: "13%" }}>DVI</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>CVI</th>
                 <th scope="col" className="c" style={{ width: "5%" }}></th>
               </tr>
             </thead>
@@ -290,10 +290,10 @@ export default function TradeCalc() {
                   <td className="t name" style={{ whiteSpace: "normal" }}>
                     {a.kind === "player" ? <PlayerLink pid={a.pid!} name={a.label} /> : a.label}
                   </td>
-                  <td className="n fig quiet">{a.age ?? "—"}</td>
+                  <td className="n fig strong edge">{sgnWar(a.war)}</td>
+                  <td className="n fig">{a.ktc == null ? "—" : a.ktc.toLocaleString()}</td>
                   <td className="n fig edge">{a.dvi == null ? "—" : fmt(a.dvi, 1)}</td>
                   <td className="n fig">{a.cvi == null ? "—" : fmt(a.cvi, 1)}</td>
-                  <td className="n fig strong edge">{sgnWar(a.war)}</td>
                   <td className="c">
                     <span style={{ color: "var(--dim)", cursor: "pointer" }} title="remove"
                       onClick={() => remove(i, a.key)}>×</span>
@@ -303,10 +303,10 @@ export default function TradeCalc() {
               <tr style={{ borderTop: "1px solid var(--rule)" }}>
                 <td className="c"></td>
                 <td className="t name">Total</td>
-                <td className="n"></td>
+                <td className="n edge"><span className="head-fig sm">{sgnWar(t.war)}</span></td>
+                <td className="n"><span className="head-fig sm">{t.ktc.toLocaleString()}</span></td>
                 <td className="n edge"><span className="head-fig sm">{fmt(t.dvi, 1)}</span></td>
                 <td className="n"><span className="head-fig sm">{fmt(t.cvi, 1)}</span></td>
-                <td className="n edge"><span className="head-fig sm">{sgnWar(t.war)}</span></td>
                 <td className="c"></td>
               </tr>
             </tbody>
@@ -326,9 +326,7 @@ export default function TradeCalc() {
     <>
       <div className="band">
         <span className="band-label">What you're shopping</span>
-        <span className="band-note">
-          Pinned — every offer below is scored against this same outgoing side
-        </span>
+        <span className="band-note">Pinned across every offer</span>
       </div>
       <div className="baskets" style={{ marginTop: 14 }}>
         {basket("out")}
@@ -366,10 +364,10 @@ export default function TradeCalc() {
           </tr></thead>
           <tbody>
             {([
-              ["Proj WAR", tIn.war - tOut.war, WAR_DP, "3-year, this model"],
-              ["KTC", tIn.ktc - tOut.ktc, 0, "market price, no model"],
-              ["Dynasty", tIn.dvi - tOut.dvi, 1, "index points, not value"],
-              ["Win now", tIn.cvi - tOut.cvi, 1, "index points, not value"],
+              ["3yr WAR", tIn.war - tOut.war, WAR_DP, ""],
+              ["KTC", tIn.ktc - tOut.ktc, 0, "market price"],
+              ["DVI", tIn.dvi - tOut.dvi, 1, "index points, not value"],
+              ["CVI", tIn.cvi - tOut.cvi, 1, "index points, not value"],
             ] as const).map(([label, d, dp, note]) => (
               <tr key={label}>
                 <td className="t k">{label}</td>
@@ -390,8 +388,7 @@ export default function TradeCalc() {
           <div className="band" style={{ marginTop: 22 }}>
             <span className="band-label">Offers side by side</span>
             <span className="band-note">
-              Each figure is what you gain — return minus what you send · best per column marked,
-              never combined into a best offer
+              What you gain · best per column marked
             </span>
           </div>
           {/* MOBILE.md M7 — five numeric columns cannot hold at 375px, and a
@@ -413,7 +410,7 @@ export default function TradeCalc() {
                     <span className="rec-fig">
                       {sc.n ? <Delta v={sc.war} dp={WAR_DP} /> : <span className="quiet">—</span>}
                     </span>
-                    <span className="rec-key">WAR</span>
+                    <span className="rec-key">3yr WAR</span>
                   </div>
                   <div className="rec-l2 three">
                     <span className="mic"><span className="mk">KTC</span>
@@ -432,10 +429,10 @@ export default function TradeCalc() {
               <thead><tr>
                 <th scope="col" className="t" style={{ width: "9%" }}>Offer</th>
                 <th scope="col" className="t" style={{ width: "37%" }}>You receive</th>
-                <th scope="col" className="n edge" style={{ width: "15%" }}>Proj WAR</th>
+                <th scope="col" className="n edge" style={{ width: "15%" }}>3yr WAR</th>
                 <th scope="col" className="n" style={{ width: "13%" }}>KTC</th>
-                <th scope="col" className="n edge" style={{ width: "13%" }}>Dynasty</th>
-                <th scope="col" className="n" style={{ width: "13%" }}>Win now</th>
+                <th scope="col" className="n edge" style={{ width: "13%" }}>DVI</th>
+                <th scope="col" className="n" style={{ width: "13%" }}>CVI</th>
               </tr></thead>
               <tbody>
                 {scored.map((sc, i) => (
@@ -468,14 +465,6 @@ export default function TradeCalc() {
           )}
         </>
       )}
-
-      <div className="tnote" style={{ padding: "10px var(--pad) 0" }}>
-        Projected WAR leads because it is the only figure in its own units rather than an
-        index. It, DVI and CVI all move with whichever projection model the masthead is set to;
-        KTC does not — it is the market's price, and it earns its place beside them precisely
-        because it is the one number here that isn't ours. Picks carry a KTC tier price and
-        Bridge A's slot WAR, but no index until they convert to a player.
-      </div>
     </>
   );
 }
