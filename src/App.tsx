@@ -28,6 +28,20 @@ const Dvi = lazy(() => import("./views/Dvi"));
 const Cvi = lazy(() => import("./views/Cvi"));
 const FranchisePage = lazy(() => import("./components/FranchisePage"));
 const Player = lazy(() => import("./views/Player"));
+/**
+ * The v3 shell — the phone-first redesign, mounted BESIDE this board rather
+ * than over it.
+ *
+ * `/<league>/v3/...`, so league resolution is untouched: `wantedLeague()` reads
+ * the first segment and never sees the second. Everything below this line is
+ * the classic board, unchanged, and nothing in v3 writes to a file it reads.
+ * Deleting the two lines that reference it in the router below removes it
+ * completely.
+ *
+ * It is lazy for the same reason every other route is: a reader on the classic
+ * board should not download a second shell to look at a standings table.
+ */
+const V3Shell = lazy(() => import("./v3/V3Shell"));
 
 /** The tab bar. Players is ONE tab holding two boards — Value (what a player
  *  is worth now) and Stats (what he did in a given year). They are separate
@@ -161,7 +175,20 @@ export default function App() {
     <LeagueContext.Provider value={{ meta, players, league, leagues }}>
       <HashRouter>
         <ModelProvider>
-          <Shell />
+          {/* Two shells, one league context and one model control. The v3
+              branch is matched first and swallows its whole subtree, so the
+              classic Shell — masthead, tab strip, footer — never renders
+              underneath it. */}
+          <Routes>
+            <Route path="/:league/v3/*" element={
+              <ErrorBoundary resetKey="v3">
+                <Suspense fallback={<div className="empty">Loading…</div>}>
+                  <V3Shell />
+                </Suspense>
+              </ErrorBoundary>
+            } />
+            <Route path="*" element={<Shell />} />
+          </Routes>
         </ModelProvider>
       </HashRouter>
     </LeagueContext.Provider>

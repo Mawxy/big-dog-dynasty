@@ -1,0 +1,637 @@
+/* ==========================================================================
+   WAR Board v3 — the phone-first shell.
+
+   Imported by V3Shell.tsx, so it rides the lazy chunk and is absent from the
+   classic board's bundle entirely. It defines NO tokens: every colour, family
+   and gutter here comes from style.css's `:root`, which is what makes the two
+   shells look like one product. If a value you need isn't a token, that is the
+   design system telling you to solve the problem differently.
+
+   Rules carried over unchanged: radius is zero everywhere, numerals are
+   tabular, one accent per view, two families only.
+
+   Rules that are NEW here, and only here:
+     - Rows are ~44px. A touch target is a real constraint, not a preference.
+     - Identity cells are STACKED (name over `TEAM · POS-rank · tags`), never
+       inline, which is what kills the wrap lottery on a 375px screen.
+     - Table headers stick. A twelve-row standings table scrolls under its own
+       header rather than losing it.
+     - Rows are buttons: tap navigates. Drawers are desktop-only, so there are
+       none in this sheet.
+   ========================================================================== */
+
+/* ---- shell -------------------------------------------------------------- */
+
+/* The bar's height, in one place: the shell's bottom padding, the sheet's
+   offset and the scroll-spy's threshold are all derived from it. */
+.v3 {
+  --navh: 54px;
+  /* The masthead's height, declared rather than emergent: a sticky table header
+     has to be offset by exactly this, and a header sized by its own font
+     metrics left a 2px slot for rows to show through as they scrolled under. */
+  --masth: 42px;
+  --v3pad: 14px;
+  min-height: 100vh;
+  background: var(--bg);
+  /* clear the fixed bar, plus the home-indicator strip on an iOS web clip */
+  padding-bottom: calc(var(--navh) + env(safe-area-inset-bottom, 0px) + 8px);
+}
+
+/* masthead: the league name, and nothing else. v2's masthead carried the
+   wordmark, the model picker and the freshness line; the model picker moved to
+   More (decision #15) and the freshness line went with it, because a phone
+   masthead that spends two lines on metadata has no room left to be a header. */
+.v3-mast {
+  display: flex; align-items: center; gap: 10px;
+  height: var(--masth);
+  padding: 0 var(--v3pad);
+  background: var(--deep);
+  border-bottom: 1px solid var(--rule);
+  /* sticks so the league you are in is never off-screen — on an iOS web clip
+     there is no browser chrome to tell you where you are */
+  position: sticky; top: 0; z-index: 30;
+}
+.v3-mast .lg {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--txt);
+  font: 700 19px/1.1 var(--cond); letter-spacing: .03em; text-transform: uppercase;
+  text-align: left;
+}
+.v3-mast .lg:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+/* the caret is the whole affordance for league switching, so it is not
+   decorative and does not take --dim3 */
+.v3-mast .lg .caret { font-size: 11px; line-height: 1; color: var(--acc); }
+/* off the League tab the name is a plain label (decision #6: the switcher
+   belongs to the League tab; everywhere else the name is context, not a
+   control) — same type, no caret, no button affordances */
+.v3-mast .lg.flat { cursor: default; color: var(--txt2); }
+.v3-mast .tag {
+  margin-left: auto;
+  font: 600 11px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--dim2);
+}
+
+/* screen title band — the one line of chrome a screen gets above its content */
+.v3-head {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  padding: 12px var(--v3pad) 10px;
+}
+.v3-head h1 {
+  font: 700 26px/1 var(--cond); letter-spacing: .02em; text-transform: uppercase;
+}
+.v3-head .sub {
+  margin-left: auto;
+  font: 400 11.5px/1.4 var(--sans); color: var(--dim);
+}
+/* A control in the screen title row — the identity escape hatch, and the only
+   thing that has earned a place up here so far. Outlined rather than filled:
+   it is a correction, not this screen's headline. */
+.v3-head .hact {
+  flex: 0 0 auto;
+  padding: 5px 11px;
+  background: none; border: 1px solid var(--rule); color: var(--dim);
+  cursor: pointer; text-decoration: none;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.v3-head .hact:hover { border-color: var(--acc); color: var(--acc); text-decoration: none; }
+.v3-head .hact:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+
+/* the currently-claimed franchise on the claim screen */
+.v3tbl tbody tr.on { background: var(--sel); }
+.v3tbl td .f.acc { color: var(--acc); }
+
+/* ---- bottom bar (phone) / left rail (desktop) --------------------------- */
+
+.v3-nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 40;
+  display: flex;
+  background: var(--deep);
+  border-top: 1px solid var(--rule);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  transition: transform .18s ease;
+}
+/* hide-on-scroll-down, back on scroll-up: a twelve-row table on a 375px screen
+   wants the 54px back, and the bar returning on the first upward flick means
+   it is never more than one gesture away (decision #5) */
+.v3-nav.away { transform: translateY(110%); }
+.v3-nav a {
+  flex: 1 1 0; min-width: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 3px;
+  height: var(--navh);
+  text-decoration: none;
+  color: var(--dim);
+  /* LABELS ARE MANDATORY. None of these five concepts has a universal icon —
+     there is no glyph that reads "valuation rankings" — so the label is the
+     control and an icon would only be decoration competing for the height. */
+  font: 600 10.5px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  border-top: 2px solid transparent;
+}
+.v3-nav a:hover { color: var(--txt2); text-decoration: none; }
+.v3-nav a.on { color: var(--txt); border-top-color: var(--acc); background: var(--bg); }
+.v3-nav a:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+/* The rail's header and its exposed More items are DESKTOP ONLY. They exist in
+   the markup on both so the two shells are one component; the phone bar is five
+   destinations and a thumb, and nothing else fits. */
+.v3-nav .railtop, .v3-nav .railgrp, .v3-nav a.desk { display: none; }
+/* the seasonal sixth slot (Draft, in rookie-draft season) carries a countdown
+   dot so the promotion reads as an event rather than as a bar that changed */
+.v3-nav a .dot {
+  position: absolute; margin: -14px 0 0 26px;
+  width: 4px; height: 4px; background: var(--acc);
+}
+
+/* ---- league switcher sheet ---------------------------------------------- */
+
+.v3-scrim {
+  position: fixed; inset: 0; z-index: 50;
+  background: rgba(5, 7, 10, .72);
+  border: 0; padding: 0; width: 100%; cursor: pointer;
+}
+.v3-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 51;
+  background: var(--bg);
+  border-top: 1px solid var(--rule);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  max-height: 78vh; overflow-y: auto;
+}
+.v3-sheet .sheet-band {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding: 11px var(--v3pad) 10px;
+  background: var(--deep);
+  border-bottom: 1px solid var(--rule);
+}
+.v3-sheet .sheet-band .k {
+  font: 600 12px/1 var(--cond); letter-spacing: .22em; text-transform: uppercase;
+  color: var(--dim);
+}
+.v3-sheet .sheet-band .x {
+  background: none; border: 0; cursor: pointer; padding: 0;
+  color: var(--dim); font: 600 12px/1 var(--cond); letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.v3-sheet .lrow {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 13px var(--v3pad);
+  background: none; border: 0; border-bottom: 1px solid var(--hair);
+  cursor: pointer; text-align: left; color: var(--txt);
+}
+.v3-sheet .lrow.on { background: var(--sel); }
+/* block, for the same reason the picker's rows are: spans inside a flex item
+   are still inline and would run the name into its metadata line */
+.v3-sheet .lrow .nm { display: block; font: 600 15px/1.3 var(--sans); }
+.v3-sheet .lrow .mt {
+  display: block; font: 400 11.5px/1.4 var(--sans); color: var(--dim); margin-top: 2px;
+}
+.v3-sheet .lrow .mark {
+  margin-left: auto; flex: 0 0 auto;
+  font: 700 12px/1 var(--cond); letter-spacing: .14em; color: var(--acc);
+}
+/* the future door: the "All leagues" row cross-league screens will land on,
+   and the walk-up entry the parked architecture will fill in. Present and
+   honestly disabled beats absent — it is where the reader will look. */
+.v3-sheet .lrow:disabled { cursor: default; color: var(--dim2); }
+.v3-sheet .lrow:disabled .nm { color: var(--dim2); }
+
+/* ---- the phone table ---------------------------------------------------- */
+
+.v3tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+/* Sticky headers, everywhere. Offset by the masthead's declared height (less a
+   pixel, so subpixel rounding can't open a slot between them) — otherwise a
+   scrolled header sits behind the league name. */
+.v3tbl thead th {
+  position: sticky; top: calc(var(--masth) - 1px); z-index: 10;
+  background: var(--band);
+  padding: 6px 8px;
+  font: 600 11px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--rule);
+  white-space: nowrap;
+}
+.v3tbl thead th.sortable { cursor: pointer; user-select: none; }
+.v3tbl thead th.sorted { color: var(--acc); }
+.v3tbl thead th:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.v3tbl th.t, .v3tbl td.t { text-align: left; }
+.v3tbl th.n, .v3tbl td.n { text-align: right; }
+.v3tbl th.c, .v3tbl td.c { text-align: center; }
+.v3tbl tbody td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--hair);
+  white-space: nowrap;
+}
+.v3tbl tbody tr.zebra { background: var(--zebra); }
+/* THE TOUCH TARGET. 44px is the whole reason identity is stacked rather than
+   inline: two lines of type at this size is what fills the height honestly,
+   instead of a one-line row padded out to look tappable. */
+.v3tbl tbody tr.tap { cursor: pointer; height: 44px; }
+.v3tbl tbody tr.tap:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.v3tbl tbody tr.tap:hover { background: var(--sel); }
+
+/* The rank spine, phone-sized: same anatomy as style.css's td.spine-cell, a
+   step tighter because the gutter here is 14px rather than 26px.
+
+   THE ONE PIXEL WIDTH ON THE BOARD, and a deliberate exception to "no pixel
+   column widths". That rule exists because a percentage column reflows with the
+   viewport and a pixel one does not — which is exactly the property this column
+   needs. It holds a two-digit ordinal and a 3px bar at every width; as a
+   percentage it would be 34px on a phone and 96px on the desktop rail's
+   content column, which is a hole, not a column. Everything else here is a
+   percentage or takes the remainder. */
+.v3tbl th.sp { width: 34px; }
+.v3tbl td.sp { position: relative; padding: 0 4px 0 0; text-align: center; width: 34px; }
+.v3tbl td.sp .spine { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+.v3tbl td.sp .rank {
+  display: inline-block; padding: 0 4px 0 9px;
+  font: 600 15px/1 var(--cond); color: var(--dim);
+}
+.v3tbl td.sp .rank.top { color: var(--acc); }
+/* rank movement, beside the ordinal. Never coloured green/red: a team climbing
+   the valuation board has not won anything, and the arrow already carries the
+   direction. */
+.v3tbl td.sp .mv {
+  display: block; font: 600 9.5px/1 var(--cond); color: var(--dim2); letter-spacing: .02em;
+}
+
+/* STACKED IDENTITY — the v3 row's spine. Line 1 is the name, line 2 the
+   affiliation and any slot tags. Never inline: "Ja'Marr Chase CIN WR3 FLEX" on
+   one line at 375px wraps somewhere different in every row, and a column of
+   ragged two-line accidents is unreadable in a way a deliberate two-line cell
+   is not. Slot tags live on line 2 rather than in a pill column of their own,
+   which is what buys the width for a figure. */
+.v3tbl td.idc { padding-top: 4px; padding-bottom: 4px; max-width: 0; width: 100%; }
+.idc-n {
+  font: 600 14px/1.25 var(--sans); color: var(--txt);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.idc-n a { color: var(--txt); }
+.idc-n a:hover { color: var(--acc); }
+.idc-s {
+  margin-top: 1px;
+  font: 400 11px/1.3 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* a slot tag (FLEX, SF, TAXI, IR) on the sub-line — condensed and tracked so it
+   reads as a label rather than as part of the team name beside it */
+.idc-s .tg {
+  font: 600 10px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.idc-s .tg.ir { color: var(--warn); }
+
+/* figures inside a v3 row */
+.v3tbl td .f { font: 600 15px/1.15 var(--cond); font-variant-numeric: tabular-nums; }
+.v3tbl td .f.hd { font-size: 17px; color: var(--txt); }
+.v3tbl td .f.q { font: 400 12.5px/1.3 var(--sans); color: var(--dim); }
+.v3tbl td .f.pos { color: var(--good); }
+.v3tbl td .f.neg { color: var(--bad); }
+.v3tbl td .nul { color: var(--dim3); }
+/* the compact ordinals that carry the OTHER lenses on a divergence row — three
+   of them in the width one figure would take, so the spread between lenses is
+   visible without a column each */
+.ords { display: flex; gap: 7px; justify-content: flex-end; }
+.ords .o { font: 600 11px/1 var(--cond); color: var(--dim2); letter-spacing: .04em; }
+.ords .o b { font-weight: 700; color: var(--dim); }
+
+/* the playoff cutline: a hard gold rule under 6th, and everything below it
+   steps to secondary ink. The line is the league's one real threshold, so it
+   spends the accent. */
+.v3tbl tbody tr.cut td { border-bottom: 2px solid var(--acc); }
+.v3tbl tbody tr.below .idc-n { color: var(--txt2); font-weight: 400; }
+.v3tbl tbody tr.below .f { color: var(--txt2); }
+
+/* ---- figure strip, phone ------------------------------------------------ */
+
+/* Scrolls sideways rather than wrapping. Four figures wrapped to 2x2 stop being
+   a band and become a block, and the band's job is to be thin. */
+.v3strip {
+  display: flex; background: var(--deep);
+  border-bottom: 1px solid var(--rule);
+  overflow-x: auto; scrollbar-width: none;
+}
+.v3strip::-webkit-scrollbar { display: none; }
+.v3strip .cell {
+  flex: 1 0 auto; min-width: 86px;
+  padding: 9px 14px 10px;
+  border-left: 1px solid var(--rule);
+  background: none; text-align: left; color: inherit;
+}
+.v3strip .cell:first-child { border-left: 0; }
+.v3strip a.cell, .v3strip button.cell { cursor: pointer; border-top: 0; border-right: 0; border-bottom: 0; }
+.v3strip a.cell:hover .v, .v3strip button.cell:hover .v { color: var(--acc); }
+.v3strip .k {
+  font: 600 10px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
+  color: var(--dim); white-space: nowrap;
+}
+.v3strip .v {
+  margin-top: 5px;
+  font: 700 21px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--txt);
+  white-space: nowrap;
+}
+.v3strip .v.acc { color: var(--acc); }
+.v3strip .s {
+  margin-top: 3px;
+  font: 400 11px/1.3 var(--sans); color: var(--dim3); white-space: nowrap;
+  max-width: 132px; overflow: hidden; text-overflow: ellipsis;
+}
+
+/* ---- lens + scope controls ---------------------------------------------- */
+
+/* Full-width, edge to edge, one row. Not the chip row v2 uses: a lens is an
+   exclusive choice over the same population and has to read as one control. */
+.v3-lens { display: flex; background: var(--deep); border-bottom: 1px solid var(--rule); }
+.v3-lens button {
+  flex: 1 1 0; min-width: 0;
+  padding: 9px 4px;
+  background: none; border: 0; border-left: 1px solid var(--rule);
+  cursor: pointer; color: var(--dim);
+  font: 600 11.5px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+}
+.v3-lens button:first-child { border-left: 0; }
+.v3-lens button.on { background: var(--acc); color: var(--acc-ink); }
+.v3-lens button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+
+/* the scope control (Teams | Players) sits above the lens strip and is
+   deliberately a different shape — it changes WHAT is listed, not how it is
+   measured, and two identical strips would read as one eight-way choice */
+.v3-scope { display: flex; gap: 0; padding: 10px var(--v3pad) 0; }
+.v3-scope button {
+  padding: 6px 16px;
+  background: var(--band); border: 1px solid var(--rule); margin-left: -1px;
+  cursor: pointer; color: var(--dim);
+  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.v3-scope button:first-child { margin-left: 0; }
+.v3-scope button.on { background: var(--sel); color: var(--txt); border-color: var(--rule-2); }
+
+/* position chips + search, one scrolling row */
+.v3-filters {
+  display: flex; gap: 6px; align-items: center;
+  padding: 10px var(--v3pad);
+  overflow-x: auto; scrollbar-width: none;
+}
+.v3-filters::-webkit-scrollbar { display: none; }
+.v3-filters .chip { flex: 0 0 auto; padding: 5px 12px; font-size: 13px; }
+.v3-filters input[type="search"] { flex: 1 1 auto; min-width: 120px; }
+
+/* ---- activity feed ------------------------------------------------------ */
+
+.v3-feed { display: flex; flex-direction: column; }
+.v3-act {
+  padding: 11px var(--v3pad) 12px;
+  border-bottom: 1px solid var(--hair);
+}
+.v3-act .when {
+  display: flex; align-items: baseline; gap: 8px;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.v3-act .when .go {
+  margin-left: auto;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; color: var(--acc);
+}
+/* TWO NEUTRAL BASKETS. Both sides in the same ink, always — colouring one green
+   and one amber implies a winner, and a settled trade is a record, not a
+   verdict. */
+.v3-baskets { display: flex; gap: 1px; margin-top: 8px; background: var(--rule); }
+.v3-baskets .bk { flex: 1 1 0; min-width: 0; background: var(--bg); padding: 7px 9px 8px; }
+.v3-baskets .bk .who {
+  font: 600 11px/1.3 var(--cond); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v3-baskets .bk .it {
+  margin-top: 4px;
+  font: 400 12.5px/1.35 var(--sans); color: var(--txt2);
+  overflow-wrap: anywhere;
+}
+.v3-baskets .bk .it.pick { color: var(--dim); }
+/* a waiver line: add and drop on one row, the two moves the league's own
+   vocabulary already colours */
+.v3-wv { display: flex; gap: 10px; margin-top: 6px; font: 400 12.5px/1.4 var(--sans); }
+.v3-wv .add { color: var(--good); }
+.v3-wv .drop { color: var(--drop); }
+.v3-wv .k {
+  font: 600 10px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2); margin-right: 4px;
+}
+
+/* ---- trade machine ------------------------------------------------------ */
+
+.v3-sides { display: flex; gap: 1px; background: var(--rule); }
+.v3-side { flex: 1 1 0; min-width: 0; background: var(--bg); }
+.v3-side .sh {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 8px 10px 7px; background: var(--deep);
+  border-bottom: 1px solid var(--rule);
+}
+/* "Side A gets" — no team names, ever. The machine is a scale, not a
+   negotiation, and a team picker would make it one (decision #13). */
+.v3-side .sh .k {
+  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
+}
+.v3-side .sh .n { margin-left: auto; font: 600 12px/1 var(--cond); color: var(--dim2); }
+.v3-side .asset {
+  display: flex; align-items: center; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--hair);
+}
+.v3-side .asset .nm { flex: 1 1 auto; min-width: 0; }
+.v3-side .asset .nm .n1 {
+  font: 600 13px/1.25 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v3-side .asset .nm .n2 { font: 400 10.5px/1.3 var(--sans); color: var(--dim); }
+.v3-side .asset .x {
+  flex: 0 0 auto; width: 26px; height: 26px;
+  background: none; border: 1px solid var(--rule); color: var(--dim);
+  cursor: pointer; font: 600 13px/1 var(--sans);
+}
+.v3-side .asset .x:hover { color: var(--bad); border-color: var(--bad); }
+.v3-side .addbtn {
+  width: 100%; padding: 10px; background: none; border: 0; cursor: pointer;
+  color: var(--acc);
+  font: 600 11.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+}
+.v3-side .empty2 { padding: 14px 10px; color: var(--dim3); font: 400 12px/1.4 var(--sans); }
+
+/* THE LEDGER: one row, three currencies, no verdict. Figures state; readers
+   interpret (decision #14). There is no winner column and there will not be
+   one. */
+.v3-ledger { background: var(--band); border-top: 3px solid var(--acc); padding: 12px var(--v3pad) 14px; }
+.v3-ledger .lk {
+  font: 600 11px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase; color: var(--acc);
+}
+.v3-ledger table { width: 100%; table-layout: fixed; margin-top: 10px; font-variant-numeric: tabular-nums; }
+.v3-ledger th {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim2); padding: 0 6px 6px; text-align: right;
+}
+.v3-ledger th.t { text-align: left; }
+.v3-ledger td { padding: 3px 6px; text-align: right; }
+.v3-ledger td.t {
+  text-align: left;
+  font: 600 11px/1.2 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+}
+.v3-ledger td .big { font: 700 19px/1.1 var(--cond); }
+.v3-ledger td .sm { font: 400 11px/1.3 var(--sans); color: var(--dim3); }
+
+/* the asset picker, full-screen on a phone: a search field and a list, because
+   a dropdown of 800 players is not a control */
+.v3-pick { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; }
+.v3-pick .ph {
+  display: flex; gap: 8px; align-items: center;
+  padding: 10px var(--v3pad); background: var(--deep); border-bottom: 1px solid var(--rule);
+}
+.v3-pick .ph input[type="search"] { flex: 1 1 auto; min-width: 0; }
+.v3-pick .ph .x {
+  background: none; border: 0; color: var(--dim); cursor: pointer;
+  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+}
+.v3-pick .plist { flex: 1 1 auto; overflow-y: auto; }
+.v3-pick .prow {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 9px var(--v3pad); background: none; border: 0;
+  border-bottom: 1px solid var(--hair); cursor: pointer; text-align: left;
+}
+/* these are spans inside a flex row, so the two lines have to be told to be
+   lines — inline they run together into "Jahmyr GibbsDET · RB" */
+.v3-pick .prow .nm { flex: 1 1 auto; min-width: 0; display: block; }
+.v3-pick .prow .n1 {
+  display: block; font: 600 13.5px/1.25 var(--sans); color: var(--txt);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v3-pick .prow .n2 {
+  display: block; font: 400 11px/1.3 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v3-pick .prow .v { font: 600 14px/1 var(--cond); color: var(--txt2); }
+.v3-pick .sidebtns { display: flex; gap: 0; }
+.v3-pick .sidebtns button {
+  padding: 8px 12px; background: var(--band); border: 1px solid var(--rule); margin-left: -1px;
+  color: var(--dim); cursor: pointer;
+  font: 600 11px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.v3-pick .sidebtns button.on { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
+
+/* ---- More: rows that display their own current state -------------------- */
+
+.v3-more { display: flex; flex-direction: column; }
+.v3-more .mrow {
+  display: flex; align-items: center; gap: 12px; width: 100%;
+  padding: 12px var(--v3pad);
+  background: none; border: 0; border-bottom: 1px solid var(--hair);
+  cursor: pointer; text-align: left; color: var(--txt); text-decoration: none;
+}
+.v3-more .mrow:hover { background: var(--sel); text-decoration: none; }
+.v3-more .mrow .nm { font: 600 14px/1.3 var(--sans); }
+.v3-more .mrow .st {
+  margin-left: auto; text-align: right; flex: 0 0 auto;
+  font: 400 11.5px/1.4 var(--sans); color: var(--dim);
+  max-width: 48%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.v3-more .mrow .st.acc { color: var(--acc); }
+.v3-more .mnote { padding: 10px var(--v3pad) 16px; }
+
+/* the identity block on More: a text field and the derived claim */
+.v3-idbox { padding: 12px var(--v3pad) 14px; }
+.v3-idbox label {
+  display: block;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 6px;
+}
+.v3-idbox .row { display: flex; gap: 8px; }
+.v3-idbox input {
+  flex: 1 1 auto; min-width: 0;
+  background: var(--band); border: 1px solid var(--rule); color: var(--txt);
+  font: 400 14px/1.4 var(--sans); padding: 8px 10px;
+}
+.v3-idbox button {
+  flex: 0 0 auto; padding: 8px 14px;
+  background: var(--acc); border: 1px solid var(--acc); color: var(--acc-ink);
+  cursor: pointer;
+  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.v3-idbox button.ghost { background: none; border-color: var(--rule); color: var(--dim); }
+
+/* ---- back affordance ----------------------------------------------------
+   An iOS web clip has no browser chrome, so every screen below a tab needs its
+   own way back. This is that, and it is a real <a> so it is also a link. */
+.v3-back {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 9px var(--v3pad) 0;
+  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim);
+}
+.v3-back:hover { color: var(--txt2); text-decoration: none; }
+
+/* ==========================================================================
+   DESKTOP — the enriched shell, same IA.
+   The bar becomes a persistent left rail and More's contents are exposed under
+   it, so a desktop reader never opens a menu to reach a destination. Nothing
+   below changes what a screen IS; one IA, two shells (decision #1).
+   ========================================================================== */
+
+@media (min-width: 900px) {
+  .v3 { --v3pad: 22px; padding-bottom: 0; padding-left: 208px; }
+
+  .v3-nav {
+    top: 0; right: auto; bottom: 0; width: 208px;
+    flex-direction: column; align-items: stretch;
+    border-top: 0; border-right: 1px solid var(--rule);
+    padding: 0; overflow-y: auto;
+    /* the rail is persistent: hide-on-scroll is a phone answer to a phone
+       problem (54px of a 667px screen), and a 208px rail costs a desktop
+       nothing */
+    transform: none !important;
+  }
+  .v3-nav a {
+    flex: 0 0 auto; height: 46px;
+    flex-direction: row; justify-content: flex-start; gap: 0;
+    padding: 0 18px;
+    font-size: 13px; letter-spacing: .14em;
+    border-top: 0; border-left: 3px solid transparent;
+  }
+  .v3-nav a.on { border-top: 0; border-left-color: var(--acc); }
+  .v3-nav a .dot { position: static; margin: 0 0 0 8px; }
+  /* the rail's own header, so the wordmark is not homeless on desktop */
+  .v3-nav .railtop {
+    display: block;
+    padding: 16px 18px 12px; border-bottom: 1px solid var(--rule);
+    font: 700 17px/1.1 var(--cond); letter-spacing: .03em; text-transform: uppercase;
+    color: var(--txt);
+  }
+  .v3-nav .railtop b {
+    display: block; margin-top: 3px;
+    font: 600 10.5px/1 var(--cond); letter-spacing: .18em; color: var(--acc);
+  }
+  /* More's contents, exposed */
+  .v3-nav .railgrp {
+    display: block;
+    padding: 14px 18px 5px;
+    font: 600 10px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
+    color: var(--dim2);
+  }
+  .v3-nav a.desk { display: flex; }
+  .v3-nav a.sub { height: 34px; font-size: 11.5px; color: var(--dim2); }
+  .v3-nav a.sub.on { color: var(--txt); background: none; }
+
+  .v3-mast { top: 0; }
+  /* the sheet is a phone pattern; on desktop the rail already lists the
+     leagues, so the switcher opens centred rather than climbing from the edge */
+  .v3-sheet { left: 50%; right: auto; bottom: auto; top: 12vh; width: 420px; margin-left: -104px; border: 1px solid var(--rule); }
+
+  /* the phone's touch minimum is not a desktop minimum; rows tighten and the
+     figures step up, which is the whole of what "enriched" means here */
+  .v3tbl tbody tr.tap { height: auto; }
+  .v3tbl tbody td { padding: 7px 10px; }
+  .v3tbl thead th { top: 0; padding: 7px 10px; font-size: 12px; }
+  .idc-n { font-size: 14.5px; }
+  .v3tbl td .f { font-size: 16px; }
+  .v3tbl td .f.hd { font-size: 19px; }
+  .v3strip .cell { min-width: 120px; padding: 13px 22px 14px; }
+  .v3strip .v { font-size: 27px; }
+  .v3-lens button { flex: 0 0 auto; padding: 9px 22px; }
+  .v3-lens { justify-content: flex-start; }
+  .v3-sides { gap: 1px; }
+  .v3-ledger td .big { font-size: 24px; }
+  .v3-pick { left: 208px; }
+}
