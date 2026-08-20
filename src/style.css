@@ -288,6 +288,35 @@ a:hover { text-decoration: underline; }
 .lens .seg:hover:not(:disabled) { color: var(--txt); }
 .lens .seg.on { position: relative; background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
 .lens .seg:disabled { color: var(--dim3); cursor: not-allowed; }
+
+/* team-filter dropdown (trade ledger) — a multi-select, so deliberately not
+   the lens pattern: the trigger reads like a seg, the menu is checkable rows.
+   Zero radius throughout, like everything else. */
+.tdrop { position: relative; display: inline-block; padding: 10px var(--pad) 0; }
+.tdrop-btn {
+  display: inline-flex; align-items: center; gap: 8px;
+  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  padding: 6px 14px; background: var(--band); color: var(--txt);
+  border: 1px solid var(--rule); cursor: pointer;
+}
+.tdrop-btn .n { color: var(--acc); }
+.tdrop-backdrop { position: fixed; inset: 0; z-index: 40; }
+.tdrop-menu {
+  position: absolute; left: var(--pad); top: 100%; z-index: 41;
+  min-width: 230px; background: var(--band); border: 1px solid var(--rule);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+}
+.tdrop-row {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  width: 100%; text-align: left; background: none; border: 0;
+  border-top: 1px solid var(--hair); cursor: pointer;
+  font: 600 13px/1.2 var(--sans); color: var(--txt2); padding: 8px 12px;
+}
+.tdrop-row:first-child { border-top: 0; border-bottom: 1px solid var(--rule); }
+.tdrop-row:hover { color: var(--txt); background: var(--hair); }
+.tdrop-row[aria-selected="true"] { color: var(--txt); }
+.tdrop-row .ck { color: var(--acc); font: 700 12px/1 var(--cond); min-width: 12px; text-align: right; }
+
 input[type="search"] {
   background: var(--band);
   border: 1px solid var(--rule);

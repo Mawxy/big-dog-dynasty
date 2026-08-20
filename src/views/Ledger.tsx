@@ -58,6 +58,7 @@ export default function Ledger() {
    * everyone, so the default view is unchanged.
    */
   const [teamSel, setTeamSel] = useState<Set<number>>(new Set());
+  const [filterOpen, setFilterOpen] = useState(false);
   const teams = useMemo(() => {
     const seen = new Map<number, string>();       // newest-first cards: first name wins
     for (const c of cards)
@@ -95,20 +96,35 @@ export default function Ledger() {
           Ledger
         </button>
       </div>
-      {/* team filter: multi-select segs. NOT the lens pattern's single
-          selection — several teams can be lit at once, and none lit = all. */}
-      <div className="lens" role="group" aria-label="Filter trades by team">
-        <button type="button" className={`seg${teamSel.size ? "" : " on"}`}
-          aria-pressed={!teamSel.size} onClick={() => setTeamSel(new Set())}>
-          All teams
+      {/* team filter: one dropdown, twelve checkable rows. Multi-select, so
+          deliberately NOT the lens pattern (single selection) and not a
+          native <select multiple> (unstylable). None checked = everyone. */}
+      <div className="tdrop">
+        <button type="button" className="tdrop-btn" aria-haspopup="listbox"
+          aria-expanded={filterOpen} onClick={() => setFilterOpen(o => !o)}>
+          Teams
+          <span className="n">{teamSel.size ? `${teamSel.size} selected` : "all"}</span>
+          <span aria-hidden="true" style={{ fontSize: 10, opacity: .75 }}>▾</span>
         </button>
-        {teams.map(([rid, name]) => (
-          <button key={rid} type="button"
-            className={`seg${teamSel.has(rid) ? " on" : ""}`}
-            aria-pressed={teamSel.has(rid)} onClick={() => toggle(rid)}>
-            {name}
-          </button>
-        ))}
+        {filterOpen && <>
+          <div className="tdrop-backdrop" onClick={() => setFilterOpen(false)} />
+          <div className="tdrop-menu" role="listbox" aria-multiselectable="true"
+            aria-label="Filter trades by team">
+            <button type="button" className="tdrop-row" role="option"
+              aria-selected={!teamSel.size}
+              onClick={() => { setTeamSel(new Set()); setFilterOpen(false); }}>
+              All teams
+              <span className="ck">{teamSel.size ? "" : "✓"}</span>
+            </button>
+            {teams.map(([rid, name]) => (
+              <button key={rid} type="button" className="tdrop-row" role="option"
+                aria-selected={teamSel.has(rid)} onClick={() => toggle(rid)}>
+                {name}
+                <span className="ck">{teamSel.has(rid) ? "✓" : ""}</span>
+              </button>
+            ))}
+          </div>
+        </>}
       </div>
       <div className="band">
         <span className="band-label">
