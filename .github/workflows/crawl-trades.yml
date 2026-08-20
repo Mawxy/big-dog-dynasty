@@ -12,7 +12,13 @@ name: Crawl - trades (4-way sharded corpus)
 # cap), it would just recompute the same corpus.
 on:
   schedule:
-    - cron: "0 1,7,13,19 * * *"   # an hour after signals, so the list is fresh
+    # Every 2h on ODD hours: runs finish in ~30 min, so the extra runs work
+    # through the 80k-league backlog faster (each league still re-pulls only
+    # after --cooldown-days). Odd hours keep the original property that a run
+    # lands an hour after each 6-hourly signals crawl (0,6,12,18), so the
+    # league list is fresh. Concurrency below queues, never overlaps, if a
+    # rate-limited run overshoots the gap.
+    - cron: "0 1-23/2 * * *"
   workflow_dispatch:
 permissions:
   contents: read                  # only reads the committed league list
