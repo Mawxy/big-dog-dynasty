@@ -111,6 +111,30 @@ export interface Values {
   }>;
 }
 
+/** data/dynasty_movers.json — cross-league over/underpays, dynasty_movers.py */
+export interface DynastyMovers {
+  meta: {
+    generated: string; as_of: string; window_days: number; min_n: number;
+    attribution: string; max_assets?: number; unit: string;
+    leagues?: number; trades_in_window: number; trades_scored: number;
+    players_qualified: number;
+  };
+  overpaid: DynastyMoverRow[];
+  underpaid: DynastyMoverRow[];
+}
+export interface DynastyMoverRow {
+  pid: string; name: string; pos: string | null; team: string | null;
+  /** qualifying trades in the window (centerpiece appearances) */
+  n: number;
+  /** blended FC+KTC market value */
+  value: number;
+  /** average package received for him, market points */
+  avg_paid: number;
+  avg_delta: number;
+  /** avg_delta as a % of value; null when the value is 0 */
+  avg_pct: number | null;
+}
+
 /** data/pick_values.json — Bridge A: rookie pick -> realized WAR streams */
 export interface PickBucket {
   bucket: string;

@@ -6,10 +6,13 @@ import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useProjWar } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { fmt, sgnWar } from "../../lib/stats";
-import { SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf } from "../../lib/league";
+import { POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
 import { nearestPick, rankMap, useTeamValues } from "../model";
-import { Band, IdCell, NUL, Strip, TapRow, useV3Path, type Figure } from "../ui";
+import {
+  Band, IdCell, LensStrip, NUL, Spine, Strip, TapRow, useBetaPath,
+  type Figure, type IdTag,
+} from "../ui";
 import { RouteLink } from "../../components/RouteLink";
 
 /**
@@ -35,12 +38,26 @@ import { RouteLink } from "../../components/RouteLink";
 
 type Lens = "dvi" | "cvi";
 
+/** The one toggle on this screen. Declared as data so it rides `LensStrip` —
+ *  the same control Rankings uses — rather than two hand-rolled buttons that
+ *  happen to carry the same classes. */
+const LENSES: { id: Lens; label: string }[] = [
+  { id: "dvi", label: "DVI · dynasty" },
+  { id: "cvi", label: "CVI · win now" },
+];
+
 interface RosterRow {
   key: string;
   name: string;
-  /** the identity sub-line: NFL club · position rank · slot tag */
+  /** the identity sub-line: NFL club · position rank. Slot tags are NOT in
+   *  here — see `tags` */
   sub: string;
+  /** FLX / SFLX / TAXI / IR / BN, passed structurally to `IdCell` so they
+   *  render as tags. Joined into `sub` they were body text, and an IR body
+   *  read as identical to a bench body. */
+  tags: IdTag[];
   pid: string | null;
+  /** drives the spine's colour, and nothing else. Never the name's. */
   pos: string;
   idx: number | null;
   war: number | null;
@@ -52,7 +69,7 @@ interface RosterBand { key: string; label: string; note: string; rows: RosterRow
 
 export default function Team() {
   const { meta, league, players } = useLeague();
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   const ident = useIdentity();
   const routeRid = Number(useParams().rid);
   const rosterSeason = rosterSeasonOf(league);
@@ -98,11 +115,14 @@ export default function Team() {
       const p = posOf(pid);
       return {
         key: pid, pid, name: info?.[0] ?? `#${pid}`, pos: p,
+        sub: [info?.[2] || null, pr ? `${p}${pr}` : p].filter(Boolean).join(" · "),
         // A QB in the QB slot needs no slot tag — the position rank beside it
         // already said QB. Only the tags that ADD something survive: FLX, SFLX,
-        // and the three roster states.
-        sub: [info?.[2] || null, pr ? `${p}${pr}` : p, tag === p ? null : tag]
-          .filter(Boolean).join(" · "),
+        // and the three roster states. IR takes --warn, because availability is
+        // the one roster state that is a caution rather than a label.
+        tags: !tag || tag === p
+          ? []
+          : [tag === "IR" ? { label: "IR", tone: "ir" as const } : tag],
         idx: idxOf(pid), war: war[pid] ?? null,
         market: vals?.players?.[pid]?.ktc ?? null,
       };
@@ -132,6 +152,8 @@ export default function Team() {
             p.orig === rid ? "Own" : `via ${origin?.manager ?? `roster ${p.orig}`}`,
             "Mid tier assumed",
           ].join(" · "),
+          // A pick has no slot: it is not on anybody's lineup card yet.
+          tags: [],
           // A pick has no index and never will until it converts: DVI and CVI
           // are computed from a projection, and there is no player to project.
           // An em dash says that; a 0 would say the pick is worthless.
@@ -177,7 +199,7 @@ export default function Team() {
      picker for one frame every time they open the app. */
   if (rid == null) {
     if (!teams) return <div className="empty">Loading…</div>;
-    return <Navigate to={v3p("/claim")} replace />;
+    return <Navigate to={betaPath("/claim")} replace />;
   }
   if (!teams || !bands) return <div className="empty">Loading…</div>;
   if (!team) return (
@@ -226,24 +248,19 @@ export default function Team() {
             else's it is the fastest possible correction — the roster in front
             of you is the one you meant, so claim it in place. */}
         {ident.rid === rid
-          ? <RouteLink to={v3p("/claim")} className="hact">Not you?</RouteLink>
+          ? <RouteLink to={betaPath("/claim")} className="hact">Not you?</RouteLink>
           : <button className="hact" onClick={() => ident.claim(rid)}>This is me</button>}
       </div>
       <Strip figures={figures} />
 
       {/* The lens toggle sits above the roster, not in the masthead: it scopes
-          THIS table's featured column and nothing else on the site. */}
-      <div className="v3-lens" role="group" aria-label="Index">
-        <button className={lens === "dvi" ? "on" : ""} onClick={() => setLens("dvi")}>
-          DVI · dynasty
-        </button>
-        <button className={lens === "cvi" ? "on" : ""} onClick={() => setLens("cvi")}>
-          CVI · win now
-        </button>
-      </div>
+          THIS table's featured column and nothing else on the site. Same
+          control object as the Rankings lens strip — two segments instead of
+          four, but provably one control rather than two lookalikes. */}
+      <LensStrip options={LENSES} value={lens} onChange={setLens} label="Index" />
 
       {bands.map(b => (
-        <RosterTable key={b.key} band={b} lens={lens} v3p={v3p} />
+        <RosterTable key={b.key} band={b} lens={lens} betaPath={betaPath} />
       ))}
 
       <div className="tnote screen">
@@ -260,28 +277,35 @@ export default function Team() {
 
 /* ---- one banded roster table -------------------------------------------- */
 
-function RosterTable({ band, lens, v3p }: {
-  band: RosterBand; lens: Lens; v3p: (p: string) => string;
+function RosterTable({ band, lens, betaPath }: {
+  band: RosterBand; lens: Lens; betaPath: (p: string) => string;
 }) {
   return (
     <>
-      <Band label={<>{band.label} <span style={{ color: "var(--acc)" }}>{band.total}</span></>}
-        note={band.note} />
-      <table className="v3tbl">
+      <Band label={band.label} total={band.total} note={band.note} />
+      <table className="v3tbl roster">
         <thead>
           <tr>
+            <th className="c sp">#</th>
             <th className="t">Player</th>
-            <th className="n" style={{ width: "16%" }}>{lens.toUpperCase()}</th>
-            <th className="n" style={{ width: "18%" }}>WAR</th>
-            <th className="n" style={{ width: "20%" }}>Market</th>
+            <th className="n lens">{lens.toUpperCase()}</th>
+            <th className="n war">WAR</th>
+            <th className="n mkt">Market</th>
           </tr>
         </thead>
         <tbody>
           {band.rows.map((r, i) => {
             const body = (
               <>
-                <IdCell name={r.name} sub={r.sub}
-                  to={r.pid ? v3p(`/player/${r.pid}`) : undefined} />
+                {/* THE POSITION LIVES HERE. This is the one screen where every
+                    row has a position and none of them showed it — the spine
+                    carries the colour, never the name, and the ordinal is the
+                    row's place WITHIN ITS BAND (lineup order for starters,
+                    index order for the bench, price order for the picks), not
+                    a league rank it would be lying about. */}
+                <Spine color={POS_COLOR[r.pos]} rank={i + 1} />
+                <IdCell name={r.name} sub={r.sub} tags={r.tags}
+                  to={r.pid ? betaPath(`/player/${r.pid}`) : undefined} />
                 <td className="n">
                   <span className="f hd">{r.idx == null ? NUL : fmt(r.idx, 1)}</span>
                 </td>
@@ -290,17 +314,17 @@ function RosterTable({ band, lens, v3p }: {
                 </td>
                 <td className="n">
                   <span className="f q">{r.market == null ? NUL : r.market.toLocaleString()}</span>
-                  {r.equiv && <div className="idc-s" style={{ textAlign: "right" }}>≈ {r.equiv}</div>}
+                  {r.equiv && <div className="idc-s r">≈ {r.equiv}</div>}
                 </td>
               </>
             );
             const cls = i % 2 ? "zebra" : "";
             return r.pid
-              ? <TapRow key={r.key} to={v3p(`/player/${r.pid}`)} className={cls}>{body}</TapRow>
+              ? <TapRow key={r.key} to={betaPath(`/player/${r.pid}`)} className={cls}>{body}</TapRow>
               : <tr key={r.key} className={cls}>{body}</tr>;
           })}
           {!band.rows.length && (
-            <tr><td colSpan={4} className="t"><span className="f q">None.</span></td></tr>
+            <tr><td colSpan={5} className="t"><span className="f q">None.</span></td></tr>
           )}
         </tbody>
       </table>

@@ -9,18 +9,19 @@ import { IdentityContext, useIdentityState } from "../lib/identity";
 import { latestSeasonOf, rosterSeasonOf, seasonSeg } from "../lib/league";
 import { useSeasonData } from "../lib/useSeasonData";
 import ErrorBoundary from "../components/ErrorBoundary";
+import { Sheet, SheetRow } from "./ui";
 import League from "./screens/League";
 import Team from "./screens/Team";
 import Claim from "./screens/Claim";
 import Rankings from "./screens/Rankings";
 import Trade from "./screens/Trade";
 import More from "./screens/More";
-import "./v3.css";
+import "./beta.css";
 
 /* The deep destinations More points at are the classic board's views, mounted
    INSIDE this shell rather than linked out to. They are prop-compatible as they
    stand, and keeping them here is what stops a tap on "Drafts" silently
-   dropping the reader out of v3 with no bottom bar and no way back. They are
+   dropping the reader out of the beta shell with no bottom bar and no way back. They are
    desktop-shaped, which is honest: they are the "everything else" bucket, not
    redesigned surfaces. */
 const Player = lazy(() => import("../views/Player"));
@@ -48,7 +49,7 @@ const HUB_OF: Record<string, string> = {
   history: "more", insights: "more", ledger: "more",
 };
 
-export default function V3Shell() {
+export default function BetaShell() {
   const { meta, league } = useLeague();
   const loc = useLocation();
   const nav = useNavigate();
@@ -60,8 +61,8 @@ export default function V3Shell() {
   const teams = useJson<TeamT[]>(`${rosterSeason}/teams.json`).data;
   const identity = useIdentityState(league.key || "default", teams);
 
-  const base = `/${leagueSeg(league)}/v3`;
-  // the segment after /v3 — "" on the League tab
+  const base = `/${leagueSeg(league)}/beta`;
+  // the segment after /beta — "" on the League tab
   const seg = loc.pathname.startsWith(base)
     ? loc.pathname.slice(base.length).split("/").filter(Boolean)[0] ?? ""
     : "";
@@ -116,8 +117,26 @@ export default function V3Shell() {
   // the redesign names. A pointer held for 500ms, cancelled by movement or
   // release, so it never fights an ordinary tap.
   const holdTimer = useRef<number | null>(null);
+  // Set when the hold actually fired. A long press still ends in a `click`, so
+  // without this the gesture both opened the sheet and navigated to League —
+  // which reads as the sheet having a screen behind it that the reader did not
+  // ask for, and is plainly wrong the moment a second league exists.
+  const held = useRef(false);
   const cancelHold = () => {
     if (holdTimer.current != null) { window.clearTimeout(holdTimer.current); holdTimer.current = null; }
+  };
+  const holdAt = useRef({ x: 0, y: 0 });
+  const startHold = (e: React.PointerEvent) => {
+    held.current = false;
+    holdAt.current = { x: e.clientX, y: e.clientY };
+    holdTimer.current = window.setTimeout(() => { held.current = true; setSheet(true); }, 500);
+  };
+  // A held finger jitters, so a bare pointermove cancel would make the gesture
+  // impossible; 10px is the slop every platform's own long-press allows.
+  const moveHold = (e: React.PointerEvent) => {
+    if (holdTimer.current == null) return;
+    const { x, y } = holdAt.current;
+    if (Math.abs(e.clientX - x) + Math.abs(e.clientY - y) > 10) cancelHold();
   };
 
   const onLeague = active === "";
@@ -140,7 +159,7 @@ export default function V3Shell() {
           ) : (
             <span className="lg flat">{league.name}</span>
           )}
-          <span className="tag">War Board</span>
+          <span className="tag">War Board Beta</span>
         </header>
 
         {/* Every screen below a tab needs an on-screen way back: an iOS web clip
@@ -182,7 +201,7 @@ export default function V3Shell() {
         </main>
 
         <nav className={`v3-nav${barAway ? " away" : ""}`} aria-label="Sections">
-          <div className="railtop">{meta.league}<b>War Board v3</b></div>
+          <div className="railtop">{meta.league}<b>War Board Beta</b></div>
           {tabs.map(t => {
             const to = t.id ? `${base}/${t.id}` : base;
             const on = active === t.id || (t.id === "drafts" && seg === "drafts");
@@ -192,12 +211,12 @@ export default function V3Shell() {
                   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                   e.preventDefault();
                   cancelHold();
+                  if (held.current) { held.current = false; return; }
                   nav(to);
                 }}
-                onPointerDown={t.id === "" ? () => {
-                  holdTimer.current = window.setTimeout(() => setSheet(true), 500);
-                } : undefined}
+                onPointerDown={t.id === "" ? startHold : undefined}
                 onPointerUp={cancelHold} onPointerLeave={cancelHold}
+                onPointerCancel={cancelHold} onPointerMove={moveHold}
                 onContextMenu={t.id === "" ? e => e.preventDefault() : undefined}>
                 {t.label}
                 {"dot" in t && t.dot && <span className="dot" />}
@@ -205,7 +224,7 @@ export default function V3Shell() {
             );
           })}
           {/* On desktop the rail exposes More's contents rather than making a
-              mouse open a menu. Hidden on a phone by v3.css. */}
+              mouse open a menu. Hidden on a phone by beta.css. */}
           <div className="railgrp desk">Explore</div>
           {[
             { id: "drafts", label: "Drafts" }, { id: "seasons", label: "Seasons" },
@@ -232,7 +251,7 @@ export default function V3Shell() {
 /**
  * The Instagram pattern: the whole user level, as a sheet.
  *
- * There is no user-home screen anywhere in v3, and this is why — a screen whose
+ * There is no user-home screen anywhere in the beta shell, and this is why — a screen whose
  * only job is "pick a league" is a level of navigation that a sheet deletes.
  *
  * Switching league RELOADS. Every league-scoped file was already fetched under
@@ -243,51 +262,29 @@ export default function V3Shell() {
 function LeagueSheet({ onClose }: { onClose: () => void }) {
   const { league, leagues } = useLeague();
   return (
-    <>
-      <button className="v3-scrim" aria-label="Close" onClick={onClose} />
-      <div className="v3-sheet" role="dialog" aria-label="Switch league">
-        <div className="sheet-band">
-          <span className="k">Your leagues</span>
-          <button className="x" onClick={onClose}>Close</button>
-        </div>
-        {leagues.leagues.map(l => {
-          const on = l.key === league.key;
-          return (
-            <button key={l.key} className={`lrow${on ? " on" : ""}`}
-              onClick={() => {
-                if (on) { onClose(); return; }
-                window.location.hash = `/${l.alias || l.key}/v3`;
-                window.location.reload();
-              }}>
-              <span>
-                <span className="nm">{l.name}</span>
-                <span className="mt">
-                  {l.seasons[0]}–{l.seasons[l.seasons.length - 1]} · {l.members.length} managers
-                </span>
-              </span>
-              {on && <span className="mark">Here</span>}
-            </button>
-          );
-        })}
-        {/* The future door. Cross-league screens (my week everywhere, exposure)
-            are parked, and so is the walk-up path that would let a visitor load
-            a league this deploy has never built. Both land on this row, so it
-            is present and honestly disabled rather than absent — absent is what
-            makes a reader assume the product cannot do it. */}
-        <button className="lrow" disabled>
-          <span>
-            <span className="nm">All leagues</span>
-            <span className="mt">Cross-league views — not built yet</span>
-          </span>
-        </button>
-        <button className="lrow" disabled>
-          <span>
-            <span className="nm">Add a league by username</span>
-            <span className="mt">Needs the in-browser engine — parked</span>
-          </span>
-        </button>
-      </div>
-    </>
+    <Sheet label="Switch league" title="Your leagues" onClose={onClose}>
+      {leagues.leagues.map(l => {
+        const on = l.key === league.key;
+        return (
+          <SheetRow key={l.key} on={on} mark={on ? "Here" : undefined}
+            name={l.name}
+            meta={`${l.seasons[0]}–${l.seasons[l.seasons.length - 1]} · ${l.members.length} managers`}
+            onClick={() => {
+              if (on) { onClose(); return; }
+              window.location.hash = `/${l.alias || l.key}/beta`;
+              window.location.reload();
+            }} />
+        );
+      })}
+      {/* The future door. Cross-league screens (my week everywhere, exposure)
+          are parked, and so is the walk-up path that would let a visitor load
+          a league this deploy has never built. Both land on this row, so it
+          is present and honestly disabled rather than absent — absent is what
+          makes a reader assume the product cannot do it. */}
+      <SheetRow disabled name="All leagues" meta="Cross-league views — not built yet" />
+      <SheetRow disabled name="Add a league by username"
+        meta="Needs the in-browser engine — parked" />
+    </Sheet>
   );
 }
 
@@ -314,7 +311,7 @@ function DraftDetailRoute() {
 function SeasonRedirect() {
   const { meta, league } = useLeague();
   return <Navigate replace
-    to={`/${leagueSeg(league)}/v3/seasons/${seasonSeg(latestSeasonOf(meta))}`} />;
+    to={`/${leagueSeg(league)}/beta/seasons/${seasonSeg(latestSeasonOf(meta))}`} />;
 }
 
 function WeeklyRoute() {

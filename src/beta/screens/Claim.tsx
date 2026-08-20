@@ -4,7 +4,7 @@ import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { rosterSeasonOf } from "../../lib/league";
 import { deriveRid, useIdentity } from "../../lib/identity";
-import { Band, IdCell, TapRow, useV3Path } from "../ui";
+import { Band, IdCell, TapRow, useBetaPath } from "../ui";
 
 /**
  * WHO YOU ARE — one screen, reachable from everywhere, always reversible.
@@ -16,7 +16,7 @@ import { Band, IdCell, TapRow, useV3Path } from "../ui";
  * username resolved correctly and you simply wanted to look at the board as
  * someone else, there was nowhere to go.
  *
- * So the claim is a real address (`/v3/claim`), linked from the Team screen's
+ * So the claim is a real address (`/beta/claim`), linked from the Team screen's
  * header and from More, and it shows its own current state rather than assuming
  * the reader arrived here empty-handed. Three exits, because there are three
  * different things "wrong" can mean:
@@ -28,7 +28,7 @@ import { Band, IdCell, TapRow, useV3Path } from "../ui";
  */
 export default function Claim() {
   const { league } = useLeague();
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   const ident = useIdentity();
   const teams = useJson<TeamT[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   const [typed, setTyped] = useState(ident.user ?? "");
@@ -117,7 +117,7 @@ export default function Claim() {
             <span className="st">Clears both</span>
           </button>
         )}
-        <a className="mrow" href={`#${v3p(ident.rid != null ? "/team" : "")}`}>
+        <a className="mrow" href={`#${betaPath(ident.rid != null ? "/team" : "")}`}>
           <span className="nm">Done</span>
           <span className="st">{ident.rid != null ? "Back to your team" : "Back to the league"}</span>
         </a>

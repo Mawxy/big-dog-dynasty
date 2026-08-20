@@ -72,6 +72,22 @@
   color: var(--dim2);
 }
 
+/* A BAND'S OWN TOTAL, beside its label (ui.tsx Band's `total` prop). The
+   grouped roster tables on Team need "Starters +3.412 WAR" at the top of the
+   group, not in a footer row that is off-screen by the time the reader reaches
+   it. Accent, tabular, condensed — it is a figure, not part of the label, so it
+   drops the label's tracking and takes back its own letterforms. */
+.band-label .band-total {
+  margin-left: 9px;
+  font: 700 13px/1 var(--cond); letter-spacing: .02em; text-transform: none;
+  font-variant-numeric: tabular-nums;
+  color: var(--acc);
+}
+
+/* v3's gutter is 14px, not style.css's 26px, so a screen-level note indented by
+   --pad hangs 12px off every band and table edge above it. */
+.v3 .tnote.screen { padding-left: var(--v3pad); padding-right: var(--v3pad); }
+
 /* screen title band — the one line of chrome a screen gets above its content */
 .v3-head {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
@@ -118,6 +134,10 @@
 .v3-nav a {
   flex: 1 1 0; min-width: 0;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
+  /* the containing block for the countdown dot. Without it the dot resolved
+     against .v3-nav itself (the nearest positioned ancestor, since the bar is
+     fixed) and every tab's dot landed in the same spot at the bar's left edge */
+  position: relative;
   gap: 3px;
   height: var(--navh);
   text-decoration: none;
@@ -138,7 +158,7 @@
 /* the seasonal sixth slot (Draft, in rookie-draft season) carries a countdown
    dot so the promotion reads as an event rather than as a bar that changed */
 .v3-nav a .dot {
-  position: absolute; margin: -14px 0 0 26px;
+  position: absolute; top: 9px; right: 50%; margin-right: -22px;
   width: 4px; height: 4px; background: var(--acc);
 }
 
@@ -278,6 +298,19 @@
   color: var(--dim2);
 }
 .idc-s .tg.ir { color: var(--warn); }
+
+/* THE SAME IDENTITY, OUTSIDE A TABLE (ui.tsx IdLines). "Stacked identity cells,
+   always" has to survive leaving a <table>: the trade baskets, the asset picker
+   and the switcher sheet are flex rows, and each had grown its own two-line
+   block at its own size. Block display is what makes the two spans lines — as
+   inline they run together into "Jahmyr GibbsDET · RB". */
+.v3id { display: block; min-width: 0; }
+.v3id .idc-n, .v3id .idc-s { display: block; }
+
+/* the 3px spine in a flex row rather than a table cell. Same width, same
+   colour source; it stretches instead of absolutely positioning, because a flex
+   row has no positioned cell to hang off. */
+.v3spine { flex: 0 0 3px; align-self: stretch; min-height: 100%; }
 
 /* figures inside a v3 row */
 .v3tbl td .f { font: 600 15px/1.15 var(--cond); font-variant-numeric: tabular-nums; }
@@ -473,6 +506,39 @@
 }
 .v3-ledger td .big { font: 700 19px/1.1 var(--cond); }
 .v3-ledger td .sm { font: 400 11px/1.3 var(--sans); color: var(--dim3); }
+/* An ADJUSTMENT row (the consolidation line). Between the inputs and the
+   headline in weight, because that is what it is: not an input the reader
+   supplied and not the answer, but a correction the model applied — shown,
+   never smuggled into the total below it. */
+.v3-ledger td .adj { font: 600 14px/1.15 var(--cond); color: var(--txt2); }
+/* the qualifier under a row label — "in 8370 · out 8760" */
+.v3-ledger td.t .lsub {
+  margin-top: 2px;
+  font: 400 10.5px/1.3 var(--sans); letter-spacing: 0; text-transform: none;
+  color: var(--dim3);
+}
+/* a hairline above the headline row, so the net reads as the sum of what is
+   above it rather than as a fourth peer line */
+.v3-ledger tr.net td { border-top: 1px solid var(--rule); padding-top: 7px; }
+
+/* NO WINNER COLOURING. `.f.pos` / `.f.neg` exist for figures elsewhere on the
+   board and are deliberately NOT wired up in here: colouring "net to Side A"
+   green declares a winner in CSS, which is exactly what decision #14 refuses.
+   The sign carries the direction and that is the whole claim. Do not add them.
+
+   A NEUTRAL NOTE on this screen — "loaded from the ledger", and anything else
+   that is context rather than judgment. Not style.css's `.verdict`, whose left
+   accent slab and 22px margins were built to frame a conclusion. */
+.v3-note {
+  margin: 0; padding: 11px var(--v3pad) 12px;
+  background: var(--band); border-bottom: 1px solid var(--rule);
+}
+.v3-note .k {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--dim);
+}
+.v3-note .meta { margin-top: 5px; font: 600 12.5px/1.4 var(--sans); color: var(--txt2); }
+.v3-note .body { margin-top: 6px; font: 400 12px/1.5 var(--sans); color: var(--dim); }
 
 /* the asset picker, full-screen on a phone: a search field and a list, because
    a dropdown of 800 players is not a control */
@@ -616,14 +682,25 @@
 
   .v3-mast { top: 0; }
   /* the sheet is a phone pattern; on desktop the rail already lists the
-     leagues, so the switcher opens centred rather than climbing from the edge */
-  .v3-sheet { left: 50%; right: auto; bottom: auto; top: 12vh; width: 420px; margin-left: -104px; border: 1px solid var(--rule); }
+     leagues, so the switcher opens centred rather than climbing from the edge.
+     Centred on the CONTENT column, not the viewport: the sheet is fixed, so
+     50% is the viewport's middle and the 208px rail pushes the content's middle
+     104px to the right of it — hence half the width back, then 104 forward. */
+  .v3-sheet {
+    left: 50%; right: auto; bottom: auto; top: 12vh; width: 420px;
+    margin-left: calc(-210px + 104px);
+    border: 1px solid var(--rule);
+  }
 
   /* the phone's touch minimum is not a desktop minimum; rows tighten and the
      figures step up, which is the whole of what "enriched" means here */
   .v3tbl tbody tr.tap { height: auto; }
   .v3tbl tbody td { padding: 7px 10px; }
-  .v3tbl thead th { top: 0; padding: 7px 10px; font-size: 12px; }
+  /* The masthead is sticky on desktop too (it holds the league name), so the
+     thead offsets by it here for the same reason it does on a phone — `top: 0`
+     stuck the header under the masthead, which is worse than not sticking at
+     all: the column labels were invisible for the whole scroll. */
+  .v3tbl thead th { top: calc(var(--masth) - 1px); padding: 7px 10px; font-size: 12px; }
   .idc-n { font-size: 14.5px; }
   .v3tbl td .f { font-size: 16px; }
   .v3tbl td .f.hd { font-size: 19px; }
@@ -635,3 +712,104 @@
   .v3-ledger td .big { font-size: 24px; }
   .v3-pick { left: 208px; }
 }
+
+/* == v3 wave2B == */
+/* Team + Rankings. Appended rather than merged into the sections above: three
+   Wave 2 agents editing the middle of one stylesheet is a merge conflict by
+   construction. Four rules, all of them replacing an inline `style` that a
+   screen was writing in JS. */
+
+/* The roster table's column budget. These were three `style={{ width }}`
+   escapes on the <th>s. They are static — the roster's four figure columns do
+   not change with the lens the way Rankings' featured column does — so they
+   belong in the stylesheet, and the class keeps them off every other v3tbl. */
+.v3tbl.roster th.lens { width: 16%; }
+.v3tbl.roster th.war { width: 18%; }
+.v3tbl.roster th.mkt { width: 20%; }
+
+/* A right-aligned sub-line hanging under a right-aligned figure: the
+   nearest-pick equivalent on Team ("≈ 2026 2.04") and the Δ30 delta on
+   Rankings. Both belong to a numeric cell, so they take the numeric column's
+   alignment rather than the identity cell's left edge. Two screens wrote
+   `style={{ textAlign: "right" }}` for this. */
+.v3tbl td .idc-s.r { text-align: right; }
+
+/* Δ30's sign colour comes from `.f.pos` / `.f.neg`, the tokens already spent
+   on a signed figure elsewhere on the board — legal here and nowhere near the
+   ledger, because a raw market delta is a direction of travel and not a
+   verdict. A sub-line is not the figure ramp, though, so only the TYPE steps
+   down to the line it sits on; the colour is deliberately not restated here,
+   which is what keeps one rule owning it. */
+.v3tbl td .idc-s .f { font: 600 11px/1.3 var(--cond); }
+
+/* == v3 wave2A == */
+
+/* METHODOLOGY, opened in place on More (screens/More.tsx).
+   A definition list rather than a paragraph: every figure on this board answers
+   exactly one question, and a reader who stopped on "CVI" halfway down a table
+   two screens ago is looking for a term, not reading an essay. The term takes
+   the same condensed, tracked label face as a band label so it reads as a label
+   and not as the first two words of the sentence beneath it. */
+.v3-more .v3-meth {
+  margin: 0;
+  padding: 6px var(--v3pad) 4px;
+  border-bottom: 1px solid var(--hair);
+}
+.v3-more .v3-meth dt {
+  margin-top: 11px;
+  font: 600 10.5px/1 var(--cond);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.v3-more .v3-meth dt:first-child { margin-top: 2px; }
+.v3-more .v3-meth dd {
+  margin: 5px 0 0;
+  font: 400 12px/1.5 var(--sans);
+  color: var(--txt2);
+  max-width: 64ch;
+}
+/* the closing note belongs to the list above it, not to the row below */
+.v3-more .v3-meth + .mnote { padding-top: 9px; }
+
+/* == v3 wave2C == */
+/* Trade (screens/Trade.tsx). Four rules, and three of them exist to delete an
+   inline `style` the screen was writing in JS. Appended rather than merged into
+   the trade section above for the same reason 2A and 2B appended: three agents
+   editing the middle of one stylesheet is a merge conflict by construction.
+   Wave 3 folds these back into their sections. */
+
+/* The basket and picker rows now compose `IdLines` (.v3id) instead of their own
+   two-line blocks, so the flex sizing that lived on the old `.nm` moves here.
+   `.v3-side .asset .nm` and `.v3-pick .prow .nm` above are now dead and are
+   Wave 3's to remove — leaving them costs nothing and removing them is not this
+   agent's file. */
+.v3-side .asset .v3id, .v3-pick .prow .v3id { flex: 1 1 auto; min-width: 0; }
+
+/* THE POPULATION SEGMENT in the asset picker — All | Players | Picks.
+   Its own bar under the search field rather than a third item inside `.ph`: the
+   header is already a text field plus a Done button, and a phone has no width
+   for a fourth control on that line. The buttons themselves reuse
+   `.v3-pick .sidebtns`, which was written for exactly this and had no markup
+   rendering it. */
+.v3-pick .pfil {
+  padding: 8px var(--v3pad);
+  background: var(--band); border-bottom: 1px solid var(--rule);
+}
+
+/* A tappable trade card in "From the ledger". Was seven inline style properties
+   on the <button> — the button reset plus the row rule .v3-act already owns —
+   which meant the one card on the site that is a control could not be restyled
+   from the stylesheet. */
+.v3-act.tap {
+  display: block; width: 100%; text-align: left;
+  background: none; border: 0; border-bottom: 1px solid var(--hair);
+  color: inherit; cursor: pointer;
+}
+
+/* The estimate mark on a pick in a basket. A pick's DVI and CVI are estimated
+   from its market price and its stream's timing; a player's are computed from a
+   projection. `.idc-s .tg` already carries the condensed, tracked, dimmed face
+   that says "label, not affiliation" — this only stops the ≈ glyph being
+   uppercased into something else and keeps the mark off the name line. */
+.v3-side .asset .idc-s .tg { text-transform: uppercase; white-space: nowrap; }

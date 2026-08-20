@@ -3,6 +3,10 @@ import type { PicksOwned, PickValues, ProjectionsFile, Values } from "../lib/typ
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi, useProjWar } from "../lib/useIndices";
 import { fmt, sgn, sgnWar, warInk, WAR_DP } from "../lib/stats";
+import {
+  makePickIndexer, tradeLedger,
+  type PickIndexer, type PricedAsset, type ValueBridge,
+} from "../lib/tradeModel";
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 import { LEAGUE_TEAMS, POS_COLOR } from "../lib/league";
 import { useMobile } from "../lib/useWidth";
@@ -33,6 +37,23 @@ import { PlayerLink } from "./PlayerLink";
  * number would invent a composite the data does not support. So each currency
  * carries its own signed pair, and when they disagree the reader sees the
  * disagreement rather than its mean.
+ *
+ * THE MATHS IS NOT HERE. `lib/tradeModel.ts` owns both mechanisms from
+ * `scratch/TRADE_MACHINE_MODEL.md` and the beta shell's Trade screen calls the
+ * same functions, so the two boards cannot print different numbers for the same
+ * trade:
+ *
+ *  1. CONSOLIDATION (§1). Only nine slots start, so a package is worth less
+ *     than the sum of its parts. Every asset is scaled by a utilization weight
+ *     and the gap appears as its own row under each currency — SHOWN, never
+ *     folded into the net above it, so a reader who disagrees with the
+ *     correction can still use the raw figure.
+ *  2. PICK INDICES (§2). A pick used to contribute nothing to the DVI and CVI
+ *     columns, which quietly priced every pick-heavy offer as if its index
+ *     value were zero. Picks now carry an estimate from their market price and
+ *     the timing of the stream they buy, marked ≈ everywhere it appears.
+ *
+ * This file decides layout and formatting and nothing else.
  */
 interface Asset {
   key: string; label: string; kind: "player" | "pick";
@@ -65,6 +86,23 @@ function Delta({ v, dp }: { v: number; dp: number }) {
   </span>;
 }
 
+/**
+ * One asset's index figure, per lens.
+ *
+ * A player prints the index the model computed for him. A pick prints the
+ * ESTIMATE `lib/tradeModel` derives from its market price and the timing of the
+ * stream it buys, marked `≈` — an estimated index set in the same type as a
+ * computed one is a lie of typography. Null means genuinely unknown (no
+ * estimate was reachable), and the caller renders that as an em dash; it is
+ * never 0.00, because a zero in a column of index points is a claim.
+ */
+const idxFig = (
+  own: number | null, p: PricedAsset | undefined, lens: "dvi" | "cvi",
+): string | null =>
+  own != null ? fmt(own, 1)
+    : p?.estimated ? `≈ ${fmt(p.value[lens], 1)}`
+      : null;
+
 export default function TradeCalc() {
   // MOBILE.md M7 — baskets stack and each asset is a two-line record with its
   // figures named; each basket closes with its own labeled total band
@@ -84,6 +122,10 @@ export default function TradeCalc() {
   // two 1.4 MB downloads
   const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
   const owned = useJson<PicksOwned>("picks_owned.json").data;
+  // per-band, per-year market-implied WAR streams, keyed by exactly the pick
+  // labels the options list builds. This is what lets a pick carry an index at
+  // all; without it the estimator declines and picks stay em-dashed.
+  const bridge = useJson<ValueBridge>("value_bridge.json", "leagueDaily").data;
   // global, not league-scoped: a market price is a property of the format
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
   // model-aware: these follow the masthead's projection-model control
@@ -141,6 +183,31 @@ export default function TradeCalc() {
     return out;
   }, [proj, pv, owned, dvi, cvi, projWar, vals]);
 
+  /**
+   * The pick index estimator, fit once per data load rather than once per
+   * render: it runs a monotone KTC→DVI and KTC→CVI fit over the whole priced
+   * field (~370 players) and then evaluates picks on those ladders.
+   *
+   * Null until the field and the bridge are both in hand, and null forever if
+   * either is missing — at which point picks fall back to what this screen did
+   * before, which is an em dash in the index columns. Never a zero: a pick
+   * whose index cannot be estimated is unknown, not worthless, and 0.00 in a
+   * total is a claim.
+   */
+  const indexer = useMemo<PickIndexer | null>(() => {
+    if (!options.length || !bridge) return null;
+    const players = options.filter(
+      (x): x is Asset & { ktc: number; dvi: number; cvi: number } =>
+        x.kind === "player" && x.ktc != null && x.dvi != null && x.cvi != null);
+    return makePickIndexer({
+      players, bridge,
+      // the same expression the options list uses to LABEL the current class,
+      // so the calendar the estimator discounts by cannot drift from the one
+      // the labels assert
+      currentClass: pv ? pv.meta.generated_for_season + 1 : null,
+    });
+  }, [options, bridge, pv]);
+
   const optByKey = useMemo(() => new Map(options.map(o => [o.key, o])), [options]);
   const resolve = useCallback(
     (keys: string[]) => keys.map(k => optByKey.get(k)).filter((a): a is Asset => !!a),
@@ -178,28 +245,41 @@ export default function TradeCalc() {
     return kept;
   });
 
-  const tot = useCallback((s: Asset[]) => ({
-    dvi: s.reduce((a, x) => a + (x.dvi ?? 0), 0),
-    cvi: s.reduce((a, x) => a + (x.cvi ?? 0), 0),
-    ktc: s.reduce((a, x) => a + (x.ktc ?? 0), 0),
-    war: s.reduce((a, x) => a + x.war, 0),
-    picks: s.filter(x => x.kind === "pick").length,
-  }), []);
-  const tOut = tot(outgoing), tIn = tot(incoming);
+  /** WAR is the one currency the trade model does not price. `s_lens(v)` is
+   *  defined in market points and in index points; a 3-year WAR sum lives in
+   *  neither space, and inventing a fourth curve for it would be asserting a
+   *  start-share relationship nothing has fit. So WAR keeps its plain sum and
+   *  its plain delta, and the consolidation rows cover the three currencies the
+   *  model actually owns. */
+  const warOf = useCallback(
+    (s: Asset[]) => s.reduce((a, x) => a + x.war, 0), []);
+
+  /**
+   * THE LEDGER, in one call. Side A is what you RECEIVE and side B is what you
+   * send, so every figure comes back signed to you — exactly the way the deltas
+   * table below already reads. `Asset` is structurally a `LedgerAsset`, which is
+   * why the model can take what this screen already builds without importing it.
+   */
+  const led = useMemo(
+    () => tradeLedger(incoming, outgoing, indexer), [incoming, outgoing, indexer]);
+  const tIn = led.a, tOut = led.b;
+  const warIn = warOf(incoming), warOut = warOf(outgoing);
   const any = outgoing.length + incoming.length > 0;
 
   /** Every offer scored against the same outgoing basket, for the table. The
-   *  shared denominator is what makes the rows comparable at a glance. */
+   *  shared denominator is what makes the rows comparable at a glance. RAW
+   *  nets, not adjusted — the consolidation correction belongs beside the
+   *  figure it corrects, and this table has no room to show both, so the band
+   *  note says which one these are. */
   const scored = useMemo(() => offers.map(o => {
     const got = resolve(o.keys);
-    const t = tot(got);
+    const l = tradeLedger(got, outgoing, indexer);
     return {
       id: o.id, got, n: got.length,
-      dvi: t.dvi - tOut.dvi, cvi: t.cvi - tOut.cvi,
-      ktc: t.ktc - tOut.ktc, war: t.war - tOut.war,
-      picks: t.picks,
+      dvi: l.net.dvi, cvi: l.net.cvi, ktc: l.net.market,
+      war: warOf(got) - warOf(outgoing),
     };
-  }), [offers, resolve, tot, tOut]);
+  }), [offers, resolve, outgoing, indexer, warOf]);
   /** the leader per currency — marked per column, never combined into one
    *  "best offer", because the columns disagree and that disagreement is the
    *  information */
@@ -221,7 +301,11 @@ export default function TradeCalc() {
 
   const basket = (i: "out" | "in") => {
     const t = i === "out" ? tOut : tIn;
+    const war = i === "out" ? warOut : warIn;
     const rows = i === "out" ? outgoing : incoming;
+    // a total that contains an estimated index is itself an estimate, and says
+    // so with the same mark the assets carry
+    const ap = t.estimated ? "≈ " : "";
     return (
       <div className="basket" key={i}>
         <div className="basket-head">
@@ -241,7 +325,9 @@ export default function TradeCalc() {
                     <span className="rec-sub">
                       {a.kind === "player"
                         ? <>{a.pos}{a.age != null && <> · age {a.age}</>}</>
-                        : "rookie pick · no index until it converts"}
+                        : t.rows[k]?.estimated
+                          ? "rookie pick · index estimated from price and timing"
+                          : "rookie pick · no index until it converts"}
                     </span>
                   </span>
                   <span className="rec-fig">{sgnWar(a.war)}</span>
@@ -253,9 +339,9 @@ export default function TradeCalc() {
                   <span className="mic"><span className="mk">KTC</span>
                     <span className="mv">{a.ktc == null ? <span className="quiet">—</span> : a.ktc.toLocaleString()}</span></span>
                   <span className="mic"><span className="mk">DVI</span>
-                    <span className="mv">{a.dvi == null ? <span className="quiet">—</span> : fmt(a.dvi, 1)}</span></span>
+                    <span className="mv">{idxFig(a.dvi, t.rows[k], "dvi") ?? <span className="quiet">—</span>}</span></span>
                   <span className="mic"><span className="mk">CVI</span>
-                    <span className="mv">{a.cvi == null ? <span className="quiet">—</span> : fmt(a.cvi, 1)}</span></span>
+                    <span className="mv">{idxFig(a.cvi, t.rows[k], "cvi") ?? <span className="quiet">—</span>}</span></span>
                 </div>
               </div>
             ))}
@@ -263,7 +349,7 @@ export default function TradeCalc() {
             <div className="band">
               <span className="band-label">Total</span>
               <span className="band-note">
-                DVI {fmt(t.dvi, 1)} · CVI {fmt(t.cvi, 1)} · 3yr WAR {sgnWar(t.war)}
+                DVI {ap}{fmt(t.raw.dvi, 1)} · CVI {ap}{fmt(t.raw.cvi, 1)} · 3yr WAR {sgnWar(war)}
               </span>
             </div>
           </div>
@@ -292,8 +378,8 @@ export default function TradeCalc() {
                   </td>
                   <td className="n fig strong edge">{sgnWar(a.war)}</td>
                   <td className="n fig">{a.ktc == null ? "—" : a.ktc.toLocaleString()}</td>
-                  <td className="n fig edge">{a.dvi == null ? "—" : fmt(a.dvi, 1)}</td>
-                  <td className="n fig">{a.cvi == null ? "—" : fmt(a.cvi, 1)}</td>
+                  <td className="n fig edge">{idxFig(a.dvi, t.rows[k], "dvi") ?? "—"}</td>
+                  <td className="n fig">{idxFig(a.cvi, t.rows[k], "cvi") ?? "—"}</td>
                   <td className="c">
                     <span style={{ color: "var(--dim)", cursor: "pointer" }} title="remove"
                       onClick={() => remove(i, a.key)}>×</span>
@@ -303,10 +389,10 @@ export default function TradeCalc() {
               <tr style={{ borderTop: "1px solid var(--rule)" }}>
                 <td className="c"></td>
                 <td className="t name">Total</td>
-                <td className="n edge"><span className="head-fig sm">{sgnWar(t.war)}</span></td>
-                <td className="n"><span className="head-fig sm">{t.ktc.toLocaleString()}</span></td>
-                <td className="n edge"><span className="head-fig sm">{fmt(t.dvi, 1)}</span></td>
-                <td className="n"><span className="head-fig sm">{fmt(t.cvi, 1)}</span></td>
+                <td className="n edge"><span className="head-fig sm">{sgnWar(war)}</span></td>
+                <td className="n"><span className="head-fig sm">{Math.round(t.raw.market).toLocaleString()}</span></td>
+                <td className="n edge"><span className="head-fig sm">{ap}{fmt(t.raw.dvi, 1)}</span></td>
+                <td className="n"><span className="head-fig sm">{ap}{fmt(t.raw.cvi, 1)}</span></td>
                 <td className="c"></td>
               </tr>
             </tbody>
@@ -353,7 +439,17 @@ export default function TradeCalc() {
 
       {/* Both sides signed, in every currency, mirrored. Reading down a column
           answers "who gains on this axis"; reading across answers "do the axes
-          agree". Neither is summed into a verdict. */}
+          agree". Neither is summed into a verdict.
+
+          Each of the three currencies the model prices now carries two more
+          lines under its net: the CONSOLIDATION ADJ and the ADJUSTED NET
+          (`TRADE_MACHINE_MODEL.md` §1). They are sub-rows rather than a second
+          table because this screen's grammar is one currency per row and
+          transposing half the readout would have made the same figures read two
+          different ways. `net + adj = adjusted net` reads straight down, which
+          is what lets a reader disagree with the correction and still use the
+          board. Uncoloured, unlike the nets above them: a correction that both
+          sides are subject to has no winner to ink. */}
       <div className="verdict-band">
         <table className="deltas">
           <thead><tr>
@@ -364,20 +460,48 @@ export default function TradeCalc() {
           </tr></thead>
           <tbody>
             {([
-              ["3yr WAR", tIn.war - tOut.war, WAR_DP, ""],
-              ["KTC", tIn.ktc - tOut.ktc, 0, "market price"],
-              ["DVI", tIn.dvi - tOut.dvi, 1, "index points, not value"],
-              ["CVI", tIn.cvi - tOut.cvi, 1, "index points, not value"],
-            ] as const).map(([label, d, dp, note]) => (
-              <tr key={label}>
-                <td className="t k">{label}</td>
-                <td className="n fig">{any ? <Delta v={d} dp={dp} /> : <span className="quiet">—</span>}</td>
-                <td className="n fig">{any ? <Delta v={-d} dp={dp} /> : <span className="quiet">—</span>}</td>
-                <td className="t sub">{note}</td>
-              </tr>
-            ))}
+              ["3yr WAR", warIn - warOut, WAR_DP, "", 0],
+              ["KTC", led.net.market, 0, "market price", 0],
+              ["consolidation adj", led.adj.market, 0, "", 1],
+              ["adjusted net", led.adjNet.market, 0, "", 2],
+              ["DVI", led.net.dvi, 1, "index points, not value", 0],
+              ["consolidation adj", led.adj.dvi, 1, "", 1],
+              ["adjusted net", led.adjNet.dvi, 1, "", 2],
+              ["CVI", led.net.cvi, 1, "index points, not value", 0],
+              ["consolidation adj", led.adj.cvi, 1, "", 1],
+              ["adjusted net", led.adjNet.cvi, 1, "", 2],
+              // an empty machine shows the four currencies and nothing else:
+              // six more rows of em dashes is a correction to a trade that does
+              // not exist yet
+            ] as const)
+              .filter(([, , , , tier]) => any || tier === 0)
+              .map(([label, d, dp, note, tier], i) => (
+                <tr key={i} className={tier === 0 ? undefined : tier === 2 ? "adj net" : "adj"}>
+                  <td className="t k">{label}</td>
+                  <td className="n fig">
+                    {!any ? <span className="quiet">—</span>
+                      : tier ? sgn(d, dp) : <Delta v={d} dp={dp} />}
+                  </td>
+                  <td className="n fig">
+                    {!any ? <span className="quiet">—</span>
+                      : tier ? sgn(-d, dp) : <Delta v={-d} dp={dp} />}
+                  </td>
+                  <td className="t sub">{note}</td>
+                </tr>
+              ))}
           </tbody>
         </table>
+        {any && (
+          /* Not prose restating the table: the two things a reader cannot infer
+             from the figures themselves — what the correction is, and which
+             figures are estimates. */
+          <div className="tnote">
+            Consolidation adj: nine slots start, so each asset is weighted by the share of weeks
+            a thing of that value plays. Shown, never folded into the net above it.
+            {tIn.estimated + tOut.estimated > 0 &&
+              " Figures marked ≈ are estimates — a pick's index comes from its market price and when it lands."}
+          </div>
+        )}
         {!any && <div className="prose">{empty}</div>}
       </div>
 
@@ -388,7 +512,7 @@ export default function TradeCalc() {
           <div className="band" style={{ marginTop: 22 }}>
             <span className="band-label">Offers side by side</span>
             <span className="band-note">
-              What you gain · best per column marked
+              What you gain before consolidation · best per column marked
             </span>
           </div>
           {/* MOBILE.md M7 — five numeric columns cannot hold at 375px, and a

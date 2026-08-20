@@ -3,6 +3,13 @@ name: Crawl - trades (4-way sharded corpus)
 # transactions for its shard of the leagues. Four shards run on four runners =
 # four separate IPs = 4x the rate budget. Each shard owns its own cache + output
 # (trade_corpus_<shard>.json, uploaded as an artifact — too large to commit).
+#
+# A follow-up `movers` job then merges the shards and rebuilds
+# data/dynasty_movers.json — the cross-league over/underpay board on the league
+# page, and the ONLY file in this workflow the site reads. It runs on the same
+# 4x-daily cadence because the corpus does: refreshing it more often would not
+# crawl more leagues (breadth is set by the crawls and Sleeper's per-IP rate
+# cap), it would just recompute the same corpus.
 on:
   schedule:
     - cron: "0 1,7,13,19 * * *"   # an hour after signals, so the list is fresh
@@ -45,3 +52,66 @@ jobs:
           path: data/trade_corpus_${{ matrix.shard }}.json
           retention-days: 90
           if-no-files-found: ignore
+
+  movers:
+    # Aggregation, not crawling. Merges the four shard artifacts (union with
+    # the committed corpus, deduped by transaction_id) and rebuilds
+    # data/dynasty_movers.json. `always()` is deliberate: a merge over three
+    # live shards still beats a stale board, and merge_trade_corpus.py falls
+    # back to the committed corpus when every artifact is missing. Only the
+    # small movers JSON is committed — the merged corpus itself (~5 MB) would
+    # bloat history at 4 commits a day for a file nothing in src/ reads.
+    needs: trades
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write               # commits data/dynasty_movers.json
+    concurrency:
+      group: crawl-trades-movers
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Download corpus shards
+        uses: actions/download-artifact@v4
+        with:
+          pattern: trade-corpus-shard-*
+          path: data
+          merge-multiple: true
+      - name: Merge shards into one corpus
+        run: python scripts/merge_trade_corpus.py
+      - name: Fetch the Sleeper player map
+        # names/positions for the board; ~5 MB, the documented once-a-day call.
+        # Soft-fail: dynasty_movers.py degrades to "#pid" labels rather than
+        # publishing nothing.
+        run: |
+          mkdir -p sleeper_data
+          curl -sf --retry 3 https://api.sleeper.app/v1/players/nfl \
+            -o sleeper_data/players.json || echo "::warning::player map fetch failed"
+      - name: Build dynasty movers
+        run: python scripts/dynasty_movers.py
+      - name: Commit dynasty_movers.json
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rebase --abort 2>/dev/null || true
+          # RE-PARENT, never rebase — same rationale as crawl-signals: this is
+          # a generated file rewritten whole, its local history is worth
+          # nothing, and this job is the ONLY writer of it.
+          for i in 1 2 3 4 5; do
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            if ! python -m json.tool data/dynasty_movers.json > /dev/null 2>&1; then
+              echo "::warning title=Invalid JSON::data/dynasty_movers.json did not parse — not committing"
+              exit 0
+            fi
+            git add data/dynasty_movers.json
+            git diff --cached --quiet && { echo "no changes"; exit 0; }
+            git commit -m "Dynasty movers $(date -u +%FT%H:%MZ)"
+            git push origin HEAD:main && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1

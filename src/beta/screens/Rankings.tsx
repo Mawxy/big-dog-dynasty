@@ -7,7 +7,7 @@ import { useCvi, useDvi, useProjWar } from "../../lib/useIndices";
 import { fmt, fmtWar, meterWidth, sgn } from "../../lib/stats";
 import { POS_CHIPS, POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { rankMap, useTeamValues } from "../model";
-import { Band, IdCell, NUL, Ords, TapRow, useV3Path } from "../ui";
+import { Band, IdCell, LensStrip, NUL, Ords, Spine, TapRow, useBetaPath } from "../ui";
 
 /**
  * RANKINGS — who's best.
@@ -47,7 +47,7 @@ const PLAYER_LENSES: { id: PlayerLens; label: string }[] = [
 export default function Rankings() {
   const scope = useParams().scope === "players" ? "players" : "teams";
   const nav = useNavigate();
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   return (
     <>
       <div className="v3-head">
@@ -56,9 +56,9 @@ export default function Rankings() {
       </div>
       <div className="v3-scope" role="group" aria-label="Scope">
         <button className={scope === "teams" ? "on" : ""}
-          onClick={() => nav(v3p("/rankings"))}>Teams</button>
+          onClick={() => nav(betaPath("/rankings"))}>Teams</button>
         <button className={scope === "players" ? "on" : ""}
-          onClick={() => nav(v3p("/rankings/players"))}>Players</button>
+          onClick={() => nav(betaPath("/rankings/players"))}>Players</button>
       </div>
       {scope === "teams" ? <TeamScope /> : <PlayerScope />}
     </>
@@ -71,7 +71,7 @@ export default function Rankings() {
 
 function TeamScope() {
   const { league } = useLeague();
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   const [lens, setLens] = useState<TeamLens>("dvi");
   const tvals = useTeamValues(rosterSeasonOf(league));
 
@@ -133,9 +133,12 @@ function TeamScope() {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <TapRow key={r.rid} to={v3p(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
-                <SpineCell rank={r.rank} move={r.move} />
-                <IdCell name={r.team} sub={r.manager} to={v3p(`/team/${r.rid}`)} />
+              <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
+                {/* No positional dimension on a franchise, so the spine takes
+                    the inactive rule and the accent lands on the leaders'
+                    ordinals only. */}
+                <Spine rank={r.rank} top={r.rank <= 3} move={r.move} />
+                <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
                 <td className="n">{featured(r)}</td>
                 <td className="n">
                   <Ords items={TEAM_LENSES.filter(l => l.id !== lens)
@@ -172,7 +175,7 @@ interface PRow {
 
 function PlayerScope() {
   const { players } = useLeague();
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   const [lens, setLens] = useState<PlayerLens>("market");
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
@@ -247,12 +250,15 @@ function PlayerScope() {
       <>
         <span className="f hd">{r.market == null ? NUL : r.market.toLocaleString()}</span>
         {/* Δ30 is a RAW VALUE delta and appears under the Market lens only. A
-            rank delta would be a statement about everyone else moving. */}
+            rank delta would be a statement about everyone else moving.
+
+            Its sign takes `.f.pos` / `.f.neg`, the tokens the board already
+            spends on a signed figure, rather than an inline colour. Legal here
+            and nowhere near the ledger: a raw market delta is a direction of
+            travel, not a verdict about a trade. */}
         {r.d30 != null && r.d30 !== 0 && (
-          <div className={`idc-s ${r.d30 > 0 ? "" : ""}`} style={{ textAlign: "right" }}>
-            <span style={{ color: r.d30 > 0 ? "var(--good)" : "var(--bad)" }}>
-              {sgn(r.d30, 0)}
-            </span> 30d
+          <div className="idc-s r">
+            <span className={`f ${r.d30 > 0 ? "pos" : "neg"}`}>{sgn(r.d30, 0)}</span> 30d
           </div>
         )}
       </>
@@ -289,11 +295,11 @@ function PlayerScope() {
           </thead>
           <tbody>
             {rows.slice(0, 300).map((r, i) => (
-              <TapRow key={r.pid} to={v3p(`/player/${r.pid}`)} className={i % 2 ? "zebra" : ""}>
-                <SpineCell rank={i + 1} color={POS_COLOR[r.pos] ?? "var(--rule-2)"} />
+              <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)} className={i % 2 ? "zebra" : ""}>
+                <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
                 <IdCell name={r.name}
                   sub={[r.nfl || null, `${r.pos}${r.posRank}`].filter(Boolean).join(" · ")}
-                  to={v3p(`/player/${r.pid}`)} />
+                  to={betaPath(`/player/${r.pid}`)} />
                 <td className="n">{featured(r)}</td>
                 <td className="n">
                   {/* ECR is a lens without a permanent column: it prices a
@@ -326,31 +332,8 @@ function PlayerScope() {
   );
 }
 
-/* ---- shared bits -------------------------------------------------------- */
-
-function LensStrip<T extends string>({ options, value, onChange }: {
-  options: { id: T; label: string }[]; value: T; onChange: (v: T) => void;
-}) {
-  return (
-    <div className="v3-lens" role="group" aria-label="Lens">
-      {options.map(o => (
-        <button key={o.id} className={value === o.id ? "on" : ""}
-          aria-pressed={value === o.id} onClick={() => onChange(o.id)}>{o.label}</button>
-      ))}
-    </div>
-  );
-}
-
-/** The spine, with the rank and — where it can be measured — the movement. */
-function SpineCell({ rank, move, color }: {
-  rank: number; move?: number | null; color?: string;
-}) {
-  return (
-    <td className="sp">
-      <span className="spine" style={{ background: color ?? (rank <= 3 ? "var(--acc)" : "var(--rule-2)") }} />
-      <span className={`rank${rank <= 3 && !color ? " top" : ""}`}>{rank}</span>
-      {move != null && move !== 0 &&
-        <span className="mv">{move > 0 ? "▲" : "▼"}{Math.abs(move)}</span>}
-    </td>
-  );
-}
+/* Both of this file's local primitives — the lens strip and the spine cell —
+   now live in ui.tsx. The lens strip was promoted verbatim; the spine cell was
+   already there and this was a second copy of it. Nothing shared remains
+   below, which is the point: a control that two screens draw is a control, and
+   a control one screen draws twice is a coincidence. */

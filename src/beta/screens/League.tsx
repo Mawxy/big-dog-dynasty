@@ -9,7 +9,7 @@ import { ROUND_ORD } from "../../lib/rosterModel";
 import {
   useActivity, useSeasonPhase, useStandings, type Activity, type StandingRow,
 } from "../model";
-import { Band, IdCell, NUL, Spine, Strip, TapRow, useV3Path, type Figure } from "../ui";
+import { Band, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure } from "../ui";
 
 /**
  * LEAGUE — what's going on.
@@ -29,7 +29,7 @@ import { Band, IdCell, NUL, Spine, Strip, TapRow, useV3Path, type Figure } from 
  */
 export default function League() {
   const { meta } = useLeague();
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   const phase = useSeasonPhase();
   const rows = useStandings(phase.loading ? null : phase.resultSeason);
   const acts = useActivity(14);
@@ -75,24 +75,27 @@ export default function League() {
   const figures: Figure[] = [
     phase.week != null
       ? { key: "wk", label: "Week", value: phase.week, sub: `${phase.resultSeason} season`,
-        to: v3p(`/seasons/${phase.resultSeason}`) }
+        to: betaPath(`/seasons/${phase.resultSeason}`) }
       : { key: "wk", label: "Offseason", value: phase.rosterSeason,
-        sub: `${phase.latest} is the last played season`, to: v3p("/seasons") },
+        sub: `${phase.latest} is the last played season`, to: betaPath("/seasons") },
     champion
       ? { key: "ld", label: "Champion", value: "1st", sub: champion.name, acc: true,
-        to: v3p(`/team/${champion.rid}`) }
+        to: betaPath(`/team/${champion.rid}`) }
       : leader
         ? { key: "ld", label: "Leader", value: leader.rec, sub: leader.team, acc: true,
-          to: v3p(`/team/${leader.rid}`) }
+          to: betaPath(`/team/${leader.rid}`) }
         : { key: "ld", label: "Leader", value: NUL },
     topScore
       ? { key: "hi", label: "Top score", value: fmt(topScore.pts, 1),
-        sub: `${topScore.team} · wk ${topScore.wk}`, to: v3p(`/seasons/${phase.resultSeason}`) }
+        sub: `${topScore.team} · wk ${topScore.wk}`, to: betaPath(`/seasons/${phase.resultSeason}`) }
       : { key: "hi", label: "Top score", value: NUL },
     { key: "tr", label: phase.week != null ? "Trades this week" : `Trades ${phase.rosterSeason}`,
-      value: tradeCount, sub: "tap to re-price", to: v3p("/trade") },
+      value: tradeCount, sub: "tap to re-price", to: betaPath("/trade") },
   ];
 
+  // playoffCut is this league's constant, not a derived figure: nothing in the
+  // published data states the bracket size. If a second league ever mounts this
+  // shell it belongs beside LEAGUE_TEAMS in lib/league.ts, read from settings.
   const standings = rows && (
     <Standings rows={rows} season={phase.resultSeason}
       final={phase.offseason} playoffCut={6} />
@@ -106,11 +109,14 @@ export default function League() {
       {phase.offseason
         ? <>{capital}{feed}{standings}</>
         : <>{standings}{feed}</>}
+      {/* A footnote states how a figure is built. It does not narrate the
+          screen's own layout — the reordering is visible, and describing it is
+          the prose summary decision 3 removed from this screen. */}
       <div className="tnote screen">
         {phase.offseason
-          ? `No week of ${phase.rosterSeason} has been scored, so this screen leads with what
-             a franchise holds rather than with how it is doing. Standings below are
-             ${phase.latest}'s final board.`
+          ? `The standings above are ${phase.latest}'s final board — no week of
+             ${phase.rosterSeason} has been scored. Vs median is the record against each
+             week's league median score, the schedule-luck signature.`
           : `Vs median is the record against each week's league median score — the
              schedule-luck signature. The gold rule marks the playoff cutline.`}
         {" "}Figures refresh nightly · built {meta.updated}.
@@ -124,7 +130,7 @@ export default function League() {
 function Standings({ rows, season, final, playoffCut }: {
   rows: StandingRow[]; season: string; final: boolean; playoffCut: number;
 }) {
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   return (
     <>
       <Band label={final ? `${season} final` : `Standings · ${season}`}
@@ -141,15 +147,21 @@ function Standings({ rows, season, final, playoffCut }: {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <TapRow key={r.rid} to={v3p(`/team/${r.rid}`)}
+            <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)}
               className={[
                 i % 2 ? "zebra" : "",
                 r.rank === playoffCut ? "cut" : "",
                 r.rank > playoffCut ? "below" : "",
               ].filter(Boolean).join(" ")}>
-              <Spine color={r.rank <= playoffCut ? "var(--acc)" : "var(--rule-2)"}
-                rank={r.rank} top={r.rank <= playoffCut} />
-              <IdCell name={r.team} sub={r.manager} to={v3p(`/team/${r.rid}`)} />
+              {/* ONE ACCENT. The gold on this table is the cutline — the
+                  league's one real threshold. Six accent spines plus six accent
+                  ordinals plus that rule was three spends of one accent on one
+                  table, and playoff position is already carried twice: by the
+                  rule itself, and by rows 7–12 stepping to secondary ink. So the
+                  spine takes the inactive rule on every row and the accent
+                  ordinal is reserved for first place. */}
+              <Spine rank={r.rank} top={r.rank === 1} />
+              <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
               <td className="n"><span className="f hd">{r.rec}</span></td>
               <td className="n"><span className="f">{r.played ? fmt(r.ppg, 1) : NUL}</span></td>
               <td className="n"><span className="f q">{r.med ?? NUL}</span></td>
@@ -164,7 +176,7 @@ function Standings({ rows, season, final, playoffCut }: {
 /* ---- activity feed ------------------------------------------------------ */
 
 function Feed({ acts, tradesOnly }: { acts: Activity[] | null; tradesOnly: boolean }) {
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   const shown = (acts ?? []).filter(a => !tradesOnly || a.kind === "trade").slice(0, 10);
   return (
     <>
@@ -174,7 +186,7 @@ function Feed({ acts, tradesOnly }: { acts: Activity[] | null; tradesOnly: boole
         {!acts && <div className="empty">Loading…</div>}
         {acts && !shown.length && <div className="empty">Nothing yet.</div>}
         {shown.map(a => a.kind === "trade" ? (
-          <a key={`t${a.ts}`} className="v3-act" href={`#${v3p("/trade")}?load=${a.ts}`}
+          <a key={`t${a.ts}`} className="v3-act" href={`#${betaPath("/trade")}?load=${a.ts}`}
             style={{ display: "block", color: "inherit" }}>
             <div className="when">
               <span>{a.season} · wk {a.week}</span>
@@ -221,7 +233,7 @@ function Feed({ acts, tradesOnly }: { acts: Activity[] | null; tradesOnly: boole
  */
 function DraftCapital() {
   const { league } = useLeague();
-  const v3p = useV3Path();
+  const betaPath = useBetaPath();
   const owned = useJson<PicksOwned>("picks_owned.json").data;
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
   const teams = useJson<Team[]>(`${league.rosterSeason}/teams.json`).data;
@@ -260,10 +272,12 @@ function DraftCapital() {
         </thead>
         <tbody>
           {rows.map((r, i) => (
-            <TapRow key={r.rid} to={v3p(`/team/${r.rid}`)}
+            <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)}
               className={i % 2 ? "zebra" : ""}>
-              <Spine color={i === 0 ? "var(--acc)" : "var(--rule-2)"} rank={i + 1} top={i === 0} />
-              <IdCell name={r.team} sub={r.manager} to={v3p(`/team/${r.rid}`)} />
+              {/* same rule as the standings above: the spine is never the
+                  accent, the leader's ordinal is */}
+              <Spine rank={i + 1} top={i === 0} />
+              <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
               <td className="n"><span className="f">{r.n}</span></td>
               <td className="n"><span className="f q">{r.firsts}</span></td>
               <td className="n"><span className="f hd">{r.value ? r.value.toLocaleString() : NUL}</span></td>

@@ -9,7 +9,7 @@ import { LEAGUE_TEAMS, latestSeasonOf, lineupOf, pricedLineup, rosterSeasonOf } 
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 
 /**
- * The derivations the v3 screens share.
+ * The derivations the beta screens share.
  *
  * Kept out of the screens because three of them price the same rosters in the
  * same four currencies and would otherwise each grow their own copy — which is

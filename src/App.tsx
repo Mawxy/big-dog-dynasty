@@ -29,19 +29,19 @@ const Cvi = lazy(() => import("./views/Cvi"));
 const FranchisePage = lazy(() => import("./components/FranchisePage"));
 const Player = lazy(() => import("./views/Player"));
 /**
- * The v3 shell — the phone-first redesign, mounted BESIDE this board rather
- * than over it.
+ * The beta shell — the phone-first redesign (formerly "v3"), mounted BESIDE
+ * this board rather than over it.
  *
- * `/<league>/v3/...`, so league resolution is untouched: `wantedLeague()` reads
- * the first segment and never sees the second. Everything below this line is
- * the classic board, unchanged, and nothing in v3 writes to a file it reads.
- * Deleting the two lines that reference it in the router below removes it
- * completely.
+ * `/<league>/beta/...`, so league resolution is untouched: `wantedLeague()`
+ * reads the first segment and never sees the second. Everything below this
+ * line is the classic board, unchanged, and nothing in the beta shell writes
+ * to a file it reads. Deleting the lines that reference it in the router
+ * below removes it completely.
  *
  * It is lazy for the same reason every other route is: a reader on the classic
  * board should not download a second shell to look at a standings table.
  */
-const V3Shell = lazy(() => import("./v3/V3Shell"));
+const BetaShell = lazy(() => import("./beta/BetaShell"));
 
 /** The tab bar. Players is ONE tab holding two boards — Value (what a player
  *  is worth now) and Stats (what he did in a given year). They are separate
@@ -75,6 +75,13 @@ function LegacyRedirect() {
   const { league } = useLeague();
   const loc = useLocation();
   return <Navigate to={`/${leagueSeg(league)}${loc.pathname}${loc.search}`} replace />;
+}
+
+/** the beta shell's old address: /<league>/v3/... -> /<league>/beta/... */
+function V3Redirect() {
+  const loc = useLocation();
+  return <Navigate replace
+    to={{ pathname: loc.pathname.replace("/v3", "/beta"), search: loc.search }} />;
 }
 
 /** a route segment as a non-negative integer, or null for a bogus one (e.g.
@@ -175,18 +182,20 @@ export default function App() {
     <LeagueContext.Provider value={{ meta, players, league, leagues }}>
       <HashRouter>
         <ModelProvider>
-          {/* Two shells, one league context and one model control. The v3
+          {/* Two shells, one league context and one model control. The beta
               branch is matched first and swallows its whole subtree, so the
               classic Shell — masthead, tab strip, footer — never renders
               underneath it. */}
           <Routes>
-            <Route path="/:league/v3/*" element={
-              <ErrorBoundary resetKey="v3">
+            <Route path="/:league/beta/*" element={
+              <ErrorBoundary resetKey="beta">
                 <Suspense fallback={<div className="empty">Loading…</div>}>
-                  <V3Shell />
+                  <BetaShell />
                 </Suspense>
               </ErrorBoundary>
             } />
+            {/* the shell shipped as /v3 for a while — shared links redirect */}
+            <Route path="/:league/v3/*" element={<V3Redirect />} />
             <Route path="*" element={<Shell />} />
           </Routes>
         </ModelProvider>

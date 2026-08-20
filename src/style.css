@@ -706,6 +706,8 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   .verdict-band table.deltas th,
   .verdict-band table.deltas td { padding: 4px 6px; }
   .verdict-band table.deltas td.fig { font-size: 18px; }
+  /* the consolidation sub-rows keep their indent, at phone scale */
+  .verdict-band table.deltas tr.adj td.k { padding-left: 14px; }
   /* the fixed widths above are for the 4-column desktop shape */
   .verdict-band table.deltas { table-layout: auto; }
 
@@ -1470,6 +1472,19 @@ tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
 }
 .verdict-band table.deltas td.fig { font: 700 20px/1.1 var(--cond); font-variant-numeric: tabular-nums; }
 .verdict-band table.deltas td.sub { font: 400 11.5px/1.4 var(--sans); color: var(--dim3); }
+/* The consolidation rows (TRADE_MACHINE_MODEL.md §1). Sub-rows of the currency
+   they correct — indented, quieter, tighter — so the eye reads
+   "net, adj, adjusted" as one block per currency rather than as ten peers. The
+   adjusted net is the only one of the two set in full ink: it is the figure the
+   correction was for. Never inked pos/neg — both sides are subject to the same
+   correction, so there is no winner in it to colour. */
+.verdict-band table.deltas tr.adj td { padding-top: 2px; padding-bottom: 2px; }
+.verdict-band table.deltas tr.adj td.k {
+  padding-left: 24px; font: 400 11.5px/1.4 var(--sans);
+  letter-spacing: 0; text-transform: none; color: var(--dim);
+}
+.verdict-band table.deltas tr.adj td.fig { font-size: 15px; color: var(--txt2); }
+.verdict-band table.deltas tr.adj.net td.fig { font-size: 17px; color: var(--txt); }
 
 /* the comparison table: one row per offer, all against the same outgoing side */
 table.offers { width: 100%; table-layout: fixed; margin-top: 2px; }

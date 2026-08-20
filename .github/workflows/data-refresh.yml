@@ -155,11 +155,12 @@ jobs:
           # written back by value_bridge, and the league tree itself.
           PATHS="data/leagues data/leagues.json data/values.json"
           # Files under data/ this workflow must never touch: every one is owned
-          # by a crawl (crawl-signals, crawl-drafts, crawl-outcomes), which is a
-          # different concurrency group and so genuinely can push mid-run. The
-          # allow-list above already excludes them; this catches the future edit
-          # that widens it back to a directory without thinking about ownership.
-          CRAWL='^data/(league_signals|crawl_leagues|draft_signals|rookie_pick_corpus|draft_index|benchmarks|outcome_signals_[0-9]+)\.json$'
+          # by a crawl (crawl-signals, crawl-drafts, crawl-outcomes, or the
+          # crawl-trades movers job), which is a different concurrency group and
+          # so genuinely can push mid-run. The allow-list above already excludes
+          # them; this catches the future edit that widens it back to a
+          # directory without thinking about ownership.
+          CRAWL='^data/(league_signals|crawl_leagues|draft_signals|rookie_pick_corpus|draft_index|benchmarks|dynasty_movers|outcome_signals_[0-9]+)\.json$'
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD

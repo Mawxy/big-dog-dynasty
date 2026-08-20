@@ -1,7 +1,8 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Franchises, Matchups, ProjectionsFile, Team, Trade, TradesPayload, Values,
+  DynastyMovers, DynastyMoverRow, Franchises, Matchups, ProjectionsFile, Team,
+  Trade, TradesPayload, Values,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
@@ -71,6 +72,8 @@ export default function Home() {
   const cvi = useCvi();
   // the market prices a format, not a league
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  // cross-league trade market: who is going for more/less than his value
+  const dyn = useJson<DynastyMovers>("data/dynasty_movers.json", "globalDaily").data;
   const tradesFile = useJson<TradesPayload>("trades.json").data;
   const trades = useMemo<Trade[]>(
     () => (tradesFile ? readTrades(tradesFile).trades : []), [tradesFile]);
@@ -602,6 +605,94 @@ export default function Home() {
         </div>
       </div>
 
+      {/* ---- module row 1b: dynasty movers, cross-league trade market ----
+          Overpays and underpays are one population split by sign, so the two
+          panels are structurally identical twins (§4: same header treatment,
+          same row count, same cell line count). Both sides render in the same
+          signed idiom as market movers; the Δ is a percentage of the player's
+          own blended value, so a 2,400-point back and a 9,000-point QB are
+          commensurable. */}
+      <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
+        {([
+          ["Dynasty movers · going over value", dyn?.overpaid,
+            `Avg return vs FC+KTC blend · ${dyn?.meta.window_days ?? 7} days across ${dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues`],
+          ["Dynasty movers · going under value", dyn?.underpaid,
+            `Centerpiece attribution · min ${dyn?.meta.min_n ?? 3} trades · market points, not a verdict`],
+        ] as const).map(([label, list, note]) => (
+          <div className="feed-panel" key={label}>
+            <div className="band" style={{ borderTop: "none" }}>
+              <span className="band-label">{label}</span>
+              <span className="band-note">{note}</span>
+            </div>
+            {mobile ? (
+              <div className="records flat">
+                {(list ?? []).map((r: DynastyMoverRow, i: number) => (
+                  <div key={r.pid} className={`rec${i % 2 ? " zebra" : ""}`}>
+                    <div className="rec-l1">
+                      <span className="rec-id">
+                        {r.pos && <><PosBadge pos={r.pos} />{" "}</>}
+                        <PlayerLink pid={r.pid} name={r.name} />
+                      </span>
+                      <span className="rec-fig" style={{ color: r.avg_delta > 0 ? "var(--good)" : "var(--bad)" }}>
+                        {r.avg_pct == null ? "—" : `${sgn(r.avg_pct, 0)}%`}
+                      </span>
+                      <span className="rec-key">vs value</span>
+                    </div>
+                    <div className="rec-l2">
+                      <span className="mic"><span className="mk">Value</span>
+                        <span className="mv">{r.value.toLocaleString("en-US")}</span></span>
+                      <span className="mic"><span className="mk">Paid</span>
+                        <span className="mv">{r.avg_paid.toLocaleString("en-US")}</span></span>
+                      <span className="mic"><span className="mk">Trades</span>
+                        <span className="mv">{r.n}</span></span>
+                    </div>
+                  </div>
+                ))}
+                {!(list ?? []).length && <div className="empty">—</div>}
+              </div>
+            ) : (
+              <table style={{ tableLayout: "fixed" }} aria-label={label}>
+                <thead>
+                  <tr>
+                    <th scope="col" className="c" style={{ width: "12%" }}>Pos</th>
+                    <th scope="col" className="t" style={{ width: "34%" }}>Player</th>
+                    <th scope="col" className="n" style={{ width: "10%" }}>Trades</th>
+                    <th scope="col" className="n" style={{ width: "15%" }}>Value</th>
+                    <th scope="col" className="n" style={{ width: "15%" }}>Paid</th>
+                    <th scope="col" className="n" style={{ width: "14%" }}>Δ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
+                    <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
+                      <td className="c">{r.pos ? <PosBadge pos={r.pos} /> : "—"}</td>
+                      <td className="t name"><PlayerLink pid={r.pid} name={r.name} /></td>
+                      <td className="n fig">{r.n}</td>
+                      <td className="n fig">{r.value.toLocaleString("en-US")}</td>
+                      <td className="n fig">{r.avg_paid.toLocaleString("en-US")}</td>
+                      <td className="n fig strong last" style={{ color: r.avg_delta > 0 ? "var(--good)" : "var(--bad)" }}>
+                        {r.avg_pct == null ? "—" : `${sgn(r.avg_pct, 0)}%`}
+                      </td>
+                    </tr>
+                  ) : (
+                    <tr key={`ed${label}${i}`} className={i % 2 ? "zebra" : ""}>
+                      {[0, 1, 2, 3, 4, 5].map(k => (
+                        <td key={k} className={`${k === 0 ? "c" : k === 1 ? "t" : "n"} fig quiet${k === 5 ? " last" : ""}`}>—</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+            {!dyn && (
+              <div className="tnote" style={{ padding: "8px 10px 10px" }}>
+                Waiting on the trade-corpus refresh — movers fill in when dynasty_movers.json lands.
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
       {/* ---- module row 2: recent waivers + recent trades ---- */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         <div className="feed-panel">
@@ -772,7 +863,7 @@ export default function Home() {
       </div>
 
       <div className="footnote">
-        Starter indices price each roster's best legal lineup in that index · value plays and movers cover rostered players only
+        Starter indices price each roster's best legal lineup in that index · value plays and market movers cover rostered players only · dynasty movers read the cross-league trade corpus
       </div>
     </>
   );
