@@ -44,6 +44,11 @@ export interface Meta {
   rosterPositions?: string[];
   /** taxi-squad size from league settings */
   taxiSlots?: number;
+  /** TE-premium class on KTC's ladder: "" none, "tep" TE+, "tepp" TE++,
+   *  "teppp" TE+++. Written by build_site_data from scoring_settings; read
+   *  through lib/values.ktcOf so every KTC figure on the site is priced in
+   *  this league's column. Absent = no premium. */
+  tep?: string;
   /** league-wide all-time [min, max] single-week score — shared box plot scale */
   ptsRange?: [number, number];
 }
@@ -104,6 +109,8 @@ export interface Values {
   picks?: { ktc?: [string, number][]; fc?: [string, number][] };
   players: Record<string, {
     ktc?: number; ktcRank?: number; ktcPosRank?: number; ktcT?: Record<string, number>;
+    /** KTC TE-premium columns (fetch_values.py): TE+ / TE++ / TE+++ */
+    ktcTep?: number; ktcTepp?: number; ktcTeppp?: number;
     fc?: number; fcRank?: number; fcPosRank?: number; fcT?: Record<string, number>;
     /** precomputed by value_bridge.py so the page renders in one fetch */
     impWar?: { ktc?: number; fc?: number };  // market-implied 3-yr WAR

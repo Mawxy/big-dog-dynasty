@@ -33,7 +33,7 @@ from franchise_players import ELITE_BAR, FRANCHISE_BAR, MIN_SEASONS as MIN_FRANC
 from leaguepaths import DataDir
 # the corpus row layout and the lineup slots it prices — shared with
 # benchmarks.py and slot_value.py so a column can only be added in one place
-from crawl_schema import LEAGUE_YEAR_CAP, LINEUP_SLOTS, ROW_FIELDS, SLOT_FIELDS
+from crawl_schema import LEAGUE_YEAR_CAP, LINEUP_SLOTS, ROW_FIELDS, SLOT_FIELDS, tep_class
 import sleeper_http
 from ioutil import write_json
 
@@ -103,6 +103,10 @@ def counts_for_data(l, teams, require_sf):
     if require_sf and not is_superflex(l):
         return False
     return True
+
+
+# TE-premium classification is shared with build_site_data.py — one ladder for
+# external leagues and our own. See crawl_schema.tep_class.
 
 
 def extract_trade(tx, season, lid):
@@ -420,14 +424,29 @@ def mode_signals(args, t0):
         # of the league, not of the run that saw it — so the union is sound and
         # a cold start now only ever adds.
         counted_ids = {lid for lid, m in registry.items() if m.get("counts")}
-        prior = set(jload(ROOT / args.leagues_out, {}).get("leagues", []))
+        prior_file = jload(ROOT / args.leagues_out, {})
+        prior = set(prior_file.get("leagues", []))
         merged = sorted(counted_ids | prior)
         if len(merged) > len(counted_ids):
             print(f"  leagues: {len(counted_ids)} this run + {len(merged) - len(counted_ids)} "
                   f"already committed = {len(merged)}")
+        # TE-premium class per counted league, same union discipline as the
+        # list itself: this run's registry wins for leagues it saw (scoring is
+        # editable, a re-visit refreshes the class), the committed map fills in
+        # leagues the evicted cache no longer remembers. Only non-empty classes
+        # are stored — an absent lid reads as no premium, which is also the
+        # right fallback for a league recorded before this field existed.
+        tep = {lid: c for lid, c in (prior_file.get("tep") or {}).items()
+               if lid in (counted_ids | prior)}
+        for lid in counted_ids:
+            c = registry[lid].get("tep")
+            if c:
+                tep[lid] = c
+            elif c == "" and lid in tep:
+                del tep[lid]              # premium removed on a re-visit
         jdump(ROOT / args.leagues_out,
               {"generated": datetime.date.today().isoformat(), "count": len(merged),
-               "leagues": merged})
+               "leagues": merged, "tep": tep})
         jdump(sd / "registry.json", registry)
         jdump(sd / "frontier.json", list(frontier))
         jdump(sd / "snapshots.json", snapshots)
@@ -453,6 +472,7 @@ def mode_signals(args, t0):
             n_visited += 1
             counts = counts_for_data(league, args.teams, require_sf)
             registry[lid] = {"counts": counts, "last_signals": time.time(),
+                             "tep": tep_class(league),
                              "last_trades": (m or {}).get("last_trades"),
                              "last_drafts": (m or {}).get("last_drafts")}
             here_p, here_t, here_s = set(), set(), set()

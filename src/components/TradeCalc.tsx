@@ -9,6 +9,8 @@ import {
 } from "../lib/tradeModel";
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 import { LEAGUE_TEAMS, POS_COLOR } from "../lib/league";
+import { useLeague } from "../lib/context";
+import { ktcOf } from "../lib/values";
 import { useMobile } from "../lib/useWidth";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
@@ -107,6 +109,9 @@ export default function TradeCalc() {
   // MOBILE.md M7 — baskets stack and each asset is a two-line record with its
   // figures named; each basket closes with its own labeled total band
   const mobile = useMobile();
+  // TE-premium class: every KTC figure in the machine prices in this league's
+  // column (lib/values.ktcOf)
+  const { meta } = useLeague();
   // keys, not Asset snapshots: an asset added before the index files resolve
   // re-resolves against the live options each render, so late loads fill in.
   // `out` is the pinned side — what you are shopping — and every offer is a
@@ -149,7 +154,7 @@ export default function TradeCalc() {
         age: p.age ?? null,
         dvi: dvi?.players[p.pid]?.dvi ?? null,
         cvi: cvi?.players[p.pid]?.cvi ?? null,
-        ktc: vals?.players[p.pid]?.ktc ?? null,
+        ktc: ktcOf(vals?.players[p.pid], meta.tep),
         war: projWar?.[p.pid] ?? p.total_comp,
       });
     }
@@ -181,7 +186,7 @@ export default function TradeCalc() {
             });
     }
     return out;
-  }, [proj, pv, owned, dvi, cvi, projWar, vals]);
+  }, [proj, pv, owned, dvi, cvi, projWar, vals, meta]);
 
   /**
    * The pick index estimator, fit once per data load rather than once per

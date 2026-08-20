@@ -15,6 +15,7 @@ Outputs:
 import argparse, csv, json, re, statistics, time
 from pathlib import Path
 
+from crawl_schema import tep_class
 from ioutil import atomic_write
 
 ALLOW_EMPTY = False   # set by --allow-empty
@@ -71,7 +72,7 @@ def main():
 
     players = load(root / "players.json")
     used_ids, seasons, league_name = set(), [], "League"
-    roster_positions, taxi_slots = [], 0
+    roster_positions, taxi_slots, league_tep = [], 0, ""
     latest_with_data = None
     chain = {}            # season -> league_id
     prev_of = {}          # league_id -> previous_league_id (None at the founder)
@@ -121,6 +122,8 @@ def main():
         # optimal-lineup view (starters vs bench) from roster WAR
         roster_positions = league.get("roster_positions") or roster_positions
         taxi_slots = (league.get("settings") or {}).get("taxi_slots", taxi_slots)
+        # newest season's scoring wins too: which KTC column prices this league
+        league_tep = tep_class(league)
         sout = out / season
         sout.mkdir(exist_ok=True)
 
@@ -591,6 +594,10 @@ def main():
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
         "rosterSeason": max(seasons) if seasons else None,
         "rosterPositions": roster_positions, "taxiSlots": taxi_slots,
+        # TE-premium class (crawl_schema.tep_class): "" | tep | tepp | teppp.
+        # The site reads KTC through lib/values.ktcOf(), which maps this to
+        # the matching value column.
+        "tep": league_tep,
         "ptsRange": [round(pts_min, 1), round(pts_max, 1)],
         "updated": time.strftime("%Y-%m-%d %H:%M UTC", time.gmtime()),
     }, content=latest_with_data)

@@ -99,6 +99,7 @@ def name_index(players):
 
 def fetch_ktc(out, picks, players):
     idx = name_index(players)
+    tep_hits = [0]   # list so the row loop can bump it
     html = get(KTC_URL)
     m = re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S)
     if not m:
@@ -130,6 +131,20 @@ def fetch_ktc(out, picks, players):
         e["ktc"] = sf["value"]
         e["ktcRank"] = sf.get("rank") or ovr[id(row)]
         e["ktcPosRank"] = sf.get("positionalRank") or posrk[id(row)]
+        # TE-premium variants. KTC precomputes every tier in the same payload
+        # as sub-objects of superflexValues — tep (TE+), tepp (TE++), teppp
+        # (TE+++). Consumers pick the tier matching a league's scoring
+        # (sleeper bonus_rec_te / TE slot count); `ktc` stays the no-premium
+        # value. Parsed defensively: if KTC moves these, the base value still
+        # lands and the tally below flags the loss instead of failing the run.
+        for sub, field in (("tep", "ktcTep"), ("tepp", "ktcTepp"),
+                           ("teppp", "ktcTeppp")):
+            tv = sf.get(sub)
+            if isinstance(tv, dict):
+                tv = tv.get("value")
+            if isinstance(tv, (int, float)) and tv > 0:
+                e[field] = tv
+                tep_hits[0] += 1
         for key, days in (("overall7DayTrend", 7), ("sevenDayTrend", 7),
                           ("overallTrend", 7), ("overall30DayTrend", 30)):
             t = sf.get(key)
@@ -137,7 +152,10 @@ def fetch_ktc(out, picks, players):
                 e["ktcT"] = {str(days): int(t)}
                 break
         matched += 1
-    print(f"KTC matched {matched} players")
+    print(f"KTC matched {matched} players, {tep_hits[0]} TE-premium values")
+    if matched and not tep_hits[0]:
+        print("WARNING: no tep/tepp/teppp values parsed — KTC payload layout "
+              "may have changed; TEP-aware consumers will fall back to base ktc")
 
 def main():
     ap = argparse.ArgumentParser()

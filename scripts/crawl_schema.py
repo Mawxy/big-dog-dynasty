@@ -36,3 +36,22 @@ ROW_FIELDS = ["rid", "wins", "losses", "fpts",
               "fran_qb", "fran_rb", "fran_wr", "fran_te"] + SLOT_FIELDS
 
 LEAGUE_YEAR_CAP = 8       # year 8+ pooled: chains that deep are a handful
+
+
+def tep_class(league):
+    """A league's TE-premium tier on KTC's own ladder (keeptradecut.com/about/
+    tight-end-premium): '' none, 'tep' TE+ (mild rec bonus), 'tepp' TE++
+    (2 TE starts OR a >=1 ppr bonus), 'teppp' TE+++ (both). Shared between the
+    crawler (external leagues -> crawl_leagues.json "tep") and build_site_data
+    (our own leagues -> meta.json "tep") so one league can never classify two
+    ways. Consumers map the class to the KTC value column: ktc / ktcTep /
+    ktcTepp / ktcTeppp."""
+    bonus = float((league.get("scoring_settings") or {}).get("bonus_rec_te") or 0)
+    te_slots = (league.get("roster_positions") or []).count("TE")
+    if te_slots >= 2 and bonus > 0:
+        return "teppp"
+    if te_slots >= 2 or bonus >= 1:
+        return "tepp"
+    if bonus > 0:
+        return "tep"
+    return ""

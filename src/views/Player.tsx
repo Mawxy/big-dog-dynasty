@@ -9,6 +9,7 @@ import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, fmtWar, sgnWar, mean } from "../lib/stats";
 import { latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
+import { ktcOf } from "../lib/values";
 import PosBadge from "../components/PosBadge";
 import TScroll from "../components/TScroll";
 import WeekGrid from "../components/WeekGrid";
@@ -197,12 +198,14 @@ export default function Player({ pid }: { pid: string }) {
       return best;
     };
     return [
-      { src: "KeepTradeCut", value: v.ktc, ovr: v.ktcRank, posRank: v.ktcPosRank, t: v.ktcT, imp: v.impWar?.ktc ?? null, picks: vals?.picks?.ktc },
+      // value prices in this league's TE-premium column; ranks/trends stay the
+      // base feed's (KTC publishes them for one ladder only)
+      { src: "KeepTradeCut", value: ktcOf(v, meta.tep), ovr: v.ktcRank, posRank: v.ktcPosRank, t: v.ktcT, imp: v.impWar?.ktc ?? null, picks: vals?.picks?.ktc },
       { src: "FantasyCalc", value: v.fc, ovr: v.fcRank, posRank: v.fcPosRank, t: v.fcT, imp: v.impWar?.fc ?? null, picks: vals?.picks?.fc },
     ].filter(m => m.value != null).map(m => ({
       ...m, value: m.value as number, pick: closest(m.picks, m.value as number),
     }));
-  }, [v, vals]);
+  }, [v, vals, meta]);
 
   /**
    * The 80% band for the model the six-curve table is accenting.

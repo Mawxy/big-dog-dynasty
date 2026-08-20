@@ -5,6 +5,7 @@ import { useCviQuery, useDviQuery } from "../lib/useIndices";
 import { fmt, fmtWar } from "../lib/stats";
 import { latestSeasonOf, ownerOf, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
+import { ktcOf } from "../lib/values";
 import PlayerPanel from "../components/PlayerPanel";
 import DataTable, { applySort, sortCol, useTableSort } from "../components/DataTable";
 import { useMobile } from "../lib/useWidth";
@@ -145,7 +146,7 @@ export default function Value() {
     for (const [pid, r] of Object.entries(vals?.players ?? {})) {
       const row = byId.get(pid);
       if (!row) continue;
-      row.ktc = r.ktc ?? null;
+      row.ktc = ktcOf(r, meta.tep);
       row.fc = r.fc ?? null;
     }
     // analog projection: attaches to known players only, same as prices. Its
@@ -175,7 +176,7 @@ export default function Value() {
     return { population: sorted, ctx };
     // `players` was listed here and read nowhere in the body — every row's name
     // and position come from projections/dvi/cvi. It only forced re-runs.
-  }, [projs, dvi, cvi, vals, ecr, curTeams, knn, sortId, dir]);
+  }, [projs, dvi, cvi, vals, ecr, curTeams, knn, sortId, dir, meta]);
 
   // …and the cheap half: the position chips and the name box, over a list that
   // is already built, sorted and ranked. Ranks are read off the row objects, so

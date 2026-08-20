@@ -15,6 +15,7 @@ import { PlayerLink } from "../components/PlayerLink";
 import PosBadge from "../components/PosBadge";
 import { RouteLink } from "../components/RouteLink";
 import DataTable, { type Col, type Grp } from "../components/DataTable";
+import { ktcOf } from "../lib/values";
 
 const MODULE_ROWS = 5;
 
@@ -189,22 +190,25 @@ export default function Home() {
     };
   }, [dvi, cvi, ownerOfPid]);
 
-  /** KeepTradeCut 7-day movement, rostered players only */
+  /** KeepTradeCut 7-day movement, rostered players only. Values price in this
+   *  league's TE-premium column; the trend stays the base feed's (KTC ships no
+   *  per-tier trends) — direction and magnitude read the same. */
   const movers = useMemo(() => {
     if (!vals) return null;
     const rows: { pid: string; val: number; d: number }[] = [];
     for (const [pid, v] of Object.entries(vals.players)) {
-      if (!ownerOfPid.has(pid) || v.ktc == null) continue;
+      const val = ktcOf(v, meta.tep);
+      if (!ownerOfPid.has(pid) || val == null) continue;
       const d = v.ktcT?.["7"];
       if (d == null || d === 0) continue;
-      rows.push({ pid, val: v.ktc, d });
+      rows.push({ pid, val, d });
     }
     rows.sort((a, b) => b.d - a.d);
     return {
       up: rows.filter(r => r.d > 0).slice(0, MODULE_ROWS),
       down: rows.filter(r => r.d < 0).reverse().slice(0, MODULE_ROWS),
     };
-  }, [vals, ownerOfPid]);
+  }, [vals, ownerOfPid, meta]);
 
   const waivers = useMemo(() => {
     if (!fr) return [];
@@ -459,15 +463,15 @@ export default function Home() {
           same row count, same cell line count). */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
-          ["Value plays · sell high", valuePlays?.sell,
-            "Dynasty premium — DVI above CVI, rostered players · index points, not value"],
-          ["Value plays · buy low", valuePlays?.buy,
-            "Win-now premium — CVI above DVI, rostered players"],
-        ] as const).map(([label, list, note]) => (
+          ["Value plays · sell high", valuePlays?.sell],
+          ["Value plays · buy low", valuePlays?.buy],
+        ] as const).map(([label, list]) => (
           <div className="feed-panel" key={label}>
+            {/* label only — twin bands carry no notes, because two notes of
+                different lengths wrap differently and push the twin tables
+                out of alignment. Methodology lives in the page footnotes. */}
             <div className="band" style={{ borderTop: "none" }}>
               <span className="band-label">{label}</span>
-              <span className="band-note">{note}</span>
             </div>
             {mobile ? (
               <div className="records flat">
@@ -528,15 +532,12 @@ export default function Home() {
       {/* ---- module row 1a: market movers as twin panels ---- */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
-          ["Market movers · rising", movers?.up,
-            "KeepTradeCut 7-day value change, rostered players"],
-          ["Market movers · falling", movers?.down,
-            "Same feed, opposite sign — a fall is a price, not a verdict"],
-        ] as const).map(([label, list, note]) => (
+          ["Market movers · rising", movers?.up],
+          ["Market movers · falling", movers?.down],
+        ] as const).map(([label, list]) => (
           <div className="feed-panel" key={label}>
             <div className="band" style={{ borderTop: "none" }}>
               <span className="band-label">{label}</span>
-              <span className="band-note">{note}</span>
             </div>
             {mobile ? (
               <div className="records flat">
@@ -608,15 +609,12 @@ export default function Home() {
           commensurable. */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
-          ["Dynasty movers · going over value", dyn?.overpaid,
-            `Avg return vs the trade machine's market lens (KTC) · ${dyn?.meta.window_days ?? 7} days across ${dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues`],
-          ["Dynasty movers · going under value", dyn?.underpaid,
-            `Centerpiece attribution · consolidation-adjusted packages · min ${dyn?.meta.min_n ?? 3} trades`],
-        ] as const).map(([label, list, note]) => (
+          ["Dynasty movers · going over value", dyn?.overpaid],
+          ["Dynasty movers · going under value", dyn?.underpaid],
+        ] as const).map(([label, list]) => (
           <div className="feed-panel" key={label}>
             <div className="band" style={{ borderTop: "none" }}>
               <span className="band-label">{label}</span>
-              <span className="band-note">{note}</span>
             </div>
             {mobile ? (
               <div className="records flat">
@@ -692,7 +690,6 @@ export default function Home() {
         <div className="feed-panel">
           <div className="band" style={{ borderTop: "none" }}>
             <span className="band-label">Recent waivers</span>
-            <span className="band-note">Adds and drops, league-wide</span>
           </div>
           {mobile ? (
             /* records: the team is the subject; the adds and drops each take
@@ -773,7 +770,6 @@ export default function Home() {
         <div className="feed-panel">
           <div className="band" style={{ borderTop: "none" }}>
             <span className="band-label">Recent trades</span>
-            <span className="band-note">What each side received, both in the same ink</span>
             <button type="button" className="dlink" style={{ marginLeft: 12 }}
               onClick={() => nav(lp("/ledger"))}>
               Ledger
@@ -857,7 +853,10 @@ export default function Home() {
       </div>
 
       <div className="footnote">
-        Starter indices price each roster's best legal lineup in that index · value plays and market movers cover rostered players only · dynasty movers read the cross-league trade corpus
+        Starter indices price each roster's best legal lineup in that index · value plays (DVI vs CVI, index points) and market movers (KTC 7-day change) cover rostered players only
+      </div>
+      <div className="footnote">
+        Dynasty movers: face KTC values · packages carry the trade model's consolidation adjustment on non-centerpiece assets · centerpiece attribution · {dyn?.meta.window_days ?? 7} days across {dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues · min {dyn?.meta.min_n ?? 3} trades
       </div>
     </>
   );

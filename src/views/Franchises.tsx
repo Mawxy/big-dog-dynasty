@@ -9,6 +9,7 @@ import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, fmtWar, mean, meterWidth, ord, sd } from "../lib/stats";
 import { latestSeasonOf, lineupOf, optimalLineup, pricedLineup, rosterSeasonOf, seasonSeg, weekIndex } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
+import { ktcOf } from "../lib/values";
 import { useSeasonData } from "../lib/useSeasonData";
 import { useMobile } from "../lib/useWidth";
 import DataTable, { applySort, sortCol, useTableSort, type Col, type Grp } from "../components/DataTable";
@@ -232,7 +233,7 @@ function RosterBoard() {
         sDvi: d.starters, sCvi: c.starters, age: ages.length ? mean(ages) : null,
         rDvi: total(t, p => dvi.players[p]?.dvi) ?? 0,
         rCvi: total(t, p => cvi.players[p]?.cvi) ?? 0,
-        ktc: total(t, p => vals?.players[p]?.ktc),
+        ktc: total(t, p => ktcOf(vals?.players[p], meta.tep) ?? undefined),
         fc: total(t, p => vals?.players[p]?.fc),
       };
     });

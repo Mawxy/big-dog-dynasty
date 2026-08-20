@@ -16,17 +16,28 @@ Method (settled with Max, 2026-08-20):
                    minus P's market value. Positive = P fetched an overpay.
                    A side whose top asset is a pick contributes no mover (pick
                    movers are a different board).
-  * values       : the TRADE MACHINE's market lens, KTC band only (settled
-                   with Max, 2026-08-20). Assets are priced in KeepTradeCut
-                   points from data/values.json, and a package is worth
-                   Σ v·s(v), NOT Σ v — the consolidation adjustment from
-                   TRADE_MACHINE_MODEL.md §1 / src/lib/tradeModel.ts, with the
-                   market lens's exact v1 parameters (uMin .10, v50 3400,
-                   τ 1200). Quantity ≠ quality: two 4500s do not equal one
-                   9000. KEEP THE PARAMETERS IN LOCKSTEP with tradeModel.ts.
-                   No per-team delta is knowable for external leagues. An
-                   asset KTC doesn't price counts 0 (throw-in), and a side
-                   whose centerpiece is unpriced contributes no mover.
+  * TE premium   : each trade is priced in the KTC column matching its
+                   league's TE-premium class (crawl_leagues.json "tep",
+                   recorded by the signals crawl from scoring_settings +
+                   TE slots): none -> ktc, TE+ -> ktcTep, TE++ -> ktcTepp,
+                   TE+++ -> ktcTeppp, falling back down the ladder when a
+                   variant is missing. Rows without a lid (oldest corpus)
+                   price at the base column.
+  * values       : KeepTradeCut points from data/values.json, KTC band only.
+                   A PLAYER'S OWN VALUE IS NEVER DEFLATED (settled with Max,
+                   2026-08-20): every asset is shown and denominated at face
+                   KTC. The trade model enters as a package-level
+                   CONSOLIDATION ADJUSTMENT instead — a package is worth its
+                   best asset at face plus each lesser asset at v·s(v), where
+                   s is the market lens's utilization weight from
+                   TRADE_MACHINE_MODEL.md §1 / src/lib/tradeModel.ts (uMin
+                   .10, v50 3400, τ 1200 — KEEP IN LOCKSTEP). So a 1-for-1
+                   reads in pure KTC numbers, and only the quantity side of a
+                   2-for-1 pays the adjustment. Quantity ≠ quality: two 4500s
+                   still fall short of one 9000. No per-team delta is knowable
+                   for external leagues. An asset KTC doesn't price counts 0
+                   (throw-in), and a side whose centerpiece is unpriced
+                   contributes no mover.
   * picks        : (season, round) -> KTC's generic mid value
                    ("2026 Mid 1st"); external leagues' slots are unknowable, so
                    every pick is priced at the round's midpoint. Seasons past
@@ -67,9 +78,14 @@ def s_market(v):
     return U_MIN + (1.0 - U_MIN) / (1.0 + math.exp(-(v - V50) / TAU))
 
 
-def eff(v):
-    """an asset's consolidation-adjusted (effective) market value"""
-    return v * s_market(v) if v > 0 else 0.0
+def pkg_value(faces):
+    """A package's worth: best asset at face, each lesser asset weighted by
+    s(v). The weight models sitting behind someone — which the piece you
+    acquired the package FOR never does — so a single asset is always pure
+    face KTC and the consolidation adjustment (pkg_value − Σ face, ≤ 0) only
+    bites the quantity side of a trade."""
+    vs = sorted((v for v in faces if v > 0), reverse=True)
+    return vs[0] + sum(v * s_market(v) for v in vs[1:]) if vs else 0.0
 
 
 def load(p):
@@ -103,8 +119,21 @@ def build_pick_table(picks):
     return value
 
 
-def player_value(row):
-    return float(row["ktc"]) if row.get("ktc") else 0.0
+# TE-premium ladder: a league's class (from crawl_leagues.json "tep", written
+# by sleeper_crawl.tep_class) picks the KTC column its trades are priced in.
+# Fallback walks DOWN the ladder so a missing variant degrades to the nearest
+# milder premium rather than to nothing.
+TEP_FIELDS = {"": ("ktc",),
+              "tep": ("ktcTep", "ktc"),
+              "tepp": ("ktcTepp", "ktcTep", "ktc"),
+              "teppp": ("ktcTeppp", "ktcTepp", "ktcTep", "ktc")}
+
+
+def player_value(row, cls=""):
+    for f in TEP_FIELDS.get(cls, ("ktc",)):
+        if row.get(f):
+            return float(row[f])
+    return 0.0
 
 
 def main():
@@ -127,7 +156,19 @@ def main():
     if not corpus or not values:
         sys.exit("missing data/trade_corpus.json or data/values.json")
     players_meta = load(RAW / "players.json") or {}
-    pval = {pid: player_value(r) for pid, r in values["players"].items()}
+    # one value table per TE-premium class, built lazily — most corpora are
+    # dominated by one or two classes
+    _pv = {}
+
+    def pval(cls):
+        if cls not in _pv:
+            _pv[cls] = {pid: player_value(r, cls)
+                        for pid, r in values["players"].items()}
+        return _pv[cls]
+
+    # league -> TE-premium class; absent = no premium. Old corpus rows carry
+    # no lid and also price at the base column.
+    tep_map = (load(DATA / "crawl_leagues.json") or {}).get("tep") or {}
     pick_val = build_pick_table(values.get("picks") or {})
 
     trades = corpus["trades"]
@@ -139,8 +180,9 @@ def main():
         as_of = datetime.datetime.fromisoformat(args.as_of).timestamp()
     lo = as_of - args.window_days * 86400
 
-    def side_assets(side):
-        out = [("player", pid, pval.get(pid, 0.0)) for pid in side["players"]]
+    def side_assets(side, cls):
+        pv = pval(cls)
+        out = [("player", pid, pv.get(pid, 0.0)) for pid in side["players"]]
         out += [("pick", f"{pk['season']} {ORD.get(pk['round'], pk['round'])}",
                  pick_val(int(pk["season"]), int(pk["round"])))
                 for pk in side["picks"]]
@@ -157,11 +199,11 @@ def main():
         if any(len(s["players"]) + len(s["picks"]) > args.max_assets
                for s in t["sides"]):
             continue                     # dispersal/roster swap, not a trade
-        a, b = (side_assets(s) for s in t["sides"])
-        # package value under the market lens: consolidation-weighted, so a
-        # pile of mid assets is worth less than its face sum — same maths as
-        # the trade machine's ledger
-        va, vb = sum(eff(x[2]) for x in a), sum(eff(x[2]) for x in b)
+        cls = tep_map.get(str(t.get("lid") or ""), "")
+        a, b = (side_assets(s, cls) for s in t["sides"])
+        # package value: face KTC with the consolidation adjustment on the
+        # lesser assets — a 1-for-1 is pure face numbers on both sides
+        va, vb = pkg_value([x[2] for x in a]), pkg_value([x[2] for x in b])
         if not a or not b or (va == 0 and vb == 0):
             continue
         scored = False
@@ -169,10 +211,11 @@ def main():
             kind, key, v = max(mine, key=lambda x: x[2])   # centerpiece by face
             if kind != "player" or v <= 0:
                 continue                     # pick-centerpiece side: no mover
-            ev = eff(v)
+            # v is the package's best asset, so it sits in my_total at face —
+            # paid nets out the (weighted) throw-ins that rode along with him
             ledger[key].append({"delta": their_total - my_total,
-                                "paid": their_total - (my_total - ev),
-                                "eff": ev})
+                                "paid": their_total - (my_total - v),
+                                "face": v})
             scored = True
         n_scored += scored
 
@@ -180,10 +223,10 @@ def main():
     for pid, recs in ledger.items():
         if len(recs) < args.min_n:
             continue
-        # the player's own worth on the same scale the packages are priced on:
-        # his consolidation-adjusted value (for a centerpiece s ≈ 1, so this
-        # sits within a few % of KTC face)
-        v = recs[0]["eff"]
+        # the player's own worth: face KTC, never deflated — the board must
+        # read against KeepTradeCut's published number. Averaged because his
+        # face differs by each trade's TE-premium class.
+        v = sum(r["face"] for r in recs) / len(recs)
         avg_delta = sum(r["delta"] for r in recs) / len(recs)
         meta = players_meta.get(pid) or {}
         rows.append({
@@ -206,7 +249,8 @@ def main():
                     "as_of": datetime.datetime.utcfromtimestamp(as_of).isoformat() + "Z",
                     "window_days": args.window_days, "min_n": args.min_n,
                     "attribution": "centerpiece", "max_assets": args.max_assets,
-                    "unit": "KTC points, consolidation-adjusted (trade-machine market lens)",
+                    "unit": "face KTC points, TE-premium-matched per league; packages carry the market lens's consolidation adjustment on non-centerpiece assets",
+                    "tep_leagues_known": len(tep_map),
                     "leagues": corpus.get("leagues"),
                     "trades_in_window": n_window, "trades_scored": n_scored,
                     "players_qualified": len(rows)},
