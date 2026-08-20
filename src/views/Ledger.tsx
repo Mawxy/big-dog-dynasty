@@ -1,21 +1,23 @@
 import { useMemo } from "react";
+import { useNavigate } from "react-router-dom";
 import type { TradesPayload } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { readTrades, tradeWhen } from "../lib/trades";
 import { fmtWar } from "../lib/stats";
-import { useLeague } from "../lib/context";
+import { useLeague, useLeaguePath } from "../lib/context";
 import TradeCard, { sideRealized } from "../components/TradeCard";
 
 /**
  * Trade ledger — every trade, each side scored on the WAR its return actually
- * produced. A dedicated page off the tab bar, reached from the League
- * dashboard's activity module; the forward-looking calculator is the Trade
- * machine tab. The two answer different questions ("how did our trades turn
- * out" vs "should I make this one") and sharing a screen buried this one
- * behind a mode toggle.
+ * produced. The other half of the Trade tab's machine/ledger lens: the
+ * calculator (views/Trades.tsx) is the tab's default face and this is one
+ * segment flip away. Still its own route so the League dashboard's activity
+ * module and any old link land here directly.
  */
 export default function Ledger() {
   const { players } = useLeague();
+  const nav = useNavigate();
+  const lp = useLeaguePath();
   const file = useJson<TradesPayload>("trades.json");
   const err = file.error;
   // readTrades, not an inline Array.isArray: a TradesFile written without its
@@ -58,6 +60,15 @@ export default function Ledger() {
       <div className="screen-head">
         <span className="screen-title">Trade ledger</span>
         <span className="screen-note"><b>{cards.length}</b> trades</span>
+      </div>
+      <div className="lens" role="tablist" aria-label="Trade machine or ledger">
+        <button type="button" className="seg" role="tab" aria-selected="false"
+          onClick={() => nav(lp("/trades"))}>
+          Trade machine
+        </button>
+        <button type="button" className="seg on" role="tab" aria-selected="true">
+          Ledger
+        </button>
       </div>
       <div className="band">
         <span className="band-label">Every trade · newest first</span>

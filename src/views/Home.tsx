@@ -347,14 +347,6 @@ export default function Home() {
     { id: 3, label: "", cls: "" },
   ];
 
-  const grpRow = (label: string, cols: number) => (
-    <tr className="grp">
-      <th scope="colgroup" colSpan={cols} className="t" style={{ textAlign: "left", padding: "6px 10px 5px", letterSpacing: ".16em", borderBottom: "1px solid var(--rule)" }}>
-        {label}
-      </th>
-    </tr>
-  );
-
   return (
     <>
       <div className="screen-head">
@@ -460,122 +452,125 @@ export default function Home() {
         )}
       </div>
 
-      {/* ---- module row 1: value plays + market movers ---- */}
+      {/* ---- module row 1: value plays as twin panels ----
+          The dynasty-movers pattern is the house style for a population split
+          by sign (settled with Max, 2026-08-20): one side per panel, the two
+          panels structurally identical twins (§4 — same header treatment,
+          same row count, same cell line count). */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
-        <div className="feed-panel">
-          <div className="band" style={{ borderTop: "none" }}>
-            <span className="band-label">Value plays</span>
-            <span className="band-note">Largest DVI-minus-CVI gaps, rostered players · index points, not value</span>
-          </div>
-          {mobile ? (
-            <div className="records flat">
-              {([["Sell high · dynasty premium", valuePlays?.sell], ["Buy low · win-now premium", valuePlays?.buy]] as const)
-                .map(([label, list]) => (
-                  <div key={label}>
-                    <div className="band"><span className="band-label">{label}</span></div>
-                    {(list ?? []).map((r, i) => (
-                      <div key={r.pid} className={`rec${i % 2 ? " zebra" : ""}`}>
-                        <div className="rec-l1">
-                          <span className="rec-id">
-                            <PosBadge pos={r.pos} />{" "}
-                            <PlayerLink pid={r.pid} name={r.name} />
-                          </span>
-                          <span className="rec-fig">{sgn(r.gap, 1)}</span>
-                          <span className="rec-key">Gap</span>
-                        </div>
-                        <div className="rec-l2">
-                          <span className="mic"><span className="mk">DVI</span><span className="mv">{fmt(r.d, 1)}</span></span>
-                          <span className="mic"><span className="mk">CVI</span><span className="mv">{fmt(r.c, 1)}</span></span>
-                        </div>
-                      </div>
-                    ))}
-                    {!(list ?? []).length && <div className="empty">—</div>}
+        {([
+          ["Value plays · sell high", valuePlays?.sell,
+            "Dynasty premium — DVI above CVI, rostered players · index points, not value"],
+          ["Value plays · buy low", valuePlays?.buy,
+            "Win-now premium — CVI above DVI, rostered players"],
+        ] as const).map(([label, list, note]) => (
+          <div className="feed-panel" key={label}>
+            <div className="band" style={{ borderTop: "none" }}>
+              <span className="band-label">{label}</span>
+              <span className="band-note">{note}</span>
+            </div>
+            {mobile ? (
+              <div className="records flat">
+                {(list ?? []).map((r, i) => (
+                  <div key={r.pid} className={`rec${i % 2 ? " zebra" : ""}`}>
+                    <div className="rec-l1">
+                      <span className="rec-id">
+                        <PosBadge pos={r.pos} />{" "}
+                        <PlayerLink pid={r.pid} name={r.name} />
+                      </span>
+                      <span className="rec-fig">{sgn(r.gap, 1)}</span>
+                      <span className="rec-key">Gap</span>
+                    </div>
+                    <div className="rec-l2">
+                      <span className="mic"><span className="mk">DVI</span><span className="mv">{fmt(r.d, 1)}</span></span>
+                      <span className="mic"><span className="mk">CVI</span><span className="mv">{fmt(r.c, 1)}</span></span>
+                    </div>
                   </div>
                 ))}
-            </div>
-          ) : (
-            <table style={{ tableLayout: "fixed" }} aria-label="Value plays · largest DVI minus CVI gaps">
-              <thead>
-                <tr>
-                  <th scope="col" className="c" style={{ width: "14%" }}>Pos</th>
-                  <th scope="col" className="t" style={{ width: "42%" }}>Player</th>
-                  <th scope="col" className="n" style={{ width: "14%" }}>DVI</th>
-                  <th scope="col" className="n" style={{ width: "14%" }}>CVI</th>
-                  <th scope="col" className="n" style={{ width: "16%" }}>Gap</th>
-                </tr>
-              </thead>
-              {([["Sell high · dynasty premium", valuePlays?.sell], ["Buy low · win-now premium", valuePlays?.buy]] as const)
-                .map(([label, list]) => (
-                  <tbody key={label}>
-                    {grpRow(label, 5)}
-                    {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
-                      <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
-                        <td className="c"><PosBadge pos={r.pos} /></td>
-                        <td className="t name"><PlayerLink pid={r.pid} name={r.name} /></td>
-                        <td className="n fig">{fmt(r.d, 1)}</td>
-                        <td className="n fig">{fmt(r.c, 1)}</td>
-                        <td className="n fig strong last">{sgn(r.gap, 1)}</td>
-                      </tr>
-                    ) : (
-                      <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
-                        <td className="c fig quiet">—</td>
-                        <td className="t fig quiet">—</td>
-                        <td className="n fig quiet">—</td>
-                        <td className="n fig quiet">—</td>
-                        <td className="n fig quiet last">—</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                ))}
-            </table>
-          )}
-        </div>
-
-        <div className="feed-panel">
-          <div className="band" style={{ borderTop: "none" }}>
-            <span className="band-label">Market movers · 7 days</span>
-            <span className="band-note">KeepTradeCut value change, rostered players</span>
-          </div>
-          {mobile ? (
-            <div className="records flat">
-              {([["Rising", movers?.up], ["Falling", movers?.down]] as const).map(([label, list]) => (
-                <div key={label}>
-                  <div className="band"><span className="band-label">{label}</span></div>
-                  {(list ?? []).map((r, i) => (
-                    <div key={r.pid} className={`rec${i % 2 ? " zebra" : ""}`}>
-                      <div className="rec-l1">
-                        <span className="rec-id">
-                          <PosBadge pos={pInfo(players, r.pid)[1]} />{" "}
-                          <PlayerLink pid={r.pid} name={pInfo(players, r.pid)[0]} />
-                        </span>
-                        <span className="rec-fig" style={{ color: r.d > 0 ? "var(--good)" : "var(--bad)" }}>
-                          {sgn(r.d, 0)}
-                        </span>
-                        <span className="rec-key">7d</span>
-                      </div>
-                      <div className="rec-l2">
-                        <span className="mic"><span className="mk">Value</span>
-                          <span className="mv">{r.val.toLocaleString("en-US")}</span></span>
-                      </div>
-                    </div>
+                {!(list ?? []).length && <div className="empty">—</div>}
+              </div>
+            ) : (
+              <table style={{ tableLayout: "fixed" }} aria-label={label}>
+                <thead>
+                  <tr>
+                    <th scope="col" className="c" style={{ width: "14%" }}>Pos</th>
+                    <th scope="col" className="t" style={{ width: "42%" }}>Player</th>
+                    <th scope="col" className="n" style={{ width: "14%" }}>DVI</th>
+                    <th scope="col" className="n" style={{ width: "14%" }}>CVI</th>
+                    <th scope="col" className="n" style={{ width: "16%" }}>Gap</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
+                    <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
+                      <td className="c"><PosBadge pos={r.pos} /></td>
+                      <td className="t name"><PlayerLink pid={r.pid} name={r.name} /></td>
+                      <td className="n fig">{fmt(r.d, 1)}</td>
+                      <td className="n fig">{fmt(r.c, 1)}</td>
+                      <td className="n fig strong last">{sgn(r.gap, 1)}</td>
+                    </tr>
+                  ) : (
+                    <tr key={`e${label}${i}`} className={i % 2 ? "zebra" : ""}>
+                      <td className="c fig quiet">—</td>
+                      <td className="t fig quiet">—</td>
+                      <td className="n fig quiet">—</td>
+                      <td className="n fig quiet">—</td>
+                      <td className="n fig quiet last">—</td>
+                    </tr>
                   ))}
-                  {!(list ?? []).length && <div className="empty">—</div>}
-                </div>
-              ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ---- module row 1a: market movers as twin panels ---- */}
+      <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
+        {([
+          ["Market movers · rising", movers?.up,
+            "KeepTradeCut 7-day value change, rostered players"],
+          ["Market movers · falling", movers?.down,
+            "Same feed, opposite sign — a fall is a price, not a verdict"],
+        ] as const).map(([label, list, note]) => (
+          <div className="feed-panel" key={label}>
+            <div className="band" style={{ borderTop: "none" }}>
+              <span className="band-label">{label}</span>
+              <span className="band-note">{note}</span>
             </div>
-          ) : (
-            <table style={{ tableLayout: "fixed" }} aria-label="Market movers · 7-day KeepTradeCut change">
-              <thead>
-                <tr>
-                  <th scope="col" className="c" style={{ width: "14%" }}>Pos</th>
-                  <th scope="col" className="t" style={{ width: "42%" }}>Player</th>
-                  <th scope="col" className="n" style={{ width: "22%" }}>Value</th>
-                  <th scope="col" className="n" style={{ width: "22%" }}>7d</th>
-                </tr>
-              </thead>
-              {([["Rising", movers?.up], ["Falling", movers?.down]] as const).map(([label, list]) => (
-                <tbody key={label}>
-                  {grpRow(label, 4)}
+            {mobile ? (
+              <div className="records flat">
+                {(list ?? []).map((r, i) => (
+                  <div key={r.pid} className={`rec${i % 2 ? " zebra" : ""}`}>
+                    <div className="rec-l1">
+                      <span className="rec-id">
+                        <PosBadge pos={pInfo(players, r.pid)[1]} />{" "}
+                        <PlayerLink pid={r.pid} name={pInfo(players, r.pid)[0]} />
+                      </span>
+                      <span className="rec-fig" style={{ color: r.d > 0 ? "var(--good)" : "var(--bad)" }}>
+                        {sgn(r.d, 0)}
+                      </span>
+                      <span className="rec-key">7d</span>
+                    </div>
+                    <div className="rec-l2">
+                      <span className="mic"><span className="mk">Value</span>
+                        <span className="mv">{r.val.toLocaleString("en-US")}</span></span>
+                    </div>
+                  </div>
+                ))}
+                {!(list ?? []).length && <div className="empty">—</div>}
+              </div>
+            ) : (
+              <table style={{ tableLayout: "fixed" }} aria-label={label}>
+                <thead>
+                  <tr>
+                    <th scope="col" className="c" style={{ width: "14%" }}>Pos</th>
+                    <th scope="col" className="t" style={{ width: "42%" }}>Player</th>
+                    <th scope="col" className="n" style={{ width: "22%" }}>Value</th>
+                    <th scope="col" className="n" style={{ width: "22%" }}>7d</th>
+                  </tr>
+                </thead>
+                <tbody>
                   {padTo(list ?? [], MODULE_ROWS).map((r, i) => r ? (
                     <tr key={r.pid} className={i % 2 ? "zebra" : ""}>
                       <td className="c"><PosBadge pos={pInfo(players, r.pid)[1]} /></td>
@@ -594,30 +589,29 @@ export default function Home() {
                     </tr>
                   ))}
                 </tbody>
-              ))}
-            </table>
-          )}
-          {!vals && (
-            <div className="tnote" style={{ padding: "8px 10px 10px" }}>
-              Waiting on the nightly market pull — values fill in when the KeepTradeCut feed lands.
-            </div>
-          )}
-        </div>
+              </table>
+            )}
+            {!vals && (
+              <div className="tnote" style={{ padding: "8px 10px 10px" }}>
+                Waiting on the nightly market pull — values fill in when the KeepTradeCut feed lands.
+              </div>
+            )}
+          </div>
+        ))}
       </div>
 
       {/* ---- module row 1b: dynasty movers, cross-league trade market ----
-          Overpays and underpays are one population split by sign, so the two
-          panels are structurally identical twins (§4: same header treatment,
-          same row count, same cell line count). Both sides render in the same
-          signed idiom as market movers; the Δ is a percentage of the player's
-          own blended value, so a 2,400-point back and a 9,000-point QB are
+          The pattern-setter: twin panels split by sign. Packages are priced by
+          the trade machine's market lens (KTC band, consolidation-adjusted),
+          and the Δ is a percentage of the player's own value on that same
+          scale, so a 2,400-point back and a 9,000-point QB are
           commensurable. */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
           ["Dynasty movers · going over value", dyn?.overpaid,
-            `Avg return vs FC+KTC blend · ${dyn?.meta.window_days ?? 7} days across ${dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues`],
+            `Avg return vs the trade machine's market lens (KTC) · ${dyn?.meta.window_days ?? 7} days across ${dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues`],
           ["Dynasty movers · going under value", dyn?.underpaid,
-            `Centerpiece attribution · min ${dyn?.meta.min_n ?? 3} trades · market points, not a verdict`],
+            `Centerpiece attribution · consolidation-adjusted packages · min ${dyn?.meta.min_n ?? 3} trades`],
         ] as const).map(([label, list, note]) => (
           <div className="feed-panel" key={label}>
             <div className="band" style={{ borderTop: "none" }}>

@@ -16,12 +16,19 @@ Method (settled with Max, 2026-08-20):
                    minus P's market value. Positive = P fetched an overpay.
                    A side whose top asset is a pick contributes no mover (pick
                    movers are a different board).
-  * values       : blended market points from data/values.json (mean of
-                   FantasyCalc + KeepTradeCut where both price the asset).
-                   This is the market side of the objective layer — no
-                   per-team delta is knowable for external leagues.
-  * picks        : (season, round) -> generic round value ("2026 1st" /
-                   "2026 Mid 1st"); external leagues' slots are unknowable, so
+  * values       : the TRADE MACHINE's market lens, KTC band only (settled
+                   with Max, 2026-08-20). Assets are priced in KeepTradeCut
+                   points from data/values.json, and a package is worth
+                   Σ v·s(v), NOT Σ v — the consolidation adjustment from
+                   TRADE_MACHINE_MODEL.md §1 / src/lib/tradeModel.ts, with the
+                   market lens's exact v1 parameters (uMin .10, v50 3400,
+                   τ 1200). Quantity ≠ quality: two 4500s do not equal one
+                   9000. KEEP THE PARAMETERS IN LOCKSTEP with tradeModel.ts.
+                   No per-team delta is knowable for external leagues. An
+                   asset KTC doesn't price counts 0 (throw-in), and a side
+                   whose centerpiece is unpriced contributes no mover.
+  * picks        : (season, round) -> KTC's generic mid value
+                   ("2026 Mid 1st"); external leagues' slots are unknowable, so
                    every pick is priced at the round's midpoint. Seasons past
                    the published horizon decay by the ratio of the last two
                    published seasons; unpublished rounds price at 0 (throw-in).
@@ -46,8 +53,23 @@ SNOWFLAKE_EPOCH_MS = 1454362509301
 ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
 
 # generic (mid) round values only — a slotless external pick IS the midpoint
-FC_GENERIC = re.compile(r"^(20\d\d) (\d)(?:st|nd|rd|th)$")            # "2026 1st"
 KTC_GENERIC = re.compile(r"^(20\d\d) Mid (\d)(?:st|nd|rd|th)$")       # "2026 Mid 1st"
+
+# Trade machine market lens, v1 parameters — mirror of src/lib/tradeModel.ts
+# CURVES.market. s(v) is the share of weeks an asset of KTC value v actually
+# starts; a package is worth the sum of consolidation-weighted values.
+U_MIN, V50, TAU = 0.10, 3400.0, 1200.0
+
+
+def s_market(v):
+    """utilization weight under the market lens (never negative, floored)"""
+    import math
+    return U_MIN + (1.0 - U_MIN) / (1.0 + math.exp(-(v - V50) / TAU))
+
+
+def eff(v):
+    """an asset's consolidation-adjusted (effective) market value"""
+    return v * s_market(v) if v > 0 else 0.0
 
 
 def load(p):
@@ -59,14 +81,12 @@ def trade_ts(tid):
 
 
 def build_pick_table(picks):
-    """(season, round) -> blended generic value, with season-decay fallback."""
-    by_key = defaultdict(list)
-    for src, rx in (("fc", FC_GENERIC), ("ktc", KTC_GENERIC)):
-        for label, val in (picks.get(src) or []):
-            m = rx.match(label)
-            if m:
-                by_key[(int(m.group(1)), int(m.group(2)))].append(float(val))
-    table = {k: sum(v) / len(v) for k, v in by_key.items()}
+    """(season, round) -> KTC generic mid value, with season-decay fallback."""
+    table = {}
+    for label, val in (picks.get("ktc") or []):
+        m = KTC_GENERIC.match(label)
+        if m:
+            table[(int(m.group(1)), int(m.group(2)))] = float(val)
 
     def value(season, rnd):
         if (season, rnd) in table:
@@ -84,8 +104,7 @@ def build_pick_table(picks):
 
 
 def player_value(row):
-    vals = [float(row[s]) for s in ("fc", "ktc") if row.get(s)]
-    return sum(vals) / len(vals) if vals else 0.0
+    return float(row["ktc"]) if row.get("ktc") else 0.0
 
 
 def main():
@@ -139,16 +158,21 @@ def main():
                for s in t["sides"]):
             continue                     # dispersal/roster swap, not a trade
         a, b = (side_assets(s) for s in t["sides"])
-        va, vb = sum(x[2] for x in a), sum(x[2] for x in b)
+        # package value under the market lens: consolidation-weighted, so a
+        # pile of mid assets is worth less than its face sum — same maths as
+        # the trade machine's ledger
+        va, vb = sum(eff(x[2]) for x in a), sum(eff(x[2]) for x in b)
         if not a or not b or (va == 0 and vb == 0):
             continue
         scored = False
         for mine, my_total, their_total in ((a, va, vb), (b, vb, va)):
-            kind, key, v = max(mine, key=lambda x: x[2])
+            kind, key, v = max(mine, key=lambda x: x[2])   # centerpiece by face
             if kind != "player" or v <= 0:
                 continue                     # pick-centerpiece side: no mover
+            ev = eff(v)
             ledger[key].append({"delta": their_total - my_total,
-                                "paid": their_total - (my_total - v)})
+                                "paid": their_total - (my_total - ev),
+                                "eff": ev})
             scored = True
         n_scored += scored
 
@@ -156,7 +180,10 @@ def main():
     for pid, recs in ledger.items():
         if len(recs) < args.min_n:
             continue
-        v = pval[pid]
+        # the player's own worth on the same scale the packages are priced on:
+        # his consolidation-adjusted value (for a centerpiece s ≈ 1, so this
+        # sits within a few % of KTC face)
+        v = recs[0]["eff"]
         avg_delta = sum(r["delta"] for r in recs) / len(recs)
         meta = players_meta.get(pid) or {}
         rows.append({
@@ -179,7 +206,7 @@ def main():
                     "as_of": datetime.datetime.utcfromtimestamp(as_of).isoformat() + "Z",
                     "window_days": args.window_days, "min_n": args.min_n,
                     "attribution": "centerpiece", "max_assets": args.max_assets,
-                    "unit": "market points (FC+KTC blend)",
+                    "unit": "KTC points, consolidation-adjusted (trade-machine market lens)",
                     "leagues": corpus.get("leagues"),
                     "trades_in_window": n_window, "trades_scored": n_scored,
                     "players_qualified": len(rows)},

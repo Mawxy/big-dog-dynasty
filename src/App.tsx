@@ -58,7 +58,7 @@ const LABEL = (v: string) =>
     : v === "home" ? "League"
       // the weekly view owns the whole season now — weeks, then the bracket
       : v === "weekly" ? "Season"
-        : v === "trades" ? "Trade machine" : v[0].toUpperCase() + v.slice(1);
+        : v === "trades" ? "Trade" : v[0].toUpperCase() + v.slice(1);
 
 /** URL segment -> internal season id, with fallback to the default season */
 function seasonOf(seg: string | undefined, meta: Meta): string {
@@ -288,9 +288,10 @@ function Shell() {
   const curSeasonSeg = onView && isSeason ? seg3 : seasonSeg(latest);
   // Off-tab pages still light their hub's tab, so the bar always answers
   // "where am I": standings belongs to League; both player boards, the two
-  // index pages and any player page to Players; franchise pages to Teams.
+  // index pages and any player page to Players; franchise pages to Teams;
+  // the ledger to Trade, whose machine/ledger lens it is the other half of.
   const HUB_OF: Record<string, string> = {
-    standings: "teams", ledger: "home", history: "home", value: "players", stats: "players",
+    standings: "teams", ledger: "trades", history: "home", value: "players", stats: "players",
     dvi: "players", cvi: "players", player: "players", franchise: "teams",
     playoffs: "weekly",
   };
