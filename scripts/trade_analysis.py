@@ -19,7 +19,7 @@ Output: data/trades.json — newest first.
 
 Usage: python scripts/trade_analysis.py
 """
-import argparse, json, sys
+import argparse, datetime, json, sys, time
 from pathlib import Path
 from leaguepaths import DataDir
 
@@ -220,6 +220,80 @@ def main():
                     trades.append({"season": str(s), "week": wk, "ts": ts,
                                    # realized WAR decides the ordering; projection is informational
                                    "sides": sorted(sides.values(), key=lambda x: -x["war"])})
+
+    # ---- projection-at-trade snapshots (settled with Max, 2026-08-20) ----
+    # The first daily run that sees a trade FREEZES what the model expected
+    # each side's haul to be worth (side total: realized-so-far + discounted
+    # stream — within the capture window that is the at-trade expectation),
+    # plus its market price. Frozen means never overwritten: today's
+    # projection overwriting yesterday's is exactly what made "projected then"
+    # impossible until now. Trades older than the capture window can't be
+    # re-projected honestly — they get a market backfill where
+    # values_history.json reaches, and stay em-dashed before that (SKILL §3:
+    # unknown reads as "—", never as a fake number).
+    SNAP_MAX_AGE_DAYS = 14
+    snap_path = DATA / "trade_snapshots.json"
+    snaps = load(snap_path) or {}
+    valsg = (load(ROOT / "data" / "values.json") or {}).get("players", {})
+    hist = load(ROOT / "data" / "values_history.json") or {}
+    hist_start = min((r[0][0] for r in hist.values() if r), default=None)
+    today = datetime.date.today().isoformat()
+
+    def mkt_players(side, price):
+        """KTC sum of a side, players only — a side holding picks or an
+        unpriced player has no honest market total and returns None."""
+        tot = 0
+        for a in side["got"]:
+            if a["kind"] == "faab":
+                continue
+            if a["kind"] != "player" or not a["pid"]:
+                return None
+            v = price(str(a["pid"]))
+            if not v:
+                return None
+            tot += v
+        return tot or None
+
+    def price_at(day):
+        def p(pid):
+            best = None
+            for d, ktc, _fc in hist.get(pid) or []:
+                if d <= day and (best is None or d > best[0]):
+                    best = (d, ktc)
+            return best[1] if best else None
+        return p
+
+    n_new = 0
+    for t in trades:
+        key = f"{t['ts']}:" + "-".join(
+            str(r) for r in sorted(s["rid"] for s in t["sides"]))
+        sn = snaps.get(key)
+        if sn is None:
+            ts_s = (t["ts"] or 0) / 1000
+            day = datetime.date.fromtimestamp(ts_s).isoformat() if ts_s else ""
+            if ts_s and (time.time() - ts_s) / 86400 <= SNAP_MAX_AGE_DAYS:
+                sn = {"taken": today, "kind": "model",
+                      "sides": {str(s["rid"]): {
+                          "exp": s["total"],
+                          "mkt": mkt_players(s, lambda pid: (valsg.get(pid) or {}).get("ktc"))}
+                          for s in t["sides"]}}
+            elif hist_start and day >= hist_start:
+                sides = {str(s["rid"]): {"exp": None,
+                                         "mkt": mkt_players(s, price_at(day))}
+                         for s in t["sides"]}
+                if any(v["mkt"] is not None for v in sides.values()):
+                    sn = {"taken": today, "kind": "market", "sides": sides}
+            if sn:
+                snaps[key] = sn
+                n_new += 1
+        if sn:
+            for s in t["sides"]:
+                rec = sn["sides"].get(str(s["rid"])) or {}
+                s["expThen"], s["mktThen"] = rec.get("exp"), rec.get("mkt")
+    if n_new or not Path(snap_path).exists():
+        Path(snap_path).write_text(
+            json.dumps(snaps, separators=(",", ":")), encoding="utf-8")
+    print(f"trade snapshots: {len(snaps)} frozen, {n_new} new this run")
 
     trades.sort(key=lambda t: -t["ts"])
     prev = load(DATA / "trades.json")

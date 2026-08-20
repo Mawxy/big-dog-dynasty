@@ -18,6 +18,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Saira+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<!-- GoatCounter analytics — privacy-friendly, no cookies, no consent banner.
+     no_onload because this is a hash-routed SPA: the automatic pageview would
+     record every visit as "/" and nothing else. src/lib/analytics.ts counts a
+     view per route change instead (GoatCounter ignores localhost on its own,
+     so dev traffic never lands in the dashboard). -->
+<script data-goatcounter="https://bigdog.goatcounter.com/count"
+        data-goatcounter-settings='{"no_onload": true}'
+        async src="//gc.zgo.at/count.js"></script>
 </head>
 <body>
 <div id="root"></div>

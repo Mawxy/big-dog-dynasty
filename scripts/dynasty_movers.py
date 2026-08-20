@@ -55,7 +55,7 @@ Method (settled with Max, 2026-08-20):
 
 Inputs : data/trade_corpus.json, data/values.json, sleeper_data/players.json
 Output : data/dynasty_movers.json — {"meta", "overpaid", "underpaid"}
-Usage  : python scripts/dynasty_movers.py [--window-days 7] [--min-n 3]
+Usage  : python scripts/dynasty_movers.py [--window-days 7] [--min-n 0] [--min-value 2000]
 """
 import argparse, datetime, json, re, sys, time
 from collections import defaultdict
@@ -147,8 +147,16 @@ def player_value(row, cls=""):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--window-days", type=int, default=7)
-    ap.add_argument("--min-n", type=int, default=3,
-                    help="trades required before a player can make the board")
+    ap.add_argument("--min-n", type=int, default=0,
+                    help="trades required before a player can make the board; "
+                         "0 (default) = adaptive: max(3, 0.08*sqrt(trades "
+                         "scored)), so the bar rises as the crawl scales — "
+                         "~3 at a few hundred trades, ~8 at 10k, ~25 at 100k")
+    ap.add_argument("--min-value", type=int, default=2000,
+                    help="face-KTC floor for the board (default %(default)s). "
+                         "A 900-point scrub overpaid by 90%% is trivia, not a "
+                         "market signal; the floor keeps the board about "
+                         "players people actually shop")
     ap.add_argument("--top", type=int, default=5)
     ap.add_argument("--max-assets", type=int, default=6,
                     help="skip trades with more assets than this on either side "
@@ -251,14 +259,20 @@ def main():
             scored = True
         n_scored += scored
 
+    # the qualification bar scales with volume: on a thin window 3 trades is
+    # all the signal there is, on 10k+ trades three appearances is noise
+    min_n = args.min_n or max(3, round(0.08 * n_scored ** 0.5))
+
     rows = []
     for pid, recs in ledger.items():
-        if len(recs) < args.min_n:
+        if len(recs) < min_n:
             continue
         # the player's own worth: face KTC, never deflated — the board must
         # read against KeepTradeCut's published number. Averaged because his
         # face differs by each trade's TE-premium class.
         v = sum(r["face"] for r in recs) / len(recs)
+        if v < args.min_value:
+            continue                 # throw-in tier: churn, not a market read
         avg_delta = sum(r["delta"] for r in recs) / len(recs)
         meta = players_meta.get(pid) or {}
         rows.append({
@@ -279,7 +293,8 @@ def main():
 
     out = {"meta": {"generated": datetime.date.today().isoformat(),
                     "as_of": datetime.datetime.utcfromtimestamp(as_of).isoformat() + "Z",
-                    "window_days": args.window_days, "min_n": args.min_n,
+                    "window_days": args.window_days, "min_n": min_n,
+                    "min_value": args.min_value,
                     "attribution": "centerpiece", "max_assets": args.max_assets,
                     "unit": "face KTC points, TE-premium-matched per league; packages carry the market lens's consolidation adjustment on non-centerpiece assets",
                     "tep_leagues_known": len(tep_map), "tep_fetched": n_fetched,
@@ -290,7 +305,7 @@ def main():
     Path(args.out).write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
     print(f"wrote {args.out} — window {args.window_days}d ending "
           f"{out['meta']['as_of'][:10]}, {n_window} trades, {n_scored} scored, "
-          f"{len(rows)} players ≥{args.min_n} trades, "
+          f"{len(rows)} players ≥{min_n} trades & ≥{args.min_value} value, "
           f"{len(over)} overpaid / {len(under)} underpaid listed")
 
 

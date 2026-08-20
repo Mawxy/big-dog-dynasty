@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { TradesPayload } from "../lib/types";
 import { useJson } from "../lib/useJson";
@@ -51,6 +51,31 @@ export default function Ledger() {
       });
   }, [trades]);
 
+  /**
+   * Team filter — MULTI-select, so "show me every deal between these two
+   * rivals" is one screen. Keyed by roster_id (the franchise), labeled by the
+   * newest name that franchise has traded under; an empty selection means
+   * everyone, so the default view is unchanged.
+   */
+  const [teamSel, setTeamSel] = useState<Set<number>>(new Set());
+  const teams = useMemo(() => {
+    const seen = new Map<number, string>();       // newest-first cards: first name wins
+    for (const c of cards)
+      for (const s of c.trade.sides)
+        if (!seen.has(s.rid)) seen.set(s.rid, s.team);
+    return [...seen.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+  }, [cards]);
+  const shown = useMemo(
+    () => teamSel.size
+      ? cards.filter(c => c.trade.sides.some(s => teamSel.has(s.rid)))
+      : cards,
+    [cards, teamSel]);
+  const toggle = (rid: number) => setTeamSel(prev => {
+    const next = new Set(prev);
+    if (next.has(rid)) next.delete(rid); else next.add(rid);
+    return next;
+  });
+
   if (err) return <div className="empty">No trade data yet.</div>;
   if (!trades) return <div className="empty">Loading trades…</div>;
   if (!cards.length) return <div className="empty">No trades recorded.</div>;
@@ -70,23 +95,43 @@ export default function Ledger() {
           Ledger
         </button>
       </div>
+      {/* team filter: multi-select segs. NOT the lens pattern's single
+          selection — several teams can be lit at once, and none lit = all. */}
+      <div className="lens" role="group" aria-label="Filter trades by team">
+        <button type="button" className={`seg${teamSel.size ? "" : " on"}`}
+          aria-pressed={!teamSel.size} onClick={() => setTeamSel(new Set())}>
+          All teams
+        </button>
+        {teams.map(([rid, name]) => (
+          <button key={rid} type="button"
+            className={`seg${teamSel.has(rid) ? " on" : ""}`}
+            aria-pressed={teamSel.has(rid)} onClick={() => toggle(rid)}>
+            {name}
+          </button>
+        ))}
+      </div>
       <div className="band">
-        <span className="band-label">Every trade · newest first</span>
+        <span className="band-label">
+          {teamSel.size ? `${shown.length} of ${cards.length} trades` : "Every trade"} · newest first
+        </span>
         <span className="band-note">
-          Each side scored on the WAR its return produced after the trade · both sides in the
-          same neutral ink
+          Proj then = the model's frozen expectation when the trade was made · return = WAR the
+          haul actually produced · both sides in the same neutral ink
         </span>
       </div>
       <div className="ledger" style={{ paddingTop: 14 }}>
-        {cards.map(c => (
+        {shown.map(c => (
           <TradeCard key={c.key} trade={c.trade} players={players} cls={c.cls}
             when={c.when} verdict={c.verdict} verdictColor={c.vcolor}
             sideFig="return" />
         ))}
+        {!shown.length && <div className="empty">No trades between the selected teams.</div>}
       </div>
       <div className="tnote screen">
         Picks show no realized WAR until they convert to a player. Each player asset is scored on the
-        WAR it produced while starting for the team that acquired it.
+        WAR it produced while starting for the team that acquired it. Projected-then is captured within
+        a day of the trade; older trades show a KTC market snapshot where the history reaches, and an
+        em dash before that.
       </div>
     </>
   );

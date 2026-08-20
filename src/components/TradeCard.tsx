@@ -89,11 +89,25 @@ function SideHead({ s, fig }: { s: TradeSide; fig: SideFig }) {
         <div className="team">{s.team}</div>
       </div>
       {fig === "return" && (
-        <div style={{ textAlign: "right" }}>
-          <div className="k">Return</div>
-          <div className="total"
-            style={{ color: realized == null ? "var(--dim3)" : undefined }}>
-            {realized == null ? "—" : fmtWar(realized)}
+        <div style={{ display: "flex", gap: 18, textAlign: "right" }}>
+          {/* the frozen at-trade expectation, beside what actually landed.
+              Pre-snapshot trades read "—" (unknown, not zero); trades with
+              only a market backfill show KTC points, labeled as such so the
+              two currencies can't be misread as comparable. */}
+          <div>
+            <div className="k">{s.expThen == null && s.mktThen != null ? "Mkt then · KTC" : "Proj then"}</div>
+            <div className="total"
+              style={{ color: s.expThen == null && s.mktThen == null ? "var(--dim3)" : "var(--txt2)" }}>
+              {s.expThen != null ? fmtWar(s.expThen)
+                : s.mktThen != null ? s.mktThen.toLocaleString("en-US") : "—"}
+            </div>
+          </div>
+          <div>
+            <div className="k">Return</div>
+            <div className="total"
+              style={{ color: realized == null ? "var(--dim3)" : undefined }}>
+              {realized == null ? "—" : fmtWar(realized)}
+            </div>
           </div>
         </div>
       )}

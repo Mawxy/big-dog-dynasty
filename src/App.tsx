@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 import type { IndexModelsFile, LeagueEntry, Leagues, MatrixCurve, Meta, PlayersMin } from "./lib/types";
 import { j, jl, retry, setLeagueBase, setVersion } from "./lib/data";
+import { pageview } from "./lib/analytics";
 import { useJson } from "./lib/useJson";
 import { DEFAULT_CURVE, ModelContext, isCurve } from "./lib/model";
 import ModelPicker from "./components/ModelPicker";
@@ -65,6 +66,16 @@ function seasonOf(seg: string | undefined, meta: Meta): string {
   if (seg?.toLowerCase() === "all") return "ALL";
   if (seg && meta.seasons.includes(seg)) return seg;
   return latestSeasonOf(meta);
+}
+
+/** One GoatCounter pageview per route change (lib/analytics.ts). Inside the
+ *  router so useLocation exists; renders nothing. The hash path is the page —
+ *  location.pathname is always "/" under hash routing, which is why the
+ *  collector's automatic counting is off in index.html. */
+function Track() {
+  const loc = useLocation();
+  useEffect(() => { pageview(loc.pathname); }, [loc.pathname]);
+  return null;
 }
 
 /** Old season-first URLs (#/players/2025) keep working: prefix the league and
@@ -181,6 +192,7 @@ export default function App() {
   return (
     <LeagueContext.Provider value={{ meta, players, league, leagues }}>
       <HashRouter>
+        <Track />
         <ModelProvider>
           {/* Two shells, one league context and one model control. The beta
               branch is matched first and swallows its whole subtree, so the

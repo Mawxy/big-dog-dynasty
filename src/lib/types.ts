@@ -450,6 +450,13 @@ export interface TradeSide {
   future: number;
   /** war + future */
   total: number;
+  /** FROZEN at-trade expectation (WAR), captured by the first daily run that
+   *  saw the trade and never overwritten. Absent/null = the trade predates
+   *  the snapshot store and can't be re-projected honestly. */
+  expThen?: number | null;
+  /** frozen at-trade market price (KTC points, players-only sides); the
+   *  backfilled fallback where only values_history reaches */
+  mktThen?: number | null;
 }
 export interface Trade { season: string; week: number; ts: number; sides: TradeSide[]; }
 export interface TradesFile {
