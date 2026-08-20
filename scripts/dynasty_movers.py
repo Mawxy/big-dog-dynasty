@@ -17,12 +17,17 @@ Method (settled with Max, 2026-08-20):
                    A side whose top asset is a pick contributes no mover (pick
                    movers are a different board).
   * TE premium   : each trade is priced in the KTC column matching its
-                   league's TE-premium class (crawl_leagues.json "tep",
-                   recorded by the signals crawl from scoring_settings +
-                   TE slots): none -> ktc, TE+ -> ktcTep, TE++ -> ktcTepp,
-                   TE+++ -> ktcTeppp, falling back down the ladder when a
-                   variant is missing. Rows without a lid (oldest corpus)
-                   price at the base column.
+                   league's TE-premium class: none -> ktc, TE+ -> ktcTep,
+                   TE++ -> ktcTepp, TE+++ -> ktcTeppp, falling back down the
+                   ladder when a variant is missing. The class comes from the
+                   crawl's map (crawl_leagues.json "tep") when known, and is
+                   otherwise FETCHED LIVE: a window only touches a few hundred
+                   distinct leagues, so one /league/<id> call each (~30s
+                   total) classifies every trade being scored instead of
+                   waiting a cooldown cycle for the signals crawl to re-visit
+                   (settled with Max, 2026-08-20). --no-fetch skips the live
+                   lookups for offline runs. Rows without a lid (oldest
+                   corpus) price at the base column.
   * values       : KeepTradeCut points from data/values.json, KTC band only.
                    A PLAYER'S OWN VALUE IS NEVER DEFLATED (settled with Max,
                    2026-08-20): every asset is shown and denominated at face
@@ -55,6 +60,9 @@ Usage  : python scripts/dynasty_movers.py [--window-days 7] [--min-n 3]
 import argparse, datetime, json, re, sys, time
 from collections import defaultdict
 from pathlib import Path
+
+from crawl_schema import tep_class
+import sleeper_http
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA, RAW = ROOT / "data", ROOT / "sleeper_data"
@@ -148,6 +156,9 @@ def main():
                          "are not market signals)")
     ap.add_argument("--as-of", default="corpus",
                     help="'corpus' (newest trade, default), 'now', or ISO date")
+    ap.add_argument("--no-fetch", action="store_true",
+                    help="don't hit Sleeper for unknown leagues' TE-premium "
+                         "class; unknowns price at base KTC")
     ap.add_argument("--out", default=str(DATA / "dynasty_movers.json"))
     args = ap.parse_args()
 
@@ -188,9 +199,8 @@ def main():
                 for pk in side["picks"]]
         return out
 
-    # pid -> list of (delta, price_paid, tid)
-    ledger = defaultdict(list)
-    n_window = n_scored = 0
+    # ---- the window, then its leagues' TE-premium classes ----------------
+    window, n_window = [], 0
     for t in trades:
         ts = trade_ts(t["tid"])
         if not (lo <= ts <= as_of) or len(t["sides"]) != 2:
@@ -199,6 +209,28 @@ def main():
         if any(len(s["players"]) + len(s["picks"]) > args.max_assets
                for s in t["sides"]):
             continue                     # dispersal/roster swap, not a trade
+        window.append(t)
+
+    # every league actually being scored gets a definite class NOW: the crawl
+    # map answers what it can, and the remainder is one /league/<id> call each
+    # (NARROW retry — a dead league prices at base rather than killing the run)
+    need = sorted({str(t["lid"]) for t in window if t.get("lid")} - set(tep_map))
+    n_fetched = 0
+    if need and not args.no_fetch:
+        for lid in need:
+            try:
+                lg = sleeper_http.get(f"/league/{lid}", retry=sleeper_http.NARROW)
+            except Exception:
+                continue
+            if lg:
+                tep_map[lid] = tep_class(lg)
+                n_fetched += 1
+        print(f"TE premium: fetched {n_fetched}/{len(need)} unmapped leagues live")
+
+    # pid -> list of (delta, price_paid, face)
+    ledger = defaultdict(list)
+    n_scored = 0
+    for t in window:
         cls = tep_map.get(str(t.get("lid") or ""), "")
         a, b = (side_assets(s, cls) for s in t["sides"])
         # package value: face KTC with the consolidation adjustment on the
@@ -250,7 +282,7 @@ def main():
                     "window_days": args.window_days, "min_n": args.min_n,
                     "attribution": "centerpiece", "max_assets": args.max_assets,
                     "unit": "face KTC points, TE-premium-matched per league; packages carry the market lens's consolidation adjustment on non-centerpiece assets",
-                    "tep_leagues_known": len(tep_map),
+                    "tep_leagues_known": len(tep_map), "tep_fetched": n_fetched,
                     "leagues": corpus.get("leagues"),
                     "trades_in_window": n_window, "trades_scored": n_scored,
                     "players_qualified": len(rows)},
