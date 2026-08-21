@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import type { PlayersMin, Trade, TradeAsset, TradeSide } from "../lib/types";
 import { pInfo } from "../lib/league";
 import { fmtWar, sgnWar } from "../lib/stats";
@@ -25,7 +26,7 @@ import { PlayerLink } from "./PlayerLink";
  */
 
 /** which figure, if any, a side's header carries on the right */
-export type SideFig = "none" | "return" | "realized";
+export type SideFig = "none" | "return" | "realized" | "market";
 
 export interface TradeCardProps {
   trade: Trade;
@@ -41,6 +42,12 @@ export interface TradeCardProps {
   sideFig?: SideFig;
   /** extra emphasis on an asset: the draft page lights up its own picks */
   emphasize?: (a: TradeAsset) => boolean;
+  /** row-drawer support (SKILL §5): when set, the head grows a details
+   *  control and `drawer` renders below the sides inside the card flow —
+   *  never a modal, never a separate page */
+  open?: boolean;
+  onToggle?: () => void;
+  drawer?: ReactNode;
 }
 
 /** "2024 1st → Marvin Harrison": the pick converted, so the label carries the
@@ -111,6 +118,29 @@ function SideHead({ s, fig }: { s: TradeSide; fig: SideFig }) {
           </div>
         </div>
       )}
+      {fig === "market" && (
+        /* the at-trade read, three currencies: what each market said the haul
+           was worth when the deal was made, and what the model projected.
+           All frozen figures — the change-since lives in the drawer. "—" is
+           a side the snapshot can't price (picks, or pre-history). */
+        <div style={{ display: "flex", gap: 16, textAlign: "right" }}>
+          {([
+            ["FC then", s.fcThen != null ? s.fcThen.toLocaleString("en-US") : null],
+            ["KTC then", s.mktThen != null ? s.mktThen.toLocaleString("en-US") : null],
+            ["Proj WAR", s.expThen != null ? fmtWar(s.expThen) : null],
+          ] as const).map(([k, v]) => (
+            <div key={k}>
+              <div className="k">{k}</div>
+              <div className="total" style={{
+                fontSize: 20,
+                color: v == null ? "var(--dim3)" : "var(--txt2)",
+              }}>
+                {v ?? "—"}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
       {fig === "realized" && (
         <div style={{ textAlign: "right" }}>
           <div className="k">Realized · to come</div>
@@ -128,6 +158,7 @@ function SideHead({ s, fig }: { s: TradeSide; fig: SideFig }) {
 
 export default function TradeCard({
   trade, players, cls, when, verdict, verdictColor, sideFig = "none", emphasize,
+  open, onToggle, drawer,
 }: TradeCardProps) {
   return (
     <div className={cls ? `trade ${cls}` : "trade"}>
@@ -138,6 +169,12 @@ export default function TradeCard({
         {when && <span className="trade-when">{when}</span>}
         {verdict && (
           <span className="trade-verdict" style={{ color: verdictColor }}>{verdict}</span>
+        )}
+        {onToggle && (
+          <button type="button" className="dlink trade-open" aria-expanded={open}
+            onClick={onToggle}>
+            {open ? "Close ▴" : "Details ▾"}
+          </button>
         )}
       </div>
       <div className="trade-sides">
@@ -150,6 +187,7 @@ export default function TradeCard({
           </div>
         ))}
       </div>
+      {open && drawer}
     </div>
   );
 }

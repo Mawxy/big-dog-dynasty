@@ -457,6 +457,8 @@ export interface TradeSide {
   /** frozen at-trade market price (KTC points, players-only sides); the
    *  backfilled fallback where only values_history reaches */
   mktThen?: number | null;
+  /** frozen at-trade FantasyCalc price, same rules as mktThen */
+  fcThen?: number | null;
 }
 export interface Trade { season: string; week: number; ts: number; sides: TradeSide[]; }
 export interface TradesFile {

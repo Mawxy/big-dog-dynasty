@@ -240,27 +240,30 @@ def main():
     today = datetime.date.today().isoformat()
 
     def mkt_players(side, price):
-        """KTC sum of a side, players only — a side holding picks or an
-        unpriced player has no honest market total and returns None."""
-        tot = 0
+        """Market sums of a side {ktc, fc}, players only — a side holding
+        picks has no honest market total, and each SOURCE goes None
+        independently when it doesn't price every player on the side."""
+        tots = {"ktc": 0, "fc": 0}
         for a in side["got"]:
             if a["kind"] == "faab":
                 continue
             if a["kind"] != "player" or not a["pid"]:
-                return None
-            v = price(str(a["pid"]))
-            if not v:
-                return None
-            tot += v
-        return tot or None
+                return {"ktc": None, "fc": None}
+            row = price(str(a["pid"])) or {}
+            for src in ("ktc", "fc"):
+                if tots[src] is None:
+                    continue
+                v = row.get(src)
+                tots[src] = tots[src] + v if v else None
+        return {s: (v or None) for s, v in tots.items()}
 
     def price_at(day):
         def p(pid):
             best = None
-            for d, ktc, _fc in hist.get(pid) or []:
+            for d, ktc, fc in hist.get(pid) or []:
                 if d <= day and (best is None or d > best[0]):
-                    best = (d, ktc)
-            return best[1] if best else None
+                    best = (d, ktc, fc)
+            return {"ktc": best[1], "fc": best[2]} if best else None
         return p
 
     n_new = 0
@@ -268,28 +271,43 @@ def main():
         key = f"{t['ts']}:" + "-".join(
             str(r) for r in sorted(s["rid"] for s in t["sides"]))
         sn = snaps.get(key)
+        ts_s = (t["ts"] or 0) / 1000
+        day = datetime.date.fromtimestamp(ts_s).isoformat() if ts_s else ""
         if sn is None:
-            ts_s = (t["ts"] or 0) / 1000
-            day = datetime.date.fromtimestamp(ts_s).isoformat() if ts_s else ""
             if ts_s and (time.time() - ts_s) / 86400 <= SNAP_MAX_AGE_DAYS:
                 sn = {"taken": today, "kind": "model",
-                      "sides": {str(s["rid"]): {
-                          "exp": s["total"],
-                          "mkt": mkt_players(s, lambda pid: (valsg.get(pid) or {}).get("ktc"))}
-                          for s in t["sides"]}}
+                      "sides": {}}
+                for s in t["sides"]:
+                    m = mkt_players(s, lambda pid: valsg.get(pid))
+                    sn["sides"][str(s["rid"])] = {"exp": s["total"],
+                                                  "mkt": m["ktc"], "fc": m["fc"]}
             elif hist_start and day >= hist_start:
-                sides = {str(s["rid"]): {"exp": None,
-                                         "mkt": mkt_players(s, price_at(day))}
-                         for s in t["sides"]}
-                if any(v["mkt"] is not None for v in sides.values()):
+                sides = {}
+                for s in t["sides"]:
+                    m = mkt_players(s, price_at(day))
+                    sides[str(s["rid"])] = {"exp": None,
+                                            "mkt": m["ktc"], "fc": m["fc"]}
+                if any(v["mkt"] is not None or v["fc"] is not None
+                       for v in sides.values()):
                     sn = {"taken": today, "kind": "market", "sides": sides}
             if sn:
                 snaps[key] = sn
                 n_new += 1
+        elif sn and sn["kind"] == "market" and day and \
+                any("fc" not in v for v in sn["sides"].values()):
+            # entries frozen before FC was captured: the FC figure comes from
+            # the same immutable history the KTC one did, so adding it is a
+            # backfill, not an overwrite
+            for s in t["sides"]:
+                rec = sn["sides"].get(str(s["rid"]))
+                if rec is not None and "fc" not in rec:
+                    rec["fc"] = mkt_players(s, price_at(day))["fc"]
+            n_new += 1
         if sn:
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"])) or {}
                 s["expThen"], s["mktThen"] = rec.get("exp"), rec.get("mkt")
+                s["fcThen"] = rec.get("fc")
     if n_new or not Path(snap_path).exists():
         Path(snap_path).write_text(
             json.dumps(snaps, separators=(",", ":")), encoding="utf-8")

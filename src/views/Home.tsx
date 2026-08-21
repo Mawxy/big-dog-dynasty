@@ -609,8 +609,8 @@ export default function Home() {
           commensurable. */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
-          ["Dynasty movers · going over value", dyn?.overpaid],
-          ["Dynasty movers · going under value", dyn?.underpaid],
+          [`Dynasty movers · going over value · last ${dyn?.meta.window_days ?? 7} days`, dyn?.overpaid],
+          [`Dynasty movers · going under value · last ${dyn?.meta.window_days ?? 7} days`, dyn?.underpaid],
         ] as const).map(([label, list]) => (
           <div className="feed-panel" key={label}>
             <div className="band" style={{ borderTop: "none" }}>
@@ -856,7 +856,7 @@ export default function Home() {
         Starter indices price each roster's best legal lineup in that index · value plays (DVI vs CVI, index points) and market movers (KTC 7-day change) cover rostered players only
       </div>
       <div className="footnote">
-        Dynasty movers: face KTC values · packages carry the trade model's consolidation adjustment on non-centerpiece assets · centerpiece attribution · {dyn?.meta.window_days ?? 7} days across {dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues · min {dyn?.meta.min_n ?? 3} trades
+        Dynasty movers: trades from the last {dyn?.meta.window_days ?? 7} days across {dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues · face KTC values, TE-premium-matched per league · packages carry the trade model's consolidation adjustment on non-centerpiece assets · centerpiece attribution · min {dyn?.meta.min_n ?? 3} trades
       </div>
     </>
   );

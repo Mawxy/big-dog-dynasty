@@ -661,6 +661,37 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 .trade-asset .nm { font: 400 13.5px/1.4 var(--sans); flex: 1; }
 .trade-asset .nm.pick { color: var(--dim); }
 .trade-asset .war { font: 600 17px/1 var(--cond); min-width: 52px; text-align: right; }
+/* row drawer inside a trade card (SKILL §5): accent top rule, one column per
+   side mirroring the sides above, market rows then the realized read */
+.trade-head .trade-open { margin-left: auto; }
+.trade-drawer {
+  display: flex; flex-wrap: wrap;
+  border-top: 3px solid var(--acc);
+  background: var(--band);
+}
+.drawer-side { flex: 1 1 260px; padding: 10px 14px 12px; min-width: 0; }
+.drawer-side + .drawer-side { border-left: 1px solid var(--hair); }
+.drawer-team {
+  font: 600 11px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim); margin-bottom: 6px;
+}
+.drawer-row {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 4px 0; border-top: 1px solid var(--hair);
+}
+.drawer-row:first-of-type { border-top: 0; }
+.drawer-row .k {
+  flex: 0 0 118px;
+  font: 600 11px/1.4 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim);
+}
+.drawer-row .v {
+  flex: 1; font: 600 14px/1.3 var(--cond); font-variant-numeric: tabular-nums;
+}
+.drawer-row .d {
+  font: 600 13px/1.3 var(--cond); font-variant-numeric: tabular-nums;
+  text-align: right; min-width: 64px;
+}
 
 /* ---------- footnote + footer ------------------------------------------- */
 

@@ -70,6 +70,8 @@ jobs:
     needs: trades
     if: always()
     runs-on: ubuntu-latest
+    outputs:
+      committed: ${{ steps.commit.outputs.committed }}
     # 45, not 15: the TE-premium lookups fetch each unseen league once. The
     # committed data/tep_map.json cache keeps steady-state runs to a few dozen
     # fetches, but a cold cache against a 10k-trade window needs the headroom —
@@ -104,6 +106,7 @@ jobs:
       - name: Build dynasty movers
         run: python scripts/dynasty_movers.py
       - name: Commit dynasty_movers.json + TE-premium cache
+        id: commit
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
@@ -127,7 +130,26 @@ jobs:
             fi
             git diff --cached --quiet && { echo "no changes"; exit 0; }
             git commit -m "Dynasty movers $(date -u +%FT%H:%MZ)"
-            git push origin HEAD:main && exit 0
+            if git push origin HEAD:main; then
+              echo "committed=1" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
             echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
           done
           echo "push failed after 5 attempts"; exit 1
+
+  deploy:
+    # A push made with the default GITHUB_TOKEN never triggers `on: push`
+    # workflows — GitHub's recursion guard, and the reason data-refresh chains
+    # its deploy through workflow_call. Without this chain the movers job's
+    # boards sat committed on main while Pages served the stale one until the
+    # next human push (which is exactly what happened on 2026-08-21). Gated on
+    # `committed` so the ~12 daily runs only deploy when the board actually
+    # changed.
+    needs: movers
+    if: needs.movers.outputs.committed == '1'
+    uses: ./.github/workflows/deploy.yml
+    permissions:
+      contents: read
+      pages: write
+      id-token: write

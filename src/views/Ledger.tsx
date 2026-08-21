@@ -1,10 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { TradesPayload } from "../lib/types";
+import type { TradeSide, TradesPayload, Values } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { readTrades, tradeWhen } from "../lib/trades";
-import { fmtWar } from "../lib/stats";
+import { fmtWar, sgn, sgnWar } from "../lib/stats";
 import { useLeague, useLeaguePath } from "../lib/context";
+import { ktcOf } from "../lib/values";
 import TradeCard, { sideRealized } from "../components/TradeCard";
 
 /**
@@ -15,9 +16,11 @@ import TradeCard, { sideRealized } from "../components/TradeCard";
  * module and any old link land here directly.
  */
 export default function Ledger() {
-  const { players } = useLeague();
+  const { meta, players } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
+  // current market, for the drawer's change-since-trade read
+  const vals = useJson<Values>("data/values.json", "globalDaily").data;
   const file = useJson<TradesPayload>("trades.json");
   const err = file.error;
   // readTrades, not an inline Array.isArray: a TradesFile written without its
@@ -59,6 +62,46 @@ export default function Ledger() {
    */
   const [teamSel, setTeamSel] = useState<Set<number>>(new Set());
   const [filterOpen, setFilterOpen] = useState(false);
+  /** which trade's drawer is open — one at a time keeps the detail beside
+   *  the card that opened it */
+  const [openKey, setOpenKey] = useState<string | null>(null);
+
+  /** a side's CURRENT market sums, same players-only rule as the frozen
+   *  ones — comparing a then-players basket to a now-with-picks basket
+   *  would move the goalposts, not the market */
+  const marketNow = (s: TradeSide): { ktc: number | null; fc: number | null } => {
+    if (!vals) return { ktc: null, fc: null };
+    let ktc: number | null = 0, fc: number | null = 0;
+    for (const a of s.got) {
+      if (a.kind === "faab") continue;
+      if (a.kind !== "player" || !a.pid) return { ktc: null, fc: null };
+      const row = vals.players[a.pid];
+      const k = ktcOf(row, meta.tep);
+      ktc = ktc == null || k == null ? null : ktc + k;
+      fc = fc == null || row?.fc == null ? null : fc + row.fc;
+    }
+    return { ktc: ktc || null, fc: fc || null };
+  };
+
+  /** one drawer row: "KTC · 5,120 → 6,340 · +1,220" */
+  const marketRow = (label: string, then: number | null | undefined, now: number | null) => {
+    const known = then != null && now != null;
+    return (
+      <div className="drawer-row" key={label}>
+        <span className="k">{label}</span>
+        <span className="v" style={{ color: known ? "var(--txt2)" : "var(--dim3)" }}>
+          {then != null ? then.toLocaleString("en-US") : "—"}
+          {" → "}
+          {now != null ? now.toLocaleString("en-US") : "—"}
+        </span>
+        <span className="d" style={{
+          color: !known ? "var(--dim3)" : now - then > 0 ? "var(--good)" : now - then < 0 ? "var(--bad)" : "var(--dim)",
+        }}>
+          {known ? sgn(now - then, 0) : "—"}
+        </span>
+      </div>
+    );
+  };
   const teams = useMemo(() => {
     const seen = new Map<number, string>();       // newest-first cards: first name wins
     for (const c of cards)
@@ -131,23 +174,46 @@ export default function Ledger() {
           {teamSel.size ? `${shown.length} of ${cards.length} trades` : "Every trade"} · newest first
         </span>
         <span className="band-note">
-          Proj then = the model's frozen expectation when the trade was made · return = WAR the
-          haul actually produced · both sides in the same neutral ink
+          Each side priced as the market and the model saw it at trade time · Details opens the
+          change since · both sides in the same neutral ink
         </span>
       </div>
       <div className="ledger" style={{ paddingTop: 14 }}>
         {shown.map(c => (
           <TradeCard key={c.key} trade={c.trade} players={players} cls={c.cls}
             when={c.when} verdict={c.verdict} verdictColor={c.vcolor}
-            sideFig="return" />
+            sideFig="market"
+            open={openKey === c.key}
+            onToggle={() => setOpenKey(k => k === c.key ? null : c.key)}
+            drawer={
+              <div className="trade-drawer">
+                {c.trade.sides.map(s => {
+                  const now = marketNow(s);
+                  return (
+                    <div key={s.rid} className="drawer-side">
+                      <div className="drawer-team">{s.team}</div>
+                      {marketRow("KTC since trade", s.mktThen, now.ktc)}
+                      {marketRow("FC since trade", s.fcThen, now.fc)}
+                      <div className="drawer-row">
+                        <span className="k">Realized WAR</span>
+                        <span className="v">{sideRealized(s) == null ? "—" : fmtWar(s.war)}</span>
+                        <span className="d" style={{ color: "var(--dim)" }}>
+                          {sgnWar(s.future ?? 0)} to come
+                        </span>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            } />
         ))}
         {!shown.length && <div className="empty">No trades between the selected teams.</div>}
       </div>
       <div className="tnote screen">
-        Picks show no realized WAR until they convert to a player. Each player asset is scored on the
-        WAR it produced while starting for the team that acquired it. Projected-then is captured within
-        a day of the trade; older trades show a KTC market snapshot where the history reaches, and an
-        em dash before that.
+        FC/KTC then and Proj WAR are frozen within a day of the trade (older trades: market backfilled
+        where the value history reaches, em dash before that; sides holding picks carry no market sum).
+        In Details, since-trade deltas compare the same players-only basket at both ends, and realized
+        WAR counts what each asset produced while starting for the team that acquired it.
       </div>
     </>
   );
