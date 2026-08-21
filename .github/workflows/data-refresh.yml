@@ -160,7 +160,7 @@ jobs:
           # so genuinely can push mid-run. The allow-list above already excludes
           # them; this catches the future edit that widens it back to a
           # directory without thinking about ownership.
-          CRAWL='^data/(league_signals|crawl_leagues|draft_signals|rookie_pick_corpus|draft_index|benchmarks|dynasty_movers|outcome_signals_[0-9]+)\.json$'
+          CRAWL='^data/(league_signals|crawl_leagues|draft_signals|rookie_pick_corpus|draft_index|benchmarks|dynasty_movers|tep_map|outcome_signals_[0-9]+)\.json$'
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD

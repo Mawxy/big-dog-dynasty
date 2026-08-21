@@ -167,6 +167,12 @@ def main():
     ap.add_argument("--no-fetch", action="store_true",
                     help="don't hit Sleeper for unknown leagues' TE-premium "
                          "class; unknowns price at base KTC")
+    ap.add_argument("--max-fetch", type=int, default=3000,
+                    help="cap on live league lookups per run (default "
+                         "%(default)s). Results persist in data/tep_map.json, "
+                         "so a large backlog clears over a few runs instead "
+                         "of one run blowing the CI job timeout — which is "
+                         "exactly what a 10k-trade window did on 2026-08-20")
     ap.add_argument("--out", default=str(DATA / "dynasty_movers.json"))
     args = ap.parse_args()
 
@@ -186,8 +192,12 @@ def main():
         return _pv[cls]
 
     # league -> TE-premium class; absent = no premium. Old corpus rows carry
-    # no lid and also price at the base column.
-    tep_map = (load(DATA / "crawl_leagues.json") or {}).get("tep") or {}
+    # no lid and also price at the base column. Three layers, later wins:
+    # the crawl's map, then data/tep_map.json — this script's own committed
+    # cache, so a league is fetched live ONCE ever, not once per run.
+    tep_map = dict((load(DATA / "crawl_leagues.json") or {}).get("tep") or {})
+    tep_cache = load(DATA / "tep_map.json") or {}
+    tep_map.update(tep_cache)
     pick_val = build_pick_table(values.get("picks") or {})
 
     trades = corpus["trades"]
@@ -225,15 +235,21 @@ def main():
     need = sorted({str(t["lid"]) for t in window if t.get("lid")} - set(tep_map))
     n_fetched = 0
     if need and not args.no_fetch:
-        for lid in need:
+        for lid in need[:args.max_fetch]:
             try:
                 lg = sleeper_http.get(f"/league/{lid}", retry=sleeper_http.NARROW)
             except Exception:
                 continue
             if lg:
-                tep_map[lid] = tep_class(lg)
+                # cache "" too — "no premium" is an answer, and not storing it
+                # meant re-fetching every non-TEP league every run
+                tep_map[lid] = tep_cache[lid] = tep_class(lg)
                 n_fetched += 1
-        print(f"TE premium: fetched {n_fetched}/{len(need)} unmapped leagues live")
+        print(f"TE premium: fetched {n_fetched} of {len(need)} unmapped leagues "
+              f"(cap {args.max_fetch}); cache now {len(tep_cache)}")
+        if n_fetched:
+            (DATA / "tep_map.json").write_text(
+                json.dumps(tep_cache, separators=(",", ":")), encoding="utf-8")
 
     # pid -> list of (delta, price_paid, face)
     ledger = defaultdict(list)

@@ -10,6 +10,7 @@ on:
     # EVERY changed path is listed here.
     paths-ignore:
       - "data/trade_corpus*.json"
+      - "data/tep_map.json"
       - "data/rookie_pick_corpus.json"
       - "data/crawl_leagues.json"
       - "data/league_signals.json"
@@ -78,6 +79,7 @@ jobs:
         run: |
           cd dist/data
           rm -f draft_index.json \
+                tep_map.json \
                 rookie_pick_corpus.json \
                 crawl_leagues.json \
                 draft_signals.json \

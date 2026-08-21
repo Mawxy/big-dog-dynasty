@@ -70,7 +70,11 @@ jobs:
     needs: trades
     if: always()
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 45, not 15: the TE-premium lookups fetch each unseen league once. The
+    # committed data/tep_map.json cache keeps steady-state runs to a few dozen
+    # fetches, but a cold cache against a 10k-trade window needs the headroom —
+    # the 15-minute cap is what silently froze the board on 2026-08-20.
+    timeout-minutes: 45
     permissions:
       contents: write               # commits data/dynasty_movers.json
     concurrency:
@@ -99,14 +103,14 @@ jobs:
             -o sleeper_data/players.json || echo "::warning::player map fetch failed"
       - name: Build dynasty movers
         run: python scripts/dynasty_movers.py
-      - name: Commit dynasty_movers.json
+      - name: Commit dynasty_movers.json + TE-premium cache
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
           git rebase --abort 2>/dev/null || true
-          # RE-PARENT, never rebase — same rationale as crawl-signals: this is
-          # a generated file rewritten whole, its local history is worth
-          # nothing, and this job is the ONLY writer of it.
+          # RE-PARENT, never rebase — same rationale as crawl-signals: these
+          # are generated files rewritten whole, their local history is worth
+          # nothing, and this job is the ONLY writer of them.
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD
@@ -115,6 +119,12 @@ jobs:
               exit 0
             fi
             git add data/dynasty_movers.json
+            # the cache is optional (absent until the first live lookup) but
+            # committing it is what keeps later runs fast — stage it whenever
+            # it exists and parses
+            if python -m json.tool data/tep_map.json > /dev/null 2>&1; then
+              git add data/tep_map.json
+            fi
             git diff --cached --quiet && { echo "no changes"; exit 0; }
             git commit -m "Dynasty movers $(date -u +%FT%H:%MZ)"
             git push origin HEAD:main && exit 0

@@ -34,6 +34,7 @@ GLOBAL_FILES = {
     "draft_index.json",       # draft_id -> [league_id, season, kind]
     "rookie_pick_corpus.json",
     "trade_corpus.json",
+    "tep_map.json",           # league_id -> TE-premium class, movers job cache
     "outcome_signals.json",   # league-wide benchmarks (sharded: _0.._3)
     "outcome_corpus.json",
     "benchmarks.json",        # merged cross-league benchmarks (Insights tab)
