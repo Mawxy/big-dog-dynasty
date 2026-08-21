@@ -293,11 +293,11 @@ def main():
             if sn:
                 snaps[key] = sn
                 n_new += 1
-        elif sn and sn["kind"] == "market" and day and \
+        elif sn and day and day >= (hist_start or "9999") and \
                 any("fc" not in v for v in sn["sides"].values()):
-            # entries frozen before FC was captured: the FC figure comes from
-            # the same immutable history the KTC one did, so adding it is a
-            # backfill, not an overwrite
+            # entries frozen before FC was captured (either kind): the FC
+            # figure comes from the immutable value history at the trade's own
+            # date, so adding it is a backfill, not an overwrite
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"]))
                 if rec is not None and "fc" not in rec:
@@ -319,6 +319,17 @@ def main():
         sys.exit(f"built 0 trades but {DATA / 'trades.json'} holds "
                  f"{len(prev['trades'])} — transaction dumps missing? "
                  "refusing to overwrite")
+    # Time never runs backwards. A rebuild whose NEWEST trade is older than
+    # the committed file's was built from stale sleeper_data/ (gitignored, so
+    # a dev machine's copy silently ages while CI's stays fresh) — and on
+    # 2026-08-21 exactly such a rebuild rode a feature push onto main and
+    # clobbered three August trades off the ledger. Refuse instead.
+    if trades and prev and prev.get("trades"):
+        prev_ts = max((t.get("ts") or 0) for t in prev["trades"])
+        if max(t["ts"] for t in trades) < prev_ts:
+            sys.exit(f"newest rebuilt trade predates the committed ledger's "
+                     f"({DATA / 'trades.json'}) — sleeper_data/ is stale; "
+                     "run sleeper_pull.py first; refusing to overwrite")
     (DATA / "trades.json").write_text(json.dumps(
         {"meta": {"delta": delta, "proj_season": proj_season,
                   "note": "war = realized while starting for the acquiring team; "
