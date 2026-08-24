@@ -1,0 +1,143 @@
+/* ==========================================================================
+   MY TEAM — the franchise page, banded for a phone.
+
+   Imported by screens/Team.tsx alone. It defines NO tokens and no new type
+   ramp: every colour, family and gutter here is beta.css's or style.css's, and
+   every class is prefixed `mtx-` so nothing in this file can reach a screen
+   that did not ask for it.
+
+   What is here and nowhere else:
+     - the LINEUP spine, which carries a SEAT rather than an ordinal;
+     - the SUPER_FLEX tint, the one row on this board that is lifted a surface
+       step because of what the slot means;
+     - the TAXI band's amber, the same token an IR tag already takes;
+     - the STRENGTHS seat rows, which are not a table — see the note there.
+   ========================================================================== */
+
+/* ---- the lineup band ----------------------------------------------------- */
+
+/* THE SPINE CARRIES THE SEAT. Not an ordinal: the row's place in this band is
+   the league's own lineup order, which is a fact meta.rosterPositions states,
+   so numbering the rows 1..9 beside it would be inventing a second ranking.
+   The labels are league.ts's SLOT_LABEL — QB · RB · WR · TE · FLX · SFLX —
+   never a composite this screen made up.
+
+   Four condensed characters do not fit the 34px column beta.css sizes for a
+   two-digit ordinal, so this table's spine is a step wider and its label a
+   step smaller. The 3px position bar is untouched. */
+.v3tbl.mtx-lineup th.sp, .v3tbl.mtx-lineup td.sp { width: 48px; }
+/* the header says "Seat", which does not fit the 8px gutter a "#" was sized
+   for — and a header that does not label its own column is the one thing the
+   system will not have */
+.v3tbl.mtx-lineup th.sp { padding-left: 4px; padding-right: 4px; }
+.v3tbl.mtx-lineup td.sp .rank {
+  padding: 0 3px 0 8px;
+  font: 600 11.5px/1 var(--cond); letter-spacing: .08em; text-transform: uppercase;
+}
+
+/* THE SLOT THAT DEFINES THE LEAGUE. Superflex is the whole reason two
+   quarterbacks are worth what they are here, so its seat is lifted one surface
+   step off the board rather than reading as the last of nine identical rows.
+   --band, not --sel: --sel is what a row takes on hover, and a row that is
+   permanently "hovered" reads as a control that does nothing. The seat label
+   steps up one ink for the same reason — no accent is spent, because the
+   band's own total already holds this screen's gold. */
+.v3tbl.mtx-lineup tbody tr.mtx-sf td { background: var(--band); }
+.v3tbl.mtx-lineup tbody tr.mtx-sf td.sp .rank { color: var(--txt2); }
+/* the tint paints the cell, so hover has to as well or the one row on the
+   table stops answering a thumb */
+.v3tbl.mtx-lineup tbody tr.mtx-sf.tap:hover td { background: var(--sel); }
+
+/* ---- absent things ------------------------------------------------------- */
+
+/* An unfilled lineup seat and a pick that has been traded away are the same
+   kind of row: present in the list because the list is the franchise's whole
+   shape, and not an asset. Faded rather than dropped — the classic board's
+   traded picks carry exactly this treatment. */
+.v3tbl tbody tr.mtx-gone td { opacity: .55; }
+/* "empty" where a holder would be. --dim3 is decorative ink and legal here
+   for the same reason NUL takes it: it is the absence of a figure, not one. */
+.v3tbl td .mtx-none, .mtx-who.mtx-none { color: var(--dim3); font-weight: 400; }
+
+/* ---- taxi ---------------------------------------------------------------- */
+
+/* AMBER, and only on the band label and the ordinal. --warn is already the
+   token that says "a roster state, not a rank" on this board — an IR tag takes
+   it — and a taxi player is exactly that: rostered, indexed, and unable to
+   start until he is activated. It is deliberately NOT on the 3px spine, which
+   belongs to the position and to nothing else. */
+.mtx-amber { color: var(--warn); }
+.v3tbl.mtx-taxi td.sp .rank { color: var(--warn); }
+
+/* ---- strengths ----------------------------------------------------------- */
+
+/* NOT A TABLE, on purpose. Every seat carries a meter in BOTH currencies, and
+   "one metered column per table" is a rule about tables — two metered columns
+   in one would say the table was sorted by both. As a list of seat rows the
+   meters are two labelled figures inside one row, which is the pattern the
+   design system does allow, and it drops the header row a phone has no width
+   for anyway.
+
+   The meters are on the seat's LEAGUE RANK, never on DVI or CVI: those are
+   already normalised 0-100 and metering them restates the figure. */
+.mtx-str { display: flex; flex-direction: column; }
+.mtx-str-row {
+  position: relative;
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px var(--v3pad) 9px;
+  border-bottom: 1px solid var(--hair);
+}
+.mtx-str-row.mtx-zebra { background: var(--zebra); }
+
+/* THE TIER RULE — the same 3px left edge every other row on this board
+   carries, spending --good / --bad on the one claim this section makes: top
+   four or bottom four in the league AT THIS SEAT, in the index the reader
+   chose. Everything between the two is left uncoloured, because a middling
+   seat is not a finding. */
+.mtx-tier { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+
+.mtx-seat {
+  flex: 0 0 38px; padding-left: 9px;
+  font: 600 12px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim);
+}
+/* the two currencies stack on a phone and sit side by side on a desktop; the
+   row is the seat either way */
+.mtx-str-cells {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.mtx-str-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mtx-k {
+  flex: 0 0 26px;
+  font: 600 10px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.mtx-track {
+  flex: 1 1 auto; min-width: 24px; height: 5px;
+  background: var(--bar-track); overflow: hidden;
+}
+/* --acc-dim is the mid-range fill the system names for a scaled bar. Full gold
+   is held back for the seat that is FIRST in the league, so one bar in the
+   section can be the important one. */
+.mtx-fill { display: block; height: 100%; background: var(--acc-dim); }
+.mtx-fill.mtx-top { background: var(--acc); }
+.mtx-fig {
+  flex: 0 0 30px; text-align: right;
+  font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
+}
+.mtx-fig.mtx-top { color: var(--acc); }
+.mtx-who {
+  flex: 0 0 84px;
+  font: 400 11px/1.3 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+
+@media (min-width: 900px) {
+  .mtx-seat { flex-basis: 46px; font-size: 13px; }
+  .mtx-str-cells { flex-direction: row; gap: 26px; }
+  .mtx-str-cell { flex: 1 1 0; gap: 10px; }
+  .mtx-track { height: 6px; }
+  .mtx-fig { flex-basis: 36px; font-size: 15px; }
+  .mtx-who { flex-basis: 130px; font-size: 12px; }
+}

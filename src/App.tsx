@@ -326,6 +326,17 @@ function Shell() {
                 assumptions. */}
             <ModelPicker />
             <span className="mast-updated">Data refreshes Wed 1:00 AM ET · {meta.updated}</span>
+            {/* THE WAY ACROSS. The beta shell is a second board at a second
+                address, and until now the only way to reach it was to know the
+                URL — which meant the redesign existed for whoever had been
+                told about it. A plain link in the masthead's own label
+                vocabulary, not a toggle: the two shells are places, not a
+                setting. The way back is the beta shell's More screen. */}
+            <a className="mast-beta" href={`#${base}/beta`}
+              onClick={e => {
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                e.preventDefault(); nav(`${base}/beta`);
+              }}>Beta board →</a>
           </div>
         </div>
       </header>

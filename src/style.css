@@ -2158,3 +2158,19 @@ table.feed td.who .line { align-items: center; }
   .chiprow .chip { flex: 0 0 auto; }
 
 }
+
+/* ---- the link across to the beta shell (App.tsx Shell masthead) ----------
+   The masthead's own vocabulary — condensed, uppercase, tracked, no border, no
+   radius — so it reads as a peer of the freshness line beside it rather than as
+   a button someone added. It takes --dim at rest because it is not this board's
+   headline, and the accent only on hover, which is the affordance every other
+   link on the site uses. */
+.mast-beta {
+  font: 600 12px/1 var(--cond);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.mast-beta:hover { color: var(--acc); text-decoration: none; }
+.mast-beta:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }

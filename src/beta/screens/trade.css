@@ -1,0 +1,306 @@
+/* ==========================================================================
+   TRADE — the builder and the league ledger.
+
+   Imported by screens/Trade.tsx only. Every class here is prefixed `trx-` so
+   the five other screens rebuilding in parallel cannot collide with it, and so
+   a future merge back into beta.css is a rename rather than an archaeology
+   exercise.
+
+   NO TOKENS ARE DEFINED HERE. Every colour, family and gutter comes from
+   style.css's :root, the same as beta.css. Radius is zero, numerals are
+   tabular, and nothing on this screen is coloured by who is winning — see the
+   note above `.trx-drrow`.
+   ========================================================================== */
+
+/* ---- the offer chip row -------------------------------------------------
+   Chips rather than a segmented control, for the reason the classic machine's
+   offer strip gives: the set GROWS, and a segmented control that gains a
+   segment every time you press one stops reading as a fixed set of choices.
+
+   Selected takes --sel, not the accent. A lens strip fills with --acc because
+   it is the one control in its view; this row sits above a ledger that already
+   spends the accent on its top rule, and two golds in one screen is no gold. */
+.trx-chips {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 10px var(--v3pad);
+}
+.trx-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  padding: 6px 12px;
+  background: var(--band); border: 1px solid var(--rule); color: var(--dim);
+  cursor: pointer;
+  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.trx-chip:hover { color: var(--txt2); }
+.trx-chip.on { background: var(--sel); border-color: var(--rule-2); color: var(--txt); }
+.trx-chip:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+/* the per-chip remove. A span rather than a nested <button>, because a button
+   inside a button is invalid markup and Safari drops the inner one. */
+.trx-chip .x { color: var(--dim2); font-size: 13px; letter-spacing: 0; }
+.trx-chip .x:hover { color: var(--bad); }
+.trx-chip.add { color: var(--dim2); border-style: dashed; }
+
+/* ---- the two named panels -----------------------------------------------
+   The panel body reuses beta.css's `.v3-side` / `.asset` / `.addbtn`, which
+   were written for this screen and have no other reader. What is new is that
+   the panel HEADER is now a control: it names a franchise, and tapping it
+   opens the picker that changes which one. */
+.trx-sidehd {
+  display: flex; align-items: flex-start; gap: 6px; width: 100%;
+  padding: 8px 10px 7px;
+  background: var(--deep); border: 0; border-bottom: 1px solid var(--rule);
+  cursor: pointer; text-align: left;
+}
+/* Wraps rather than ellipsising. A franchise name is the panel's whole
+   identity — "BABY BILLYS BIBLE B…" is worse than two lines. */
+.trx-sidehd .k {
+  flex: 1 1 auto; min-width: 0;
+  font: 600 11px/1.35 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim);
+}
+.trx-sidehd .k.none { color: var(--dim2); }
+.trx-sidehd .caret { letter-spacing: 0; color: var(--dim2); }
+/* the asset count — a bare number, so the same monospaced figure face
+   beta.css gives `.v3-side .sh .n`, whose markup this header replaces */
+.trx-sidehd .n {
+  flex: 0 0 auto;
+  font: 600 11.5px/1.35 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--dim2);
+}
+.trx-sidehd:hover .k { color: var(--txt2); }
+.trx-sidehd:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+/* nothing to add from until the OTHER franchise is named — the panel lists
+   what this side receives, and it receives from over there */
+.trx-build .v3-side .addbtn:disabled { color: var(--dim3); cursor: default; }
+/* a saved basket outlives a nightly refresh; what fell out of it is stated,
+   not absorbed. --dim rather than --dim3: this is a fact about the total above
+   it, so it is not decorative. */
+.trx-dropped {
+  padding: 6px 10px 10px;
+  font: 400 11px/1.4 var(--sans); color: var(--dim);
+}
+
+/* ---- the ledger, transposed ---------------------------------------------
+   Two overrides on beta.css's `.v3-ledger`, both scoped to this screen, both
+   because this ledger's COLUMNS are franchises rather than currencies.
+
+   1. THE HEADERS ARE NAMES, so they wrap. The shared header is set at
+      `line-height: 1` with .12em tracking, which is right for "MARKET" and
+      unreadable for "BABY BILLYS BIBLE BONKERS" folded onto three lines.
+   2. THE HEADLINE STEPS DOWN ON A PHONE. beta.css sets 17px for the net row
+      (21px from 900px up) on a monospaced face, whose digits are 0.6em: a
+      signed five-figure difference is seven glyphs, which wants ~71px in a
+      column that has ~69px at 375px. 15px fits it; the desktop size is
+      restated below because these selectors outrank the media query's. */
+.trx-build .v3-ledger th { line-height: 1.25; letter-spacing: .06em; }
+.trx-build .v3-ledger td .big { font-size: 15px; }
+
+/* ---- the offers, side by side -------------------------------------------
+   One card per offer, and inside it the same two neutral columns the trade
+   card uses everywhere else on the board. Both sides in the same ink, always
+   (SKILL §5): colouring one green and one amber implies a winner when the
+   colour is really just whose column it is.
+
+   No "best per column" mark either. Marking a leader per currency is a claim
+   about which offer wins, made in four places that routinely disagree. */
+.trx-cmp { display: flex; flex-direction: column; }
+.trx-cmpcard {
+  display: block; width: 100%; text-align: left;
+  padding: 11px var(--v3pad) 12px;
+  background: none; border: 0; border-bottom: 1px solid var(--hair);
+  color: inherit; cursor: pointer;
+}
+.trx-cmpcard.on { background: var(--sel); }
+.trx-cmpcard:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.trx-cmphd {
+  display: flex; align-items: baseline; gap: 8px;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.trx-cmphd .go { margin-left: auto; letter-spacing: .12em; }
+.trx-cmpsides { display: flex; gap: 1px; margin-top: 8px; background: var(--rule); }
+.trx-cmpside { flex: 1 1 0; min-width: 0; background: var(--bg); padding: 7px 9px 8px; }
+.trx-cmpside .who {
+  font: 600 11px/1.3 var(--cond); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.trx-cmpside .its {
+  margin-top: 4px;
+  font: 400 12px/1.35 var(--sans); color: var(--txt2); overflow-wrap: anywhere;
+}
+.trx-cmpside .its.none { color: var(--dim3); }
+/* an offer with nothing on either side has no totals to compare — eight zeros
+   would read as a package worth nothing rather than as one not built yet */
+.trx-cmpnil { margin-top: 8px; font: 400 12.5px/1.4 var(--sans); color: var(--dim3); }
+
+/* every figure NAMED, because a bare number in a two-column block has no
+   header row to inherit a name from */
+.trx-figs { display: flex; flex-wrap: wrap; gap: 3px 12px; margin: 7px 0 0; }
+.trx-figs .fg { display: flex; align-items: baseline; gap: 5px; }
+.trx-figs dt {
+  font: 600 9.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.trx-figs dd {
+  margin: 0;
+  font: 600 12.5px/1 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--txt);
+}
+
+/* ---- the asset picker ---------------------------------------------------
+   A sheet, not the old full-screen takeover: the population is one franchise's
+   roster (~35 rows), not the ~900-player field the takeover was built for, and
+   the sheet brings Escape, a real scrim and a body-scroll lock with it. */
+.trx-psearch {
+  padding: 10px var(--v3pad);
+  background: var(--band); border-bottom: 1px solid var(--rule);
+}
+.trx-psearch input[type="search"] { width: 100%; min-width: 0; }
+.trx-prow {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 9px var(--v3pad);
+  background: none; border: 0; border-bottom: 1px solid var(--hair);
+  cursor: pointer; text-align: left; color: var(--txt);
+}
+.trx-prow:hover { background: var(--sel); }
+.trx-prow .v3id { flex: 1 1 auto; min-width: 0; }
+/* the same figure treatment beta.css gives the old picker's price column */
+.trx-prow .v {
+  flex: 0 0 auto;
+  font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--txt2);
+}
+/* beta.css scopes `.nul` to `.v3tbl`, so an em dash outside a table would
+   otherwise take the figure's own ink and read as a value */
+.trx-prow .nul { color: var(--dim3); }
+.trx-pempty {
+  padding: 22px var(--v3pad);
+  font: 400 13px/1.5 var(--sans); color: var(--dim); text-align: center;
+}
+
+/* ---- the ledger table ---------------------------------------------------
+   The scope control's segments sit tight to their own bottom edge (scope.css
+   ends its padding at 0), which is right above a lens strip and wrong above a
+   full-bleed band. One wrapper, one gutter. */
+.trx-hist { padding-top: 10px; }
+
+/* The header percentages are authoritative. Two stacked identity columns both
+   asking for the remainder is a fight the auto algorithm settles differently in
+   every browser, and beta.css's `td.idc { max-width: 0; width: 100% }` — the
+   shrink-and-ellipsis trick — only works when there is ONE of them. */
+.trx-hist .v3tbl { table-layout: fixed; }
+
+/* A FRANCHISE NAME WRAPS HERE. Everywhere else the identity cell ellipsises,
+   which is right when the name has a whole column; in a five-column row on a
+   phone it truncates nearly every team in the league. Two lines and a taller
+   row beats a name nobody can read — the assets under it still ellipsise,
+   because the drawer holds them in full. */
+.trx-hist .v3tbl td.idc .idc-n { white-space: normal; }
+
+/* `When` is a date over a week. It keeps the CONDENSED face rather than the
+   monospaced one every other figure now takes: a date is a label, not a
+   magnitude anybody compares down the column, and mono digits at 0.6em do not
+   fit the narrowest column on the board. */
+.trx-when .d {
+  font: 600 12.5px/1.2 var(--cond); color: var(--txt2);
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.trx-when .w {
+  margin-top: 1px;
+  font: 400 10.5px/1.3 var(--sans); color: var(--dim); white-space: nowrap;
+}
+.trx-when .w .cv { color: var(--dim2); }
+
+/* WHOSE MARGIN IT IS, under the magnitude. A signed WAR figure with no owner
+   is the one thing this column must never be, so the name is part of the cell
+   rather than something the reader infers from the two identity columns to its
+   left. It WRAPS rather than ellipsising, for the same reason: a half-named
+   owner is not an owner. */
+.v3tbl td .trx-owner {
+  margin-top: 1px;
+  font: 400 10.5px/1.3 var(--sans); color: var(--dim); text-align: right;
+  white-space: normal;
+}
+
+/* ---- the row drawer -----------------------------------------------------
+   Below the row, inside the same table flow — never a modal, never a popover
+   (SKILL §5). Accent top rule on the panel surface; this is the one accent
+   the ledger view spends. */
+.v3tbl tbody tr.trx-dr td {
+  padding: 0; white-space: normal;
+  background: var(--band);
+  border-top: 3px solid var(--acc); border-bottom: 1px solid var(--rule);
+}
+.trx-drin { display: flex; flex-wrap: wrap; gap: 1px; background: var(--rule); }
+/* flex-basis rather than a fixed count: a three-team deal has three sides, and
+   they wrap to their own rows on a phone instead of squeezing to a third each */
+.trx-drside { flex: 1 1 240px; min-width: 0; background: var(--band); padding: 10px 12px 12px; }
+.trx-drteam {
+  font: 600 11px/1.3 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim);
+}
+.trx-drgot { margin: 5px 0 9px; font: 400 12.5px/1.45 var(--sans); color: var(--txt2); }
+.trx-drgot .it { overflow-wrap: anywhere; }
+.trx-drgot .it.pick { color: var(--dim); }
+.trx-drgot a { color: var(--txt2); }
+.trx-drgot a:hover { color: var(--acc); }
+
+/* A k / v / delta line. THE DELTA IS NEVER INKED. `.f.pos` / `.f.neg` are
+   spent on signed figures elsewhere on the board and are deliberately absent
+   here: this drawer prints the same row for both sides of one trade, so a
+   green figure on one and a red on the other declares a winner in CSS. The
+   sign carries the direction, which is the whole claim. Do not add them. */
+.trx-drrow {
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 5px 0; border-top: 1px solid var(--hair);
+  font-variant-numeric: tabular-nums;
+}
+.trx-drrow .k {
+  flex: 0 0 auto;
+  font: 600 10px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.trx-drrow .v {
+  margin-left: auto;
+  font: 600 12.5px/1.3 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--txt2);
+}
+.trx-drrow .d {
+  flex: 0 0 auto; min-width: 70px; text-align: right;
+  font: 600 11.5px/1.3 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+.trx-drrow .nul { color: var(--dim3); }
+
+/* ---- the team filter, in the band --------------------------------------- */
+.trx-fil {
+  padding: 5px 11px;
+  background: var(--band); border: 1px solid var(--rule); color: var(--dim);
+  cursor: pointer;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.trx-fil:hover { color: var(--txt2); }
+.trx-fil.on { background: var(--sel); border-color: var(--rule-2); color: var(--txt); }
+.trx-fil:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.trx-fil .caret { margin-left: 6px; opacity: .6; }
+
+/* ==========================================================================
+   DESKTOP — same IA, more of it on screen at once.
+   The breakpoint is beta.css's 900px, not useWidth's 640px default: this is
+   where the shell's bottom bar becomes a left rail and the board gains its
+   22px gutter, and a layout that changed at a different width would read as
+   two unrelated products.
+   ========================================================================== */
+
+@media (min-width: 900px) {
+  /* beta.css's own desktop size, restated: the phone rule above outranks its
+     media query, so leaving this out would pin the headline at 15px here */
+  .trx-build .v3-ledger td .big { font-size: 21px; }
+
+  /* Both halves of the offer navigation on screen at once — which is the whole
+     reason the "All offers" chip exists on a phone and not here. */
+  .trx-cmp { display: grid; grid-template-columns: 1fr 1fr; }
+  .trx-cmp .trx-cmpcard:nth-child(odd) { border-right: 1px solid var(--hair); }
+}

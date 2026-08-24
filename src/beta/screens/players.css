@@ -1,0 +1,247 @@
+/* ==========================================================================
+   PLAYERS — the one board of every player, in two tenses.
+
+   Imported by screens/Players.tsx only. Every class here is prefixed `plx-`
+   because five other screens are being rebuilt in this same tree and an
+   unprefixed `.sort` or `.draw` would silently reach into all of them.
+
+   It defines NO tokens and NO type ramp of its own: the figures, the identity
+   cell, the spine, the zebra and the 44px touch row all come from beta.css's
+   `.v3tbl`, and the segmented control comes from `.v3-lens`. What lives here is
+   the three things this screen has that no other beta screen does — a sort
+   strip standing in for a header row, a two-line figure cell, and a drawer.
+
+   THE ACCENT, spent once. Three controls stack above this table (scope, the
+   position chips, the sort) and only one of them orders the board, so only the
+   sort is gold: the scope control and the chips both take the `--sel` fill the
+   beta shell already uses for "this subset is selected". That is why
+   `.chip.on`'s accent is overridden below rather than left alone — keeping the
+   chips' behaviour was the requirement, not their colour.
+   ========================================================================== */
+
+/* ---- filters ------------------------------------------------------------ */
+
+/* The position chips are a FILTER — they change which rows are listed, not how
+   they are ordered — so they read as the scope control does. style.css's
+   `.chip.on` fills with the accent, which is right on a screen where the chips
+   are the only control and wrong on one where the accent already marks the
+   sort. */
+.plx-filters .chip.on {
+  background: var(--sel);
+  border-color: var(--rule-2);
+  color: var(--txt);
+}
+
+/* ---- the sort strip (phone) --------------------------------------------- */
+
+/* THE HEADER ROW, COLLAPSED. A phone board has no room for six sortable column
+   headers, so the header row's one remaining job — "which figure is this
+   ordered by" — becomes a control of its own and the picked key moves into the
+   row as the lead figure. Sticky under the masthead for the same reason the
+   desktop thead is: the strip IS the header here, and a header that scrolls
+   away leaves a column of unlabelled numerals. */
+.plx-sort {
+  display: flex;
+  align-items: stretch;
+  background: var(--deep);
+  border-bottom: 1px solid var(--rule);
+  position: sticky;
+  top: calc(var(--masth) - 1px);
+  z-index: 20;
+}
+.plx-sort .k {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  padding: 0 10px 0 var(--v3pad);
+  font: 600 10px/1 var(--cond);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--dim2);
+}
+/* the strip itself is ui.tsx's LensStrip — same control, so the sort reads as
+   the same kind of choice a lens is. It gives up its own background and bottom
+   rule to the wrapper so the label and the segments are one object. */
+.plx-sort .v3-lens {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: none;
+  border-bottom: 0;
+}
+.plx-sort .v3-lens button:first-child { border-left: 1px solid var(--rule); }
+
+/* ---- the row's figure cell ---------------------------------------------- */
+
+/* Two lines, like the identity cell opposite it: the picked sort key on line 1
+   at figure size, the keys it displaced on line 2. Same height, so the row
+   stays 44px honestly rather than by padding. */
+.plx-tbl td.plx-lead { padding-top: 4px; padding-bottom: 4px; }
+
+/* THE DEMOTED KEYS. Values, not ranks — the desktop board shows these three as
+   columns of values, and a rank here would mean the phone row and the desktop
+   row were stating different quantities under the same labels. Same grammar as
+   beta.css's `.ords`, which carries ranks for exactly that reason. */
+.plx-micro {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  margin-top: 2px;
+}
+/* The KEY stays condensed and only the FIGURE goes mono — the same split
+   beta.css makes on `.ords`, and for the same reason: three label-plus-figure
+   pairs only fit the width of one figure because the labels stay narrow. A mono
+   digit is ~1.4x a condensed one, so it is set a step under the row's own
+   `.f` ramp. */
+.plx-micro .o {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font: 600 11px/1 var(--cond);
+  letter-spacing: .04em;
+  color: var(--dim2);
+}
+.plx-micro .o b {
+  margin-left: 3px;
+  font: 600 10px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim);
+}
+.plx-micro .o .nul { color: var(--dim3); }
+
+/* ---- the drawer --------------------------------------------------------- */
+
+/* IN THE TABLE FLOW, below the row that opened it — an extra <tr>, never a
+   modal and never appended after the table. A drawer rendered after the table
+   lands off-screen on a phone: the reader taps row 40 and the detail opens
+   below row 300. */
+.plx-tbl tbody tr.tap.plx-on { background: var(--sel); }
+.plx-tbl tbody tr.plx-drawrow > td {
+  padding: 0;
+  white-space: normal;
+  border-bottom: 1px solid var(--rule);
+}
+.plx-draw {
+  border-top: 3px solid var(--acc);
+  background: var(--band);
+  padding: 11px var(--v3pad) 13px;
+}
+.plx-draw .hd { display: flex; align-items: baseline; gap: 9px; flex-wrap: wrap; }
+.plx-draw .hd .nm { font: 600 15px/1.2 var(--sans); color: var(--txt); }
+.plx-draw .hd .mt { font: 400 11.5px/1.3 var(--sans); color: var(--dim); }
+
+/* Six figures in a 2-col grid on a phone, 3-col on desktop. Fixed cell count
+   in both tenses, so a Current drawer and a History drawer are the same object
+   with different contents rather than two layouts. */
+.plx-figs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px 14px;
+  margin-top: 12px;
+}
+.plx-figs .k {
+  font: 600 10px/1 var(--cond);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+/* A FIGURE takes --mono, like every figure in this shell. */
+.plx-figs .v {
+  margin-top: 4px;
+  font: 600 16px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--txt);
+}
+/* …and a WORD in a figure slot — a club, a franchise — takes the NAME face.
+   Same distinction beta.css draws on `.v3tbl td .mark`: set in the figure face,
+   "Hampton Inn" reads as data. It is a name, and names are the sans. */
+.plx-figs .v.w {
+  font: 600 13.5px/1.25 var(--sans);
+  overflow-wrap: anywhere;
+}
+.plx-figs .s {
+  margin-top: 3px;
+  font: 400 11px/1.35 var(--sans);
+  color: var(--dim3);
+}
+
+/* THE ONE CONTROL THAT LEAVES THE SCREEN. Outlined rather than filled: the
+   drawer already spends the accent on its top rule, and two accent slabs in one
+   140px block is two headlines. */
+.plx-go {
+  display: inline-block;
+  margin-top: 13px;
+  padding: 8px 14px;
+  background: none;
+  border: 1px solid var(--acc);
+  color: var(--acc);
+  cursor: pointer;
+  text-decoration: none;
+  font: 600 11px/1 var(--cond);
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.plx-go:hover { background: var(--acc); color: var(--acc-ink); text-decoration: none; }
+.plx-go:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* a note inside the drawer — what a figure above it is measured against, when
+   the sub-label under the figure is not enough room to say it */
+.plx-draw .plx-note {
+  margin-top: 10px;
+  font: 400 11px/1.45 var(--sans);
+  color: var(--dim3);
+  max-width: 64ch;
+}
+
+/* ==========================================================================
+   DESKTOP — the sort strip disappears and the header row comes back.
+   Same board, same rows, same drawer; the columns the phone demoted to the
+   micro line are simply columns again. 900px is beta.css's own breakpoint.
+   ========================================================================== */
+
+@media (min-width: 900px) {
+  /* GROUP HEADER ROW. Sticky above the column headers, so a reader who has
+     scrolled 200 rows down still knows KTC is a market price and DVI is not.
+     Its own height is declared (21px of line-box, no bottom rule) because the
+     column row's sticky offset is computed from it — a header sized by its font
+     metrics leaves a slot for rows to show through between the two. */
+  .plx-tbl thead tr.plx-grp th {
+    top: calc(var(--masth) - 1px);
+    height: 21px;
+    padding: 0 10px;
+    background: var(--deep);
+    border-bottom: 0;
+    text-align: center;
+    font: 600 10px/21px var(--cond);
+    letter-spacing: .22em;
+    text-transform: uppercase;
+    color: var(--dim2);
+  }
+  /* No accent on any group label. On a board whose headline figure is whatever
+     the reader sorted by, a permanently gold "Our model" claims a headline the
+     reader may not have picked — and would sit beside a gold "KTC" header the
+     moment they do. The accent follows the sort, in one place. */
+  .plx-tbl thead tr.plx-cols th { top: calc(var(--masth) + 20px); }
+
+  /* COLUMN-GROUP DIVIDERS on the header row. Body cells and group cells carry
+     `.plx-edge` from the markup; the column headers cannot, because ui.tsx's
+     `Th` forwards no class of its own and ui.tsx is not this screen's file to
+     change. The positions are fixed per tense, which is what the tense class on
+     the table is for. */
+  .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(3),
+  .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(6),
+  .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(8),
+  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(3),
+  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(6) {
+    border-left: 1px solid var(--rule);
+  }
+
+  .plx-figs {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    max-width: 640px;
+  }
+  .plx-draw { padding: 14px var(--v3pad) 16px; }
+}
+
+/* the divider itself, on the group header cells and on the first body cell of
+   each group. `--rule` for the group edge, `--hair` between rows — which is
+   what lets a wide table scan sideways instead of dissolving into a grid. */
+.plx-edge { border-left: 1px solid var(--rule); }

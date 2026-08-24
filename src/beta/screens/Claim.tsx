@@ -93,7 +93,7 @@ export default function Claim() {
                   sub={[t.manager, t.roster_id === derived ? "your username" : null]
                     .filter(Boolean).join(" · ")} />
                 <td className="n">
-                  <span className={`f q${on ? " acc" : ""}`}>{on ? "You" : "Claim"}</span>
+                  <span className={`mark${on ? " acc" : ""}`}>{on ? "You" : "Claim"}</span>
                 </td>
               </TapRow>
             );

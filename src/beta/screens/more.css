@@ -1,0 +1,108 @@
+/* ==========================================================================
+   MORE — the status screen.
+
+   Imported by screens/More.tsx and by nothing else. Every class is `mox-`
+   prefixed for the reason beta.css's wave sections were appended rather than
+   merged: several screens are being rebuilt at once, and a screen that owns
+   its own stylesheet cannot collide with one that owns another.
+
+   What is deliberately NOT here: `.band`, `.tnote`, `.v3-more` and `.v3-meth`
+   come from style.css and beta.css unchanged. More is not a different product
+   from the rest of the shell — it needs exactly one object the shell had no
+   name for, a row carrying a STATUS FIGURE beside a two-line label.
+
+   Rules carried over: radius is zero, numerals are tabular, one accent per
+   view, two families only.
+   ========================================================================== */
+
+/* ---- the status row ------------------------------------------------------
+
+   beta.css's `.mrow` is a name and a one-line state, which is the right shape
+   for a menu. This screen is not a menu: every row has to answer "is this
+   worth opening now", and that takes two slots the old row had nowhere to put
+   — a sub-line saying what the destination IS, and a figure saying where it
+   currently stands.
+
+   Anchors, buttons and plain divs all take this class, so the button reset is
+   part of it. A row is the same object whether it navigates, discloses, or
+   only states. */
+
+.mox-row {
+  display: flex; align-items: center; gap: 14px; width: 100%;
+  /* the touch minimum with two lines of type in it honestly, rather than one
+     line padded out until it looks tappable */
+  min-height: 54px;
+  padding: 9px var(--v3pad) 10px;
+  background: none; border: 0; border-bottom: 1px solid var(--hair);
+  cursor: pointer; text-align: left; color: var(--txt); text-decoration: none;
+  /* every figure in the right-hand column is a numeral or holds one */
+  font-variant-numeric: tabular-nums;
+}
+.mox-row:hover { background: var(--sel); text-decoration: none; }
+.mox-row:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+
+/* A row that STATES rather than navigates — data freshness is the only one on
+   this screen. It keeps the anatomy so the column of figures stays a column,
+   and drops every affordance that would promise a destination: a row that
+   looks tappable and is not is worse than one that never did. */
+.mox-row.mox-flat { cursor: default; }
+.mox-row.mox-flat:hover { background: none; }
+
+.mox-nm { flex: 1 1 auto; min-width: 0; }
+.mox-n1 { display: block; font: 600 14px/1.3 var(--sans); color: var(--txt); }
+/* The sub-line: what the destination is, in prose. WRAPS rather than
+   ellipsising, unlike the table's `.idc-s` — a row is full width and there is
+   no column below it to keep square, so half a sentence would be a loss for
+   nothing. */
+.mox-n2 {
+  display: block; margin-top: 2px;
+  font: 400 11px/1.4 var(--sans); color: var(--dim);
+}
+
+/* THE STATUS FIGURE. Mono like every figure in this shell — the slot is the
+   row's value even when it holds a word ("Offseason"), and the column has to
+   align down its right edge whether the row reads "Week 3", "4 seasons" or a
+   date. `--txt2` rather than `--txt` so the name still leads the row. */
+.mox-st {
+  flex: 0 0 auto; margin-left: auto; max-width: 52%;
+  text-align: right;
+  font: 600 12.5px/1.3 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--txt2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* THE SCREEN'S ONE ACCENT, spent on the projection model's current curve —
+   the only figure on More that a reader can change and that changes every
+   other figure on the board. Nothing else here is gold, and that includes the
+   classic-board row: it is the most important destination on the screen and
+   it is still a plain row, because the accent marks a figure, not a door. */
+.mox-st.mox-acc { color: var(--acc); }
+/* ui.tsx's NUL, outside a table — beta.css colours `.nul` only inside .v3tbl */
+.mox-st .nul { color: var(--dim3); }
+
+/* ---- a row that opens in place ------------------------------------------
+
+   The projection picker and the glossary. Both open BELOW their row and inside
+   the same column: the design system's row-drawer rule ("never a modal, never
+   a popover") applied to a list of rows rather than to a table. No closing
+   rule of its own — the disclosed block ends in a caption, and the next row's
+   own hairline is what separates them. */
+
+.mox-body { padding: 2px 0 6px; }
+/* option rows are indented under the row that opened them, and are shorter:
+   they carry one line, not two */
+.mox-body .mox-row {
+  min-height: 44px;
+  padding-left: calc(var(--v3pad) + 14px);
+}
+.mox-body .mox-row .mox-n1 { font-weight: 400; color: var(--txt2); }
+.mox-body .mox-row.mox-on .mox-n1 { font-weight: 700; color: var(--txt); }
+/* the picker against data that predates the six-curve matrix: one curve to
+   choose from, said out loud by the caption above rather than by hiding the
+   list */
+.mox-body .mox-row:disabled { cursor: default; }
+.mox-body .mox-row:disabled:hover { background: none; }
+.mox-body .mox-row:disabled .mox-n1 { color: var(--dim2); }
+
+/* a caption inside a disclosed block, at the screen's gutter */
+.mox-note { padding: 8px var(--v3pad) 4px; }

@@ -1,0 +1,15 @@
+/* ---- the Current / History scope control --------------------------------
+   Same segment vocabulary as .v3-scope (beta.css) — square corners, condensed
+   uppercase labels, selected segment filled. Kept in its own file because
+   Scope.tsx is the one component shared by every screen and owns no screen. */
+.v3-scopectl { display: flex; gap: 0; padding: 10px var(--v3pad) 0; }
+.v3-scopectl button {
+  padding: 6px 16px;
+  background: var(--band); border: 1px solid var(--rule); margin-left: -1px;
+  cursor: pointer; color: var(--dim);
+  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+}
+.v3-scopectl button:first-child { margin-left: 0; }
+.v3-scopectl button.on { background: var(--sel); color: var(--txt); border-color: var(--rule-2); }
+.v3-scopectl .caret { margin-left: 6px; opacity: .6; }

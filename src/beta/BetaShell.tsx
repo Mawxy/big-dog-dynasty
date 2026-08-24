@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams,
 } from "react-router-dom";
@@ -9,11 +9,12 @@ import { IdentityContext, useIdentityState } from "../lib/identity";
 import { latestSeasonOf, rosterSeasonOf, seasonSeg } from "../lib/league";
 import { useSeasonData } from "../lib/useSeasonData";
 import ErrorBoundary from "../components/ErrorBoundary";
-import { Sheet, SheetRow } from "./ui";
+import QuickJump from "../components/QuickJump";
+import { Sheet, SheetRow, useBetaPath } from "./ui";
 import League from "./screens/League";
 import Team from "./screens/Team";
 import Claim from "./screens/Claim";
-import Rankings from "./screens/Rankings";
+import Players from "./screens/Players";
 import Trade from "./screens/Trade";
 import More from "./screens/More";
 import "./beta.css";
@@ -30,23 +31,30 @@ const DraftDetail = lazy(() => import("../views/DraftDetail"));
 const Weekly = lazy(() => import("../views/Weekly"));
 const History = lazy(() => import("../views/History"));
 const Insights = lazy(() => import("../views/Insights"));
-const Ledger = lazy(() => import("../views/Ledger"));
 
-/** The five destinations, in thumb order. Draft is a SEASONAL sixth — see
- *  `draftPending` below. */
+/**
+ * The five destinations, in thumb order. Draft is a SEASONAL sixth — see
+ * `draftPending` below.
+ *
+ * My Team leads: the reader is a manager before he is a spectator, and the
+ * question a phone gets asked most is about his own roster. League holds an
+ * explicit `league` segment rather than riding the index, which is what frees
+ * the index to answer "who is reading" instead — see the redirect below.
+ */
 const TABS = [
-  { id: "", label: "League" },
-  { id: "team", label: "Team" },
-  { id: "rankings", label: "Rankings" },
+  { id: "team", label: "My Team" },
+  { id: "league", label: "League" },
+  { id: "players", label: "Players" },
   { id: "trade", label: "Trade" },
   { id: "more", label: "More" },
 ];
 
 /** Which tab owns a destination that isn't itself a tab, so the bar always
- *  answers "where am I". */
+ *  answers "where am I". The ledger is deliberately absent: it is no longer a
+ *  destination but a scope of Trade, and its route redirects there. */
 const HUB_OF: Record<string, string> = {
-  player: "rankings", claim: "team", drafts: "more", seasons: "more",
-  history: "more", insights: "more", ledger: "more",
+  player: "players", claim: "team", drafts: "more", seasons: "more",
+  history: "more", insights: "more",
 };
 
 export default function BetaShell() {
@@ -62,11 +70,25 @@ export default function BetaShell() {
   const identity = useIdentityState(league.key || "default", teams);
 
   const base = `/${leagueSeg(league)}/beta`;
-  // the segment after /beta — "" on the League tab
+  // the segment after /beta — "" only on the index, which is a redirect
   const seg = loc.pathname.startsWith(base)
     ? loc.pathname.slice(base.length).split("/").filter(Boolean)[0] ?? ""
     : "";
   const active = TABS.some(t => t.id === seg) ? seg : HUB_OF[seg] ?? "";
+
+  /* ---- the index is a REDIRECT, not a screen ----------------------------
+     A reader who has claimed a franchise opens on his own roster; one who has
+     not opens on the league, because a My Team tab with nothing to point at is
+     a claim prompt wearing a screen's clothes.
+
+     The claim derives from teams.json (lib/identity), so while a username is
+     set and that file has not landed the answer is not yet KNOWN — deciding
+     then sends a claimed reader to League and, because the redirect replaces,
+     leaves him there with no back step to undo it. One paint of the loading
+     line is the honest version. A manual claim needs no file and resolves
+     immediately, which is why the wait is conditioned on the derivation. */
+  const identityPending = identity.user != null && identity.rid == null && !teams;
+  const indexTo = `${base}/${identity.rid != null ? "team" : "league"}`;
 
   useEffect(() => {
     if (navType === "PUSH") window.scrollTo(0, 0);
@@ -113,6 +135,13 @@ export default function BetaShell() {
     : TABS;
 
   const [sheet, setSheet] = useState(false);
+  /* The masthead has two states, and this is the second one: searching. Held
+     here rather than inside MastSearch because it is the WHOLE bar that changes
+     — the league name and the tag step aside for the field — and a component
+     cannot restyle its own siblings. */
+  const [finding, setFinding] = useState(false);
+  // a screen change closes the field, for the same reason it un-hides the bar
+  useEffect(() => { setFinding(false); }, [loc.pathname]);
   // Long-press the League tab opens the switcher from anywhere — the bonus path
   // the redesign names. A pointer held for 500ms, cancelled by movement or
   // release, so it never fights an ordinary tap.
@@ -139,12 +168,12 @@ export default function BetaShell() {
     if (Math.abs(e.clientX - x) + Math.abs(e.clientY - y) > 10) cancelHold();
   };
 
-  const onLeague = active === "";
+  const onLeague = active === "league";
 
   return (
     <IdentityContext.Provider value={identity}>
       <div className="v3">
-        <header className="v3-mast">
+        <header className={`v3-mast${finding ? " finding" : ""}`}>
           {/* The league name is on every screen. On the League tab it is the
               switcher (decision #6 — the sheet IS the user level, which is what
               lets the whole user-home screen be deleted); everywhere else it is
@@ -160,6 +189,7 @@ export default function BetaShell() {
             <span className="lg flat">{league.name}</span>
           )}
           <span className="tag">War Board Beta</span>
+          <MastSearch open={finding} onToggle={setFinding} />
         </header>
 
         {/* Every screen below a tab needs an on-screen way back: an iOS web clip
@@ -175,13 +205,26 @@ export default function BetaShell() {
           <ErrorBoundary resetKey={loc.pathname}>
             <Suspense fallback={<div className="empty">Loading…</div>}>
               <Routes>
-                <Route index element={<League />} />
+                <Route index element={identityPending
+                  ? <div className="empty">Loading…</div>
+                  : <Navigate replace to={indexTo} />} />
+                <Route path="league" element={<League />} />
                 <Route path="team" element={<Team />} />
                 <Route path="team/:rid" element={<TeamRoute />} />
                 <Route path="claim" element={<Claim />} />
-                <Route path="rankings" element={<Rankings />} />
-                <Route path="rankings/:scope" element={<Rankings />} />
+                <Route path="players" element={<Players />} />
+                {/* the leaderboard's old address, and the lens segment it
+                    carried. Players is one board with its own controls now, so
+                    the scope has nowhere to land and is dropped rather than
+                    translated into a filter it no longer has. */}
+                <Route path="rankings" element={<Navigate replace to={`${base}/players`} />} />
+                <Route path="rankings/:scope" element={<Navigate replace to={`${base}/players`} />} />
                 <Route path="trade" element={<Trade />} />
+                {/* THE LEDGER IS A SCOPE, NOT A SCREEN. Trade's History scope
+                    is the settled-trades record the ledger page was, so the old
+                    address lands on it with that scope already set rather than
+                    on a Trade screen showing an empty machine. */}
+                <Route path="ledger" element={<Navigate replace to={`${base}/trade?scope=history`} />} />
                 <Route path="more" element={<More />} />
                 <Route path="player/:pid" element={<PlayerRoute />} />
                 <Route path="drafts" element={<Draft />} />
@@ -193,7 +236,6 @@ export default function BetaShell() {
                 <Route path="seasons/:season/:wk/:mid" element={<WeeklyRoute />} />
                 <Route path="history" element={<History />} />
                 <Route path="insights" element={<Insights />} />
-                <Route path="ledger" element={<Ledger />} />
                 <Route path="*" element={<Navigate to={base} replace />} />
               </Routes>
             </Suspense>
@@ -203,10 +245,10 @@ export default function BetaShell() {
         <nav className={`v3-nav${barAway ? " away" : ""}`} aria-label="Sections">
           <div className="railtop">{meta.league}<b>War Board Beta</b></div>
           {tabs.map(t => {
-            const to = t.id ? `${base}/${t.id}` : base;
+            const to = `${base}/${t.id}`;
             const on = active === t.id || (t.id === "drafts" && seg === "drafts");
             return (
-              <a key={t.id || "league"} href={`#${to}`} className={on ? "on" : ""}
+              <a key={t.id} href={`#${to}`} className={on ? "on" : ""}
                 onClick={e => {
                   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                   e.preventDefault();
@@ -214,10 +256,10 @@ export default function BetaShell() {
                   if (held.current) { held.current = false; return; }
                   nav(to);
                 }}
-                onPointerDown={t.id === "" ? startHold : undefined}
+                onPointerDown={t.id === "league" ? startHold : undefined}
                 onPointerUp={cancelHold} onPointerLeave={cancelHold}
                 onPointerCancel={cancelHold} onPointerMove={moveHold}
-                onContextMenu={t.id === "" ? e => e.preventDefault() : undefined}>
+                onContextMenu={t.id === "league" ? e => e.preventDefault() : undefined}>
                 {t.label}
                 {"dot" in t && t.dot && <span className="dot" />}
               </a>
@@ -227,15 +269,21 @@ export default function BetaShell() {
               mouse open a menu. Hidden on a phone by beta.css. */}
           <div className="railgrp desk">Explore</div>
           {[
-            { id: "drafts", label: "Drafts" }, { id: "seasons", label: "Seasons" },
-            { id: "history", label: "History" }, { id: "insights", label: "Insights" },
-            { id: "ledger", label: "Ledger" },
+            { id: "drafts", label: "Drafts", to: `${base}/drafts` },
+            { id: "seasons", label: "Seasons", to: `${base}/seasons` },
+            { id: "history", label: "History", to: `${base}/history` },
+            { id: "insights", label: "Insights", to: `${base}/insights` },
+            /* Ledger keeps its place in Explore and loses its page: it points
+               at Trade's History scope, the same address the `ledger` route
+               redirects to. It never lights, because the Trade tab above it
+               does — two lit rows would be two answers to "where am I". */
+            { id: "ledger", label: "Ledger", to: `${base}/trade?scope=history` },
           ].map(x => (
             <a key={x.id} className={`sub desk${seg === x.id ? " on" : ""}`}
-              href={`#${base}/${x.id}`}
+              href={`#${x.to}`}
               onClick={e => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                e.preventDefault(); nav(`${base}/${x.id}`);
+                e.preventDefault(); nav(x.to);
               }}>{x.label}</a>
           ))}
         </nav>
@@ -243,6 +291,55 @@ export default function BetaShell() {
         {sheet && <LeagueSheet onClose={() => setSheet(false)} />}
       </div>
     </IdentityContext.Provider>
+  );
+}
+
+/* ---- the masthead's typeahead -------------------------------------------- */
+
+/**
+ * QUICKJUMP, PHONE-SHAPED.
+ *
+ * The typeahead is components/QuickJump — the classic board's, mounted rather
+ * than reimplemented, so a name resolves identically on both shells and there is
+ * one list to fix when it is wrong.
+ *
+ * What it cannot be here is resident. Its field asks for 170px and this masthead
+ * is 42px tall carrying a league name and a tag, so on a phone the field is
+ * REVEALED: the Search button swaps the bar's contents for the field and Close
+ * swaps them back (the name and tag are hidden by beta.css off the `.finding`
+ * class, since a component cannot restyle its siblings). At the desktop rail's
+ * width the button is hidden and the field is simply there — the same component
+ * either way, so the shell never has two search boxes.
+ *
+ * The control is the WORD "Search", not a magnifier. The board has no icon
+ * library and is not getting one for this, and the ⌕ glyph that would avoid one
+ * is missing from most of the stack's faces — a tofu box is worse than a label.
+ */
+function MastSearch({ open, onToggle }: {
+  open: boolean; onToggle: (v: boolean) => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+  // QuickJump owns its field, so the reveal focuses it through the DOM rather
+  // than through an API it does not have. Revealing a field the reader then
+  // has to tap is half a control.
+  useEffect(() => {
+    if (open) box.current?.querySelector("input")?.focus();
+  }, [open]);
+  // QuickJump builds the classic board's addresses; rebasing them here is what
+  // keeps a jump inside this shell. Franchise pages live at team/:rid in it.
+  const bp = useBetaPath();
+  const path = useCallback(
+    (p: string) => bp(p.replace(/^\/franchise\//, "/team/")), [bp]);
+  return (
+    // Escape bubbles up from the input (QuickJump closes its list and lets the
+    // event through), so one press closes the list and the field together.
+    <div className={`v3-find${open ? " open" : ""}`}
+      onKeyDown={e => { if (e.key === "Escape") onToggle(false); }}>
+      <div className="findbox" ref={box}><QuickJump path={path} /></div>
+      <button type="button" className="findbtn"
+        aria-expanded={open} aria-label={open ? "Close search" : "Search"}
+        onClick={() => onToggle(!open)}>{open ? "Close" : "Search"}</button>
+    </div>
   );
 }
 

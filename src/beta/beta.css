@@ -1,14 +1,21 @@
 /* ==========================================================================
    WAR Board v3 — the phone-first shell.
 
-   Imported by V3Shell.tsx, so it rides the lazy chunk and is absent from the
-   classic board's bundle entirely. It defines NO tokens: every colour, family
-   and gutter here comes from style.css's `:root`, which is what makes the two
-   shells look like one product. If a value you need isn't a token, that is the
-   design system telling you to solve the problem differently.
+   Imported by BetaShell.tsx, so it rides the lazy chunk and is absent from the
+   classic board's bundle entirely. Every COLOUR and gutter here comes from
+   style.css's `:root`, which is what makes the two shells look like one
+   product. If a value you need isn't a token, that is the design system telling
+   you to solve the problem differently.
+
+   THE TYPE TOKENS ARE THE EXCEPTION, and they are re-pointed on `.v3` below.
+   The classic board keeps Saira Condensed and Archivo; this shell reads in
+   Barlow Condensed and Public Sans, and adds a role the classic board does not
+   have — --mono, IBM Plex Mono, which every FIGURE on every beta board is set
+   in. Scoping the overrides to the shell's root element is what keeps them off
+   the classic board: nothing outside `.v3` inherits them.
 
    Rules carried over unchanged: radius is zero everywhere, numerals are
-   tabular, one accent per view, two families only.
+   tabular, one accent per view.
 
    Rules that are NEW here, and only here:
      - Rows are ~44px. A touch target is a real constraint, not a preference.
@@ -25,6 +32,25 @@
 /* The bar's height, in one place: the shell's bottom padding, the sheet's
    offset and the scroll-spy's threshold are all derived from it. */
 .v3 {
+  /* ---- three type roles, and the third is the point --------------------
+     --cond  Barlow Condensed  labels, column headers, tabs, band labels
+     --sans  Public Sans       names, prose, captions, form fields
+     --mono  IBM Plex Mono     EVERY FIGURE. Boards, strips, ledger, cells.
+
+     A figure set in the same face as the label beside it reads as a word: on a
+     phone, "1.268" in a condensed face at 13px is a shape, and a column of
+     them is a ragged edge because the digits are proportional. Monospaced
+     digits are one advance wide by construction, so a column aligns without
+     being told to and a number is visibly a number. The labels stay condensed
+     and the names stay in the sans, which is what keeps the three roles
+     legible as three.
+
+     Each falls back to the classic board's family first, so a blocked font
+     request degrades to the site's own look rather than to Times. */
+  --cond: "Barlow Condensed", "Saira Condensed", "Archivo Narrow", system-ui, sans-serif;
+  --sans: "Public Sans", Archivo, system-ui, -apple-system, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
   --navh: 54px;
   /* The masthead's height, declared rather than emergent: a sticky table header
      has to be offset by exactly this, and a header sized by its own font
@@ -72,6 +98,45 @@
   color: var(--dim2);
 }
 
+/* ---- the masthead's typeahead (BetaShell MastSearch) --------------------
+   QuickJump's field wants 170px and this bar is 375px wide holding a league
+   name and a tag, so on a phone the field is REVEALED rather than resident:
+   the Search button swaps the bar's contents for it. The name and tag are
+   hidden by `.finding` on the header — the shell owns that class because the
+   whole bar changes state, not just this corner of it. */
+.v3-mast.finding .lg, .v3-mast.finding .tag { display: none; }
+.v3-mast.finding .v3-find { flex: 1 1 auto; min-width: 0; margin-left: 0; }
+
+.v3-find { display: flex; align-items: center; gap: 8px; margin-left: 10px; }
+/* Closed, the field is not in the layout at all: `display: none` rather than a
+   zero width, so a 170px input can never push the league name out of its own
+   masthead on a narrow phone. */
+.v3-find .findbox { display: none; }
+.v3-find.open .findbox { display: flex; flex: 1 1 auto; min-width: 0; }
+/* QuickJump's own root is an inline-styled relative box holding the field and
+   its popover. It sizes itself for the classic masthead's right edge; here it
+   takes the width the reveal gave it. */
+.v3-find .findbox > div { flex: 1 1 auto; min-width: 0; }
+/* The field has to fit a 42px bar, and style.css pads a phone search box to
+   ~45px — taller than the masthead it would be sitting in. Only the padding
+   gives: the 16px type is kept exactly, because anything smaller makes iOS zoom
+   the page on focus, and on a web clip that is a trap with no way back out. */
+.v3-find .findbox input[type="search"] {
+  width: 100%; min-width: 0; padding: 4px 9px; font-size: 16px;
+}
+/* The control is a WORD, in the masthead's own label vocabulary — there is no
+   icon library on this board and a magnifier glyph is missing from enough of
+   the font stack that it would render as a box on some phone. */
+.v3-find .findbtn {
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  background: none; border: 1px solid var(--rule); color: var(--dim);
+  cursor: pointer; white-space: nowrap;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+}
+.v3-find .findbtn:hover { color: var(--acc); border-color: var(--acc); }
+.v3-find .findbtn:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+
 /* A BAND'S OWN TOTAL, beside its label (ui.tsx Band's `total` prop). The
    grouped roster tables on Team need "Starters +3.412 WAR" at the top of the
    group, not in a footer row that is off-screen by the time the reader reaches
@@ -79,7 +144,9 @@
    drops the label's tracking and takes back its own letterforms. */
 .band-label .band-total {
   margin-left: 9px;
-  font: 700 13px/1 var(--cond); letter-spacing: .02em; text-transform: none;
+  /* A FIGURE, so it is mono — it drops the label's tracking and its face, which
+     is exactly the point: it is not part of the label it sits beside. */
+  font: 700 12.5px/1 var(--mono); letter-spacing: 0; text-transform: none;
   font-variant-numeric: tabular-nums;
   color: var(--acc);
 }
@@ -143,9 +210,17 @@
   text-decoration: none;
   color: var(--dim);
   /* LABELS ARE MANDATORY. None of these five concepts has a universal icon —
-     there is no glyph that reads "valuation rankings" — so the label is the
-     control and an icon would only be decoration competing for the height. */
-  font: 600 10.5px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+     there is no glyph that reads "my roster" — so the label is the control and
+     an icon would only be decoration competing for the height.
+
+     THE BUDGET: five tabs on a 375px bar is 75px each, and 62.5px in the weeks
+     the seasonal Draft slot makes it six. "My Team" is the widest label at
+     ~38px set here, so it clears both — but it is also the only TWO-WORD label,
+     so it is told not to wrap: a tab that breaks into two lines is a tab that
+     no longer matches the height of the four beside it. The tracking is a
+     notch tighter than the .1em elsewhere for the same budget. */
+  font: 600 10.5px/1 var(--cond); letter-spacing: .07em; text-transform: uppercase;
+  white-space: nowrap;
   border-top: 2px solid transparent;
 }
 .v3-nav a:hover { color: var(--txt2); text-decoration: none; }
@@ -263,14 +338,19 @@
 .v3tbl td.sp .spine { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
 .v3tbl td.sp .rank {
   display: inline-block; padding: 0 4px 0 9px;
-  font: 600 15px/1 var(--cond); color: var(--dim);
+  /* an ordinal is a figure: mono, and a step down from the condensed 15px it
+     was, because a mono digit is the wider of the two and this column is 34px */
+  font: 600 14px/1 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--dim);
 }
 .v3tbl td.sp .rank.top { color: var(--acc); }
 /* rank movement, beside the ordinal. Never coloured green/red: a team climbing
    the valuation board has not won anything, and the arrow already carries the
    direction. */
 .v3tbl td.sp .mv {
-  display: block; font: 600 9.5px/1 var(--cond); color: var(--dim2); letter-spacing: .02em;
+  display: block;
+  font: 600 9px/1 var(--mono); font-variant-numeric: tabular-nums;
+  color: var(--dim2); letter-spacing: 0;
 }
 
 /* STACKED IDENTITY — the v3 row's spine. Line 1 is the name, line 2 the
@@ -312,19 +392,42 @@
    row has no positioned cell to hang off. */
 .v3spine { flex: 0 0 3px; align-self: stretch; min-height: 100%; }
 
-/* figures inside a v3 row */
-.v3tbl td .f { font: 600 15px/1.15 var(--cond); font-variant-numeric: tabular-nums; }
-.v3tbl td .f.hd { font-size: 17px; color: var(--txt); }
-.v3tbl td .f.q { font: 400 12.5px/1.3 var(--sans); color: var(--dim); }
+/* FIGURES INSIDE A v3 ROW — the class this whole shell's numbers run through,
+   and the reason --mono exists. Set a step smaller than the condensed 15px it
+   replaces: a mono digit is ~1.4x the width of a condensed one, and a four-
+   column phone table has no width to give away. `.q` is the quiet ramp (a
+   record, a count) and is mono for the same reason — it is still a figure. */
+.v3tbl td .f { font: 600 13.5px/1.15 var(--mono); font-variant-numeric: tabular-nums; }
+.v3tbl td .f.hd { font-size: 15.5px; color: var(--txt); }
+.v3tbl td .f.q { font: 400 12px/1.3 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
+/* THE METERED FIGURE is style.css's, borrowed: the one metered column a table
+   is allowed composes the classic board's `.meter-row`, so its figure arrives
+   styled in the condensed face — which inside this shell is the LABEL face.
+   Re-pointed here, under `.v3`, rather than in style.css: the classic board's
+   meters keep Saira, and this is the beta scope's copy of the rule. */
+.v3 .meter-row .fig { font: 600 14px/1 var(--mono); font-variant-numeric: tabular-nums; }
 .v3tbl td .f.pos { color: var(--good); }
 .v3tbl td .f.neg { color: var(--bad); }
+/* an ACTION WORD in a figure cell ("You", "Claim") is a label, not a figure —
+   condensed and tracked, never mono, or the word reads as data */
+.v3tbl td .mark {
+  font: 600 11.5px/1.3 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim);
+}
+.v3tbl td .mark.acc { color: var(--acc); }
 .v3tbl td .nul { color: var(--dim3); }
 /* the compact ordinals that carry the OTHER lenses on a divergence row — three
    of them in the width one figure would take, so the spread between lenses is
    visible without a column each */
 .ords { display: flex; gap: 7px; justify-content: flex-end; }
 .ords .o { font: 600 11px/1 var(--cond); color: var(--dim2); letter-spacing: .04em; }
-.ords .o b { font-weight: 700; color: var(--dim); }
+/* The key stays condensed and only the ORDINAL goes mono: these are label-plus-
+   figure pairs in one span ("DVI4"), and three of them fit the width of one
+   figure precisely because the labels stay narrow. */
+.ords .o b {
+  font-family: var(--mono); font-weight: 600; font-size: 10px;
+  font-variant-numeric: tabular-nums; color: var(--dim);
+}
 
 /* the playoff cutline: a hard gold rule under 6th, and everything below it
    steps to secondary ink. The line is the league's one real threshold, so it
@@ -356,9 +459,12 @@
   font: 600 10px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
   color: var(--dim); white-space: nowrap;
 }
+/* THE STRIP FIGURE. Mono, and 19px rather than 21px: a five-character figure
+   ("1.268") at 19px mono is 57px, which is the 86px cell less its padding —
+   the strip stays a thin band instead of scrolling one cell early. */
 .v3strip .v {
   margin-top: 5px;
-  font: 700 21px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--txt);
+  font: 700 19px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt);
   white-space: nowrap;
 }
 .v3strip .v.acc { color: var(--acc); }
@@ -463,7 +569,11 @@
 .v3-side .sh .k {
   font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
 }
-.v3-side .sh .n { margin-left: auto; font: 600 12px/1 var(--cond); color: var(--dim2); }
+/* the basket's asset count — a bare number, so mono like every other figure */
+.v3-side .sh .n {
+  margin-left: auto;
+  font: 600 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim2);
+}
 .v3-side .asset {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-bottom: 1px solid var(--hair);
@@ -504,17 +614,29 @@
   text-align: left;
   font: 600 11px/1.2 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
 }
-.v3-ledger td .big { font: 700 19px/1.1 var(--cond); }
-.v3-ledger td .sm { font: 400 11px/1.3 var(--sans); color: var(--dim3); }
+/* EVERY LEDGER VALUE IS MONO. Three currencies in three columns, and the whole
+   claim of the row is that the reader can compare down a column: proportional
+   digits made "8,760" and "1,268" different lengths for the same five
+   characters. The `font:` shorthand resets the table's tabular-nums, so each
+   restates it — belt and braces on a monospaced face, and correct. */
+.v3-ledger td .big { font: 700 17px/1.1 var(--mono); font-variant-numeric: tabular-nums; }
+.v3-ledger td .sm {
+  font: 400 10.5px/1.3 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim3);
+}
 /* An ADJUSTMENT row (the consolidation line). Between the inputs and the
    headline in weight, because that is what it is: not an input the reader
    supplied and not the answer, but a correction the model applied — shown,
    never smuggled into the total below it. */
-.v3-ledger td .adj { font: 600 14px/1.15 var(--cond); color: var(--txt2); }
-/* the qualifier under a row label — "in 8370 · out 8760" */
+.v3-ledger td .adj {
+  font: 600 13px/1.15 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
+}
+/* the qualifier under a row label — "in 8370 · out 8760". Two figures and two
+   words, so it takes the figure face: the pair is there to be read against the
+   pair on the row below it. */
 .v3-ledger td.t .lsub {
   margin-top: 2px;
-  font: 400 10.5px/1.3 var(--sans); letter-spacing: 0; text-transform: none;
+  font: 400 10px/1.3 var(--mono); font-variant-numeric: tabular-nums;
+  letter-spacing: 0; text-transform: none;
   color: var(--dim3);
 }
 /* a hairline above the headline row, so the net reads as the sum of what is
@@ -569,7 +691,9 @@
   display: block; font: 400 11px/1.3 var(--sans); color: var(--dim);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.v3-pick .prow .v { font: 600 14px/1 var(--cond); color: var(--txt2); }
+.v3-pick .prow .v {
+  font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
+}
 .v3-pick .sidebtns { display: flex; gap: 0; }
 .v3-pick .sidebtns button {
   padding: 8px 12px; background: var(--band); border: 1px solid var(--rule); margin-left: -1px;
@@ -681,6 +805,12 @@
   .v3-nav a.sub.on { color: var(--txt); background: none; }
 
   .v3-mast { top: 0; }
+  /* THE FIELD IS RESIDENT ON DESKTOP. There is width for it beside the league
+     name, so the reveal control has nothing left to do and is removed rather
+     than left as a second way to reach the same box. */
+  .v3-find .findbox { display: flex; }
+  .v3-find .findbtn { display: none; }
+
   /* the sheet is a phone pattern; on desktop the rail already lists the
      leagues, so the switcher opens centred rather than climbing from the edge.
      Centred on the CONTENT column, not the viewport: the sheet is fixed, so
@@ -702,14 +832,16 @@
      all: the column labels were invisible for the whole scroll. */
   .v3tbl thead th { top: calc(var(--masth) - 1px); padding: 7px 10px; font-size: 12px; }
   .idc-n { font-size: 14.5px; }
-  .v3tbl td .f { font-size: 16px; }
-  .v3tbl td .f.hd { font-size: 19px; }
+  /* the figure ramp steps up with the rows, one step under the condensed sizes
+     this held before --mono, because a mono digit is the wider glyph */
+  .v3tbl td .f { font-size: 15px; }
+  .v3tbl td .f.hd { font-size: 17px; }
   .v3strip .cell { min-width: 120px; padding: 13px 22px 14px; }
-  .v3strip .v { font-size: 27px; }
+  .v3strip .v { font-size: 23px; }
   .v3-lens button { flex: 0 0 auto; padding: 9px 22px; }
   .v3-lens { justify-content: flex-start; }
   .v3-sides { gap: 1px; }
-  .v3-ledger td .big { font-size: 24px; }
+  .v3-ledger td .big { font-size: 21px; }
   .v3-pick { left: 208px; }
 }
 
@@ -737,10 +869,13 @@
 /* Δ30's sign colour comes from `.f.pos` / `.f.neg`, the tokens already spent
    on a signed figure elsewhere on the board — legal here and nowhere near the
    ledger, because a raw market delta is a direction of travel and not a
-   verdict. A sub-line is not the figure ramp, though, so only the TYPE steps
-   down to the line it sits on; the colour is deliberately not restated here,
-   which is what keeps one rule owning it. */
-.v3tbl td .idc-s .f { font: 600 11px/1.3 var(--cond); }
+   verdict. A sub-line is not the figure ramp, though, so only the SIZE steps
+   down to the line it sits on; the face is still the figure face, and the
+   colour is deliberately not restated here, which is what keeps one rule
+   owning it. */
+.v3tbl td .idc-s .f {
+  font: 600 10.5px/1.3 var(--mono); font-variant-numeric: tabular-nums;
+}
 
 /* == v3 wave2A == */
 
