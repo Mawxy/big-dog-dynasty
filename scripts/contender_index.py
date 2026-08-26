@@ -179,6 +179,14 @@ def to_cvi(out):
         cvi[pid] = {"name": r["name"], "pos": r["pos"], "cvi": r["rating"],
                     "rank": i, "pos_rank": pos_seen[r["pos"]],
                     "components": sum(1 for c in r["components"].values() if c is not None)}
+        # ECR presence is the site's availability signal: a season-ending
+        # injury drops a player from the redraft consensus entirely, so
+        # "no ecr" ≈ "known to give you nothing this year". Home's value-plays
+        # module uses it to keep DVI-vs-CVI gaps that are just news off the
+        # sell-high list. Omitted (not null) when unranked, to keep the file
+        # small. Curve-independent, hence stored on the row, not per curve.
+        if r.get("ecrRank") is not None:
+            cvi[pid]["ecr"] = r["ecrRank"]
     return cvi
 
 

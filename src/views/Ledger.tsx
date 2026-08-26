@@ -66,19 +66,45 @@ export default function Ledger() {
    *  the card that opened it */
   const [openKey, setOpenKey] = useState<string | null>(null);
 
-  /** a side's CURRENT market sums, same players-only rule as the frozen
-   *  ones — comparing a then-players basket to a now-with-picks basket
-   *  would move the goalposts, not the market */
+  /** current mid-tier pick prices by "YYYY Mid Nth", from values.json —
+   *  mirrors the canonical keying the pipeline snapshots use */
+  const ORDW = ["", "1st", "2nd", "3rd", "4th", "5th"];
+  const pickNow = useMemo(() => {
+    const m = new Map<string, { ktc?: number; fc?: number }>();
+    for (const [label, v] of vals?.picks?.ktc ?? []) {
+      const g = /^(20\d\d) Mid (\d\w\w)$/.exec(label);
+      if (g) m.set(`${g[1]} Mid ${g[2]}`, { ...m.get(`${g[1]} Mid ${g[2]}`), ktc: v });
+    }
+    for (const [label, v] of vals?.picks?.fc ?? []) {
+      const g = /^(20\d\d) (\d\w\w)( \(Mid\))?$/.exec(label);
+      if (!g) continue;
+      const key = `${g[1]} Mid ${g[2]}`;
+      const cur = m.get(key) ?? {};
+      if (g[3] || cur.fc == null) m.set(key, { ...cur, fc: v });
+    }
+    return m;
+  }, [vals]);
+
+  /** a side's CURRENT market sums. A converted pick prices as the player it
+   *  became (the draft-day splice); an unconverted one as the mid-tier pick
+   *  it still is. Each source goes null when it can't price every asset. */
   const marketNow = (s: TradeSide): { ktc: number | null; fc: number | null } => {
     if (!vals) return { ktc: null, fc: null };
     let ktc: number | null = 0, fc: number | null = 0;
     for (const a of s.got) {
       if (a.kind === "faab") continue;
-      if (a.kind !== "player" || !a.pid) return { ktc: null, fc: null };
-      const row = vals.players[a.pid];
-      const k = ktcOf(row, meta.tep);
+      let k: number | null | undefined, f: number | null | undefined;
+      if (a.pid) {
+        const row = vals.players[a.pid];
+        k = ktcOf(row, meta.tep); f = row?.fc;
+      } else if (a.kind === "pick" && a.ps && a.rnd) {
+        const p = pickNow.get(`${a.ps} Mid ${ORDW[a.rnd] ?? `${a.rnd}th`}`);
+        k = p?.ktc; f = p?.fc;
+      } else {
+        return { ktc: null, fc: null };
+      }
       ktc = ktc == null || k == null ? null : ktc + k;
-      fc = fc == null || row?.fc == null ? null : fc + row.fc;
+      fc = fc == null || f == null ? null : fc + f;
     }
     return { ktc: ktc || null, fc: fc || null };
   };
@@ -201,6 +227,30 @@ export default function Ledger() {
                           {sgnWar(s.future ?? 0)} to come
                         </span>
                       </div>
+                      {/* the draft-day splice, per converted pick: what the
+                          slot cost as a pick vs what the player it became is
+                          worth now (KTC) */}
+                      {s.got.filter(a => a.kind === "pick" && a.pid && a.mktDraft != null).map((a, i) => {
+                        const nowV = a.pid ? ktcOf(vals?.players[a.pid], meta.tep) : null;
+                        const known = a.mktDraft != null && nowV != null;
+                        return (
+                          <div className="drawer-row" key={`pk${i}`}>
+                            <span className="k">{a.label.split(" → ")[0]} at draft</span>
+                            <span className="v" style={{ color: known ? "var(--txt2)" : "var(--dim3)" }}>
+                              {a.mktDraft!.toLocaleString("en-US")}
+                              {" → "}
+                              {nowV != null ? nowV.toLocaleString("en-US") : "—"}
+                            </span>
+                            <span className="d" style={{
+                              color: !known ? "var(--dim3)"
+                                : nowV! - a.mktDraft! > 0 ? "var(--good)"
+                                  : nowV! - a.mktDraft! < 0 ? "var(--bad)" : "var(--dim)",
+                            }}>
+                              {known ? sgn(nowV! - a.mktDraft!, 0) : "—"}
+                            </span>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}

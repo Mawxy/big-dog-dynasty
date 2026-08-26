@@ -18,6 +18,9 @@ import DataTable, { type Col, type Grp } from "../components/DataTable";
 import { ktcOf } from "../lib/values";
 
 const MODULE_ROWS = 5;
+/** how deep into an index a player can rank and still be a "value play" —
+ *  roughly the startable universe (100 of ~390 indexed). See valuePlays. */
+const VALUE_PLAY_DEPTH = 100;
 
 /** pad a module list to a fixed row count so paired modules measure equal */
 function padTo<T>(a: T[], n: number): (T | null)[] {
@@ -174,19 +177,33 @@ export default function Home() {
     return m;
   }, [teams]);
 
-  /** largest DVI-minus-CVI disagreements among rostered players */
+  /** largest DVI-minus-CVI disagreements among rostered players.
+   *
+   *  The raw gap is dominated by KNOWN news, not tradeable disagreement: a
+   *  season-ending injury or a benching craters CVI while DVI (a dynasty
+   *  index, correctly) holds, so the unfiltered sell-high list was Higgins /
+   *  Pearsall / McCarthy — players everyone already knows are done for the
+   *  year. Two guards fix that:
+   *
+   *  - sell high requires an ECR rank (absence from the redraft consensus =
+   *    known to give you nothing this year) AND a top-VALUE_PLAY_DEPTH DVI
+   *    rank — a sell-high needs meaningful dynasty value to sell, which is
+   *    what keeps deep stash QBs (huge relative gap, no market) off the list.
+   *  - buy low symmetrically requires a top-VALUE_PLAY_DEPTH CVI rank: a
+   *    buy-low has to be currently startable, or the gap is just age.
+   */
   const valuePlays = useMemo(() => {
     if (!dvi || !cvi) return null;
-    const rows: { pid: string; pos: string; name: string; d: number; c: number; gap: number }[] = [];
+    const rows: { pid: string; pos: string; name: string; d: number; c: number; gap: number; ecr?: number; dRank: number; cRank: number }[] = [];
     for (const [pid, dr] of Object.entries(dvi.players)) {
       const cr = cvi.players[pid];
       if (!cr || !ownerOfPid.has(pid)) continue;
-      rows.push({ pid, pos: dr.pos, name: dr.name, d: dr.dvi, c: cr.cvi, gap: dr.dvi - cr.cvi });
+      rows.push({ pid, pos: dr.pos, name: dr.name, d: dr.dvi, c: cr.cvi, gap: dr.dvi - cr.cvi, ecr: cr.ecr, dRank: dr.rank, cRank: cr.rank });
     }
     rows.sort((a, b) => b.gap - a.gap);
     return {
-      sell: rows.filter(r => r.gap > 0).slice(0, MODULE_ROWS),
-      buy: rows.filter(r => r.gap < 0).reverse().slice(0, MODULE_ROWS),
+      sell: rows.filter(r => r.gap > 0 && r.ecr != null && r.dRank <= VALUE_PLAY_DEPTH).slice(0, MODULE_ROWS),
+      buy: rows.filter(r => r.gap < 0 && r.cRank <= VALUE_PLAY_DEPTH).reverse().slice(0, MODULE_ROWS),
     };
   }, [dvi, cvi, ownerOfPid]);
 
@@ -853,7 +870,7 @@ export default function Home() {
       </div>
 
       <div className="footnote">
-        Starter indices price each roster's best legal lineup in that index · value plays (DVI vs CVI, index points) and market movers (KTC 7-day change) cover rostered players only
+        Starter indices price each roster's best legal lineup in that index · value plays (DVI vs CVI, index points) cover rostered players ranked inside the startable top 100 — sell-highs also need a redraft ECR rank, so players known to be out for the year don't read as market inefficiency · market movers (KTC 7-day change) cover rostered players only
       </div>
       <div className="footnote">
         Dynasty movers: trades from the last {dyn?.meta.window_days ?? 7} days across {dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues · face KTC values, TE-premium-matched per league · packages carry the trade model's consolidation adjustment on non-centerpiece assets · centerpiece attribution · min {dyn?.meta.min_n ?? 3} trades

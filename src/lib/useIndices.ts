@@ -56,7 +56,7 @@ export function useCvi(): CviFile | null {
     const players: CviFile["players"] = {};
     for (const [pid, r] of Object.entries(mx.data.players)) {
       const t = r.cvi[curve];
-      if (t) players[pid] = { name: r.name, pos: r.pos, cvi: t[0], rank: t[1], pos_rank: t[2] };
+      if (t) players[pid] = { name: r.name, pos: r.pos, cvi: t[0], rank: t[1], pos_rank: t[2], ecr: r.ecr };
     }
     return { generated: mx.data.generated, format: mx.data.format, players };
   }, [mx.data, mx.error, flat.data, curve]);

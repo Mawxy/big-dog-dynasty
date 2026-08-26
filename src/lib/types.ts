@@ -370,8 +370,11 @@ export interface EcrFile {
 }
 
 /** data/cvi.json — Contender Value Index, DVI's one-season sibling.
- *  `components` mirrors dvi.json (absent in older data). */
-export interface CviRow { name: string; pos: string; cvi: number; rank: number; pos_rank: number; components?: number }
+ *  `components` mirrors dvi.json (absent in older data). `ecr` is the raw
+ *  FantasyPros consensus rank; absent means unranked, which for a redraft
+ *  consensus reads as "known to give you nothing this year" (season-ending
+ *  injury, deep stash) — Home's value plays use that to filter sell-highs. */
+export interface CviRow { name: string; pos: string; cvi: number; rank: number; pos_rank: number; components?: number; ecr?: number }
 export interface CviFile {
   generated: string; format?: string; ecrRanked?: number;
   players: Record<string, CviRow>;
@@ -399,6 +402,8 @@ export type IndexTriple = [value: number, rank: number, posRank: number];
 export interface IndexModelsRow {
   name: string; pos: string;
   has_analog: boolean; has_sleeper: boolean;
+  /** raw ECR rank — curve-independent identity, absent = unranked (see CviRow.ecr) */
+  ecr?: number;
   dvi: Record<MatrixCurve, IndexTriple>;
   cvi: Record<MatrixCurve, IndexTriple>;
 }
@@ -441,6 +446,15 @@ export interface TradeAsset {
   war: number;
   /** discounted expected WAR still ahead of this asset (0 once it's gone) */
   future: number;
+  /** picks only: the pick's season and round, for market pricing by the
+   *  canonical mid-tier key */
+  ps?: number;
+  rnd?: number;
+  /** converted picks only: the pick's mid-tier market price ON DRAFT DAY —
+   *  the splice point where the asset stops being a pick and becomes the
+   *  player. Delta vs the player's current value = what the slot bought. */
+  mktDraft?: number;
+  fcDraft?: number;
 }
 export interface TradeSide {
   rid: number; team: string; got: TradeAsset[];

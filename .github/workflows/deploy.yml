@@ -19,6 +19,7 @@ on:
       - "data/outcome_signals_*.json"
       - "data/outcome_corpus*.json"
       - "data/values_history.json"
+      - "data/values_history_deep.json"
   workflow_dispatch:
   workflow_call:      # lets the data-refresh workflow trigger a deploy when it commits new data
 permissions:
@@ -85,6 +86,7 @@ jobs:
                 draft_signals.json \
                 league_signals.json \
                 values_history.json \
+                values_history_deep.json \
                 outcome_signals_*.json
           rm -f leagues/*/projections_check.json
       - uses: actions/configure-pages@v5

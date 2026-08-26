@@ -238,7 +238,10 @@ def main():
             h[-1] = entry
         else:
             h.append(entry)
-        del h[:-45]                          # keep ~45 most recent days
+        del h[:-45]                          # keep ~45 most recent days; the
+                                             # years-deep KTC/FC backfill lives
+                                             # in values_history_deep.json,
+                                             # written once and never trimmed
         for name, idx in (("ktc", 1), ("fc", 2)):
             cur = e.get(name)
             if cur is None:
@@ -253,6 +256,35 @@ def main():
                     trends[str(d)] = cur - base
             if trends:
                 e[name + "T"] = trends
+    # canonical PICK history rows, keyed "pick:<season> Mid <round>" — the mid
+    # tier is what a slotless pick in a trade is worth, and what the ledger's
+    # pick-at-trade / pick-at-draft snapshots price against. KTC publishes the
+    # tier directly ("2027 Mid 1st"); FC's mid is the "(Mid)" variant when it
+    # exists, else the plain generic ("2027 1st").
+    ktc_mid = {}
+    for label, val in picks.get("ktc", []):
+        m = re.match(r"^(20\d\d) Mid (\d\w\w)$", label)
+        if m:
+            ktc_mid[f"{m.group(1)} Mid {m.group(2)}"] = val
+    fc_mid = {}
+    for label, val in picks.get("fc", []):
+        m = re.match(r"^(20\d\d) (\d\w\w)( \(Mid\))?$", label)
+        if m:
+            key = f"{m.group(1)} Mid {m.group(2)}"
+            if m.group(3) or key not in fc_mid:      # "(Mid)" beats plain
+                fc_mid[key] = val
+    for key in sorted(set(ktc_mid) | set(fc_mid)):
+        h = hist.setdefault(f"pick:{key}", [])
+        entry = [today, ktc_mid.get(key) if "ktc" in fresh else None,
+                 fc_mid.get(key) if "fc" in fresh else None]
+        if h and h[-1][0] == today:
+            for i in (1, 2):
+                if entry[i] is None and len(h[-1]) > i:
+                    entry[i] = h[-1][i]
+            h[-1] = entry
+        else:
+            h.append(entry)
+        del h[:-45]
     atomic_write(hist_path, json.dumps(hist, separators=(",", ":")))
     atomic_write(out_path, json.dumps({
         "fetched": time.strftime("%Y-%m-%d", time.gmtime()),

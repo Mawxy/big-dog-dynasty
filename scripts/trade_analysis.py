@@ -19,7 +19,7 @@ Output: data/trades.json — newest first.
 
 Usage: python scripts/trade_analysis.py
 """
-import argparse, datetime, json, sys, time
+import argparse, datetime, json, re, sys, time
 from pathlib import Path
 from leaguepaths import DataDir
 
@@ -200,12 +200,14 @@ def main():
                         w = war_for(rid, sel["player_id"], ps, 0)
                         side(rid)["got"].append({"kind": "pick", "pid": str(sel["player_id"]),
                                                  "label": f"{label} → {nm}", "war": w,
+                                                 "ps": ps, "rnd": rnd,
                                                  "future": future_player(rid, str(sel["player_id"]))})
                     else:   # not drafted yet (future pick) or the slot went unused
                         undrafted = ps not in drafted_seasons
                         tail = " (not yet drafted)" if undrafted else " (unused)"
                         side(rid)["got"].append({"kind": "pick", "pid": None,
                                                  "label": label + tail, "war": 0.0,
+                                                 "ps": ps, "rnd": rnd,
                                                  "future": future_pick(ps, rnd) if undrafted else 0.0})
                 for wb in (tx.get("waiver_budget") or []):
                     side(wb.get("receiver"))["got"].append(
@@ -234,22 +236,48 @@ def main():
     SNAP_MAX_AGE_DAYS = 14
     snap_path = DATA / "trade_snapshots.json"
     snaps = load(snap_path) or {}
-    valsg = (load(ROOT / "data" / "values.json") or {}).get("players", {})
-    hist = load(ROOT / "data" / "values_history.json") or {}
+    values_file = load(ROOT / "data" / "values.json") or {}
+    valsg = values_file.get("players", {})
+    # deep backfill (years, static) under the nightly rolling window — merged
+    # per-field, nightly rows winning where both price a date
+    hist = load(ROOT / "data" / "values_history_deep.json") or {}
+    for k, rows in (load(ROOT / "data" / "values_history.json") or {}).items():
+        base = {r[0]: r for r in hist.get(k, [])}
+        for r in rows:
+            row = base.setdefault(r[0], [r[0], None, None])
+            for i in (1, 2):
+                if len(r) > i and r[i] is not None:
+                    row[i] = r[i]
+        hist[k] = sorted(base.values())
     hist_start = min((r[0][0] for r in hist.values() if r), default=None)
     today = datetime.date.today().isoformat()
 
-    def mkt_players(side, price):
-        """Market sums of a side {ktc, fc}, players only — a side holding
-        picks has no honest market total, and each SOURCE goes None
-        independently when it doesn't price every player on the side."""
+    # current canonical mid-tier pick prices, same keying as the history
+    cur_pick = {}
+    for src, idx, rx in (("ktc", "ktc", r"^(20\d\d) Mid (\d\w\w)$"),
+                         ("fc", "fc", r"^(20\d\d) (\d\w\w)( \(Mid\))?$")):
+        for label, val in (values_file.get("picks") or {}).get(src, []):
+            m = re.match(rx, label)
+            if m:
+                key = f"pick:{m.group(1)} Mid {m.group(2)}"
+                e = cur_pick.setdefault(key, {})
+                if idx not in e or (len(m.groups()) > 2 and m.group(3)):
+                    e[idx] = val
+
+    def pick_key(a):
+        return f"pick:{a['ps']} Mid {ORD.get(a['rnd'], str(a['rnd']) + 'th')}"
+
+    def mkt_side(side, price):
+        """Market sums of a side {ktc, fc}. Players price by pid, picks by
+        their mid-tier pick key (settled with Max, 2026-08-21: a pick IS a
+        market asset until draft night). Each SOURCE goes None independently
+        when it can't price every asset on the side."""
         tots = {"ktc": 0, "fc": 0}
         for a in side["got"]:
             if a["kind"] == "faab":
                 continue
-            if a["kind"] != "player" or not a["pid"]:
-                return {"ktc": None, "fc": None}
-            row = price(str(a["pid"])) or {}
+            key = pick_key(a) if a["kind"] == "pick" and "ps" in a else str(a["pid"] or "")
+            row = (price(key) if key else None) or {}
             for src in ("ktc", "fc"):
                 if tots[src] is None:
                     continue
@@ -258,13 +286,42 @@ def main():
         return {s: (v or None) for s, v in tots.items()}
 
     def price_at(day):
-        def p(pid):
+        def p(key):
             best = None
-            for d, ktc, fc in hist.get(pid) or []:
+            for d, ktc, fc in hist.get(key) or []:
                 if d <= day and (best is None or d > best[0]):
                     best = (d, ktc, fc)
             return {"ktc": best[1], "fc": best[2]} if best else None
         return p
+
+    def price_now(key):
+        if key.startswith("pick:"):
+            return cur_pick.get(key)
+        row = valsg.get(key) or {}
+        return {"ktc": row.get("ktc"), "fc": row.get("fc")}
+
+    # ---- draft-day splice (settled with Max, 2026-08-21) -----------------
+    # A converted pick carries the pick's mid-tier market price ON DRAFT DAY,
+    # so its story reads "what the slot cost -> what the player it became is
+    # worth". Derived from the immutable value history each run rather than
+    # frozen — same answer every time, no snapshot needed. The draft date is
+    # that season's latest completed draft (the rookie draft; startups run
+    # earlier). Seasons the pick history doesn't reach stay em-dashed.
+    draft_day = {}
+    for s in seasons:
+        starts = [d.get("start_time") for d in (load(RAW / str(s) / "drafts.json") or [])
+                  if d.get("start_time") and d.get("status") == "complete"]
+        if starts:
+            draft_day[s] = datetime.date.fromtimestamp(max(starts) / 1000).isoformat()
+    for t in trades:
+        for sd in t["sides"]:
+            for a in sd["got"]:
+                if a["kind"] == "pick" and a.get("pid") and a.get("ps") in draft_day:
+                    row = price_at(draft_day[a["ps"]])(pick_key(a)) or {}
+                    if row.get("ktc") is not None:
+                        a["mktDraft"] = row["ktc"]
+                    if row.get("fc") is not None:
+                        a["fcDraft"] = row["fc"]
 
     n_new = 0
     for t in trades:
@@ -278,13 +335,13 @@ def main():
                 sn = {"taken": today, "kind": "model",
                       "sides": {}}
                 for s in t["sides"]:
-                    m = mkt_players(s, lambda pid: valsg.get(pid))
+                    m = mkt_side(s, price_now)
                     sn["sides"][str(s["rid"])] = {"exp": s["total"],
                                                   "mkt": m["ktc"], "fc": m["fc"]}
             elif hist_start and day >= hist_start:
                 sides = {}
                 for s in t["sides"]:
-                    m = mkt_players(s, price_at(day))
+                    m = mkt_side(s, price_at(day))
                     sides[str(s["rid"])] = {"exp": None,
                                             "mkt": m["ktc"], "fc": m["fc"]}
                 if any(v["mkt"] is not None or v["fc"] is not None
@@ -293,16 +350,25 @@ def main():
             if sn:
                 snaps[key] = sn
                 n_new += 1
-        elif sn and day and day >= (hist_start or "9999") and \
-                any("fc" not in v for v in sn["sides"].values()):
-            # entries frozen before FC was captured (either kind): the FC
-            # figure comes from the immutable value history at the trade's own
-            # date, so adding it is a backfill, not an overwrite
+        elif sn and sn["kind"] == "market" and day and day >= (hist_start or "9999") and \
+                any(v.get("mkt") is None or v.get("fc") is None
+                    for v in sn["sides"].values()):
+            # ENRICH, never overwrite: a market entry frozen when the history
+            # was shallow (pre-deep-backfill, pre-FC, pre-pick-pricing) holds
+            # Nones that the immutable history can now answer. Filling a None
+            # from the same source that would have filled it then is a
+            # backfill; a field that has a number is never touched.
+            filled = False
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"]))
-                if rec is not None and "fc" not in rec:
-                    rec["fc"] = mkt_players(s, price_at(day))["fc"]
-            n_new += 1
+                if rec is None:
+                    continue
+                m = mkt_side(s, price_at(day))
+                for field, src in (("mkt", "ktc"), ("fc", "fc")):
+                    if rec.get(field) is None and m[src] is not None:
+                        rec[field] = m[src]
+                        filled = True
+            n_new += filled
         if sn:
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"])) or {}

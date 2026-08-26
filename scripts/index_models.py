@@ -109,6 +109,12 @@ def main():
                         cvi_by[c][pid]["pos_rank"]]
                     for c in CURVES if pid in cvi_by[c]},
         }
+        # ECR rank is curve-independent identity, same as name/pos — stored
+        # once so useCvi() can hand it back for every curve. Omitted when
+        # unranked (see to_cvi in contender_index.py for what absence means).
+        ecr = cvi_by[args.default_curve].get(pid, {}).get("ecr")
+        if ecr is not None:
+            players[pid]["ecr"] = ecr
     atomic_write(DATA / "index_models.json", json.dumps(
         {"generated": today, "curves": list(CURVES), "default": args.default_curve,
          "format": args.format,

@@ -23,11 +23,15 @@ Usage:
   python scripts/backfill_ktc_history.py --probe        # ONE KTC page, show what parses
   python scripts/backfill_ktc_history.py                # KTC backfill (~5 min)
   python scripts/backfill_ktc_history.py --fc           # FantasyCalc backfill
+  python scripts/backfill_ktc_history.py --picks        # KTC mid-tier pick pages
   python scripts/backfill_ktc_history.py --limit 25     # first 25 players only
 
-Writes data/values_history.json in place. Merging is per-FIELD: a date's ktc
-and fc slots each fill only when empty, so the nightly rows (which carry both)
-are never overwritten and the two backfills can run in either order.
+Writes data/values_history_deep.json — NOT the nightly values_history.json,
+whose writer trims every series to 45 days and would delete the backfill the
+next night. The deep file is written once and left alone; consumers merge the
+two, nightly rows winning. Merging here is per-FIELD: a date's ktc and fc
+slots each fill only when empty, so the backfills can run in either order.
+Picks are keyed "pick:<season> Mid <round>", matching the nightly writer.
 """
 import argparse, json, re, sys, time, urllib.request
 from pathlib import Path
@@ -174,18 +178,37 @@ def merge_rows(hist, pid, col, pts):
     hist[pid] = sorted(rows.values())
 
 
+def fc_pick_key(name):
+    """FC pick label -> canonical 'pick:<YYYY> Mid <ord>' (mid tier); the
+    '(Mid)' variant is preferred over the plain generic by sort order below."""
+    m = re.match(r"^(20\d\d) (\d\w\w)( \(Mid\))?$", name or "")
+    return (f"pick:{m.group(1)} Mid {m.group(2)}", bool(m.group(3))) if m else (None, False)
+
+
 def fc_backfill(hist, limit):
-    """FantasyCalc: one implied-value call per ranked player, joined by the
-    sleeperId their own API carries — no name matching needed."""
-    players = [r for r in json.loads(get(FC_CURRENT))
-               if (r.get("player") or {}).get("sleeperId")
-               and not str(r["player"]["sleeperId"]).startswith(("RESERVED", "FP_"))]
-    print(f"{len(players)} FC-ranked players")
-    todo = players[:limit] if limit else players
+    """FantasyCalc: one implied-value call per ranked asset, joined by the
+    sleeperId their own API carries — no name matching needed. Picks ride the
+    same endpoint (they're rows in values/current too) into pick:* keys."""
+    rows = json.loads(get(FC_CURRENT))
+    todo = []
+    for r in rows:
+        p = r.get("player") or {}
+        sid = str(p.get("sleeperId") or "")
+        if sid.startswith("RESERVED"):
+            continue
+        if sid.startswith("FP_") or p.get("position") == "PICK":
+            key, is_mid = fc_pick_key(p.get("name"))
+            if key:
+                todo.append((0 if is_mid else 1, key, p))   # "(Mid)" first
+        elif sid:
+            todo.append((2, sid, p))
+    todo.sort(key=lambda t: t[0])
+    if limit:
+        todo = todo[:limit]
+    print(f"{len(todo)} FC-ranked assets (players + mid picks)")
     n_ok = n_empty = 0
-    for i, r in enumerate(todo):
+    for i, (_, key, p) in enumerate(todo):
         time.sleep(DELAY)
-        p = r["player"]
         try:
             series = json.loads(get(FC_IMPLIED.format(fc_id=p["id"])))
         except Exception as e:
@@ -200,11 +223,11 @@ def fc_backfill(hist, limit):
         if not pts:
             n_empty += 1
             continue
-        merge_rows(hist, str(p["sleeperId"]), 2, pts)
+        merge_rows(hist, key, 2, pts)
         n_ok += 1
         if (i + 1) % 50 == 0:
             print(f"  {i + 1}/{len(todo)}, {n_ok} merged")
-    print(f"FC done: {n_ok} players merged, {n_empty} empty series")
+    print(f"FC done: {n_ok} assets merged, {n_empty} empty series")
 
 
 def player_links():
@@ -230,9 +253,30 @@ def main():
     ap.add_argument("--fc", action="store_true",
                     help="backfill FantasyCalc history (trades/implied) "
                          "instead of KTC pages")
+    ap.add_argument("--picks", action="store_true",
+                    help="backfill KTC mid-tier PICK pages (a dozen requests)")
     ap.add_argument("--limit", type=int, default=0)
-    ap.add_argument("--out", default=str(DATA / "values_history.json"))
+    ap.add_argument("--out", default=str(DATA / "values_history_deep.json"))
     args = ap.parse_args()
+
+    if args.picks:
+        hist = json.loads(Path(args.out).read_text(encoding="utf-8")) if Path(args.out).exists() else {}
+        html = get(BASE)
+        rows = json.loads(re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S).group(1))
+        mids = [(r["playerName"], r["slug"]) for r in rows
+                if r.get("slug") and re.match(r"^20\d\d Mid \d\w\w$", r.get("playerName", ""))]
+        print(f"{len(mids)} mid-tier picks")
+        n = 0
+        for label, slug in mids:
+            time.sleep(DELAY)
+            pts = sf_history(get(f"{BASE}/players/{slug}"))
+            if pts:
+                merge_rows(hist, f"pick:{label}", 1, pts)
+                n += 1
+                print(f"  pick:{label}  {len(pts)} pts  {pts[0][0]}..{pts[-1][0]}")
+        Path(args.out).write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
+        print(f"done: {n} picks -> {args.out}")
+        return
 
     if args.fc:
         hist = json.loads(Path(args.out).read_text(encoding="utf-8")) if Path(args.out).exists() else {}
