@@ -9,14 +9,20 @@ interface Opt { key: string; label: string; pos?: string; to: string }
 
 /** Typeahead for jumping straight to another player or team page without
  *  backing out to a leaderboard. Prefix matches rank above substring matches;
- *  teams (12 franchises, latest name) list ahead of players at equal rank. */
-export default function QuickJump() {
+ *  teams (12 franchises, latest name) list ahead of players at equal rank.
+ *
+ *  `path` rebases the destinations: the beta shell passes its own mapper so a
+ *  jump stays inside that shell instead of landing on the classic routes. The
+ *  paths handed to it are the classic shapes (/player/:pid, /franchise/:rid) —
+ *  the mapper owns any renaming. */
+export default function QuickJump({ path }: { path?: (p: string) => string }) {
   const { players } = useLeague();
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  const clp = useLeaguePath();
+  const lp = path ?? clp;
   const frs = useJson<Franchises>("franchises.json").data;
 
   const opts = useMemo<Opt[]>(() => {

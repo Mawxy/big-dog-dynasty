@@ -1,0 +1,190 @@
+/* ==========================================================================
+   LEAGUE (screens/League.tsx) — the six bands of the Current scope and the
+   three of History.
+
+   Its own file, not an append to beta.css: five other screens are being
+   rebuilt in the same tree this wave, and three agents editing one stylesheet
+   is a merge conflict by construction (the same reason beta.css carries three
+   "wave2" sections at its foot). Everything here is prefixed `lgx-`; anything
+   that already had a class in beta.css or style.css — .band, .v3tbl, .v3strip,
+   .v3-act, .v3-baskets, .v3-wv, .verdict, .tnote — is reused as it stands.
+
+   Defines NO tokens. Every colour, family and gutter comes from style.css's
+   `:root` and from `.v3`'s own --v3pad.
+   ========================================================================== */
+
+/* ---- the verdict panel --------------------------------------------------
+   style.css's `.verdict` is already the design system's verdict panel — a
+   labelled block on --band behind a 3px --acc left rule. The ONLY thing wrong
+   with it here is its gutter: it hardcodes the classic board's 22px margin,
+   and inside the beta shell that hangs it 8px off every band above and below
+   it. So this overrides the margin and nothing else — the anatomy stays in one
+   place. */
+.v3 .verdict.lgx-verdict { margin: 12px var(--v3pad) 14px; }
+
+/* ---- meter --------------------------------------------------------------
+   A meter sits BESIDE its figure, never behind it, and only on the column the
+   table is sorted by (SKILL §3). Two tables on this screen qualify and no
+   others: power rankings sorted by projected starter WAR, and a season's WAR
+   leaders. Both are WAR, which is unbounded — an index is already normalised
+   0–100 and a bar would restate it, which is why DVI and CVI never get one.
+
+   The fill is --acc-dim, the token that exists for exactly this ("mid-range
+   fill in a scaled bar"). Not --acc: the accent on this screen is spent on the
+   leader, and twelve gold bars would take it back. */
+.lgx-meter { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
+.lgx-meter .bar { flex: 1 1 auto; min-width: 16px; height: 4px; background: var(--bar-track); }
+.lgx-meter .bar i { display: block; height: 100%; background: var(--acc-dim); }
+.lgx-meter .f { flex: 0 0 auto; }
+
+/* ---- an in-table group band ---------------------------------------------
+   Sell high / buy low, over value / under value, rising / falling: three
+   modules on this screen are one population split by sign. On a desktop those
+   are twin panels side by side (views/Home.tsx). On a phone there is no
+   side-by-side, so the split becomes a band row inside one table — which is
+   better than two tables anyway, because the two halves then provably share a
+   column budget instead of drifting apart.
+
+   `white-space` is reset because .v3tbl's body cells are nowrap and this cell
+   carries a sentence. */
+.v3tbl tbody tr.lgx-grp td {
+  padding: 8px var(--v3pad) 7px;
+  background: var(--deep);
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+  white-space: normal;
+}
+.v3tbl tbody tr.lgx-grp:first-child td { border-top: 0; }
+.v3tbl tbody tr.lgx-grp .k {
+  font: 600 11.5px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase;
+  color: var(--dim);
+}
+.v3tbl tbody tr.lgx-grp .n {
+  margin-left: 9px;
+  font: 400 11px/1.4 var(--sans); color: var(--dim3);
+}
+
+/* ---- the market turn ----------------------------------------------------
+   The one seam on the screen where the subject changes. Everything above it is
+   about twelve franchises; the three bands below it price the whole dynasty
+   market and would read identically on any board. That is a fact the reader
+   has to be told, and a band note on each of the three would say it three
+   times without ever saying it once. So it is said here, as a divider that
+   carries a sentence rather than a label — deliberately NOT a `.band`, which
+   would read as a fourth section header sitting above three more. */
+.lgx-turn {
+  padding: 12px var(--v3pad) 12px;
+  background: var(--deep);
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+  font: 400 12px/1.5 var(--sans); color: var(--dim);
+}
+.lgx-turn b {
+  display: block; margin-bottom: 3px;
+  font: 600 11px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
+  color: var(--dim2);
+}
+
+/* ---- last seven days ----------------------------------------------------- */
+
+/* A tappable trade card. Same row rule and padding as .v3-act, which is a div
+   everywhere else; this is the one on the screen that is a control. (beta.css
+   has `.v3-act.tap` for the same job on a <button> — this is the anchor form,
+   because a trade card is a destination and should middle-click open.) */
+.v3-act.lgx-trade { display: block; color: inherit; }
+.v3-act.lgx-trade:hover { background: var(--sel); text-decoration: none; }
+
+/* The frozen at-trade figures under each basket. Inside the basket rather than
+   in the card header because they belong to ONE side, and a figure that
+   belongs to one side and sits above both is how a reader ends up thinking the
+   card totalled something. Both baskets take the same ink, always. */
+.lgx-bkfig {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 8px;
+  margin-top: 5px; padding-top: 5px;
+  border-top: 1px solid var(--hair);
+}
+.lgx-bkfig .k {
+  font: 600 9.5px/1.2 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.lgx-bkfig .v {
+  font: 600 12.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
+}
+
+/* the two counts, side by side, each with its own way through */
+.lgx-counts {
+  display: flex; gap: 1px;
+  background: var(--rule); border-bottom: 1px solid var(--rule);
+}
+.lgx-count {
+  flex: 1 1 0; min-width: 0;
+  display: flex; align-items: baseline; gap: 8px;
+  padding: 9px var(--v3pad) 10px;
+  background: var(--bg);
+}
+.lgx-count .k {
+  font: 600 10px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--dim); white-space: nowrap;
+}
+.lgx-count .v {
+  font: 700 17.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt);
+}
+.lgx-count .go {
+  margin-left: auto; flex: 0 0 auto;
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--acc); text-decoration: none;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.lgx-count .go:hover { text-decoration: none; color: var(--txt); }
+.lgx-count .go:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* Whose move it was, on the third line of a roster-move row. `.idc-s` already
+   owns the type; this only lifts it off the add/drop line above it, which was
+   an inline `style={{ marginTop: 4 }}` on the screen this replaces. */
+.v3-act .lgx-who { margin-top: 4px; }
+
+/* A QUIET BAND, not an empty table. A week with no trades in it is a fact
+   about the league, and a header over twelve pixels of nothing is the wrong
+   way to state it. */
+.lgx-quiet {
+  padding: 14px var(--v3pad) 15px;
+  border-bottom: 1px solid var(--rule);
+  font: 400 12.5px/1.5 var(--sans); color: var(--dim);
+}
+
+/* ---- the champion block (History) ---------------------------------------
+   The one screen element that is a name rather than a figure, so it gets the
+   accent and the size. Sits directly on --deep with the figure strip beneath
+   it, which is the split-rail shell's identity header collapsed to one column
+   (SKILL §4) — not a panel, because a panel inside the board is a card. */
+.lgx-champ {
+  padding: 14px var(--v3pad) 13px;
+  background: var(--deep);
+  border-bottom: 1px solid var(--rule);
+}
+.lgx-champ .k {
+  font: 600 11px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
+  color: var(--dim);
+}
+.lgx-champ .nm {
+  display: block; margin-top: 7px;
+  font: 700 28px/1.05 var(--cond); letter-spacing: .02em; text-transform: uppercase;
+  color: var(--acc);
+}
+.lgx-champ a.nm:hover { color: var(--acc); text-decoration: underline; }
+.lgx-champ .sub {
+  margin-top: 5px;
+  font: 400 12px/1.4 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim);
+}
+
+/* an em dash OUTSIDE a table. beta.css's `.nul` is scoped to `.v3tbl td`, and
+   a null in a basket figure or a champion block needs the same decorative ink
+   without inheriting a table's cell rules. */
+.lgx-nul { color: var(--dim3); }
+
+@media (min-width: 900px) {
+  /* the desktop step-up the rest of the shell already takes: rows tighten and
+     figures grow, so the champion's name stops being phone-sized on a rail
+     layout 208px narrower than the viewport */
+  .lgx-champ .nm { font-size: 38px; }
+  .lgx-turn { font-size: 12.5px; }
+}
