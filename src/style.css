@@ -675,20 +675,24 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   font: 600 11px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
   color: var(--dim); margin-bottom: 6px;
 }
-.drawer-row {
+/* .drawer-line, NOT .drawer-row: that class name belongs to the table drawer
+   <tr> (see "row drawer" below). A bare `.drawer-row { display:flex }` here
+   once turned every open table drawer's <tr> into a flex box, which ejects it
+   from table layout and blows the rank column out to the drawer's width. */
+.drawer-line {
   display: flex; align-items: baseline; gap: 10px;
   padding: 4px 0; border-top: 1px solid var(--hair);
 }
-.drawer-row:first-of-type { border-top: 0; }
-.drawer-row .k {
+.drawer-line:first-of-type { border-top: 0; }
+.drawer-line .k {
   flex: 0 0 118px;
   font: 600 11px/1.4 var(--cond); letter-spacing: .1em; text-transform: uppercase;
   color: var(--dim);
 }
-.drawer-row .v {
+.drawer-line .v {
   flex: 1; font: 600 14px/1.3 var(--cond); font-variant-numeric: tabular-nums;
 }
-.drawer-row .d {
+.drawer-line .d {
   font: 600 13px/1.3 var(--cond); font-variant-numeric: tabular-nums;
   text-align: right; min-width: 64px;
 }

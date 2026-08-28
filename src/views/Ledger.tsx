@@ -113,7 +113,7 @@ export default function Ledger() {
   const marketRow = (label: string, then: number | null | undefined, now: number | null) => {
     const known = then != null && now != null;
     return (
-      <div className="drawer-row" key={label}>
+      <div className="drawer-line" key={label}>
         <span className="k">{label}</span>
         <span className="v" style={{ color: known ? "var(--txt2)" : "var(--dim3)" }}>
           {then != null ? then.toLocaleString("en-US") : "—"}
@@ -220,7 +220,7 @@ export default function Ledger() {
                       <div className="drawer-team">{s.team}</div>
                       {marketRow("KTC since trade", s.mktThen, now.ktc)}
                       {marketRow("FC since trade", s.fcThen, now.fc)}
-                      <div className="drawer-row">
+                      <div className="drawer-line">
                         <span className="k">Realized WAR</span>
                         <span className="v">{sideRealized(s) == null ? "—" : fmtWar(s.war)}</span>
                         <span className="d" style={{ color: "var(--dim)" }}>
@@ -234,7 +234,7 @@ export default function Ledger() {
                         const nowV = a.pid ? ktcOf(vals?.players[a.pid], meta.tep) : null;
                         const known = a.mktDraft != null && nowV != null;
                         return (
-                          <div className="drawer-row" key={`pk${i}`}>
+                          <div className="drawer-line" key={`pk${i}`}>
                             <span className="k">{a.label.split(" → ")[0]} at draft</span>
                             <span className="v" style={{ color: known ? "var(--txt2)" : "var(--dim3)" }}>
                               {a.mktDraft!.toLocaleString("en-US")}
