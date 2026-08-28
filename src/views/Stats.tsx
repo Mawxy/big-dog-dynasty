@@ -122,7 +122,11 @@ export default function Stats() {
       .map(r => {
         const [id, p, gp, pts, ppg, , war, sdv] = r;
         return {
-          ...blankRow(id, pInfo(players, id)[0], p, pInfo(players, id)[2]),
+          // NFL club at the time (season scope) or last played (All-time),
+          // not today's — see SeasonData.nflTeams. Current club is only the
+          // fallback for data built before nfl_teams.json shipped.
+          ...blankRow(id, pInfo(players, id)[0], p,
+            data?.nflTeams?.[id] || pInfo(players, id)[2]),
           team: owners[id] || "—",
           gp, pts, ppg, sdv: sdv || 0, war, warG: gp ? war / gp : 0,
         };

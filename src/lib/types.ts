@@ -96,6 +96,11 @@ export type Ownership = Record<string, OwnEvent[]>;
 export interface SeasonData {
   summary: SummaryRow[];
   teams: Team[];
+  /** pid -> NFL club AT THE TIME (modal played-week team; <season>/nfl_teams.json).
+   *  All-time mode merges seasons oldest-first, so a player's last played club
+   *  wins. Absent for seasons whose dumps predate teams in the played files —
+   *  callers fall back to the current club from players_min. */
+  nflTeams?: Record<string, string>;
   /** present only in All-time mode: per-season raw data */
   allData: Record<string, { summary: SummaryRow[]; weekly: Weekly }> | null;
 }

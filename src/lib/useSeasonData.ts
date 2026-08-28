@@ -18,6 +18,10 @@ export function useSeasonData(season: string | null): SeasonData | null {
         const seasons = meta.seasons;
         const sums = await Promise.all(seasons.map(s => jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[])));
         const weeks = await Promise.all(seasons.map(s => jl<Weekly>(`${s}/weekly.json`).catch(() => ({} as Weekly))));
+        // NFL club at the time; merged oldest-first so the last played club
+        // wins — a retired player keeps his final team instead of going blank
+        const tms = await Promise.all(seasons.map(s => jl<Record<string, string>>(`${s}/nfl_teams.json`).catch(() => ({} as Record<string, string>))));
+        const nflTeams = Object.assign({}, ...tms) as Record<string, string>;
         const allData: NonNullable<SeasonData["allData"]> = {};
         seasons.forEach((s, i) => { allData[s] = { summary: sums[i], weekly: weeks[i] }; });
         const agg: Record<string, { pos: string; gp: number; pts: number; waa: number; war: number; wpts: number[] }> = {};
@@ -35,13 +39,14 @@ export function useSeasonData(season: string | null): SeasonData | null {
         // all-time: ownership is CURRENT ownership, not ownership in the last
         // season that happened to be played
         const teams = await jl<Team[]>(`${rosterSeasonOf(league)}/teams.json`);
-        if (live) setD({ summary, teams, allData });
+        if (live) setD({ summary, teams, nflTeams, allData });
       } else {
-        const [summary, teams] = await Promise.all([
+        const [summary, teams, nflTeams] = await Promise.all([
           jl<SummaryRow[]>(`${season}/summary.json`),
           jl<Team[]>(`${season}/teams.json`),
+          jl<Record<string, string>>(`${season}/nfl_teams.json`).catch(() => ({} as Record<string, string>)),
         ]);
-        if (live) setD({ summary, teams, allData: null });
+        if (live) setD({ summary, teams, nflTeams, allData: null });
       }
     })().catch(() => { if (live) setD({ summary: [], teams: [], allData: null }); });
     return () => { live = false; };

@@ -283,6 +283,29 @@ def main():
                 if ab:
                     absence[pid] = ab
         guard_write(sout / "absence.json", absence)
+
+        # --- NFL team AT THE TIME, per season: pid -> modal team across his
+        # played weeks (tie -> the later week's club, so a midseason trade
+        # settles on the destination). players_min.json only knows the CURRENT
+        # club, which is wrong for past seasons and blank for the retired —
+        # Derek Carr's 2024 line is a Saints line no matter where he isn't
+        # playing today. Only league-relevant pids (the summary population);
+        # seasons before played files carried teams simply publish nothing.
+        nfl_teams = {}
+        if played_maps:
+            wks_sorted = sorted(played_maps)
+            for pid in weekly:
+                cnt = {}
+                for w in wks_sorted:
+                    t = played_maps[w].get(pid)
+                    if t:
+                        cnt[t] = cnt.get(t, 0) + 1
+                if cnt:
+                    best = max(cnt.values())
+                    nfl_teams[pid] = [t for w in wks_sorted
+                                      if (t := played_maps[w].get(pid))
+                                      and cnt[t] == best][-1]
+        guard_write(sout / "nfl_teams.json", nfl_teams)
         for row in summary:                      # append point st-dev, then VoWP
             v = [w[1] for w in weekly.get(row[0], [])]
             row.append(round(statistics.stdev(v), 2) if len(v) > 1 else 0.0)  # [7] sdv
