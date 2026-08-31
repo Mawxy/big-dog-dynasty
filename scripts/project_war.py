@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-project_war.py — project rostered players' WAR forward 3 seasons using the
-model fit by aging_curves.py (per-13 rate + capital priors + availability).
+project_war.py — project players' WAR forward 3 seasons using the model fit
+by aging_curves.py (per-13 rate + capital priors + availability). Population:
+every rostered player, plus free agents whose Sleeper year-1 projection clears
+FA_PTS13_FLOOR (waiver-wire relevance; below it WAR reads N/A on the site).
 
-For each rostered player:
+For each player:
   1. LEVEL = recency/games-weighted per-13 rate over the last 3 seasons.
   2. Shrink toward the player's draft-capital prior by resume depth: a rookie
      leans on pedigree, a proven vet ignores it (this also encodes experience).
@@ -53,6 +55,10 @@ DECAY_DAMP = 0.6                    # anti-compounding: fraction pulled back tow
                                     # gradual ~62% QB / ~52% 3-yr retention, not ~47%)
 FULL_GP = 13
 MIN_GP = 4
+# Free agents enter the projection population when Sleeper's year-1 projection
+# clears this floor (league points per 13 games; ~7.7 PPG — startable-adjacent).
+# Below it a player is priced by the markets only and his WAR reads N/A.
+FA_PTS13_FLOOR = 100.0
 def prior_weight(exp, level):
     """Weight on the draft-capital prior. Fades two ways:
       - years since draft: ~0.5 yr1, 0.33 yr2, 0.17 yr3, 0 from yr4 on;
@@ -324,11 +330,21 @@ def main():
     def avail_for(pos, age):
         return group_for(avail[pos], age)['avail']
 
+    # The population: every rostered player, PLUS any free agent Sleeper
+    # projects above a relevance floor. The old `for pid in owner` made the
+    # model blind to exactly the players a projection is most useful for —
+    # waiver-wire pickups — and left the Value board unable to answer "is
+    # there anything worth adding". The floor keeps the tail out: below it a
+    # player still appears on the Value board via his market prices, with WAR
+    # shown as N/A (settled with Max, 2026-08-31).
+    population = set(owner) | {p for p, s in sproj.items()
+                               if (s.get('pts13') or 0) >= FA_PTS13_FLOOR}
     rows, skipped, age_def, rookies = [], 0, 0, 0
-    for pid in owner:
+    for pid in sorted(population):
         # a player with no league history is still projectable if we know his
         # fantasy draft capital — that's the whole point of the slot prior
-        pos = pos_s.get(pid) or (names.get(pid) or [None, None])[1]
+        pos = (pos_s.get(pid) or (names.get(pid) or [None, None])[1]
+               or (sproj.get(pid) or {}).get('pos'))
         if not pos or pos not in curves or not curves[pos]:
             if pid not in pos_s:
                 skipped += 1
@@ -462,7 +478,7 @@ def main():
         exp0 = (seed - draft_season + 1) if draft_season else None
         pw0 = prior_weight(exp0, L0 if L0 is not None else 0.0)
         rows.append({
-            'pid': pid, 'name': nm, 'pos': pos, 'team': owner[pid],
+            'pid': pid, 'name': nm, 'pos': pos, 'team': owner.get(pid, ''),
             # PUBLISHED age is the roster season's, not the seed's. base_age is
             # deliberately seed-anchored because the aging curve walks forward
             # from it (age = base_age + (frm - seed)), but the site renders this
@@ -485,8 +501,9 @@ def main():
 
     # projected positional finish per year (composite stream): lets the UI say
     # "WAR declines but he's still WR6" — ranks fall far slower than raw WAR
-    # because the whole position ages together. Ranked among projected
-    # (rostered) players, same convention as the leaderboard pos ranks.
+    # because the whole position ages together. Ranked among ALL projected
+    # players (rostered + floor-clearing FAs), same convention as the
+    # leaderboard pos ranks.
     for y in range(H):
         for ps in {r['pos'] for r in rows}:
             grp = sorted((r for r in rows if r['pos'] == ps),

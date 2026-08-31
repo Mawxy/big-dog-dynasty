@@ -146,11 +146,20 @@ export default function Value() {
       row.cvi = r.cvi;
       byId.set(pid, row);
     }
-    // prices attach to known players, never create rows — values.json is
-    // global and would otherwise flood the page with unrostered players
+    // Prices CREATE rows now, deliberately: the board's population is "anyone
+    // with a value", not "anyone we project" — a market feed row is exactly
+    // how a waiver-wire or rookie name gets on the board at all. A player
+    // below the projection floor shows KTC/FC/ECR with WAR as "—" (N/A, not
+    // zero — settled with Max, 2026-08-31). Only players players_min can name
+    // enter; an id the map doesn't know would render "#12345 · ?".
     for (const [pid, r] of Object.entries(vals?.players ?? {})) {
-      const row = byId.get(pid);
-      if (!row) continue;
+      let row = byId.get(pid);
+      if (!row) {
+        const info = players[pid];
+        if (!info) continue;
+        row = blankRow(pid, info[0], info[1], "");
+        byId.set(pid, row);
+      }
       row.ktc = ktcOf(r, meta.tep);
       row.fc = r.fc ?? null;
     }
@@ -160,11 +169,19 @@ export default function Value() {
       const row = k.pid ? byId.get(k.pid) : undefined;
       if (row) row.warK = k.proj?.[0] ?? null;
     }
+    // consensus creates rows too, same rules as prices above
     const slug = Object.keys(ecr?.formats ?? {})[0];
     if (slug) for (const [pid, byFmt] of Object.entries(ecr?.players ?? {})) {
-      const row = byId.get(pid);
       const e = byFmt[slug];
-      if (row && e) row.ecr = e.ecr ?? null;
+      if (!e?.ecr) continue;
+      let row = byId.get(pid);
+      if (!row) {
+        const info = players[pid];
+        if (!info) continue;
+        row = blankRow(pid, info[0], info[1], "");
+        byId.set(pid, row);
+      }
+      row.ecr = e.ecr;
     }
     const all = [...byId.values()];
     all.forEach(r => { r.team = owners[r.id] || "—"; });

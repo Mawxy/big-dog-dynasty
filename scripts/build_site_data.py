@@ -551,6 +551,19 @@ def main():
             })
         seasons.append(season)
 
+    # players_min also names players the league has never rostered but the
+    # Value board now lists: anyone with a market price (values.json), an ECR
+    # rank, or a Sleeper projection. Only ids the Sleeper map knows are added —
+    # a row reading "#12345 · ?" helps nobody. `used_ids` stays the base so
+    # nothing that used to resolve stops resolving.
+    for extra, keyer in ((root_out / "values.json", "players"),
+                         (root_out / "ecr.json", "players"),
+                         (out / "proj_sleeper.json", "players")):
+        if extra.exists():
+            for pid in (load(extra).get(keyer) or {}):
+                if pid in players:
+                    used_ids.add(pid)
+
     pmin = {}
     for pid in used_ids:
         p = players.get(pid)
