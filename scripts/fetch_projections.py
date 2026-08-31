@@ -206,28 +206,42 @@ def main():
                         "ppg": round(pts / NFL_SEASON_GAMES, 2),
                         "raw_pts": round(pts, 1)}
 
-        # Weekly fallback for anyone the season endpoint listed at ADP only.
-        # Aggregate coverage is nearly identical (76 scored QBs weekly vs 77
-        # season-long for 2026) but MEMBERSHIP differs, so this rescues a
-        # handful of real players rather than lifting coverage wholesale.
+        # The weekly pass serves two consumers from one set of calls:
+        #
+        # 1. FALLBACK rows for anyone the season endpoint listed at ADP only.
+        #    Aggregate coverage is nearly identical (76 scored QBs weekly vs 77
+        #    season-long for 2026) but MEMBERSHIP differs, so this rescues a
+        #    handful of real players rather than lifting coverage wholesale.
+        # 2. A PER-ACTIVE-GAME ppg for everyone with weekly lines. Rotowire's
+        #    season total bakes in an availability discount (Jayden Reed 2026:
+        #    ~13.2 PPR every projected week but a 197.6 season total ≈ 15
+        #    games), so season/17 published 11.7 while the Sleeper app showed
+        #    13 — the site read as disagreeing with Sleeper when it was only
+        #    dividing by scheduled games instead of played ones. ppg is now the
+        #    mean of his projected weeks (what the app shows); pts13 stays the
+        #    season-total expectation, availability discount included.
         if args.weekly_fallback:
-            wk_pts = defaultdict(float)
+            wk_pts, wk_n = defaultdict(float), defaultdict(int)
             for wk in range(1, args.weekly_fallback + 1):
                 for item in get(week_proj_url(season, wk, pos)) or []:
                     pid = str(item.get("player_id") or "")
                     st = item.get("stats") or {}
-                    if pid and pid not in out and st:
+                    if pid and st and scored(st):
                         wk_pts[pid] += score_line(st, scoring, pos)
+                        wk_n[pid] += 1
                 time.sleep(0.2)
             rescued = 0
             for pid, pts in wk_pts.items():
-                if pts <= 0:
+                if pid in out or pts <= 0:
                     continue
                 out[pid] = {"pos": pos,
                             "pts13": round(pts / NFL_SEASON_GAMES * LEAGUE_GAMES, 2),
                             "ppg": round(pts / NFL_SEASON_GAMES, 2),
                             "raw_pts": round(pts, 1), "src": "weekly"}
                 rescued += 1
+            for pid, n in wk_n.items():
+                if n and pid in out and out[pid]["pos"] == pos:
+                    out[pid]["ppg"] = round(wk_pts[pid] / n, 2)
             if rescued:
                 print(f"  {pos}: +{rescued} from the weekly endpoint")
 
@@ -246,7 +260,10 @@ def main():
                  f"(season {season}) — not yet published? refusing to overwrite {dest}")
     result = {"meta": {"season": season, "league_id": league_id,
                        "league_games": LEAGUE_GAMES, "players": len(out),
-                       "note": "pts13 = league-scored projected points scaled to 13 games"},
+                       "note": "pts13 = league-scored projected points scaled to 13 games "
+                               "(availability discount included); ppg = mean of the player's "
+                               "projected WEEKS where weekly lines exist (per-active-game, "
+                               "matches the Sleeper app), else season/17"},
               "players": out}
     atomic_write(dest, json.dumps(result, separators=(",", ":")))
     print(f"wrote {dest}  ({len(out)} players, season {season})")
