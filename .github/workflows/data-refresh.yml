@@ -65,6 +65,27 @@ jobs:
         run: python scripts/sleeper_war.py --data sleeper_data
       - name: Build site JSON
         run: python scripts/build_site_data.py --data sleeper_data --out data
+      # ---- Pineapple Pizza FFL (redraft; alias pineapple-pizza) -------------
+      # Same pull -> WAR -> build chain against its own dump dir. Its build
+      # MERGES into data/leagues.json (build_site_data replaces only its own
+      # entry), so the two leagues can build in either order. The player map is
+      # shared from the cached copy above rather than re-downloaded. The whole
+      # block is fail-soft: a problem with the second league must never cost
+      # Big Dog its daily refresh.
+      - name: Pineapple Pizza — pull, WAR, build
+        id: pizza
+        continue-on-error: true
+        run: |
+          python scripts/sleeper_pull.py 1382780734728597504 --out sleeper_data_pizza
+          cp sleeper_data/players.json sleeper_data_pizza/players.json
+          python scripts/sleeper_war.py --data sleeper_data_pizza
+          python scripts/build_site_data.py --data sleeper_data_pizza --out data
+      - name: Flag Pineapple Pizza failure
+        if: steps.pizza.outcome == 'failure'
+        run: |
+          echo "::warning title=Pineapple Pizza refresh failed::the second \
+          league's pull/WAR/build failed; its site data is a day stale. Big Dog \
+          continues unaffected."
       - name: Rebuild pick values (Bridge A; needs data/<season>/summary.json)
         run: python scripts/pick_value.py
       - name: Draft results per franchise (needs data/pick_values.json)
