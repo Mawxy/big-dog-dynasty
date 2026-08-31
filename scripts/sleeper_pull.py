@@ -17,7 +17,7 @@ Usage:
 
 No dependencies beyond the standard library. Read-only API, no auth.
 """
-import argparse, json, sys
+import argparse, datetime as _dt, json, sys
 from pathlib import Path
 
 # One Sleeper client for the whole repo. This script's semantics ARE the shared
@@ -36,6 +36,26 @@ def require(obj, what):
     if obj is None:
         raise RuntimeError(f"Sleeper returned null for {what} — refusing to save")
     return obj
+
+def effective_week(season, state):
+    """The week whose lineups count as "being set right now".
+
+    Sleeper's state doesn't read regular/week 1 until kickoff week, but
+    managers set week-1 lineups well before that — so from SEPTEMBER 1 of the
+    season year (Max's ruling, 2026-08-31) the upcoming week 1 is treated as
+    current for set-lineup capture. In-season this is simply the live week.
+    Post-season the guard is structural: a scored week never reaches the
+    unscored branch this feeds, so a stale "off" state can't re-arm week 1.
+    """
+    if not state or str(state.get("season")) != str(season):
+        return None
+    if state.get("season_type") == "regular":
+        return state.get("week") or None
+    if state.get("season_type") in ("pre", "off") and str(season).isdigit():
+        if _dt.date.today() >= _dt.date(int(season), 9, 1):
+            return 1
+    return None
+
 
 def week_complete(season, wk, state):
     """Is (season, wk) a FULLY-played week, safe to freeze as final?
@@ -191,8 +211,7 @@ def dump_league(league_id: str, root: Path, state=None):
             # kept — Sleeper returns starters for future weeks too, but those
             # are defaults nobody has looked at yet, not decisions. Rewritten
             # every pull, since the live week's lineups change daily.
-            if (state and str(state.get("season")) == str(season)
-                    and state.get("week") == wk
+            if (effective_week(season, state) == wk
                     and any(t.get("starters") for t in m)):
                 save({str(t["roster_id"]): t.get("starters") or [] for t in m},
                      d / "lineups" / f"week_{wk:02d}.json")
