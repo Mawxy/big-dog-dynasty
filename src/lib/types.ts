@@ -86,6 +86,10 @@ export interface Matchups {
   playoff_start: number; teams: Record<string, MatchEntry[]>;
   /** future-week pairings from Sleeper (preseason): week -> [[ridA, ridB], ...] */
   schedule?: Record<string, [number, number][]>;
+  /** the LIVE week's lineups as managers actually set them (rid -> starters,
+   *  "0" = empty slot). Its projection prices this lineup; future weeks stay
+   *  best-projected. Absent out of season / in data built before it. */
+  set?: { week: number; starters: Record<string, string[]> };
 }
 
 /** data/<season>/odds.json — the pregame line for every matchup, played or

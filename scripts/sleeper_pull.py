@@ -185,6 +185,17 @@ def dump_league(league_id: str, root: Path, state=None):
             pairs = sorted(sorted(v) for v in bym.values() if len(v) == 2)
             if pairs:
                 save(pairs, d / "schedule" / f"week_{wk:02d}.json")
+            # The CURRENT week's SET lineups (settled with Max, 2026-08-31):
+            # its projection should price the lineup as managers actually set
+            # it, while future weeks stay best-projected. Only the live week is
+            # kept — Sleeper returns starters for future weeks too, but those
+            # are defaults nobody has looked at yet, not decisions. Rewritten
+            # every pull, since the live week's lineups change daily.
+            if (state and str(state.get("season")) == str(season)
+                    and state.get("week") == wk
+                    and any(t.get("starters") for t in m)):
+                save({str(t["roster_id"]): t.get("starters") or [] for t in m},
+                     d / "lineups" / f"week_{wk:02d}.json")
         t = get(f"/league/{league_id}/transactions/{wk}")
         if t:
             save(t, d / "transactions" / f"week_{wk:02d}.json")

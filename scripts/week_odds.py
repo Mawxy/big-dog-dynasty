@@ -288,25 +288,44 @@ def season_odds(season, ld, raw_root, sproj):
             opp = {}
             for a, b in pairs:
                 opp[a], opp[b] = b, a
+            # the LIVE week prices the lineup managers actually set; future
+            # weeks stay best-projected (settled with Max, 2026-08-31)
+            set_lineups = ((mw.get("set") or {}).get("starters")
+                           if (mw.get("set") or {}).get("week") == wk else None)
+
+            def week_val(pid):
+                sp = sproj.get(pid) or {}
+                wkmap = sp.get("wk")
+                # week-specific line first: matchup-adjusted, and a bye
+                # week's 0.0 lets best_lineup bench him, as a manager would
+                return wkmap.get(str(wk), 0.0) if wkmap else sp.get("ppg")
+
             for t in teams:
                 rid = t["roster_id"]
-                cands = []
-                for pid in t.get("players") or []:
-                    po = pos_of(pid)
-                    if not po:
-                        continue
-                    # week-specific line first: matchup-adjusted, and a bye
-                    # week's 0.0 lets best_lineup bench him, as a manager would
-                    sp = sproj.get(pid) or {}
-                    wkmap = sp.get("wk")
-                    val = (wkmap.get(str(wk), 0.0) if wkmap else sp.get("ppg"))
-                    if val is None:
-                        val = dist(pid)[0]
-                    cands.append((pid, po, val))
                 mus, vs = [], []
-                for pid, _po, val in best_lineup(cands, slots):
-                    mus.append(val)
-                    vs.append(dist(pid)[1] ** 2)
+                set_l = (set_lineups or {}).get(str(rid))
+                if set_l:
+                    for pid in set_l:
+                        if not pid or pid == "0":   # empty lineup slot
+                            continue
+                        val = week_val(pid)
+                        if val is None:
+                            val = dist(pid)[0]
+                        mus.append(val)
+                        vs.append(dist(pid)[1] ** 2)
+                else:
+                    cands = []
+                    for pid in t.get("players") or []:
+                        po = pos_of(pid)
+                        if not po:
+                            continue
+                        val = week_val(pid)
+                        if val is None:
+                            val = dist(pid)[0]
+                        cands.append((pid, po, val))
+                    for pid, _po, val in best_lineup(cands, slots):
+                        mus.append(val)
+                        vs.append(dist(pid)[1] ** 2)
                 sides[rid] = (sum(mus), sum(vs), opp.get(rid))
 
         wkout = {}

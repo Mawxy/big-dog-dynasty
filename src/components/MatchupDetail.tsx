@@ -106,16 +106,38 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
           .slice(0, BENCH_SHOWN),
       };
     }
-    // not played: project the best legal lineup by expected points — THIS
-    // week's own projection line, not the season average multiplied out. A
-    // weekly-covered player with no line this week is on bye (0.0, so the
-    // optimizer benches him, as a manager would); season-only rows keep ppg.
+    // not played: price with THIS week's own projection line, not the season
+    // average multiplied out. A weekly-covered player with no line this week
+    // is on bye (0.0); season-only rows keep ppg.
+    const wkPts = (pid: string) => {
+      const sp = sproj?.players?.[pid];
+      return sp?.wk ? sp.wk[String(wk)] ?? 0 : sp?.ppg ?? 0;
+    };
+    // The LIVE week shows the lineup as the manager actually SET it (settled
+    // with Max, 2026-08-31); future weeks stay the best legal projection.
+    const setL = mw.set?.week === wk ? mw.set.starters[String(r)] : undefined;
+    if (setL?.length) {
+      const rows = setL.map((pid, i) => ({
+        label: SLOT_LABEL[lineup[i]] ?? lineup[i] ?? "?",
+        pid: pid && pid !== "0" ? pid : null,
+        pts: pid && pid !== "0" ? wkPts(pid) : 0,
+        war: null,
+      }));
+      const total = rows.reduce((a, s) => a + s.pts, 0);
+      // the optimal projection still prices `max`, so the header can show
+      // what the set lineup leaves on the bench
+      const poolAll = (team?.players ?? [])
+        .map(pid => ({ id: pid, pos: pInfo(players, pid)[1], war: wkPts(pid) }))
+        .filter(p => p.war > 0);
+      const best = optimalLineup(poolAll, lineup).slots
+        .reduce((a, s) => a + (s.player?.war ?? 0), 0);
+      return {
+        rid: r, name, slots: rows, total,
+        hasBench: true, max: Math.max(best, total), benched: [],
+      };
+    }
     const pool = (team?.players ?? [])
-      .map(pid => {
-        const sp = sproj?.players?.[pid];
-        const pts = sp?.wk ? sp.wk[String(wk)] ?? 0 : sp?.ppg ?? 0;
-        return { id: pid, pos: pInfo(players, pid)[1], war: pts };
-      })
+      .map(pid => ({ id: pid, pos: pInfo(players, pid)[1], war: wkPts(pid) }))
       .filter(p => p.war > 0);
     const { slots } = optimalLineup(pool, lineup);
     return {

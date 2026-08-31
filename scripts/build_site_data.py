@@ -277,6 +277,21 @@ def main():
                     "teams": mws}
         if sched:
             mpayload["schedule"] = sched
+        # The live week's SET lineups, saved by sleeper_pull for the current
+        # unscored week only: its matchup projection prices the lineup as
+        # managers actually set it; future weeks stay best-projected. The
+        # newest unscored lineups file wins (a stale one from a week that has
+        # since scored is superseded by the real result in `mws`).
+        ldir = sdir / "lineups"
+        if ldir.exists():
+            for lf in sorted(ldir.glob("week_*.json"), reverse=True):
+                lwk = int(lf.stem.split("_")[1])
+                if any(e[0] == lwk for rows_m in mws.values() for e in rows_m):
+                    continue          # already scored — the set lineup is history
+                starters = load(lf) or {}
+                if starters:
+                    mpayload["set"] = {"week": lwk, "starters": starters}
+                break
         atomic_write(sout / "matchups.json", json.dumps(mpayload, separators=(",", ":")))
 
         # --- absences: label each missing regular-season week BYE / DNP / NR ---
