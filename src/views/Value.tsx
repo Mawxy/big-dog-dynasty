@@ -106,7 +106,12 @@ export default function Value() {
 
   const { sortId, dir, onSort } = useTableSort("dvi");
   const [openPid, setOpenPid] = useState<string | null>(null);
-  const { bar, apply } = usePlayerFilters(() => setOpenPid(null));
+  // roster select for the shared bar — the Value board's rows carry current
+  // ownership in `team`, so the options come from the same teams.json
+  const fantasyTeams = useMemo(
+    () => curTeams ? [...new Set(curTeams.map(t => t.team))].sort((a, b) => a.localeCompare(b)) : undefined,
+    [curTeams]);
+  const { bar, apply } = usePlayerFilters(() => setOpenPid(null), { teams: fantasyTeams });
 
   // MOBILE.md M4 — pan the board, on a six-column budget: the three model
   // figures then Roster. The market columns are on the player page.

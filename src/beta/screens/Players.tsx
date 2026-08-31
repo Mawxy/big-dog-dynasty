@@ -5,7 +5,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
-import { useCviQuery, useDviQuery, useProjWar } from "../../lib/useIndices";
+import { useCviQuery, useDviQuery, useProjWar1 } from "../../lib/useIndices";
 import { fmt, fmtWar, meterWidth } from "../../lib/stats";
 import { ktcOf } from "../../lib/values";
 import {
@@ -267,12 +267,14 @@ export default function Players() {
 
   const dviQ = useDviQuery();
   const cviQ = useCviQuery();
-  const projWar = useProjWar();
+  // YEAR-1 projected WAR, not the 3-year total: on a board beside PPG and
+  // CVI, "Proj WAR" reads as next season (settled with Max, 2026-08-31).
+  const projWar = useProjWar1();
   /* projections_matrix.json is already in flight for `projWar`; reading it
      directly costs one more `.then` on the same cached promise and is what
      supplies age and the analog curve, neither of which the index files carry.
      The three model files are NOT gated on the tense the way the market files
-     below are: useDvi/useCvi/useProjWar have no "don't fetch" form, and forking
+     below are: useDvi/useCvi/useProjWar1 have no "don't fetch" form, and forking
      the projection-model logic into this screen to get one would put a second
      publisher on the number the masthead control drives. */
   const mxQ = useJson<MatrixFile>(hist ? null : "projections_matrix.json");

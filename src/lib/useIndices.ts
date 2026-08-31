@@ -115,6 +115,39 @@ export function useProjWar(): Record<string, number> | null {
 }
 
 /**
+ * Projected YEAR-1 WAR for the curve the site is being read under — the
+ * next-season figure, not useProjWar's 3-year total.
+ *
+ * The beta price board shows this one: a board column labeled "Proj WAR" next
+ * to single-season figures (PPG, CVI) reads as next year, and the 3-year
+ * total quietly tripling it made projections look inflated. The trade
+ * machine's WAR column deliberately stays on the 3-year total — a traded
+ * asset is bought for its stream, not its next season.
+ */
+export function useProjWar1(): Record<string, number> | null {
+  const { curve } = useModel();
+  const mx = useJson<MatrixFile>("projections_matrix.json");
+  const flat = useJson<ProjectionsFile>("projections.json");
+  return useMemo(() => {
+    if (mx.data) {
+      const out: Record<string, number> = {};
+      for (const r of mx.data.players) {
+        const y1 = r[curve]?.[0];
+        if (y1 != null) out[r.pid] = y1;
+      }
+      return out;
+    }
+    if (!flat.data) return null;
+    // pre-matrix data: composite[0] is the same number scalar_composite[0]
+    // would carry (locked by tests/test_curves.py)
+    const out: Record<string, number> = {};
+    for (const p of flat.data.players)
+      if (p.composite?.[0] != null) out[p.pid] = p.composite[0];
+    return out;
+  }, [mx.data, flat.data, curve]);
+}
+
+/**
  * Whether a player has a second opinion at all, for the two curves that would
  * otherwise be silent about it.
  *

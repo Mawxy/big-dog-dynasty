@@ -154,10 +154,19 @@ export function BoardScope({ on }: { on: "value" | "stats" }) {
  * same affordance wherever a list of players is, and it only ever reads `pos`
  * and `nm`.
  */
-export function usePlayerFilters<T extends { pos: string; nm: string } = PlayerRow>(
+/** the "no team" option — "—" is literally what an unrostered row's `team`
+ *  holds, so the sentinel and the data agree by construction */
+const NO_TEAM = "—";
+
+export function usePlayerFilters<T extends { pos: string; nm: string; team?: string } = PlayerRow>(
   onChange?: () => void,
+  /** `teams`: the league's fantasy team names for this scope, sorted — passing
+   *  it is what turns the roster select on. Boards whose rows carry no roster
+   *  column (the index boards) simply don't pass it and keep the old bar. */
+  opts: { teams?: string[] } = {},
 ) {
   const [pos, setPos] = useState("ALL");
+  const [tm, setTm] = useState("ALL");
   /**
    * The query the FILTER reads — one beat behind the box, deliberately, and
    * owned here rather than in the box.
@@ -176,6 +185,24 @@ export function usePlayerFilters<T extends { pos: string; nm: string } = PlayerR
         <button key={p} className={`chip ${pos === p ? "on" : ""}`}
           onClick={() => { setPos(p); onChange?.(); }}>{p === "ALL" ? "All" : p}</button>
       ))}
+      {/* Fantasy-roster select, in the season-chip idiom (span sizes, select
+          overlays — see SeasonPicker for why a bare styled select clips).
+          "No team" matches the unrostered "—": waiver-wire and departed
+          players. */}
+      {opts.teams && opts.teams.length > 0 && (
+        <span className={`filter-chip ${tm !== "ALL" ? "on" : ""}`}>
+          <span className="season-chip-label">
+            {tm === "ALL" ? "Roster · All" : tm === NO_TEAM ? "No team" : tm}
+          </span>
+          <select value={tm} aria-label="Fantasy roster"
+            onChange={e => { setTm(e.target.value); onChange?.(); }}>
+            <option value="ALL">All rosters</option>
+            {opts.teams.map(t => <option key={t} value={t}>{t}</option>)}
+            <option value={NO_TEAM}>No team</option>
+          </select>
+          <span className="season-chip-caret" aria-hidden="true">▾</span>
+        </span>
+      )}
       {/* setQd is a setState function, so its identity is stable and the
           debounce timer below is never restarted by a parent re-render */}
       <SearchBox onQuery={setQd} />
@@ -189,9 +216,11 @@ export function usePlayerFilters<T extends { pos: string; nm: string } = PlayerR
   const apply = useCallback((rows: T[]) => {
     let rs = rows;
     if (pos !== "ALL") rs = rs.filter(r => r.pos === pos);
+    if (tm !== "ALL") rs = tm === NO_TEAM ? rs.filter(r => !r.team || r.team === NO_TEAM)
+      : rs.filter(r => r.team === tm);
     if (qd) rs = rs.filter(r => r.nm.toLowerCase().includes(qd.toLowerCase()));
     return rs;
-  }, [pos, qd]);
+  }, [pos, tm, qd]);
 
   return { bar, apply };
 }

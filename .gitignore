@@ -1,4 +1,5 @@
 sleeper_data/
+sleeper_data_pizza/
 __pycache__/
 node_modules/
 dist/

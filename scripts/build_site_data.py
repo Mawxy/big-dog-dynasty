@@ -24,8 +24,14 @@ ALLOW_EMPTY = False   # set by --allow-empty
 # override the name-derived default; leave a league out and it gets
 # "<slugified-name>-<last 4 of key>".
 ALIASES = {
-    "814608002207334400": "big-dog",     # Big Dog Dynasty
+    "814608002207334400": "big-dog",           # Big Dog Dynasty
+    "1001613650664165376": "pineapple-pizza",  # Pineapple Pizza FFL (redraft)
 }
+
+# Sleeper settings.type -> what kind of league this is. The site keys real
+# behavior off this (redraft hides market values, franchises key by owner),
+# so it is derived from the league itself, never hand-set.
+LEAGUE_KIND = {0: "redraft", 1: "keeper", 2: "dynasty"}
 
 def slugify(s):
     return re.sub(r"-+", "-", re.sub(r"[^a-z0-9]+", "-", (s or "").lower())).strip("-") or "league"
@@ -73,6 +79,7 @@ def main():
     players = load(root / "players.json")
     used_ids, seasons, league_name = set(), [], "League"
     roster_positions, taxi_slots, league_tep = [], 0, ""
+    league_kind = "dynasty"       # overwritten from settings.type per season
     latest_with_data = None
     chain = {}            # season -> league_id
     prev_of = {}          # league_id -> previous_league_id (None at the founder)
@@ -80,8 +87,10 @@ def main():
     members = []          # every user_id in the newest season
     pts_min, pts_max = 0.0, 0.0   # league-wide extremes of any single weekly score
     own = {}          # player_id -> [(sortkey, season, week, text), ...]
-    # (season, roster_id) whose Sleeper owner had no team/display name that year
-    name_override = {("2023", 9): "PicklesPapa"}
+    # (league_id, roster_id) whose Sleeper owner had no team/display name that
+    # year. Keyed by the SEASON's league_id, not the season string — a second
+    # league's 2023 roster 9 is a different team and must not inherit this.
+    name_override = {("916360462835634176", 9): "PicklesPapa"}   # Big Dog 2023
     franchises = {}   # roster_id -> {seasons:[...], tx:[...]} (franchise = stable roster_id)
     def fr(rid):
         return franchises.setdefault(rid, {"seasons": [], "tx": []})
@@ -122,6 +131,9 @@ def main():
         # optimal-lineup view (starters vs bench) from roster WAR
         roster_positions = league.get("roster_positions") or roster_positions
         taxi_slots = (league.get("settings") or {}).get("taxi_slots", taxi_slots)
+        # newest season's settings.type wins; a league that converts is judged
+        # by what it is now
+        league_kind = LEAGUE_KIND.get((league.get("settings") or {}).get("type"), league_kind)
         # newest season's scoring wins too: which KTC column prices this league
         league_tep = tep_class(league)
         sout = out / season
@@ -148,9 +160,9 @@ def main():
             used_ids.update(plist)
             teams.append({
                 "roster_id": r["roster_id"],
-                "team": name_override.get((season, r["roster_id"])) or meta.get("team_name")
+                "team": name_override.get((league["league_id"], r["roster_id"])) or meta.get("team_name")
                         or u.get("display_name") or f"Team {r['roster_id']}",
-                "manager": name_override.get((season, r["roster_id"]), u.get("display_name", "?")),
+                "manager": name_override.get((league["league_id"], r["roster_id"]), u.get("display_name", "?")),
                 "wins": st.get("wins", 0), "losses": st.get("losses", 0), "ties": st.get("ties", 0),
                 "fpts": round(st.get("fpts", 0) + st.get("fpts_decimal", 0) / 100, 1),
                 "players": plist,
@@ -583,25 +595,51 @@ def main():
     # falls back to its id — a visible condition in this file rather than an
     # algorithm that silently reassigns URLs. Full ids always resolve, so an
     # alias is never load-bearing.
+    # MERGE into the registry, never overwrite it. Each run of this script
+    # builds ONE league from one --data dump; the registry holds them all, so
+    # writing a single-league object here is how adding a league deletes every
+    # other one from the site. This league's entry is replaced in place (or
+    # appended); everyone else's rides through untouched. The default stays
+    # whatever it already is — the first league ever written claims it, and
+    # changing it after that is an edit to the file, not a side effect of
+    # whichever league happened to build last.
     if seasons and founder:
         alias = ALIASES.get(founder) or f"{slugify(league_name)}-{founder[-4:]}"
+        try:
+            reg = load(root_out / "leagues.json")
+        except (OSError, ValueError):
+            reg = {}
+        entries = [e for e in (reg.get("leagues") or []) if e.get("key")]
+        # an alias collision falls back to the id (see docstring above) —
+        # checked against the OTHER leagues, not our own previous entry
+        if any(e.get("alias") == alias and e.get("key") != founder for e in entries):
+            alias = founder
+        entry = {
+            "key": founder,
+            "alias": alias,
+            "name": league_name,
+            # dynasty | keeper | redraft, from settings.type — gates market
+            # display and franchise keying downstream
+            "kind": league_kind,
+            "seasons": seasons,
+            # `latest` is the newest season with games played; `rosterSeason`
+            # is whose rosters are live. They differ all offseason, and
+            # conflating them is what showed the rookie class as unowned.
+            "latest": latest_with_data,
+            "rosterSeason": max(seasons),
+            "currentLeagueId": chain[max(seasons)],
+            "chain": chain,
+            "commissioners": commissioners,
+            "members": members,
+        }
+        idx = next((i for i, e in enumerate(entries) if e["key"] == founder), None)
+        if idx is None:
+            entries.append(entry)
+        else:
+            entries[idx] = entry
         guard_write(root_out / "leagues.json", {
-            "default": founder,
-            "leagues": [{
-                "key": founder,
-                "alias": alias,
-                "name": league_name,
-                "seasons": seasons,
-                # `latest` is the newest season with games played; `rosterSeason`
-                # is whose rosters are live. They differ all offseason, and
-                # conflating them is what showed the rookie class as unowned.
-                "latest": latest_with_data,
-                "rosterSeason": max(seasons),
-                "currentLeagueId": chain[max(seasons)],
-                "chain": chain,
-                "commissioners": commissioners,
-                "members": members,
-            }],
+            "default": reg.get("default") or founder,
+            "leagues": entries,
         }, content=founder)
 
     # gauge meta on `latest`: regressing it to null means no season produced
@@ -616,6 +654,7 @@ def main():
     guard_write(out / "meta.json", {
         "league": league_name, "seasons": seasons, "latest": latest_with_data,
         "rosterSeason": max(seasons) if seasons else None,
+        "kind": league_kind,
         "rosterPositions": roster_positions, "taxiSlots": taxi_slots,
         # TE-premium class (crawl_schema.tep_class): "" | tep | tepp | teppp.
         # The site reads KTC through lib/values.ktcOf(), which maps this to

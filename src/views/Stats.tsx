@@ -87,7 +87,13 @@ export default function Stats() {
 
   const { sortId, dir, onSort, reset: resetSort } = useTableSort("war");
   const [openPid, setOpenPid] = useState<string | null>(null);
-  const { bar, apply } = usePlayerFilters(() => setOpenPid(null));
+  // the league's fantasy teams for this scope, for the bar's roster select —
+  // same source the Roster column reads, so the options match the cells
+  // (All-time mode's teams.json is current ownership, and so is its column)
+  const fantasyTeams = useMemo(
+    () => data ? [...new Set(data.teams.map(t => t.team))].sort((a, b) => a.localeCompare(b)) : undefined,
+    [data]);
+  const { bar, apply } = usePlayerFilters(() => setOpenPid(null), { teams: fantasyTeams });
 
   // a scope change resets to the resting order and closes the drawer
   useEffect(() => {

@@ -16,6 +16,9 @@ export interface LeagueEntry {
   /** URL alias, e.g. "big-dog". May collide across leagues; the key never does */
   alias: string;
   name: string;
+  /** dynasty | keeper | redraft, from Sleeper settings.type — gates market
+   *  display and franchise keying. Absent in data built before this field. */
+  kind?: "dynasty" | "keeper" | "redraft";
   seasons: string[];
   /** newest season with games played */
   latest: string | null;
@@ -33,6 +36,9 @@ export interface Leagues { default: string; leagues: LeagueEntry[] }
 
 export interface Meta {
   league: string; seasons: string[]; updated: string;
+  /** dynasty | keeper | redraft — mirrors LeagueEntry.kind for pages that
+   *  only hold meta. Absent in data built before this field existed. */
+  kind?: "dynasty" | "keeper" | "redraft";
   /** newest season with games played — what the stats views default to */
   latest?: string;
   /** whose rosters are live right now. Differs from `latest` all offseason:
