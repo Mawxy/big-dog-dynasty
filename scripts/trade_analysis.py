@@ -285,12 +285,27 @@ def main():
                 tots[src] = tots[src] + v if v else None
         return {s: (v or None) for s, v in tots.items()}
 
+    # When the history doesn't reach back to the trade day, the earliest row
+    # AFTER it within this window still prices the asset. Exists for the pick
+    # ladders, whose nightly history only began 2026-08-27 — an August trade's
+    # 2027 2nd is better priced by a two-week-later snapshot of a slow-moving
+    # ladder than left as a permanent em dash. Bounded so a today price never
+    # masquerades as a months-old one.
+    AFTER_TOL_DAYS = 45
+
     def price_at(day):
         def p(key):
-            best = None
+            best = after = None
             for d, ktc, fc in hist.get(key) or []:
                 if d <= day and (best is None or d > best[0]):
                     best = (d, ktc, fc)
+                elif d > day and (after is None or d < after[0]):
+                    after = (d, ktc, fc)
+            if best is None and after is not None:
+                gap = (datetime.date.fromisoformat(after[0])
+                       - datetime.date.fromisoformat(day)).days
+                if gap <= AFTER_TOL_DAYS:
+                    best = after
             return {"ktc": best[1], "fc": best[2]} if best else None
         return p
 
@@ -350,14 +365,19 @@ def main():
             if sn:
                 snaps[key] = sn
                 n_new += 1
-        elif sn and sn["kind"] == "market" and day and day >= (hist_start or "9999") and \
+        elif sn and sn["kind"] in ("market", "model") and day and \
+                day >= (hist_start or "9999") and \
                 any(v.get("mkt") is None or v.get("fc") is None
                     for v in sn["sides"].values()):
-            # ENRICH, never overwrite: a market entry frozen when the history
-            # was shallow (pre-deep-backfill, pre-FC, pre-pick-pricing) holds
+            # ENRICH, never overwrite: an entry frozen when the history was
+            # shallow (pre-deep-backfill, pre-FC, pre-pick-pricing) holds
             # Nones that the immutable history can now answer. Filling a None
             # from the same source that would have filled it then is a
-            # backfill; a field that has a number is never touched.
+            # backfill; a field that has a number is never touched. This
+            # includes "model" snapshots: their exp is sacred, but a mkt/fc
+            # that froze as None (a side with picks, before picks priced)
+            # deserves the same healing — that gap is exactly what left
+            # pick-heavy sides reading "KTC then —" forever.
             filled = False
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"]))
