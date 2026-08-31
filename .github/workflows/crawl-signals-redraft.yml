@@ -1,0 +1,79 @@
+name: Crawl - signals redraft (win-now roster/start rates)
+# The redraft twin of crawl-signals: snowballs settings.type 0 leagues (same
+# 12-team superflex format filter), seeded from the Pineapple Pizza chain.
+# Its outputs feed CVI's roster%/start% once coverage clears the threshold in
+# contender_index.py — win-now usage free of dynasty stash-rostering. Own
+# state dir, own cache lane, own committed files; it can never touch the
+# dynasty crawl's outputs (the script retargets defaults on --league-type).
+on:
+  schedule:
+    - cron: "0 3,9,15,21 * * *"   # offset 3h from the dynasty signals lane
+  workflow_dispatch:
+    inputs:
+      max_leagues:
+        description: "visit cap per run (blank = time-bounded only)"
+        default: ""
+permissions:
+  contents: write
+concurrency:
+  group: crawl-signals-redraft
+  cancel-in-progress: false
+jobs:
+  signals-redraft:
+    runs-on: ubuntu-latest
+    # 350 vs --max-minutes 300: same margin as the dynasty lane — enough left
+    # for checkout + commit + cache save so a timeout can't cancel mid-save.
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Restore/persist crawl state
+        uses: actions/cache@v4
+        with:
+          # players_nfl.json rides along exactly as in the dynasty lane — each
+          # job is its own runner, so per-lane is as shared as CI gets.
+          path: |
+            .crawl-state/signals-redraft
+            .crawl-state/players_nfl.json
+          key: crawl-signals-redraft-${{ github.run_id }}   # unique -> always saves
+          restore-keys: crawl-signals-redraft-              # restore latest previous
+      - name: Crawl redraft signals
+        env:
+          MAX: ${{ github.event.inputs.max_leagues }}
+        run: |
+          EXTRA=""
+          [ -n "$MAX" ] && EXTRA="--max-leagues $MAX"
+          python scripts/sleeper_crawl.py --mode signals --league-type redraft \
+            --state .crawl-state/signals-redraft --max-minutes 300 --commit-every 1000 $EXTRA
+      - name: Commit signals + league list
+        # success() || failure(), not always(): a cancelled run may have died
+        # mid-flush; the crawler itself exits 0 even when it stops early.
+        if: success() || failure()
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rebase --abort 2>/dev/null || true
+          stage() {
+            for f in "$@"; do
+              if python -m json.tool "$f" > /dev/null 2>&1; then
+                git add "$f"
+              else
+                echo "::warning title=Invalid JSON::$f is missing or did not parse — not committing it"
+              fi
+            done
+          }
+          # RE-PARENT, never rebase — same rationale as crawl-signals: these are
+          # generated files rewritten whole, their git history is worth nothing,
+          # and this workflow is the ONLY writer of these two paths.
+          for i in 1 2 3 4 5; do
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            stage data/league_signals_redraft.json data/crawl_leagues_redraft.json
+            git diff --cached --quiet && { echo "no changes"; exit 0; }
+            git commit -m "Crawl redraft signals $(date -u +%FT%H:%MZ)"
+            git push origin HEAD:main && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1

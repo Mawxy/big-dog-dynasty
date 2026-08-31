@@ -9,6 +9,10 @@ they parallelize past Sleeper's ~1000/min per-IP cap).
                    start% / taxi% from a rolling window of roster snapshots.
                    Publishes data/crawl_leagues.json (the counted league IDs) as
                    the hand-off, and data/league_signals.json.
+                   With --league-type redraft it crawls settings.type 0 leagues
+                   instead (same format filter, its own seeds/state/outputs:
+                   *_redraft.json) — win-now usage signals for CVI, free of
+                   dynasty stash-rostering.
   --mode trades  : reads crawl_leagues.json, takes its SHARD of the leagues
                    (league_id % nshards == shard), pulls transactions, and
                    accumulates a deduped trade corpus. Run as a 4-way matrix.
@@ -57,6 +61,10 @@ MAX_CHAIN = datetime.date.today().year - FIRST_CLASS + 5
 DEFAULT_SEEDS = ["1312221243742621696", "1180090288907112448",
                  "1048300464669937664", "916360462835634176",
                  "814608002207334400"]
+# Redraft discovery starts from the Pineapple Pizza chain (2026 back to the
+# 2023 founder) the same way dynasty starts from Big Dog's.
+REDRAFT_SEEDS = ["1382780734728597504", "1180095378265870336",
+                 "1048742126806351872", "1001613650664165376"]
 
 _calls = 0
 
@@ -90,6 +98,13 @@ def shard_of(lid, nshards):
 
 def is_dynasty(l):
     return bool(l) and (l.get("settings") or {}).get("type") == 2
+
+
+def is_redraft(l):
+    """settings.type 0 — keeper (1) is deliberately NEITHER: kept players make
+    its rostering habits a hybrid, which would blur exactly the win-now purity
+    a redraft crawl exists to capture."""
+    return bool(l) and (l.get("settings") or {}).get("type") == 0
 
 
 def is_superflex(l):
@@ -347,8 +362,13 @@ def make_heartbeat(t0, counters):
 # ------------------------------------------------------------ mode: signals ---
 def mode_signals(args, t0):
     sd = Path(args.state)
+    # Which population this lane crawls. The predicate gates BOTH the visit and
+    # the user->league expansion below, so a redraft lane never wanders into
+    # dynasty leagues (or vice versa) no matter what a seed user also plays in.
+    on_type = is_redraft if args.league_type == "redraft" else is_dynasty
     registry = jload(sd / "registry.json", {})     # lid -> {counts, last_signals}
-    frontier = deque(jload(sd / "frontier.json", []) or args.seeds or DEFAULT_SEEDS)
+    frontier = deque(jload(sd / "frontier.json", []) or args.seeds
+                     or (REDRAFT_SEEDS if args.league_type == "redraft" else DEFAULT_SEEDS))
     snapshots = jload(sd / "snapshots.json", {})   # lid -> {ts, players, starters, taxi}
     # season-long start% accumulator: usage = started-weeks / rostered-weeks.
     # Each weekly re-crawl of a league adds one observation, so a single injured
@@ -381,7 +401,8 @@ def mode_signals(args, t0):
     counters = lambda: {"visited": n_visited, "counted": n_counted,
                         "registry": len(registry), "frontier": len(frontier)}
     hb = make_heartbeat(t0, counters)
-    print(f"[signals] seeds={list(frontier)[:3]}... cooldown={args.cooldown_days}d "
+    print(f"[signals:{args.league_type}] seeds={list(frontier)[:3]}... "
+          f"cooldown={args.cooldown_days}d "
           f"teams={args.teams or 'any'} sf={require_sf}", file=sys.stderr, flush=True)
 
     def flush():
@@ -407,6 +428,7 @@ def mode_signals(args, t0):
         jdump(ROOT / args.signals_out,
               {"generated": datetime.date.today().isoformat(), "season": args.season,
                "season_type": args.season_type, "week": args.week, "leagues": n,
+               "league_type": args.league_type,
                "format": {"teams": args.teams or "any", "superflex_only": require_sf},
                "players": players})
         # UNION with what is already committed, never replace it.
@@ -464,7 +486,7 @@ def mode_signals(args, t0):
             continue                                # already fresh this window
         try:
             league = get(f"/league/{lid}")
-            if not is_dynasty(league):
+            if not on_type(league):
                 continue
             rosters = get(f"/league/{lid}/rosters") or []
             if not rosters:
@@ -487,7 +509,7 @@ def mode_signals(args, t0):
                     seen_users[uid] = 1
                     for lg in (get(f"/user/{uid}/leagues/nfl/{args.season}") or []):
                         nlid = lg.get("league_id")
-                        if not nlid or not is_dynasty(lg):
+                        if not nlid or not on_type(lg):
                             continue
                         rm = registry.get(nlid)
                         if not rm or not fresh(rm.get("last_signals"), args.cooldown_days):
@@ -1267,6 +1289,12 @@ def main():
     ap.add_argument("--max-minutes", type=float, default=0, help="self-stop budget (0 = none)")
     ap.add_argument("--teams", type=int, default=12, help="signals: only count N-team leagues (0=any)")
     ap.add_argument("--any-qb", action="store_true", help="signals: also count non-superflex")
+    ap.add_argument("--league-type", choices=["dynasty", "redraft"], default="dynasty",
+                    help="signals: which league population to crawl. redraft "
+                         "(settings.type 0) exists to give CVI win-now roster%%/"
+                         "start%% uncontaminated by dynasty stashing; it keeps "
+                         "the same 12-team superflex format filter and writes "
+                         "to the *_redraft.json outputs by default")
     ap.add_argument("--trade-weeks", type=int, default=18)
     ap.add_argument("--shard", type=int, default=0, help="trades: this shard index")
     ap.add_argument("--nshards", type=int, default=1, help="trades: total shards")
@@ -1287,6 +1315,18 @@ def main():
     # of overwriting the committed corpus with a partial sample
     ap.add_argument("--rookie-out", default="data/rookie_pick_corpus.json")
     args = ap.parse_args()
+    if args.league_type == "redraft":
+        # Only the signals lane has a redraft meaning today. The trades/drafts/
+        # outcomes corpora price DYNASTY assets; feeding them redraft leagues
+        # would silently pollute committed corpora, so refuse rather than allow.
+        if args.mode != "signals":
+            sys.exit("--league-type redraft is signals-only (the other corpora are dynasty-priced)")
+        # Retarget the DEFAULT outputs so a redraft lane can never clobber the
+        # dynasty files by omission. Explicit --signals-out/--leagues-out still win.
+        if args.signals_out == "data/league_signals.json":
+            args.signals_out = "data/league_signals_redraft.json"
+        if args.leagues_out == "data/crawl_leagues.json":
+            args.leagues_out = "data/crawl_leagues_redraft.json"
     state = get("/state/nfl") or {}
     args.season = args.season or state.get("season")
     args.season_type = state.get("season_type")     # only "regular" feeds start%

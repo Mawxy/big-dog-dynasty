@@ -46,6 +46,12 @@ CONSENSUS_SHARE = 0.50
 # only as a liquidity check: a player nobody rosters cannot be bought.
 WEIGHTS_NM = {"war": 1.0, "roster": 0.4, "start": 1.4}
 DEFAULT_FORMAT = "ppr-superflex"
+# Leagues the redraft signals crawl must cover before CVI reads it instead of
+# the dynasty file (see load_inputs). ~250 twelve-team leagues = 3,000 rosters,
+# enough for roster% to stop being a rumor. Revisit roster%'s 0.4 weight once
+# the redraft file is the live source — the down-weighting exists to discount
+# dynasty stash-rostering, which redraft data doesn't have.
+REDRAFT_SIGNALS_MIN = 250
 
 
 def ecr_to_war(ecr_rank_order, war_sorted_desc):
@@ -85,13 +91,28 @@ def load_inputs(fmt=DEFAULT_FORMAT):
         if row and row.get("ecr") and pid in proj:
             ecr_rank[pid] = row["ecr"]
 
-    sf = DATA / "league_signals.json"
-    sigf = json.load(open(sf, encoding="utf-8")) if sf.exists() else {}
+    # Usage signals: prefer the REDRAFT crawl once it has real coverage.
+    # Dynasty roster% partly measures FUTURE interest (stashes, taxi types) —
+    # the very contamination that forced roster%'s weight down to 0.4 here.
+    # Redraft rostering answers the question CVI actually asks: is he worth
+    # owning THIS year. The dynasty file stays the fallback while the redraft
+    # lane is young; the threshold keeps a 50-league seed crawl from steering
+    # a published index.
+    sig_src = "league_signals.json"
+    sigf = {}
+    rf = DATA / "league_signals_redraft.json"
+    if rf.exists():
+        red = json.load(open(rf, encoding="utf-8"))
+        if (red.get("leagues") or 0) >= REDRAFT_SIGNALS_MIN:
+            sigf, sig_src = red, "league_signals_redraft.json"
+    if not sigf:
+        sf = DATA / "league_signals.json"
+        sigf = json.load(open(sf, encoding="utf-8")) if sf.exists() else {}
     players_meta = json.load(open(ROOT / "sleeper_data" / "players.json", encoding="utf-8")) \
         if (ROOT / "sleeper_data" / "players.json").exists() else {}
     return {"proj": proj, "ecr_all": ecr_all, "ecr_rank": ecr_rank,
             "sig": sigf.get("players", {}), "week": sigf.get("week", 0),
-            "players_meta": players_meta}
+            "sig_src": sig_src, "players_meta": players_meta}
 
 
 def compute(inp, war_of):
@@ -213,7 +234,8 @@ def main():
         separators=(",", ":")))
 
     print(f"wrote {args.out} [{args.curve}]: {len(cvi)} players · {len(ecr_rank)} "
-          f"with an ECR rank · week={week} · start snap-weight={snap_weight(week)}")
+          f"with an ECR rank · week={week} · start snap-weight={snap_weight(week)} "
+          f"· signals={inp['sig_src']}")
     print("\n=== top 20 ===")
     for pid in sorted(cvi, key=lambda p: cvi[p]["rank"])[:20]:
         r = out[pid]

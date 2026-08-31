@@ -30,7 +30,9 @@ GLOBAL_FILES = {
     "values_history_deep.json",   # one-time KTC/FC backfill, never trimmed
     "ecr.json",                # FantasyPros consensus — a property of the FORMAT
     "crawl_leagues.json",     # crawler state and corpora
+    "crawl_leagues_redraft.json",   # redraft signals lane's counted leagues
     "league_signals.json",
+    "league_signals_redraft.json",  # win-now roster%/start% from redraft leagues
     "draft_signals.json",
     "draft_index.json",       # draft_id -> [league_id, season, kind]
     "rookie_pick_corpus.json",
