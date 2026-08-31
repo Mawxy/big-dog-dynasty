@@ -516,10 +516,13 @@ function DraftDetailRoute() {
 function FranchiseRoute() {
   const { players, league } = useLeague();
   const p = useParams();
-  const rid = intParam(p.rid);
+  // the param is a FRANCHISE KEY: a rid for dynasty leagues, an owner user_id
+  // for redraft (see Franchises in types.ts). FranchisePage itself resolves
+  // legacy rid-shaped links against owner-keyed data.
+  const fkey = p.rid || "";
   const base = `/${leagueSeg(league)}`;
-  if (rid == null) return <Navigate replace to={base} />;
-  return <FranchisePage key={rid} rid={rid} players={players} tab={p.tab} />;
+  if (!fkey) return <Navigate replace to={base} />;
+  return <FranchisePage key={fkey} fkey={fkey} players={players} tab={p.tab} />;
 }
 
 function WeeklyRoute() {

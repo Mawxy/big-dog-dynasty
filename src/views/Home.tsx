@@ -31,7 +31,7 @@ function padTo<T>(a: T[], n: number): (T | null)[] {
  *  record and the starter age, so the board hands DataTable one array rather
  *  than reading a second map inside a cell. */
 interface PowerRow {
-  rid: number; name: string; manager: string;
+  rid: number; fkey: string; name: string; manager: string;
   sDvi: number; sCvi: number;
   lastRec: string; lastFin: number | null;
   /** projected record for the roster season; "—" until a schedule prices it */
@@ -87,9 +87,9 @@ export default function Home() {
   /** the reigning champion's full season row */
   const champ = useMemo(() => {
     if (!fr || !league.latest) return null;
-    for (const [rid, f] of Object.entries(fr)) {
+    for (const [fkey, f] of Object.entries(fr)) {
       const sn = f.seasons.find(s => s.season === league.latest && s.finish === 1);
-      if (sn) return { rid: +rid, s: sn };
+      if (sn) return { fkey, s: sn };
     }
     return null;
   }, [fr, league]);
@@ -140,11 +140,12 @@ export default function Home() {
   const indexRows = useMemo(() => {
     if (!teams || !dvi || !cvi || !fr) return null;
     return teams.map(t => {
-      const f = fr[String(t.roster_id)];
+      const key = t.fkey ?? String(t.roster_id);
+      const f = fr[key];
       const cur = f?.seasons[f.seasons.length - 1];
       const lastSn = f?.seasons.find(s => s.season === league.latest);
       return {
-        rid: t.roster_id,
+        rid: t.roster_id, fkey: key,
         name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
         sDvi: starterTotal(t, dvi.players, (_p, r) => r.dvi, lineup),
         sCvi: starterTotal(t, cvi.players, (_p, r) => r.cvi, lineup),
@@ -304,7 +305,7 @@ export default function Home() {
       id: "team", label: "Franchise", grp: 0, w: 23, align: "t", td: "t name",
       role: "identity",
       cell: r => (
-        <RouteLink to={lp(`/franchise/${r.rid}`)} className="blocklink">{r.name}</RouteLink>
+        <RouteLink to={lp(`/franchise/${r.fkey}`)} className="blocklink">{r.name}</RouteLink>
       ),
     },
     {
@@ -394,7 +395,7 @@ export default function Home() {
           {!champ ? <div className="empty">No completed season yet.</div> : <>
             {/* the champion's name opens his franchise — a real anchor, so it
                 is reachable by keyboard and openable in a new tab */}
-            <RouteLink to={lp(`/franchise/${champ.rid}`)} className="blocklink"
+            <RouteLink to={lp(`/franchise/${champ.fkey}`)} className="blocklink"
               style={{ font: `700 ${mobile ? 32 : 40}px/1.05 var(--cond)`, letterSpacing: ".02em", textTransform: "uppercase", color: "var(--acc)" }}>
               {champ.s.name}
             </RouteLink>
@@ -430,7 +431,7 @@ export default function Home() {
           {!titleRace ? <div className="empty">Loading indices…</div> : titleRace.map((r, i) => (
             // the whole row is the link to that franchise, so it is an anchor
             // rather than a div with a click handler no keyboard could reach
-            <RouteLink key={r.rid} to={lp(`/franchise/${r.rid}`)} className="blocklink"
+            <RouteLink key={r.rid} to={lp(`/franchise/${r.fkey}`)} className="blocklink"
               style={{ display: "flex", alignItems: "baseline", gap: 12, padding: "9px 0", borderTop: i ? "1px solid var(--hair)" : "none" }}>
               <span style={{ font: "600 17px/1 var(--cond)", color: "var(--dim)", flex: "0 0 16px" }}>{i + 1}</span>
               <div style={{ minWidth: 0, flex: 1 }}>
@@ -468,7 +469,7 @@ export default function Home() {
           <DataTable cols={powerCols} groups={powerGroups} rows={powerRows} ctx={NO_CTX}
             label="Power rankings by starters DVI"
             rowKey={r => String(r.rid)} sortId="" dir={-1} onSort={NO_SORT}
-            onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+            onRowClick={r => nav(lp(`/franchise/${r.fkey}`))}
             recordsOnMobile recordsClass="t3" />
         )}
       </div>

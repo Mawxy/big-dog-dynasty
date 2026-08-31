@@ -91,9 +91,21 @@ def main():
     # year. Keyed by the SEASON's league_id, not the season string — a second
     # league's 2023 roster 9 is a different team and must not inherit this.
     name_override = {("916360462835634176", 9): "PicklesPapa"}   # Big Dog 2023
-    franchises = {}   # roster_id -> {seasons:[...], tx:[...]} (franchise = stable roster_id)
-    def fr(rid):
-        return franchises.setdefault(rid, {"seasons": [], "tx": []})
+    # Franchise identity is LEAGUE-KIND dependent (settled with Max,
+    # 2026-08-31, after Pineapple Pizza's all-time board credited departed
+    # owners' records to whoever holds their roster slot now):
+    #
+    #   dynasty  franchise = the roster slot. A dynasty team outlives its
+    #            manager — key by roster_id, exactly as before.
+    #   redraft/keeper  franchise = the PERSON. Owners churn and a new owner
+    #            inheriting roster 7 is a new franchise — key by owner user_id
+    #            (falling back to "r<rid>" for a season with no owner on file).
+    #
+    # Every season entry records the rid held THAT year, so per-season joins
+    # (matchups, drafts, trades) survive both keyings.
+    franchises = {}   # fkey -> {seasons:[...], tx:[...]}
+    def fr(key):
+        return franchises.setdefault(str(key), {"seasons": [], "tx": []})
 
     season_dirs = sorted(d for d in root.iterdir()
                          if d.is_dir() and (d / "league.json").exists())
@@ -122,6 +134,12 @@ def main():
     if founder:
         out = root_out / "leagues" / founder
         out.mkdir(parents=True, exist_ok=True)
+    # kind is resolved BEFORE the season walk because franchise keying depends
+    # on it (see `franchises` above) — the newest season's settings.type wins,
+    # so a league that converts is judged by what it is now.
+    if season_dirs:
+        newest = load(season_dirs[-1] / "league.json")
+        league_kind = LEAGUE_KIND.get((newest.get("settings") or {}).get("type"), league_kind)
 
     for sdir in season_dirs:
         league = load(sdir / "league.json")
@@ -131,9 +149,6 @@ def main():
         # optimal-lineup view (starters vs bench) from roster WAR
         roster_positions = league.get("roster_positions") or roster_positions
         taxi_slots = (league.get("settings") or {}).get("taxi_slots", taxi_slots)
-        # newest season's settings.type wins; a league that converts is judged
-        # by what it is now
-        league_kind = LEAGUE_KIND.get((league.get("settings") or {}).get("type"), league_kind)
         # newest season's scoring wins too: which KTC column prices this league
         league_tep = tep_class(league)
         sout = out / season
@@ -151,6 +166,10 @@ def main():
         # the new league. Keeping all twelve means the walk survives the
         # commissioner handing over or leaving.
         members = [u["user_id"] for u in user_list if u.get("user_id")] or members
+        # this season's franchise key per roster slot (see `franchises` above)
+        fkey_of = {r["roster_id"]: (str(r.get("owner_id") or f"r{r['roster_id']}")
+                                    if league_kind != "dynasty" else str(r["roster_id"]))
+                   for r in rosters}
         teams = []
         for r in rosters:
             u = users.get(r.get("owner_id") or "", {})
@@ -160,6 +179,10 @@ def main():
             used_ids.update(plist)
             teams.append({
                 "roster_id": r["roster_id"],
+                # the franchise this roster belongs to THIS season — what a
+                # link to /franchise/<key> must carry, since a redraft rid is
+                # not an identity
+                "fkey": fkey_of[r["roster_id"]],
                 "team": name_override.get((league["league_id"], r["roster_id"])) or meta.get("team_name")
                         or u.get("display_name") or f"Team {r['roster_id']}",
                 "manager": name_override.get((league["league_id"], r["roster_id"]), u.get("display_name", "?")),
@@ -383,7 +406,7 @@ def main():
                 if typ == "trade":
                     for rid_g, assets in got.items():
                         others = [o for o in got if o != rid_g]
-                        fr(rid_g)["tx"].append({
+                        fr(fkey_of.get(rid_g, f"r{rid_g}"))["tx"].append({
                             "season": season, "week": wk, "ts": ts, "type": "trade",
                             "with": [tname.get(o, "?") for o in others],
                             "got": assets, "gave": [a for o in others for a in got[o]]})
@@ -395,7 +418,8 @@ def main():
                         if pid not in adds:
                             per.setdefault(rid, {"adds": [], "drops": []})["drops"].append(pname(pid))
                     for rid, ad in per.items():
-                        fr(rid)["tx"].append({"season": season, "week": wk, "ts": ts, "type": typ, **ad})
+                        fr(fkey_of.get(rid, f"r{rid}"))["tx"].append(
+                            {"season": season, "week": wk, "ts": ts, "type": typ, **ad})
                 for pid, rid in adds.items():
                     team = tname.get(rid, "?")
                     txt = {"trade": f"traded to {team}" + (f" — {trade_note}" if trade_note else ""),
@@ -541,8 +565,9 @@ def main():
         for t in teams:
             rid = t["roster_id"]
             g = t["wins"] + t["losses"] + t["ties"]
-            fr(rid)["seasons"].append({
-                "season": season, "name": t["team"], "manager": t["manager"],
+            fr(fkey_of.get(rid, f"r{rid}"))["seasons"].append({
+                "season": season, "rid": rid,
+                "name": t["team"], "manager": t["manager"],
                 "wins": t["wins"], "losses": t["losses"], "ties": t["ties"],
                 "fpts": t["fpts"], "ppg": round(t["fpts"] / g, 1) if g else 0,
                 "war": team_war.get(rid, 0.0), "seed": seed.get(rid),

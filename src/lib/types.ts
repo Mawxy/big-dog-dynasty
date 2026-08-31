@@ -64,6 +64,10 @@ export type PlayersMin = Record<string, [string, string, string]>;
 
 export interface Team {
   roster_id: number; team: string; manager: string;
+  /** the franchise this roster belongs to THIS season — what /franchise/<key>
+   *  links must carry. roster_id as a string for dynasty, owner user_id for
+   *  redraft/keeper. Absent in data built before it; fall back to roster_id. */
+  fkey?: string;
   wins: number; losses: number; ties: number; fpts: number;
   players: string[]; starters: string[]; taxi: string[]; reserve: string[];
 }
@@ -434,6 +438,10 @@ export interface PicksOwned {
 /** data/franchises.json — per roster_id (stable franchise) history + transactions */
 export interface FranchiseSeason {
   season: string; name: string; manager: string;
+  /** the roster slot this franchise held THAT season — the join key for
+   *  matchups/drafts/trades. Constant for dynasty (franchise = slot); varies
+   *  for redraft (franchise = owner). Absent in data built before this. */
+  rid?: number;
   wins: number; losses: number; ties: number;
   fpts: number; ppg: number; war: number;
   seed: number | null; finish: number | null;
@@ -445,6 +453,9 @@ export interface FranchiseTx {
   with?: string[]; got?: string[]; gave?: string[]; adds?: string[]; drops?: string[];
 }
 export interface Franchise { seasons: FranchiseSeason[]; tx: FranchiseTx[]; }
+/** keyed by FRANCHISE KEY: the roster_id for dynasty leagues, the owner's
+ *  user_id for redraft/keeper (an inherited roster slot is a new franchise —
+ *  see build_site_data.py). Keys are strings either way. */
 export type Franchises = Record<string, Franchise>;
 
 /** data/trades.json — every trade, with each side's return scored in WAR */

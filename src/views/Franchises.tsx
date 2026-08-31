@@ -107,7 +107,7 @@ export default function FranchisesView() {
 /* ---------------------------------------------------------------- 5C board */
 
 interface BoardRow {
-  rid: number; name: string; manager: string;
+  rid: number; fkey: string; name: string; manager: string;
   /** best legal lineup, priced in each index's own currency */
   sDvi: number; sCvi: number; age: number | null;
   /** every rostered player, bench and taxi included */
@@ -226,10 +226,12 @@ function RosterBoard() {
       // average age of the best nine by DVI — context, not a verdict
       const ages = d.slots.map(sl => sl.player && ageOf.get(sl.player.id))
         .filter((a): a is number => a != null);
-      const f = fr[String(t.roster_id)];
+      const key = t.fkey ?? String(t.roster_id);
+      const f = fr[key];
       const cur = f?.seasons[f.seasons.length - 1];
       return {
-        rid: t.roster_id, name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
+        rid: t.roster_id, fkey: key,
+        name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
         sDvi: d.starters, sCvi: c.starters, age: ages.length ? mean(ages) : null,
         rDvi: total(t, p => dvi.players[p]?.dvi) ?? 0,
         rCvi: total(t, p => cvi.players[p]?.cvi) ?? 0,
@@ -294,7 +296,7 @@ function RosterBoard() {
  * 0.0 would say the team was perfectly steady and added nothing.
  */
 interface StandRow {
-  rid: number; seed: number; team: string; manager: string;
+  rid: number; fkey: string; seed: number; team: string; manager: string;
   /** real wins plus the summed win probability of every unplayed week */
   wins: number; fpts: number; rec: string;
   /** the median record as a label, and the wins in it — the column shows the
@@ -393,7 +395,8 @@ function SeasonStandings({ season }: { season: string }) {
       const all = [...pts, ...projPts];
       const ties = t.ties ? `-${t.ties}` : "";
       return {
-        rid: t.roster_id, seed: 0, manager: t.manager, team: t.team,
+        rid: t.roster_id, fkey: t.fkey ?? String(t.roster_id),
+        seed: 0, manager: t.manager, team: t.team,
         wins, fpts: t.fpts + projPts.reduce((a, b) => a + b, 0),
         rec: proj
           ? `${wins.toFixed(1)}-${losses.toFixed(1)}${ties}`
@@ -430,7 +433,7 @@ function SeasonStandings({ season }: { season: string }) {
       // tab, while a plain click stays an in-app navigation that doesn't also
       // toggle the row's drawer
       cell: r => {
-        return <RouteLink to={lp(`/franchise/${r.rid}`)}>{r.team}</RouteLink>;
+        return <RouteLink to={lp(`/franchise/${r.fkey}`)}>{r.team}</RouteLink>;
       },
     },
     {
@@ -589,7 +592,7 @@ function TeamDrawer({ r, tnames, ps }: { r: StandRow; tnames: Record<number, str
 /* --------------------------------------------------------------- all-time */
 
 interface HistRow {
-  rid: number; name: string; manager: string;
+  fkey: string; name: string; manager: string;
   allRec: string; winPct: number; seasons: number;
   best: number | null; bestSeason: string | null; titles: number;
 }
@@ -660,7 +663,7 @@ function HistoryBoard() {
 
   const rows = useMemo<HistRow[] | null>(() => {
     if (!fr) return null;
-    return Object.entries(fr).map(([rid, f]) => {
+    return Object.entries(fr).map(([fkey, f]) => {
       const all = f.seasons.reduce(
         (a, sn) => ({ w: a.w + sn.wins, l: a.l + sn.losses, t: a.t + (sn.ties || 0) }),
         { w: 0, l: 0, t: 0 });
@@ -671,7 +674,7 @@ function HistoryBoard() {
             ? sn : b, null);
       const cur = f.seasons[f.seasons.length - 1];
       return {
-        rid: +rid, name: cur?.name ?? "—", manager: cur?.manager ?? "—",
+        fkey, name: cur?.name ?? "—", manager: cur?.manager ?? "—",
         allRec: `${all.w}-${all.l}${all.t ? `-${all.t}` : ""}`,
         winPct: games ? (all.w + all.t / 2) / games : 0,
         seasons: f.seasons.filter(sn => sn.wins + sn.losses > 0).length,
@@ -694,8 +697,8 @@ function HistoryBoard() {
       </div>
       <DataTable cols={HIST_COLS} groups={HIST_GROUPS} rows={sorted} ctx={NO_CTX}
         label="All-time franchise records · every season played"
-        rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
-        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+        rowKey={r => r.fkey} sortId={sortId} dir={dir} onSort={onSort}
+        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.fkey}`))}
         recordsOnMobile recordsClass="t3" />
       <div className="tnote screen">
         All-time spans every season the franchise has played; win % counts a tie as

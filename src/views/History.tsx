@@ -44,7 +44,7 @@ const LEAGUE_NOTES: Record<string, string[]> = {
 // from 2025 for one continuous franchise; that is Sleeper's record, not an error.
 
 type SeasonRow = {
-  rid: number; name: string; manager: string;
+  rid: number; fkey: string; name: string; manager: string;
   wins: number; losses: number; ties: number;
   ppg: number; war: number; finish: number; seed: number | null;
   prev: number | null;                 // previous season's finish
@@ -176,8 +176,14 @@ export default function History() {
 
   const stories: SeasonStory[] = useMemo(() => {
     if (!fr || !played.length) return [];
+    // by the SLOT a season's records are keyed on (drafts, matchups), which
+    // for owner-keyed leagues means searching season entries by their rid
     const nameOf = (rid: number, season: string) => {
-      const f = fr[String(rid)];
+      for (const f of Object.values(fr)) {
+        const sn = f.seasons.find(s => s.season === season && s.rid === rid);
+        if (sn) return { name: sn.name, manager: sn.manager };
+      }
+      const f = fr[String(rid)];   // pre-rid data: the key IS the rid
       const sn = f?.seasons.find(s => s.season === season) ?? f?.seasons[f.seasons.length - 1];
       return { name: sn?.name ?? `Roster ${rid}`, manager: sn?.manager ?? "" };
     };
@@ -190,7 +196,8 @@ export default function History() {
         const pv = prevSeason
           ? f.seasons.find(s => s.season === prevSeason)?.finish ?? null : null;
         rows.push({
-          rid: +ridS, name: sn.name, manager: sn.manager,
+          // sn.rid joins matchups/drafts for the season; the entry key links
+          rid: sn.rid ?? +ridS, fkey: ridS, name: sn.name, manager: sn.manager,
           wins: sn.wins, losses: sn.losses, ties: sn.ties,
           ppg: sn.ppg, war: sn.war, finish: sn.finish, seed: sn.seed ?? null,
           prev: pv ?? null,
@@ -281,7 +288,7 @@ export default function History() {
       id: "team", label: "Franchise", grp: 0, w: 26, align: "t", td: "t name",
       role: "identity",
       cell: (r, _x, i) => (
-        <RouteLink to={lp(`/franchise/${r.rid}`)} className="blocklink"
+        <RouteLink to={lp(`/franchise/${r.fkey}`)} className="blocklink"
           style={i ? undefined : { color: "var(--acc)" }}>
           {r.name}
         </RouteLink>
@@ -409,7 +416,7 @@ export default function History() {
                 <div className="chart-label" style={{ color: "var(--acc)" }}>Champion</div>
                 {/* an anchor, not a div with a handler: the champion's name is
                     the panel's one navigation and has to be keyboard-reachable */}
-                <RouteLink to={lp(`/franchise/${s.champ.rid}`)} className="blocklink"
+                <RouteLink to={lp(`/franchise/${s.champ.fkey}`)} className="blocklink"
                   style={{ font: "700 34px/1.05 var(--cond)", letterSpacing: ".02em", textTransform: "uppercase" }}>
                   {s.champ.name}
                 </RouteLink>
@@ -486,7 +493,7 @@ export default function History() {
               <DataTable cols={cols} groups={HIST_GROUPS} rows={s.rows} ctx={NO_CTX}
                 label={`${s.season} final standings`}
                 rowKey={r => String(r.rid)} sortId="" dir={-1} onSort={NO_SORT}
-                onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+                onRowClick={r => nav(lp(`/franchise/${r.fkey}`))}
                 recordsOnMobile recordsClass="t3" />
             </div>
           </div>

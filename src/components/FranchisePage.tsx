@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   DraftPick, Drafts, Franchise, FranchiseSeason, FranchiseTx, Franchises, Insights, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload,
@@ -190,8 +190,8 @@ const WAIVER_GROUPS: Grp[] = [{ id: 0, label: "", cls: "" }];
  * where the rename history reads — and the content column carries the figure
  * strip, the outlook, and every section as bands on one page.
  */
-export default function FranchisePage({ rid, players, tab }:
-  { rid: number; players: PlayersMin; tab?: string }) {
+export default function FranchisePage({ fkey, players, tab }:
+  { fkey: string; players: PlayersMin; tab?: string }) {
   const { meta, league } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
@@ -238,14 +238,57 @@ export default function FranchisePage({ rid, players, tab }:
   const summaryFile = useJson<SummaryRow[]>(
     onRosterSeason ? null : `${viewSeason}/summary.json`);
 
+  /** Resolve the route key against the franchise map. A legacy
+   *  /franchise/<rid> link into an OWNER-keyed league (redraft: franchise =
+   *  person, keys are user_ids) resolves to whoever held that roster slot
+   *  most recently, so old bookmarks and rid-shaped redirects keep landing. */
+  const resolvedKey = useMemo(() => {
+    const m = frFile.data;
+    if (!m || m[fkey]) return fkey;
+    if (/^\d{1,3}$/.test(fkey)) {
+      const rid = Number(fkey);
+      let best: string | null = null, bestSeason = "";
+      for (const [k, f] of Object.entries(m))
+        for (const sn of f.seasons)
+          if (sn.rid === rid && sn.season > bestSeason) { best = k; bestSeason = sn.season; }
+      if (best) return best;
+    }
+    return fkey;
+  }, [frFile.data, fkey]);
+
   /** undefined while franchises.json is in flight, null once it has settled
-   *  with no entry for this rid — the two drive different empty states */
+   *  with no entry for this key — the two drive different empty states */
   const fr: Franchise | null | undefined = frFile.data
-    ? frFile.data[String(rid)] ?? null
+    ? frFile.data[resolvedKey] ?? null
     : frFile.error ? null : undefined;
 
-  const picks = useMemo<DraftPick[]>(
-    () => drafts?.[String(rid)] ?? [], [drafts, rid]);
+  /** The roster slot this franchise held in `season` — the join key for every
+   *  per-season file. Constant for dynasty (franchise = slot, and the numeric
+   *  key itself is the fallback for data built before seasons carried `rid`);
+   *  varies by season for redraft (franchise = owner). */
+  const ridOf = useCallback((season: string): number | null =>
+    fr?.seasons.find(sn => sn.season === season)?.rid
+    ?? (/^\d{1,3}$/.test(resolvedKey) ? Number(resolvedKey) : null),
+    [fr, resolvedKey]);
+  /** the slot in the season being VIEWED (drives roster/summary joins) */
+  const rid = ridOf(viewSeason);
+  /** the slot held right now (drives strengths + insight) */
+  const curRid = ridOf(rosterSeason);
+
+  const picks = useMemo<DraftPick[]>(() => {
+    if (!drafts) return [];
+    // owner-keyed data: gather (season, rid) pairs; rid-keyed or pre-rid
+    // data: the key IS the rid bucket
+    if (fr?.seasons?.some(sn => sn.rid != null)) {
+      const out: DraftPick[] = [];
+      for (const sn of fr.seasons)
+        if (sn.rid != null)
+          for (const pk of drafts[String(sn.rid)] ?? [])
+            if (pk.season === sn.season) out.push(pk);
+      return out;
+    }
+    return drafts[resolvedKey] ?? [];
+  }, [drafts, fr, resolvedKey]);
   const draftSeasons = useMemo(() => {
     if (!drafts) return [];
     const all = new Set<string>();
@@ -258,8 +301,11 @@ export default function FranchisePage({ rid, players, tab }:
   const trades = useMemo<Trade[] | null>(() => {
     if (tradesFile.error) return [];
     if (!tradesFile.data) return null;
-    return readTrades(tradesFile.data).trades.filter(t => t.sides.some(s => s.rid === rid));
-  }, [tradesFile.data, tradesFile.error, rid]);
+    // per-trade join: the slot this franchise held in the TRADE's season —
+    // a redraft owner's rid can differ year to year
+    return readTrades(tradesFile.data).trades.filter(
+      t => t.sides.some(s => s.rid === ridOf(t.season)));
+  }, [tradesFile.data, tradesFile.error, ridOf]);
 
   const team = useMemo<Team | null>(
     () => teamsFile.data?.find(t => t.roster_id === rid) ?? null, [teamsFile.data, rid]);
@@ -384,7 +430,7 @@ export default function FranchisePage({ rid, players, tab }:
     { w: 0, l: 0, t: 0 });
   const games = all.w + all.l + all.t;
   const champYears = seasons.filter(s => s.finish === 1).map(s => s.season);
-  const insight = insights?.teams[String(rid)] ?? null;
+  const insight = curRid != null ? insights?.teams[String(curRid)] ?? null : null;
 
   // "" rather than the newest LISTED season, so this is NOT latestSeasonOf:
   // a listed-but-unplayed season is not a last season played.
@@ -407,10 +453,13 @@ export default function FranchisePage({ rid, players, tab }:
   const kept = (arr: DraftPick[]) => arr.filter(p => !p.traded).length;
 
   const myTrades = (trades ?? []).slice().sort((a, b) => b.ts - a.ts)
-    .map(t => ({
-      ...t,
-      sides: [...t.sides].sort((a, b) => Number(b.rid === rid) - Number(a.rid === rid)),
-    }));
+    .map(t => {
+      const trid = ridOf(t.season);
+      return {
+        ...t,
+        sides: [...t.sides].sort((a, b) => Number(b.rid === trid) - Number(a.rid === trid)),
+      };
+    });
 
   const rosterCell = (r: RosterRow, slot: string, warMax: number) => (
     <>
@@ -667,7 +716,7 @@ export default function FranchisePage({ rid, players, tab }:
                 <span className="band-note">Each seat ranked against the same seat on the other eleven rosters</span>
               </div>
               <div style={{ padding: "6px 22px 16px" }}>
-                <TeamStrengths rid={rid} />
+                {curRid != null && <TeamStrengths rid={curRid} />}
               </div>
             </div>
 
