@@ -11,11 +11,16 @@ cannot reach api.sleeper.app.
 
 Pipeline:
   1. league scoring_settings  (GET /v1/league/<id>)   -> exact league scoring
-  2. season projections       (projections/nfl/<season>?...position[]=...)
+  2. WEEKLY projections, weeks 1..18 (projections/nfl/<season>/<wk>?...) —
+     THE source (settled with Max, 2026-08-31): the season endpoint is a
+     coarser rotowire product with an availability discount baked in, and it
+     drifts from the weekly lines the Sleeper app itself displays
   3. league points = scoring . projected_stats  (+ TE reception premium)
-  4. scale to 13 games: pts13 = league_pts / proj_gp * 13   (Sleeper totals
-     are ~17 games; we want a full healthy 13-game fantasy season)
-  5. write data/proj_sleeper.json  {pid: {pos, pts13}}  (+ meta)
+  4. ppg = mean projected week; pts13 = ppg x 13 (full-participation per-13 —
+     injury discounting lives in project_war's `expected` stream, not here)
+  5. season endpoint survives only as a fallback for players with a season
+     line and no weekly ones (src:"season" vs src:"weekly")
+  6. write data/proj_sleeper.json  {pid: {pos, pts13, ppg, raw_pts, src}}
 
 NOTE: Sleeper's projections endpoint is undocumented and lives OFF the /v1
 base (host api.sleeper.app, path /projections/nfl/...). If the shape changes,
@@ -105,9 +110,9 @@ def main():
                     help="probe the WEEKLY endpoint for weeks 1..N and report "
                          "coverage, then exit. Combine with --debug-pid.")
     ap.add_argument("--weekly-fallback", type=int, default=18, metavar="N",
-                    help="for players the SEASON endpoint lists at ADP only, "
-                         "sum weeks 1..N from the weekly endpoint instead. "
-                         "0 disables.")
+                    help="weekly pass depth: weeks 1..N are the PRIMARY "
+                         "projection source; 0 disables it and falls back to "
+                         "the season endpoint alone.")
     ap.add_argument("--league-id", default=None,
                     help="default: the registry's current-season league id")
     args = ap.parse_args()
@@ -173,11 +178,13 @@ def main():
 
     out = {}
     for pos in POSITIONS:
+        season_pts = {}
         data = get(season_proj_url(season, pos))
         if not data:
-            print(f"  WARN: no projection data for {pos} (check PROJ_URL/season)")
-            continue
-        for item in data:
+            # not `continue`: the weekly pass below is the primary source and
+            # can still deliver the position when the season endpoint is empty
+            print(f"  WARN: no season projection data for {pos}")
+        for item in data or []:
             pid = str(item.get("player_id") or "")
             stats = item.get("stats") or {}
             if args.debug_pid and pid == str(args.debug_pid):
@@ -199,29 +206,25 @@ def main():
             # exactly the unproven players who least deserve it.
             if not scored(stats):
                 continue
-            pts = score_line(stats, scoring, pos)
-            # Sleeper totals are a full 17-game season; scale to our 13-game slate.
-            pts13 = pts / NFL_SEASON_GAMES * LEAGUE_GAMES
-            out[pid] = {"pos": pos, "pts13": round(pts13, 2),
-                        "ppg": round(pts / NFL_SEASON_GAMES, 2),
-                        "raw_pts": round(pts, 1)}
+            season_pts[pid] = score_line(stats, scoring, pos)
 
-        # The weekly pass serves two consumers from one set of calls:
-        #
-        # 1. FALLBACK rows for anyone the season endpoint listed at ADP only.
-        #    Aggregate coverage is nearly identical (76 scored QBs weekly vs 77
-        #    season-long for 2026) but MEMBERSHIP differs, so this rescues a
-        #    handful of real players rather than lifting coverage wholesale.
-        # 2. A PER-ACTIVE-GAME ppg for everyone with weekly lines. Rotowire's
-        #    season total bakes in an availability discount (Jayden Reed 2026:
-        #    ~13.2 PPR every projected week but a 197.6 season total ≈ 15
-        #    games), so season/17 published 11.7 while the Sleeper app showed
-        #    13 — the site read as disagreeing with Sleeper when it was only
-        #    dividing by scheduled games instead of played ones. ppg is now the
-        #    mean of his projected weeks (what the app shows); pts13 stays the
-        #    season-total expectation, availability discount included.
+        # WEEKLY LINES ARE THE SOURCE (settled with Max, 2026-08-31). The
+        # season endpoint is a coarser rotowire product with an availability
+        # discount baked in (Jayden Reed 2026: ~13.2 PPR every projected week
+        # but a 197.6 season total ≈ 15 games), and it drifts from the weekly
+        # lines the Sleeper app itself displays. So:
+        #   ppg    mean of the player's projected weeks — per active game,
+        #          what the app shows
+        #   pts13  ppg x 13 — a FULL-PARTICIPATION 13-game expectation, which
+        #          is the convention every downstream stream already uses (the
+        #          model's natural/composite are per-13-if-healthy; the injury
+        #          discount belongs to project_war's `expected`, not here)
+        #   raw    the summed weekly points, for reference
+        # The season total survives only as a fallback for players who have a
+        # season line but no weekly ones (membership differs slightly), and as
+        # the whole source when --weekly-fallback 0 disables the weekly pass.
+        wk_pts, wk_n = defaultdict(float), defaultdict(int)
         if args.weekly_fallback:
-            wk_pts, wk_n = defaultdict(float), defaultdict(int)
             for wk in range(1, args.weekly_fallback + 1):
                 for item in get(week_proj_url(season, wk, pos)) or []:
                     pid = str(item.get("player_id") or "")
@@ -230,22 +233,24 @@ def main():
                         wk_pts[pid] += score_line(st, scoring, pos)
                         wk_n[pid] += 1
                 time.sleep(0.2)
-            rescued = 0
-            for pid, pts in wk_pts.items():
-                if pid in out or pts <= 0:
-                    continue
+
+        n_wk = n_season = 0
+        for pid in set(wk_n) | set(season_pts):
+            if wk_n.get(pid) and wk_pts[pid] > 0:
+                ppg = wk_pts[pid] / wk_n[pid]
+                out[pid] = {"pos": pos, "pts13": round(ppg * LEAGUE_GAMES, 2),
+                            "ppg": round(ppg, 2),
+                            "raw_pts": round(wk_pts[pid], 1), "src": "weekly"}
+                n_wk += 1
+            elif season_pts.get(pid, 0) > 0:
+                pts = season_pts[pid]
                 out[pid] = {"pos": pos,
                             "pts13": round(pts / NFL_SEASON_GAMES * LEAGUE_GAMES, 2),
                             "ppg": round(pts / NFL_SEASON_GAMES, 2),
-                            "raw_pts": round(pts, 1), "src": "weekly"}
-                rescued += 1
-            for pid, n in wk_n.items():
-                if n and pid in out and out[pid]["pos"] == pos:
-                    out[pid]["ppg"] = round(wk_pts[pid] / n, 2)
-            if rescued:
-                print(f"  {pos}: +{rescued} from the weekly endpoint")
+                            "raw_pts": round(pts, 1), "src": "season"}
+                n_season += 1
 
-        print(f"  {pos}: {sum(1 for v in out.values() if v['pos'] == pos)} players")
+        print(f"  {pos}: {n_wk} from weekly lines · {n_season} season-only")
         time.sleep(0.3)
 
     dest = DATA / "proj_sleeper.json"
@@ -260,10 +265,11 @@ def main():
                  f"(season {season}) — not yet published? refusing to overwrite {dest}")
     result = {"meta": {"season": season, "league_id": league_id,
                        "league_games": LEAGUE_GAMES, "players": len(out),
-                       "note": "pts13 = league-scored projected points scaled to 13 games "
-                               "(availability discount included); ppg = mean of the player's "
-                               "projected WEEKS where weekly lines exist (per-active-game, "
-                               "matches the Sleeper app), else season/17"},
+                       "note": "built from WEEKLY projection lines where they exist "
+                               "(src:weekly): ppg = mean projected week (per active game, "
+                               "matches the Sleeper app), pts13 = ppg x 13 (full-participation "
+                               "per-13; injury discounting lives in project_war's expected "
+                               "stream). src:season rows fall back to the season total / 17."},
               "players": out}
     atomic_write(dest, json.dumps(result, separators=(",", ":")))
     print(f"wrote {dest}  ({len(out)} players, season {season})")
