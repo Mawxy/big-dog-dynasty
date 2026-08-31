@@ -106,10 +106,16 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
           .slice(0, BENCH_SHOWN),
       };
     }
-    // not played: project the best legal lineup by expected points
+    // not played: project the best legal lineup by expected points — THIS
+    // week's own projection line, not the season average multiplied out. A
+    // weekly-covered player with no line this week is on bye (0.0, so the
+    // optimizer benches him, as a manager would); season-only rows keep ppg.
     const pool = (team?.players ?? [])
-      .map(pid => ({ id: pid, pos: pInfo(players, pid)[1],
-                     war: sproj?.players?.[pid]?.ppg ?? 0 }))
+      .map(pid => {
+        const sp = sproj?.players?.[pid];
+        const pts = sp?.wk ? sp.wk[String(wk)] ?? 0 : sp?.ppg ?? 0;
+        return { id: pid, pos: pInfo(players, pid)[1], war: pts };
+      })
       .filter(p => p.war > 0);
     const { slots } = optimalLineup(pool, lineup);
     return {

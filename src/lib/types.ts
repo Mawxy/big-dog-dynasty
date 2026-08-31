@@ -336,7 +336,12 @@ export interface MatrixFile {
   players: MatrixRow[];
 }
 
-export interface SleeperProj { pos: string; pts13: number; ppg: number; raw_pts: number; }
+export interface SleeperProj {
+  pos: string; pts13: number; ppg: number; raw_pts: number;
+  /** week -> that week's own projected line (league-scored). Absent week =
+   *  bye/absence — a fact, not missing data. Absent map = season-only row. */
+  wk?: Record<string, number>;
+}
 export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }
 
 /** data/player/<pid>.json — one player's slice of projections.json +

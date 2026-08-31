@@ -224,14 +224,21 @@ def main():
         # season line but no weekly ones (membership differs slightly), and as
         # the whole source when --weekly-fallback 0 disables the weekly pass.
         wk_pts, wk_n = defaultdict(float), defaultdict(int)
+        wk_line = defaultdict(dict)   # pid -> {week: league pts} — the line itself
         if args.weekly_fallback:
             for wk in range(1, args.weekly_fallback + 1):
                 for item in get(week_proj_url(season, wk, pos)) or []:
                     pid = str(item.get("player_id") or "")
                     st = item.get("stats") or {}
                     if pid and st and scored(st):
-                        wk_pts[pid] += score_line(st, scoring, pos)
+                        pts_w = score_line(st, scoring, pos)
+                        wk_pts[pid] += pts_w
                         wk_n[pid] += 1
+                        # published per week so matchup projections can SUM the
+                        # actual weekly lines rather than multiplying an
+                        # average (settled with Max, 2026-08-31) — a missing
+                        # week here is a bye/absence, which is itself signal
+                        wk_line[pid][str(wk)] = round(pts_w, 1)
                 time.sleep(0.2)
 
         n_wk = n_season = 0
@@ -240,7 +247,8 @@ def main():
                 ppg = wk_pts[pid] / wk_n[pid]
                 out[pid] = {"pos": pos, "pts13": round(ppg * LEAGUE_GAMES, 2),
                             "ppg": round(ppg, 2),
-                            "raw_pts": round(wk_pts[pid], 1), "src": "weekly"}
+                            "raw_pts": round(wk_pts[pid], 1), "src": "weekly",
+                            "wk": wk_line[pid]}
                 n_wk += 1
             elif season_pts.get(pid, 0) > 0:
                 pts = season_pts[pid]

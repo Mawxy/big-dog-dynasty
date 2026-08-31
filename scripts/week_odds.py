@@ -153,8 +153,18 @@ def snapshot_projections(season, ld, sproj, week, teams):
     if str(week) in hist:
         return False
     rostered = {str(p) for t in (teams or []) for p in (t.get("players") or [])}
-    snap = {p: round(v["ppg"], 2) for p, v in sproj.items()
-            if p in rostered and v.get("ppg") is not None}
+    # THIS week's own line where one exists (a bye/absence has none and is
+    # snapshotted as absent, which is the truth), else the season-average ppg
+    snap = {}
+    for p, v in sproj.items():
+        if p not in rostered:
+            continue
+        wkmap = v.get("wk")
+        val = wkmap.get(str(week)) if wkmap else v.get("ppg")
+        if val is None and not wkmap:
+            continue
+        if val is not None:
+            snap[p] = round(val, 2)
     if not snap:
         return False
     hist[str(week)] = snap
@@ -230,7 +240,16 @@ def season_odds(season, ld, raw_root, sproj):
         def projected(pid):
             if wproj is not None:
                 return wproj.get(pid)
-            return (sproj.get(pid) or {}).get("ppg") if is_proj else None
+            if not is_proj:
+                return None
+            # the week's OWN line, not the season average multiplied out —
+            # rotowire varies lines by matchup, and a bye week has no line at
+            # all (settled with Max, 2026-08-31)
+            sp = sproj.get(pid) or {}
+            wkmap = sp.get("wk")
+            if wkmap:
+                return wkmap.get(str(wk), 0.0)   # weekly-covered, absent = bye
+            return sp.get("ppg")
 
         def dist(pid):
             """(mean, sd) for one starter, as of before week `wk`.
@@ -276,7 +295,11 @@ def season_odds(season, ld, raw_root, sproj):
                     po = pos_of(pid)
                     if not po:
                         continue
-                    val = (sproj.get(pid) or {}).get("ppg")
+                    # week-specific line first: matchup-adjusted, and a bye
+                    # week's 0.0 lets best_lineup bench him, as a manager would
+                    sp = sproj.get(pid) or {}
+                    wkmap = sp.get("wk")
+                    val = (wkmap.get(str(wk), 0.0) if wkmap else sp.get("ppg"))
                     if val is None:
                         val = dist(pid)[0]
                     cands.append((pid, po, val))
