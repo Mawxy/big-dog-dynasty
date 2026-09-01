@@ -5,6 +5,7 @@ import type {
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi, useProjWar } from "../lib/useIndices";
 import { useLeague } from "../lib/context";
+import { ktcOf } from "../lib/values";
 import { LEAGUE_TEAMS, latestSeasonOf, lineupOf, pricedLineup, rosterSeasonOf } from "../lib/league";
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 
@@ -43,13 +44,25 @@ export function useSeasonPhase() {
     for (const list of Object.values(mw?.teams ?? {}))
       for (const e of list) if (e[0] < ps) played.add(e[0]);
     const offseason = played.size === 0;
+    /* THE REGULAR SEASON IS OVER once its last week has been scored, and after
+       that there is no "week now in progress" in this file's vocabulary at all
+       — `played` holds regular weeks only, so the next-unplayed expression runs
+       off the end. Clamping it to `ps - 1` (what this did) republished a week
+       that finished a month earlier, all through the playoffs. A third phase is
+       the honest answer: the reader is told the postseason is on rather than
+       being handed a stale week number. */
+    const playoffs = !offseason && Math.max(...played) >= ps - 1;
     return {
       offseason,
+      /** the postseason is under way: every regular-season week is scored */
+      playoffs,
       /** the season whose RESULTS a reader should be shown */
       resultSeason: offseason ? latest : rosterSeason,
       rosterSeason, latest,
-      /** the week now in progress — the first unplayed regular-season week */
-      week: played.size ? Math.min(ps - 1, Math.max(...played) + 1) : null,
+      /** the week now in progress — the first unplayed regular-season week.
+       *  Null in the offseason and null once the playoffs start, both of which
+       *  are states rather than weeks. */
+      week: offseason || playoffs ? null : Math.max(...played) + 1,
       playoffStart: ps,
       loading: mw == null,
     };
@@ -126,12 +139,19 @@ export function useStandings(season: string | null) {
    ACTIVITY
    ======================================================================== */
 
-export interface ActTrade {
-  kind: "trade"; ts: number; season: string; week: number;
+/** A KEY THAT IS ACTUALLY UNIQUE. Sleeper batch-processes waivers, so a whole
+ *  Wednesday morning of moves shares one timestamp to the millisecond and a
+ *  franchise can hold several of them — `ts + team` collided, and React silently
+ *  dropped every row after the first of each collision. The transaction log has
+ *  no id of its own, so the id is its position in the file, which is stable for
+ *  the life of a build. */
+export interface ActBase { id: string; ts: number; season: string; week: number }
+export interface ActTrade extends ActBase {
+  kind: "trade";
   sides: { team: string; got: { label: string; pick: boolean }[] }[];
 }
-export interface ActMove {
-  kind: "move"; ts: number; season: string; week: number;
+export interface ActMove extends ActBase {
+  kind: "move";
   team: string; waiver: boolean; adds: string[]; drops: string[];
 }
 export type Activity = ActTrade | ActMove;
@@ -146,29 +166,31 @@ export type Activity = ActTrade | ActMove;
  * trade machine's job, and the machine re-prices at today's values rather than
  * at the values on the day.
  */
-export function useActivity(limit = 12) {
+export function useActivity(limit: number) {
   const trades = useJson<TradesPayload>("trades.json").data;
   const fr = useJson<Franchises>("franchises.json").data;
   return useMemo<Activity[] | null>(() => {
     if (!trades || !fr) return null;
     const list = Array.isArray(trades) ? trades : trades.trades;
-    const out: Activity[] = list.map(t => ({
-      kind: "trade" as const, ts: t.ts, season: t.season, week: t.week,
+    const out: Activity[] = list.map((t, i) => ({
+      kind: "trade" as const, id: `t${i}`,
+      ts: t.ts, season: t.season, week: t.week,
       sides: t.sides.map(s => ({
         team: s.team,
         got: s.got.map(a => ({ label: a.label, pick: a.kind !== "player" })),
       })),
     }));
-    for (const f of Object.values(fr)) {
+    for (const [key, f] of Object.entries(fr)) {
       const name = f.seasons[f.seasons.length - 1]?.name ?? "—";
-      for (const tx of f.tx) {
-        if (tx.type === "trade") continue;            // already in, and priced
+      f.tx.forEach((tx, i) => {
+        if (tx.type === "trade") return;              // already in, and priced
         out.push({
-          kind: "move", ts: tx.ts, season: tx.season, week: tx.week,
+          kind: "move", id: `m${key}:${i}`,
+          ts: tx.ts, season: tx.season, week: tx.week,
           team: name, waiver: tx.type === "waiver",
           adds: tx.adds ?? [], drops: tx.drops ?? [],
         });
-      }
+      });
     }
     return out.sort((a, b) => b.ts - a.ts).slice(0, limit);
   }, [trades, fr, limit]);
@@ -183,9 +205,9 @@ export interface Asset {
   kind: "player" | "pick";
   pid: string | null;
   pos: string; nfl: string;
-  age: number | null;
   dvi: number | null; cvi: number | null;
-  /** dynasty market price (KTC). Picks have one, by tier. */
+  /** dynasty market price, in THIS league's KTC column (`lib/values.ktcOf`,
+   *  off meta.tep) — never the base `row.ktc`. Picks have one, by tier. */
   ktc: number | null;
   /** 30-day raw market delta. RAW VALUE, never a rank delta — a rank delta is
    *  a statement about everyone else moving. Players only; the pick feed
@@ -212,7 +234,7 @@ export interface Asset {
  * DVI across a package containing picks would silently value them at zero.
  */
 export function useAssets() {
-  const { players } = useLeague();
+  const { players, meta } = useLeague();
   const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
   const owned = useJson<PicksOwned>("picks_owned.json").data;
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
@@ -233,9 +255,14 @@ export function useAssets() {
       out.push({
         key: `p${pid}`, label: d.name, kind: "player", pid,
         pos: d.pos, nfl: info?.[2] ?? "",
-        age: null,
         dvi: d.dvi, cvi: cvi.players[pid]?.cvi ?? null,
-        ktc: v?.ktc ?? null, d30: v?.ktcT?.["30"] ?? null,
+        // THROUGH ktcOf, never row.ktc. KTC publishes four ladders and this
+        // league sits on one of them (meta.tep); the base column prices a
+        // TE-premium league's tight ends in the wrong market — 8278 against
+        // 9160 for the same player. Everything downstream of this hook is
+        // priced off it: the baskets, the ledger's market column, and the
+        // KTC->DVI/CVI fit the pick indexer runs over the player field.
+        ktc: ktcOf(v, meta.tep), d30: v?.ktcT?.["30"] ?? null,
         war: war?.[pid] ?? null,
       });
     }
@@ -248,8 +275,11 @@ export function useAssets() {
           const tier = TIERS[Math.min(2, Math.floor((s - 1) / 4))];
           out.push({
             key: `k${cur} Pick ${slot}`, label: `${cur} Pick ${slot}`, kind: "pick",
-            pid: null, pos: "PICK", nfl: "", age: null,
+            pid: null, pos: "PICK", nfl: "",
             dvi: null, cvi: null,
+            // KTC publishes ONE pick ladder — the premium columns are a player
+            // repricing and the feed carries no tiered pick board — so this is
+            // the only figure available and `ktcOf` has nothing to choose from.
             ktc: pickKtc.get(`${cur} ${tier} ${ROUND_ORD[r]}`) ?? null, d30: null,
             war: sum(pickStream(pv, tier, r + 1)),
           });
@@ -260,14 +290,14 @@ export function useAssets() {
           for (const tier of TIERS)
             out.push({
               key: `k${y} ${tier} ${ROUND_ORD[r]}`, label: `${y} ${tier} ${ROUND_ORD[r]}`,
-              kind: "pick", pid: null, pos: "PICK", nfl: "", age: null,
+              kind: "pick", pid: null, pos: "PICK", nfl: "",
               dvi: null, cvi: null,
               ktc: pickKtc.get(`${y} ${tier} ${ROUND_ORD[r]}`) ?? null, d30: null,
               war: sum(pickStream(pv, tier, r + 1)),
             });
     }
     return out;
-  }, [dvi, cvi, war, vals, pv, owned, players]);
+  }, [dvi, cvi, war, vals, pv, owned, players, meta]);
 }
 
 /**
@@ -342,9 +372,16 @@ export function useTeamValues(season: string) {
       let market = 0, market30 = 0;
       for (const pid of t.players) {
         const v = vals?.players?.[pid];
-        if (!v?.ktc) continue;
-        market += v.ktc;
-        market30 += v.ktcT?.["30"] ?? 0;
+        // THIS LEAGUE'S KTC COLUMN, not the base one. A roster's market total
+        // summed off `row.ktc` prices every tight end on it in a market this
+        // league does not play in, and a superflex TE-premium roster is exactly
+        // where that gap is worth hundreds of points.
+        const k = ktcOf(v, meta.tep);
+        if (!k) continue;
+        market += k;
+        // the TREND stays the base feed's: KTC publishes no per-tier trends,
+        // and direction and magnitude read the same either way.
+        market30 += v?.ktcT?.["30"] ?? 0;
       }
       // picks the franchise holds. Priced by tier off the original owner's
       // finish — which nobody knows yet, so every future pick is priced Mid.

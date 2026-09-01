@@ -62,6 +62,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from crawl_schema import tep_class
+from ioutil import write_json
 import sleeper_http
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -248,8 +249,7 @@ def main():
         print(f"TE premium: fetched {n_fetched} of {len(need)} unmapped leagues "
               f"(cap {args.max_fetch}); cache now {len(tep_cache)}")
         if n_fetched:
-            (DATA / "tep_map.json").write_text(
-                json.dumps(tep_cache, separators=(",", ":")), encoding="utf-8")
+            write_json(DATA / "tep_map.json", tep_cache, separators=(",", ":"))
 
     # pid -> list of (delta, price_paid, face)
     ledger = defaultdict(list)
@@ -318,7 +318,7 @@ def main():
                     "trades_in_window": n_window, "trades_scored": n_scored,
                     "players_qualified": len(rows)},
            "overpaid": over, "underpaid": under}
-    Path(args.out).write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    write_json(args.out, out, separators=(",", ":"))
     print(f"wrote {args.out} — window {args.window_days}d ending "
           f"{out['meta']['as_of'][:10]}, {n_window} trades, {n_scored} scored, "
           f"{len(rows)} players ≥{min_n} trades & ≥{args.min_value} value, "

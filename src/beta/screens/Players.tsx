@@ -14,7 +14,8 @@ import {
 import { useMobile } from "../../lib/useWidth";
 import ScopeControl, { useScope } from "../Scope";
 import {
-  Band, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th, useBetaPath, useSort,
+  Band, DataError, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
+  useBetaPath, useSort,
 } from "../ui";
 import "./players.css";
 
@@ -430,6 +431,20 @@ export default function Players() {
     ? rows != null
     : rows != null && ![dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ].some(x => x.loading);
 
+  /* A FAILED FETCH IS NOT A SLOW ONE. Without this the board says Loading…
+     for the life of the page whenever one of its files drops.
+
+     Stated as "everything settled and there is still no population" rather than
+     as "some query errored", because an error is not always fatal here:
+     `useDviQuery` reports the missing index_models.json that sent it to the
+     dvi.json fallback, and that fallback usually lands. The population is the
+     honest test of whether the board can be drawn. */
+  const queries = hist
+    ? [sumQ, hTeamQ, mwQ]
+    : [dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ];
+  const failed = rows == null
+    && !queries.some(x => x.loading) && queries.some(x => x.error);
+
   /* Two identity columns plus the figure columns on desktop; spine, identity
      and the one figure cell on a phone. The drawer spans whatever that is. */
   const span = mobile ? 3 : 2 + cols.length;
@@ -479,7 +494,8 @@ export default function Players() {
           ? "WAR vs the best player left out of the league's 108 startable slots · under 45% of the season's max games filtered out"
           : "Three horizons side by side, never blended — where they disagree is the point"} />
 
-      {!ready || !rows ? <div className="empty">Loading…</div> : (
+      {failed ? <DataError what="The board didn't load" />
+        : !ready || !rows ? <div className="empty">Loading…</div> : (
         <table className={`v3tbl plx-tbl ${hist ? "plx-hist" : "plx-cur"}`}>
           {!mobile && (
             <thead>

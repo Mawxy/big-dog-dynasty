@@ -240,8 +240,10 @@ export interface KnnProjection {
   pid: string | null;
   gsis: string; name: string; pos: string;
   age: number | null; exp: number | null;
-  /** what the model saw: seasonal points/100 and games, most recent first */
-  seen: number[]; gps: number[];
+  /** what the model saw: seasonal points/100 and games, most recent first.
+   *  null is a season that does not exist, not a season of zero — same
+   *  convention as KnnNeighbour.seen */
+  seen: (number | null)[]; gps: (number | null)[];
   /** cohort size, and how many of it were scored per horizon year (an analog
    *  hurt that year is skipped, not zeroed — see METHODOLOGY on absence) */
   n: number; n_scored?: number[];
@@ -348,14 +350,34 @@ export interface SleeperProj {
 }
 export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }
 
-/** data/player/<pid>.json — one player's slice of projections.json +
- *  proj_sleeper.json, written by scripts/shard_players.py so a player page
- *  fetches ~2 KB instead of the ~600 KB of both full files. A 404 (player has
- *  no projection) is expected and falls back to the plain WAR trend. */
+/** The analog read as a player page draws it — his cohort's band, its size and
+ *  match, and the three named comparables. A SUBSET of KnnProjection on purpose:
+ *  the rest of that row is the model's own diagnostics and the fitted/expected
+ *  paths, and `near` is most of why projections_knn_hybrid.json is 788 KB. */
+export type KnnShard = Pick<KnnProjection, "n" | "sim_med" | "low" | "high" | "near">;
+
+/** data/player/<pid>.json — one player's slice of projections.json,
+ *  proj_sleeper.json, projections_matrix.json and projections_knn_hybrid.json,
+ *  written by scripts/shard_players.py so a player page fetches ~2 KB instead
+ *  of the ~1.6 MB of all four full files. A 404 (player in none of them) is
+ *  expected and falls back to the plain WAR trend.
+ *
+ *  The four fields below `sproj` are OPTIONAL because a shard built before the
+ *  enrichment does not carry them, and ABSENT rather than null when the player
+ *  has no row in that source — the page reads `shard?.mx ?? null` either way,
+ *  and the distinction keeps the shards that carry only an analog read small. */
 export interface PlayerShard {
   years: number[];
   proj: Projection | null;
   sproj: SleeperProj | null;
+  /** his row from projections_matrix.json. Absent = the matrix does not price
+   *  him, and the page falls back to the three-stream projection table. */
+  mx?: MatrixRow | null;
+  /** projections_matrix.json's meta.blend_w — the flat scalar/blend Sleeper
+   *  weight, and the only figure the player page reads out of that file's
+   *  header. Written only alongside `mx`, since nothing else reads it. */
+  blend_w?: number[] | null;
+  knn?: KnnShard | null;
 }
 
 /** data/insights.json — written per-franchise outlooks, keyed by roster_id */

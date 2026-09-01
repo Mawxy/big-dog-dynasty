@@ -157,6 +157,70 @@ def fetch_ktc(out, picks, players):
         print("WARNING: no tep/tepp/teppp values parsed — KTC payload layout "
               "may have changed; TEP-aware consumers will fall back to base ktc")
 
+def update_history(hist, vals, seen_today, today, cutoffs):
+    """Record TODAY'S OBSERVATIONS into `hist`, then refresh each player's
+    7/14/30-day deltas off it. Mutates `hist` and the rows of `vals`.
+
+    `seen_today[src]` is the set of pids that source actually LISTED on this
+    run — not every pid that ends up carrying a number for it.
+
+    THAT DISTINCTION IS THE WHOLE FUNCTION. main() carries the previous run's
+    numbers forward into `vals` so the site still shows a price for a player who
+    stopped being listed (retired, renamed, or a name that stopped matching).
+    Carrying the PRICE is right; recording it as a fresh observation is not.
+    The guard used to be per-SOURCE — "did KTC answer at all" — so a
+    carried-forward player had yesterday's number re-stamped under today's date
+    on every run, and the delta scan below then compared that number against
+    itself: his 7/14/30-day moves flattened to ~0 and stayed there for good.
+
+    So a source that did not list him today records nothing for him, and his
+    carried deltas are dropped rather than restated as today's. The scan skips
+    nulls (it walks back to the newest row that has a real number), so a gap is
+    honest and heals itself on the next run that actually sees him.
+    """
+    for pid, e in vals.items():
+        ktc = e.get("ktc") if pid in seen_today.get("ktc", ()) else None
+        fc = e.get("fc") if pid in seen_today.get("fc", ()) else None
+        if ktc is None and fc is None:
+            # nothing fresh for him from either source: leave his history
+            # untouched, and do not leave the last run's deltas standing as
+            # though they described a move that happened today
+            e.pop("ktcT", None)
+            e.pop("fcT", None)
+            continue
+        h = hist.setdefault(pid, [])
+        entry = [today, ktc, fc]
+        if h and h[-1][0] == today:
+            # a second run on the same day must not blank a source that
+            # succeeded on the first
+            for i in (1, 2):
+                if entry[i] is None and len(h[-1]) > i:
+                    entry[i] = h[-1][i]
+            h[-1] = entry
+        else:
+            h.append(entry)
+        del h[:-45]                          # keep ~45 most recent days; the
+                                             # years-deep KTC/FC backfill lives
+                                             # in values_history_deep.json,
+                                             # written once and never trimmed
+        for name, idx in (("ktc", 1), ("fc", 2)):
+            cur = e.get(name)
+            if cur is None or pid not in seen_today.get(name, ()):
+                # a price this source did not quote today is carried forward and
+                # has no new move to report — N/A beats yesterday's delta
+                e.pop(name + "T", None)
+                continue
+            trends = e.get(name + "T") or {}
+            for d, cutoff in cutoffs.items():
+                base = None
+                for row in h:                # most recent snapshot >= d days old
+                    if row[0] <= cutoff and len(row) > idx and row[idx] is not None:
+                        base = row[idx]
+                if base is not None:
+                    trends[str(d)] = cur - base
+            if trends:
+                e[name + "T"] = trends
+
 def main():
     ap = argparse.ArgumentParser()
     # players_min.json is LEAGUE-scoped (data/leagues/<key>/), values.json is
@@ -191,6 +255,13 @@ def main():
     for d in (vals, prev):
         for k in [k for k in d if str(k).startswith("FP_")]:
             del d[k]
+    # WHO EACH SOURCE ACTUALLY LISTED TODAY. Captured HERE, before the
+    # carry-forward below merges the previous run's numbers into `vals` and the
+    # two become indistinguishable. A source that failed outright lists nobody,
+    # which subsumes the old per-source guard. See update_history.
+    seen_today = {k: ({pid for pid, e in vals.items() if e.get(k) is not None}
+                      if k in fresh else set())
+                  for k in ("ktc", "fc")}
     # carry forward the other source's numbers if one failed this week
     for pid, old in prev.items():
         cur = vals.setdefault(pid, {})
@@ -215,47 +286,11 @@ def main():
             pass
     today = date.today().isoformat()
     cutoffs = {d: (date.today() - timedelta(days=d)).isoformat() for d in (7, 14, 30)}
-    # A SOURCE THAT FAILED RECORDS None HERE, never the number carried forward
-    # from `prev` above. Carrying it into values.json is right — the site should
-    # still show a price — but writing yesterday's number under today's date
-    # makes the delta loop below compare a value against itself, so every 7/14/
-    # 30-day delta silently flattens to ~0 and stays there. The scan skips
-    # nulls (it walks back to the newest row that has a real number), so a gap
-    # is honest and heals itself on the next successful fetch.
-    for pid, e in vals.items():
-        ktc = e.get("ktc") if "ktc" in fresh else None
-        fc = e.get("fc") if "fc" in fresh else None
-        if ktc is None and fc is None:
-            continue
-        h = hist.setdefault(pid, [])
-        entry = [today, ktc, fc]
-        if h and h[-1][0] == today:
-            # a second run on the same day must not blank a source that
-            # succeeded on the first
-            for i in (1, 2):
-                if entry[i] is None and len(h[-1]) > i:
-                    entry[i] = h[-1][i]
-            h[-1] = entry
-        else:
-            h.append(entry)
-        del h[:-45]                          # keep ~45 most recent days; the
-                                             # years-deep KTC/FC backfill lives
-                                             # in values_history_deep.json,
-                                             # written once and never trimmed
-        for name, idx in (("ktc", 1), ("fc", 2)):
-            cur = e.get(name)
-            if cur is None:
-                continue
-            trends = e.get(name + "T") or {}
-            for d, cutoff in cutoffs.items():
-                base = None
-                for row in h:                # most recent snapshot >= d days old
-                    if row[0] <= cutoff and len(row) > idx and row[idx] is not None:
-                        base = row[idx]
-                if base is not None:
-                    trends[str(d)] = cur - base
-            if trends:
-                e[name + "T"] = trends
+    # A VALUE NOBODY QUOTED TODAY IS NOT AN OBSERVATION — not when the source
+    # failed outright, and not when the source answered but stopped listing this
+    # player. Both are carried forward into values.json (the site should still
+    # show a price) and neither is written into the history. See update_history.
+    update_history(hist, vals, seen_today, today, cutoffs)
     # canonical PICK history rows, keyed "pick:<season> Mid <round>" — the mid
     # tier is what a slotless pick in a trade is worth, and what the ledger's
     # pick-at-trade / pick-at-draft snapshots price against. KTC publishes the

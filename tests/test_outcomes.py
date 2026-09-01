@@ -134,7 +134,8 @@ class PlacementsTest(unittest.TestCase):
         """
         rosters = load("rosters")
         st = {r["roster_id"]: r.get("settings") or {} for r in rosters}
-        rank = sorted(st, key=lambda i: (-(st[i].get("wins") or 0),
+        rank = sorted(st, key=lambda i: (-((st[i].get("wins") or 0)
+                                           + 0.5 * (st[i].get("ties") or 0)),
                                          -float(st[i].get("fpts") or 0)))
         wb = load("winners_bracket")
         pl = sc.placements_of(wb, rank)

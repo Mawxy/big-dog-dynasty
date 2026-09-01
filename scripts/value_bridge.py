@@ -85,6 +85,13 @@ def pav(pairs):
 
 def interp(knots, x):
     """Piecewise-linear prediction from knots, clamped at both ends."""
+    if not knots:
+        # No knot means no joined player: the source priced nobody we also
+        # project, so there is no curve and nothing to read off it. Returns 0.0
+        # rather than raising IndexError — the market still carries PICKS when
+        # the player join is empty, and meta.sources[src].n_proj says why every
+        # pick came out at zero.
+        return 0.0
     if x <= knots[0][0]:
         return knots[0][1]
     if x >= knots[-1][0]:
@@ -108,6 +115,8 @@ def spearman(x, y):
                 r[s[k]] = (i + j) / 2
             i = j + 1
         return r
+    if not x:
+        return 0.0          # empty join — no correlation to report, not a crash
     rx, ry = rank(x), rank(y)
     n = len(x)
     mx, my = sum(rx) / n, sum(ry) / n

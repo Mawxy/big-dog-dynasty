@@ -1,14 +1,38 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { SeasonData, SummaryRow, Team, Weekly } from "./types";
 import { jl } from "./data";
 import { sd, WAR_DP } from "./stats";
 import { useLeague } from "./context";
 import { rosterSeasonOf } from "./league";
 
+/**
+ * A season's data, plus how the fetch went.
+ *
+ * `error` exists because the catch below used to hand back an EMPTY season —
+ * `summary: []`, `teams: []` — which is indistinguishable from a season nobody
+ * has played yet. A dropped connection then rendered as "No scored weeks yet
+ * for 2025": a false claim about the league, with no way out of it. So a
+ * failed fetch says so, and carries the way back.
+ *
+ * It lives on the hook's return rather than on `SeasonData` because only the
+ * hook can know it — every other producer of a `SeasonData` has one in hand.
+ * The extra fields are optional, so anything typed on `SeasonData` still takes
+ * this unchanged.
+ */
+export interface SeasonState extends SeasonData {
+  /** the fetch failed: this season is not empty, it is unread */
+  error?: boolean;
+  /** re-run the fetch — present only on an error result */
+  retry?: () => void;
+}
+
 /** null season = "this view doesn't need season data right now" — no fetch */
-export function useSeasonData(season: string | null): SeasonData | null {
+export function useSeasonData(season: string | null): SeasonState | null {
   const { meta, league } = useLeague();
-  const [d, setD] = useState<SeasonData | null>(null);
+  const [d, setD] = useState<SeasonState | null>(null);
+  /** bumped by `retry`; a dependency of the effect, so it refetches */
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt(n => n + 1), []);
   useEffect(() => {
     let live = true;
     setD(null);
@@ -48,8 +72,10 @@ export function useSeasonData(season: string | null): SeasonData | null {
         ]);
         if (live) setD({ summary, teams, nflTeams, allData: null });
       }
-    })().catch(() => { if (live) setD({ summary: [], teams: [], allData: null }); });
+    })().catch(() => {
+      if (live) setD({ summary: [], teams: [], allData: null, error: true, retry });
+    });
     return () => { live = false; };
-  }, [season, meta, league]);
+  }, [season, meta, league, attempt, retry]);
   return d;
 }

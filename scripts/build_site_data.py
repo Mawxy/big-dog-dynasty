@@ -12,7 +12,7 @@ Outputs:
   data/<season>/teams.json      fantasy teams: manager, record, roster
   data/<season>/weekly.json     player_id -> [[week, pts, pAA, pAR, WAA, WAR], ...]
 """
-import argparse, csv, json, re, statistics, time
+import argparse, csv, json, re, statistics, sys, time
 from pathlib import Path
 
 from crawl_schema import tep_class
@@ -129,8 +129,21 @@ def main():
         lg = load(sdir / "league.json")
         chain[lg["season"]] = lg["league_id"]
         prev_of[lg["league_id"]] = lg.get("previous_league_id")
-    founder = next((lid for lid, prev in prev_of.items() if not prev),
-                   chain[min(chain)] if chain else "")
+    founder = next((lid for lid, prev in prev_of.items() if not prev), None)
+    if founder is None:
+        # No season on disk is the founding one, so the key below is a GUESS —
+        # and the wrong guess mints a second data/leagues/<id>/ tree plus a
+        # duplicate registry entry for a league that already exists. Legitimate
+        # for a --no-history or partial dump, which is why it isn't fatal, but
+        # it must never happen quietly in the pipeline.
+        founder = chain[min(chain)] if chain else ""
+        if founder:
+            print(f"!! WARNING: no season has a null previous_league_id — "
+                  f"falling back to the earliest dumped season ({min(chain)}, "
+                  f"league {founder}) as the founder key. Output lands under "
+                  f"data/leagues/{founder}/ and registers as a SEPARATE league. "
+                  f"Expected only for --no-history / a partial dump; a full "
+                  f"pull must reach the founding season.", file=sys.stderr)
     if founder:
         out = root_out / "leagues" / founder
         out.mkdir(parents=True, exist_ok=True)
@@ -473,7 +486,11 @@ def main():
                 if regs:
                     lo = min(regs, key=lambda kv: kv[1][0])
                     team_low[rid] = {"pid": lo[0], "war": round(lo[1][0], 2), "starts": lo[1][1]}
-        standing = sorted(teams, key=lambda t: (-t["wins"], -t["fpts"]))
+        # A TIE IS HALF A WIN. Sorting on `wins` alone counted a tie as nothing,
+        # so a 7-6-1 team seeded level with a 7-7-0 one and behind on points
+        # only. This key feeds `seed` AND the non-playoff half of `finish`.
+        standing = sorted(teams, key=lambda t: (-(t["wins"] + 0.5 * t["ties"]),
+                                                -t["fpts"]))
         seed = {t["roster_id"]: i + 1 for i, t in enumerate(standing)}
         finish = {}                                  # roster_id -> final placement
         # sleeper_pull writes brackets only when Sleeper returns one — absent
@@ -506,8 +523,8 @@ def main():
         # above for bracket.json.
         if any(m.get("w") for m in wb):
             in_playoffs = {r for m in wb for r in (m.get("t1"), m.get("t2")) if r}
-            # `standing` is already -wins then -fpts, so this ranks the teams that
-            # missed among themselves. Derived from the standings rather than from
+            # `standing` is already -(wins + ties/2) then -fpts, so this ranks
+            # the teams that missed among themselves. From the standings rather than
             # `seed` directly so it stays right if the playoff field is ever not
             # simply the top N seeds.
             missed = [t["roster_id"] for t in standing

@@ -155,6 +155,30 @@
    --pad hangs 12px off every band and table edge above it. */
 .v3 .tnote.screen { padding-left: var(--v3pad); padding-right: var(--v3pad); }
 
+/* A FETCH THAT DIDN'T LAND (ui.tsx DataError). Style.css's `.errbox` at this
+   shell's scale and gutter: same anatomy — a labelled block on --band behind a
+   3px --warn rule — because the boot screen and a band that lost its file are
+   the same event told at two sizes, and the two shells should say it the same
+   way. --warn rather than --acc: gold is the headline figure everywhere else on
+   this board and a dropped file is not a headline. Full-bleed and bottom-ruled,
+   because it stands in for the band's TABLE and has to sit in the stack of
+   bands like one. The button is style.css's `.retry`, unchanged. */
+.v3-err {
+  background: var(--band);
+  border-left: 3px solid var(--warn);
+  border-bottom: 1px solid var(--rule);
+  padding: 12px var(--v3pad) 14px;
+}
+.v3-err .k {
+  font: 600 11.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--warn);
+}
+.v3-err .body {
+  margin-top: 7px; max-width: 60ch;
+  font: 400 12.5px/1.5 var(--sans); color: var(--txt2); text-wrap: pretty;
+}
+.v3-err .retry { margin-top: 11px; font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase; padding: 6px 13px; }
+
 /* screen title band — the one line of chrome a screen gets above its content */
 .v3-head {
   display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
@@ -416,25 +440,6 @@
 }
 .v3tbl td .mark.acc { color: var(--acc); }
 .v3tbl td .nul { color: var(--dim3); }
-/* the compact ordinals that carry the OTHER lenses on a divergence row — three
-   of them in the width one figure would take, so the spread between lenses is
-   visible without a column each */
-.ords { display: flex; gap: 7px; justify-content: flex-end; }
-.ords .o { font: 600 11px/1 var(--cond); color: var(--dim2); letter-spacing: .04em; }
-/* The key stays condensed and only the ORDINAL goes mono: these are label-plus-
-   figure pairs in one span ("DVI4"), and three of them fit the width of one
-   figure precisely because the labels stay narrow. */
-.ords .o b {
-  font-family: var(--mono); font-weight: 600; font-size: 10px;
-  font-variant-numeric: tabular-nums; color: var(--dim);
-}
-
-/* the playoff cutline: a hard gold rule under 6th, and everything below it
-   steps to secondary ink. The line is the league's one real threshold, so it
-   spends the accent. */
-.v3tbl tbody tr.cut td { border-bottom: 2px solid var(--acc); }
-.v3tbl tbody tr.below .idc-n { color: var(--txt2); font-weight: 400; }
-.v3tbl tbody tr.below .f { color: var(--txt2); }
 
 /* ---- figure strip, phone ------------------------------------------------ */
 
@@ -489,19 +494,6 @@
 .v3-lens button:first-child { border-left: 0; }
 .v3-lens button.on { background: var(--acc); color: var(--acc-ink); }
 .v3-lens button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
-
-/* the scope control (Teams | Players) sits above the lens strip and is
-   deliberately a different shape — it changes WHAT is listed, not how it is
-   measured, and two identical strips would read as one eight-way choice */
-.v3-scope { display: flex; gap: 0; padding: 10px var(--v3pad) 0; }
-.v3-scope button {
-  padding: 6px 16px;
-  background: var(--band); border: 1px solid var(--rule); margin-left: -1px;
-  cursor: pointer; color: var(--dim);
-  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
-}
-.v3-scope button:first-child { margin-left: 0; }
-.v3-scope button.on { background: var(--sel); color: var(--txt); border-color: var(--rule-2); }
 
 /* position chips + search, one scrolling row */
 .v3-filters {
@@ -559,30 +551,17 @@
 
 .v3-sides { display: flex; gap: 1px; background: var(--rule); }
 .v3-side { flex: 1 1 0; min-width: 0; background: var(--bg); }
-.v3-side .sh {
-  display: flex; align-items: baseline; gap: 6px;
-  padding: 8px 10px 7px; background: var(--deep);
-  border-bottom: 1px solid var(--rule);
-}
-/* "Side A gets" — no team names, ever. The machine is a scale, not a
-   negotiation, and a team picker would make it one (decision #13). */
-.v3-side .sh .k {
-  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
-}
-/* the basket's asset count — a bare number, so mono like every other figure */
-.v3-side .sh .n {
-  margin-left: auto;
-  font: 600 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim2);
-}
+/* The panel header is `.trx-sidehd` in screens/trade.css — the basket is named
+   after a franchise now, so the header is a button that opens the picker. The
+   `.sh` block that used to sit here rendered "Side A gets" and had no markup
+   left; its `.k` / `.n` faces live on that class. */
 .v3-side .asset {
   display: flex; align-items: center; gap: 8px;
   padding: 8px 10px; border-bottom: 1px solid var(--hair);
 }
-.v3-side .asset .nm { flex: 1 1 auto; min-width: 0; }
-.v3-side .asset .nm .n1 {
-  font: 600 13px/1.25 var(--sans); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.v3-side .asset .nm .n2 { font: 400 10.5px/1.3 var(--sans); color: var(--dim); }
+/* the two-line identity is `IdLines` (.v3id) — see the sizing rule near the
+   foot of this file. The `.nm` / `.n1` / `.n2` block that used to be here was
+   this basket's own type ramp, one of three for the same object. */
 .v3-side .asset .x {
   flex: 0 0 auto; width: 26px; height: 26px;
   background: none; border: 1px solid var(--rule); color: var(--dim);
@@ -648,59 +627,9 @@
    green declares a winner in CSS, which is exactly what decision #14 refuses.
    The sign carries the direction and that is the whole claim. Do not add them.
 
-   A NEUTRAL NOTE on this screen — "loaded from the ledger", and anything else
-   that is context rather than judgment. Not style.css's `.verdict`, whose left
-   accent slab and 22px margins were built to frame a conclusion. */
-.v3-note {
-  margin: 0; padding: 11px var(--v3pad) 12px;
-  background: var(--band); border-bottom: 1px solid var(--rule);
-}
-.v3-note .k {
-  font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
-  color: var(--dim);
-}
-.v3-note .meta { margin-top: 5px; font: 600 12.5px/1.4 var(--sans); color: var(--txt2); }
-.v3-note .body { margin-top: 6px; font: 400 12px/1.5 var(--sans); color: var(--dim); }
-
-/* the asset picker, full-screen on a phone: a search field and a list, because
-   a dropdown of 800 players is not a control */
-.v3-pick { position: fixed; inset: 0; z-index: 60; background: var(--bg); display: flex; flex-direction: column; }
-.v3-pick .ph {
-  display: flex; gap: 8px; align-items: center;
-  padding: 10px var(--v3pad); background: var(--deep); border-bottom: 1px solid var(--rule);
-}
-.v3-pick .ph input[type="search"] { flex: 1 1 auto; min-width: 0; }
-.v3-pick .ph .x {
-  background: none; border: 0; color: var(--dim); cursor: pointer;
-  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-}
-.v3-pick .plist { flex: 1 1 auto; overflow-y: auto; }
-.v3-pick .prow {
-  display: flex; align-items: center; gap: 9px; width: 100%;
-  padding: 9px var(--v3pad); background: none; border: 0;
-  border-bottom: 1px solid var(--hair); cursor: pointer; text-align: left;
-}
-/* these are spans inside a flex row, so the two lines have to be told to be
-   lines — inline they run together into "Jahmyr GibbsDET · RB" */
-.v3-pick .prow .nm { flex: 1 1 auto; min-width: 0; display: block; }
-.v3-pick .prow .n1 {
-  display: block; font: 600 13.5px/1.25 var(--sans); color: var(--txt);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.v3-pick .prow .n2 {
-  display: block; font: 400 11px/1.3 var(--sans); color: var(--dim);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.v3-pick .prow .v {
-  font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
-}
-.v3-pick .sidebtns { display: flex; gap: 0; }
-.v3-pick .sidebtns button {
-  padding: 8px 12px; background: var(--band); border: 1px solid var(--rule); margin-left: -1px;
-  color: var(--dim); cursor: pointer;
-  font: 600 11px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
-}
-.v3-pick .sidebtns button.on { background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
+   The asset picker that used to follow — a full-screen `.v3-pick` takeover — is
+   a `Sheet` now (screens/trade.css `.trx-psearch` / `.trx-prow`), which brought
+   Escape, a real scrim and a body-scroll lock the takeover never had. */
 
 /* ---- More: rows that display their own current state -------------------- */
 
@@ -842,7 +771,6 @@
   .v3-lens { justify-content: flex-start; }
   .v3-sides { gap: 1px; }
   .v3-ledger td .big { font-size: 21px; }
-  .v3-pick { left: 208px; }
 }
 
 /* == v3 wave2B == */
@@ -908,39 +836,14 @@
 .v3-more .v3-meth + .mnote { padding-top: 9px; }
 
 /* == v3 wave2C == */
-/* Trade (screens/Trade.tsx). Four rules, and three of them exist to delete an
-   inline `style` the screen was writing in JS. Appended rather than merged into
-   the trade section above for the same reason 2A and 2B appended: three agents
-   editing the middle of one stylesheet is a merge conflict by construction.
-   Wave 3 folds these back into their sections. */
+/* Trade (screens/Trade.tsx). Appended rather than merged into the trade section
+   above for the same reason 2A and 2B appended: three agents editing the middle
+   of one stylesheet is a merge conflict by construction. Wave 3 folds these back
+   into their sections. */
 
-/* The basket and picker rows now compose `IdLines` (.v3id) instead of their own
-   two-line blocks, so the flex sizing that lived on the old `.nm` moves here.
-   `.v3-side .asset .nm` and `.v3-pick .prow .nm` above are now dead and are
-   Wave 3's to remove — leaving them costs nothing and removing them is not this
-   agent's file. */
-.v3-side .asset .v3id, .v3-pick .prow .v3id { flex: 1 1 auto; min-width: 0; }
-
-/* THE POPULATION SEGMENT in the asset picker — All | Players | Picks.
-   Its own bar under the search field rather than a third item inside `.ph`: the
-   header is already a text field plus a Done button, and a phone has no width
-   for a fourth control on that line. The buttons themselves reuse
-   `.v3-pick .sidebtns`, which was written for exactly this and had no markup
-   rendering it. */
-.v3-pick .pfil {
-  padding: 8px var(--v3pad);
-  background: var(--band); border-bottom: 1px solid var(--rule);
-}
-
-/* A tappable trade card in "From the ledger". Was seven inline style properties
-   on the <button> — the button reset plus the row rule .v3-act already owns —
-   which meant the one card on the site that is a control could not be restyled
-   from the stylesheet. */
-.v3-act.tap {
-  display: block; width: 100%; text-align: left;
-  background: none; border: 0; border-bottom: 1px solid var(--hair);
-  color: inherit; cursor: pointer;
-}
+/* The basket rows compose `IdLines` (.v3id) instead of their own two-line
+   block, so the flex sizing that lived on the old `.nm` lives here. */
+.v3-side .asset .v3id { flex: 1 1 auto; min-width: 0; }
 
 /* The estimate mark on a pick in a basket. A pick's DVI and CVI are estimated
    from its market price and its stream's timing; a player's are computed from a

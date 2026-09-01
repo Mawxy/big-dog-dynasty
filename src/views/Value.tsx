@@ -86,8 +86,8 @@ export default function Value() {
 
   // Seven sources, each optional: a failure costs the board that file's columns
   // and nothing else, which is what the merge below already assumes. The board
-  // paints once they have all settled — a partial merge would rank the
-  // population on whichever half arrived first and then re-rank under the
+  // paints once the SIX that carry it have settled — a partial merge would rank
+  // the population on whichever half arrived first and then re-rank under the
   // reader.
   const projsQ = useJson<ProjectionsFile>("projections.json");
   // model-aware: these follow the masthead's projection-model control,
@@ -98,11 +98,23 @@ export default function Value() {
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
   const ecrQ = useJson<EcrFile>("data/ecr.json", "globalDaily");
   const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
-  // experimental; its absence costs the board nothing
+  // Experimental, and the seventh source is the ODD ONE OUT: 788 KB, by far the
+  // largest file on the board, fetched to fill one column with one number per
+  // row. It still has to be the whole file — the Analog column needs every
+  // player's warK, so there is no shard to read here the way the player page
+  // reads one — but it must not GATE the first paint, which is what it did
+  // while it sat in `ready` below: the board waited on 788 KB to show DVI, CVI,
+  // price and rank, all of which had already arrived.
+  //
+  // The merge tolerates its absence by construction (`knn?.players ?? []`
+  // attaches to rows that already exist and creates none), so the column simply
+  // fills in when the fetch settles. The re-sort that follows is real but
+  // harmless: the board sorts on DVI by default and a reader who has chosen to
+  // sort on Analog is, by definition, looking at a column that has landed.
   const knnQ = useJson<KnnFile>("projections_knn_hybrid.json");
   const projs = projsQ.data, dvi = dviQ.data, cvi = cviQ.data;
   const vals = valsQ.data, ecr = ecrQ.data, curTeams = teamsQ.data, knn = knnQ.data;
-  const ready = ![projsQ, dviQ, cviQ, valsQ, ecrQ, teamsQ, knnQ].some(q => q.loading);
+  const ready = ![projsQ, dviQ, cviQ, valsQ, ecrQ, teamsQ].some(q => q.loading);
 
   const { sortId, dir, onSort } = useTableSort("dvi");
   const [openPid, setOpenPid] = useState<string | null>(null);

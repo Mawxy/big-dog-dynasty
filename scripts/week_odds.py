@@ -51,8 +51,9 @@ HISTORICAL SNAPSHOTS. Pricing a PAST week off projections needs the
 projections as they stood THEN, and Sleeper only serves the current ones.
 `--snapshot` archives the live file into <season>/proj_history.json keyed by
 the NFL week, trimmed to rostered players, so future seasons can be priced
-honestly. Seasons before this existed have no snapshots and fall back to the
-positional prior, which is what they were always built on.
+honestly. Only while season_type is "regular" — see snapshot_week(). Seasons
+before this existed have no snapshots and fall back to the positional prior,
+which is what they were always built on.
 
 Team score is the sum of nine independent starters, so
 P(A beats B) = Phi((muA - muB) / sqrt(varA + varB)) — the identical normal
@@ -170,6 +171,24 @@ def snapshot_projections(season, ld, sproj, week, teams):
     hist[str(week)] = snap
     atomic_write(f, json.dumps(hist, separators=(",", ":")))
     return True
+
+
+def snapshot_week(state, seasons):
+    """The (season, week) today's projections may be archived under, or None.
+
+    REGULAR SEASON ONLY. Through August Sleeper's /state/nfl reports
+    season_type "pre" with `week` counting PREseason weeks, so an August daily
+    run would archive preseason projections under regular-season week keys —
+    and snapshot_projections is first-write-wins, so the honest pregame
+    snapshot is then refused when that week actually arrives. sleeper_pull's
+    effective_week() distrusts state.week outside the regular season for the
+    same reason.
+    """
+    state = state or {}
+    if state.get("season_type") != "regular":
+        return None
+    wk, sn = state.get("week"), str(state.get("season") or "")
+    return (sn, wk) if wk and sn in seasons else None
 
 
 def season_odds(season, ld, raw_root, sproj):
@@ -367,13 +386,18 @@ def main():
     print("week odds · pregame only (weeks 1..W-1), projection as the prior")
     if args.snapshot and not args.probe:
         state = load(raw_root / "nfl_state.json") or {}
-        wk, sn = state.get("week"), str(state.get("season") or "")
-        if wk and sn in seasons:
+        got = snapshot_week(state, seasons)
+        if got:
+            sn, wk = got
             if snapshot_projections(sn, ld, sproj, wk, load(ld / sn / "teams.json")):
                 print(f"  archived {sn} week {wk} projections")
         else:
-            print(f"  no snapshot: NFL week {wk!r}, season {sn!r} "
-                  f"({'offseason' if not wk else 'season not built'})")
+            wk, sn = state.get("week"), str(state.get("season") or "")
+            st = state.get("season_type")
+            why = ("not the regular season" if st != "regular"
+                   else "offseason" if not wk else "season not built")
+            print(f"  no snapshot: NFL week {wk!r}, season {sn!r}, "
+                  f"type {st!r} ({why})")
     n = 0
     for s in seasons:
         got = season_odds(s, ld, raw_root, sproj)

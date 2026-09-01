@@ -34,13 +34,20 @@ nflverse ──> scripts/nfl_history.py ──> nfl_history_data/  (gitignored)
   (HashRouter) URLs: `#/players/:season`, `#/teams/:season[/:rid]`,
   `#/weekly/:season[/:wk]`, `#/player/:pid`; season segment `all` = All-time.
 - **Front end fetches per-player data as shards.** `data/player/<pid>.json`
-  (written by `shard_players.py`, gated to the ~800 ids in `players_min.json`)
-  carries that player's projection + Sleeper projection, so a player page pulls
-  ~2 KB instead of all of `projections.json` + `proj_sleeper.json` (~600 KB).
-  A 404 means "no projection" and falls back to the plain WAR trend chart.
+  (written by `shard_players.py`, gated to the ~800 ids in `players_min.json`
+  plus analog-only players with a knn cohort) carries that player's projection,
+  Sleeper projection, matrix row (`mx` + `blend_w`) and knn subset (`knn`,
+  incl. the `near` comparables), so a player page pulls ~2 KB instead of
+  `projections.json` + `proj_sleeper.json` + `projections_matrix.json` +
+  `projections_knn_hybrid.json` (~1.6 MB) (shards enriched 2026-09-01). A
+  missing field means that source has nothing for him; a shard with neither
+  projection falls back to the plain WAR trend chart. The shard step runs
+  AFTER `project_matrix` in `data-refresh.yml` so shards carry the same
+  night's projections.
 - **GitHub Actions workflows:**
-  - `tests.yml` — engine invariants + `tsc --noEmit` on pushes to `main` and
-    on every PR (`branches: [main]` on the push trigger only — a push to a
+  - `tests.yml` — engine invariants + `tsc --noEmit` + `npm test` (the
+    tradeModel invariants, Node 22 native type stripping) on pushes to `main`
+    and on every PR (`branches: [main]` on the push trigger only — a push to a
     side branch runs nothing until it opens a PR).
   - `deploy.yml` — build & deploy on pushes to `main` (also manual /
     `workflow_call`), minus a `paths-ignore` list of crawler corpora the site
@@ -273,8 +280,13 @@ regular&position[]=...` (and the per-player `stats/nfl/player/<id>` endpoint):
 ## Tests
 
 `python -m unittest discover -s tests -v` (or `python -m pytest tests -q`) —
-stdlib `unittest`, no network, no third-party runner required. Ten files, one
-per figure or engine:
+stdlib `unittest`, no network, no third-party runner required. Seventeen
+Python files; the table covers the figure/engine core, and the rest lock
+utilities and fetchers (`test_curves`, `test_fetch_ecr`, `test_fetch_values`,
+`test_names`, `test_project_war_knn`, `test_shard_players`,
+`test_sleeper_http`). `tests/tradeModel.test.ts` is separate — `npm test`
+(Node ≥ 22.18, native type stripping, no dependencies), run in CI by
+`tests.yml` — and locks the trade machine's invariants for both shells:
 
 | File | What it locks |
 |---|---|

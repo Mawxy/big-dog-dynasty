@@ -17,6 +17,8 @@ Usage: python scripts/merge_trade_corpus.py  (run from anywhere; paths are
 import datetime, json, sys
 from pathlib import Path
 
+from ioutil import write_json
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 
@@ -58,8 +60,7 @@ def main():
            "season": prev.get("season"),
            "leagues": max(len(lids), prev.get("leagues") or 0) or None,
            "trades": list(trades.values())}
-    (DATA / "trade_corpus.json").write_text(
-        json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    write_json(DATA / "trade_corpus.json", out, separators=(",", ":"))
     print(f"merged {len(sources)} file(s), {n_in} rows -> "
           f"{len(trades)} unique trades, {out['leagues']} leagues")
 

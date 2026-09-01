@@ -36,6 +36,8 @@ Picks are keyed "pick:<season> Mid <round>", matching the nightly writer.
 import argparse, json, re, sys, time, urllib.request
 from pathlib import Path
 
+from ioutil import write_json
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 UA = {"User-Agent": "Mozilla/5.0 (BigDogDynasty league site)"}
@@ -274,14 +276,14 @@ def main():
                 merge_rows(hist, f"pick:{label}", 1, pts)
                 n += 1
                 print(f"  pick:{label}  {len(pts)} pts  {pts[0][0]}..{pts[-1][0]}")
-        Path(args.out).write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
+        write_json(args.out, hist, separators=(",", ":"))
         print(f"done: {n} picks -> {args.out}")
         return
 
     if args.fc:
         hist = json.loads(Path(args.out).read_text(encoding="utf-8")) if Path(args.out).exists() else {}
         fc_backfill(hist, args.limit)
-        Path(args.out).write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
+        write_json(args.out, hist, separators=(",", ":"))
         print(f"wrote {args.out}")
         return
 
@@ -367,7 +369,7 @@ def main():
         n_ok += 1
         if (i + 1) % 50 == 0:
             print(f"  {i + 1}/{len(todo)} pages, {n_ok} merged")
-    Path(args.out).write_text(json.dumps(hist, separators=(",", ":")), encoding="utf-8")
+    write_json(args.out, hist, separators=(",", ":"))
     print(f"done: {n_ok} players merged, {n_nomatch} unmatched names, "
           f"{n_noseries} pages with no series -> {args.out}")
     if n_noseries and not n_ok:

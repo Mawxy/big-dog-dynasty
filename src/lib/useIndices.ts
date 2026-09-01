@@ -22,21 +22,36 @@ import { useModel } from "./model";
  * for data built before this file did. Two publishers of one number is a real
  * risk, which is why the pipeline writes both from the same run and the
  * validator fails if they ever disagree.
+ *
+ * WHY THE FALLBACK IS NOT FETCHED UP FRONT. It used to be, unconditionally:
+ * every screen that showed an index downloaded dvi.json and cvi.json (~76 KB
+ * between them) alongside index_models.json and then read neither, because the
+ * only branch that reads them is the one where index_models.json has FAILED.
+ * `useJson(null)` means "nothing to fetch yet", so the fetch is now conditioned
+ * on `mx.error` — the legacy path is unchanged the moment it is actually
+ * needed, and costs nothing the rest of the time.
  */
 function useIndexModels() {
   const q = useJson<IndexModelsFile>("index_models.json", "leagueDaily");
   return q;
 }
 
-export function useDvi(): DviFile | null {
+/**
+ * One implementation behind both `useDvi` and `useDviQuery`, so the fallback
+ * fetch exists once per component rather than twice, and so `.loading` can
+ * account for it: on the legacy path the board must not paint while the file
+ * that carries its default sort column is still in flight.
+ */
+function useDviJson(): Json<DviFile> {
   const { curve } = useModel();
   const mx = useIndexModels();
   // The fallback is a real path, not defensive noise: a deploy whose data
   // predates index_models.json still renders, on the default curve, and the
   // masthead control hides itself rather than offering six choices that all
-  // return the same numbers.
-  const flat = useJson<DviFile>("dvi.json", "leagueDaily");
-  return useMemo(() => {
+  // return the same numbers. It is REQUESTED only once that deploy is the one
+  // we are on — see the note above.
+  const flat = useJson<DviFile>(mx.error ? "dvi.json" : null, "leagueDaily");
+  const data = useMemo(() => {
     if (!mx.data) return mx.error ? flat.data : null;
     const players: DviFile["players"] = {};
     for (const [pid, r] of Object.entries(mx.data.players)) {
@@ -45,13 +60,14 @@ export function useDvi(): DviFile | null {
     }
     return { generated: mx.data.generated, players };
   }, [mx.data, mx.error, flat.data, curve]);
+  return { data, error: mx.error, loading: mx.loading || flat.loading };
 }
 
-export function useCvi(): CviFile | null {
+function useCviJson(): Json<CviFile> {
   const { curve } = useModel();
   const mx = useIndexModels();
-  const flat = useJson<CviFile>("cvi.json", "leagueDaily");
-  return useMemo(() => {
+  const flat = useJson<CviFile>(mx.error ? "cvi.json" : null, "leagueDaily");
+  const data = useMemo(() => {
     if (!mx.data) return mx.error ? flat.data : null;
     const players: CviFile["players"] = {};
     for (const [pid, r] of Object.entries(mx.data.players)) {
@@ -60,24 +76,20 @@ export function useCvi(): CviFile | null {
     }
     return { generated: mx.data.generated, format: mx.data.format, players };
   }, [mx.data, mx.error, flat.data, curve]);
+  return { data, error: mx.error, loading: mx.loading || flat.loading };
 }
+
+export function useDvi(): DviFile | null { return useDviJson().data; }
+export function useCvi(): CviFile | null { return useCviJson().data; }
 
 /**
  * The `Json<T>`-shaped form, for call sites that hold query objects rather than
- * data — Value.tsx gates its whole board on `.loading` across seven fetches, so
+ * data — Value.tsx gates its whole board on `.loading` across six fetches, so
  * handing it bare data would have made the index the one source that couldn't
  * say whether it had arrived.
  */
-export function useDviQuery(): Json<DviFile> {
-  const mx = useIndexModels();
-  const data = useDvi();
-  return { data, error: mx.error, loading: mx.loading };
-}
-export function useCviQuery(): Json<CviFile> {
-  const mx = useIndexModels();
-  const data = useCvi();
-  return { data, error: mx.error, loading: mx.loading };
-}
+export function useDviQuery(): Json<DviFile> { return useDviJson(); }
+export function useCviQuery(): Json<CviFile> { return useCviJson(); }
 
 /**
  * Projected 3-year WAR for the curve the site is being read under.
@@ -148,21 +160,15 @@ export function useProjWar1(): Record<string, number> | null {
 }
 
 /**
- * Whether a player has a second opinion at all, for the two curves that would
- * otherwise be silent about it.
- *
- * `analog` false means his analog and blend PROJECTIONS are the scalar one;
- * `sleeper` false means every composite projection is his own natural. Neither
- * means his index figure is model-independent — both indices clamp on
+ * `useIndexFallbacks(pid)` lived here and had no callers — it read
+ * `has_analog` / `has_sleeper` off index_models.json for a player, which the
+ * player page gets from its own shard's matrix row instead. Removed 2026-09-01.
+ * The claim it existed to protect still stands and belongs to whoever writes
+ * that copy next: those flags say a second opinion was never MEASURED for him,
+ * not that his index figure is model-independent. Both indices clamp on
  * percentiles of the whole field, so changing the model reprices everyone and
- * moves him too. Of the 65 players with no analog cohort, all 65 had identical
- * WAR across curves and only 4 an identical DVI. Say "not measured for him",
- * never "won't change".
+ * moves him too — of the 65 players with no analog cohort, all 65 had identical
+ * WAR across curves and only 4 an identical DVI.
  */
-export function useIndexFallbacks(pid: string | null) {
-  const mx = useIndexModels();
-  const r = pid ? mx.data?.players[pid] : null;
-  return r ? { analog: r.has_analog, sleeper: r.has_sleeper } : null;
-}
 
 export { useIndexModels };

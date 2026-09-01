@@ -64,6 +64,66 @@ class TestFitWeighting(unittest.TestCase):
         self.assertAlmostEqual(f["b"], 1.0, places=3)
 
 
+class TestResidualBands(unittest.TestCase):
+    """p20/p80 have to be weighted the way the LINE is.
+
+    They were not: the slope and intercept honoured --fit-weight and the bands
+    came from an UNWEIGHTED residual quantile, so the same dressed-zero
+    population the weighting exists to keep out of the fit still fully decided
+    how wide the band around it was. Measured on the committed nfl_history CSVs
+    that narrowed the published bands by 10-45%.
+    """
+
+    # a weighted fit of exactly y = x, with residuals of exactly -1 and +1
+    REAL = [(0.0, -1.0, 1.0), (0.0, 1.0, 1.0),
+            (1.0, 0.0, 1.0), (1.0, 2.0, 1.0),
+            (2.0, 1.0, 1.0), (2.0, 3.0, 1.0)]
+    # 200 seasons that dressed and produced nothing: zero weight in the fit,
+    # and sitting exactly on the line so an unweighted quantile collapses to 0
+    JUNK = [(1.0, 1.0, 0.0)] * 200
+
+    def test_the_bands_are_the_weighted_residual_quantiles(self):
+        f = A.fit_curve(self.REAL)
+        self.assertAlmostEqual(f["a"], 0.0, places=6)
+        self.assertAlmostEqual(f["b"], 1.0, places=6)
+        self.assertAlmostEqual(f["p20"], -1.0, places=6)
+        self.assertAlmostEqual(f["p80"], 1.0, places=6)
+
+    def test_a_zero_weight_cluster_cannot_narrow_the_band(self):
+        """The whole point, and the mirror of
+        test_zero_weight_rows_do_not_move_the_line."""
+        clean = A.fit_curve(self.REAL)
+        polluted = A.fit_curve(self.REAL + self.JUNK)
+        self.assertAlmostEqual(clean["p20"], polluted["p20"], places=6)
+        self.assertAlmostEqual(clean["p80"], polluted["p80"], places=6)
+
+    def test_unweighted_the_same_cluster_does_collapse_the_band(self):
+        """Control for the test above: at weight 1.0 the cluster owns both
+        quantiles. If this ever passes, the fixture stopped exercising
+        anything."""
+        f = A.fit_curve(self.REAL + [(x, y, 1.0) for x, y, _ in self.JUNK])
+        self.assertAlmostEqual(f["p20"], 0.0, places=6)
+        self.assertAlmostEqual(f["p80"], 0.0, places=6)
+
+    def test_unweighted_rows_still_produce_a_band(self):
+        f = A.fit_curve([(0.0, -1.0), (0.0, 1.0), (1.0, 0.0),
+                         (1.0, 2.0), (2.0, 1.0), (2.0, 3.0)])
+        self.assertAlmostEqual(f["p20"], -1.0, places=6)
+        self.assertAlmostEqual(f["p80"], 1.0, places=6)
+
+    def test_the_band_brackets_the_line(self):
+        f = A.fit_curve(self.REAL + self.JUNK)
+        self.assertLessEqual(f["p20"], 0.0)
+        self.assertGreaterEqual(f["p80"], 0.0)
+
+    def test_all_zero_weights_still_produce_a_band(self):
+        """The sw <= 0 fallback re-weights every row to 1.0 for the fit; the
+        bands have to come off that same fallback rather than divide by zero."""
+        f = A.fit_curve([(0.0, -1.0, 0.0), (1.0, 1.0, 0.0), (2.0, 3.0, 0.0)])
+        self.assertIsInstance(f["p20"], float)
+        self.assertLessEqual(f["p20"], f["p80"])
+
+
 class TestProductionWeight(unittest.TestCase):
     """prod_w turns a season's points into "how much of a season is this"."""
 

@@ -61,8 +61,9 @@
 }
 .trx-sidehd .k.none { color: var(--dim2); }
 .trx-sidehd .caret { letter-spacing: 0; color: var(--dim2); }
-/* the asset count — a bare number, so the same monospaced figure face
-   beta.css gives `.v3-side .sh .n`, whose markup this header replaces */
+/* the asset count — a bare number, so the same monospaced figure face every
+   other figure on the board takes. This header replaced beta.css's `.v3-side
+   .sh`, which is gone. */
 .trx-sidehd .n {
   flex: 0 0 auto;
   font: 600 11.5px/1.35 var(--mono); font-variant-numeric: tabular-nums;

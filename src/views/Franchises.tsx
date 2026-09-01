@@ -262,10 +262,15 @@ function RosterBoard() {
           win-now nine can differ · index points, not value
         </span>
       </div>
+      {/* the row opens the franchise page BY FKEY, the key franchises.json is
+          actually keyed on. A rid only resolves through FranchisePage's legacy
+          fallback, and in an owner-keyed league (redraft: franchise = person)
+          that fallback lands on whoever held the slot last — which is not
+          necessarily this row. */}
       <DataTable cols={BOARD_COLS} groups={groups} rows={sorted} ctx={NO_CTX}
         label={`Roster value · ${rosterSeason}`}
-        rowKey={r => String(r.rid)} sortId={sortId} dir={dir} onSort={onSort}
-        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.rid}`))}
+        rowKey={r => r.fkey} sortId={sortId} dir={dir} onSort={onSort}
+        homeCol="rk" onRowClick={r => nav(lp(`/franchise/${r.fkey}`))}
         recordsOnMobile recordsClass="t3" />
       <div className="tnote screen">
         Sorted by starters DVI — every header re-sorts, a row opens the franchise page.
@@ -376,10 +381,17 @@ function SeasonStandings({ season }: { season: string }) {
       // Every regular-season week the odds file prices that this team has not
       // actually played. Summed win probability is expected wins: over a
       // fourteen-week schedule that is a far better read than 0-0.
+      //
+      // A week counts only once it carries a WIN PROBABILITY, not merely an
+      // entry: `wp` is optional in WeekOdds (week 1 without a snapshot is
+      // deliberately left unpriced, with a mu and no line), and filtering on
+      // `x.o != null` let such a week into `ahead.length` while contributing
+      // `wp ?? 0` to expWins — a full projected LOSS for a week nobody has
+      // priced.
       const done = new Set(reg.map(e => e[0]));
       const ahead = Object.keys(odds?.weeks ?? {})
         .map(wk => ({ wk: Number(wk), o: odds?.weeks[wk]?.[String(t.roster_id)] }))
-        .filter(x => x.wk < ps && !done.has(x.wk) && x.o != null);
+        .filter(x => x.wk < ps && !done.has(x.wk) && x.o?.wp != null);
       const expWins = ahead.reduce((a, x) => a + (x.o?.wp ?? 0), 0);
       const projPts = ahead.map(x => x.o?.mu ?? 0);
 
@@ -502,9 +514,14 @@ function SeasonStandings({ season }: { season: string }) {
   const sorted = useMemo(
     () => applySort(rows, sortCol(cols, sortId, "seed"), dir), [rows, cols, sortId, dir]);
 
-  if (err) return (
+  // `data.error` is a FAILED season fetch, which arrives looking exactly like a
+  // season nobody has played — without this it fell through to the "no scored
+  // weeks" empty state below and claimed something about the season instead.
+  // One button retries both halves; the one that didn't fail is a cache hit.
+  if (err || data?.error) return (
     <div className="empty">Couldn't load team data.{" "}
-      <button className="retry" onClick={() => setReload(n => n + 1)}>Retry</button>
+      <button className="retry"
+        onClick={() => { data?.retry?.(); setReload(n => n + 1); }}>Retry</button>
     </div>
   );
   if (!data || !mw || !weekly) return <div className="empty">Loading…</div>;

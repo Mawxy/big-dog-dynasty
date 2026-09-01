@@ -59,6 +59,11 @@ jobs:
           else
             echo "player map restored from cache ($(du -h sleeper_data/players.json | cut -f1))"
           fi
+      # SEPTEMBER RITUAL: this is Big Dog's CURRENT-SEASON league_id, and
+      # Sleeper mints a new one every season. When the new season's league is
+      # created, update this id by hand. History keeps working either way —
+      # sleeper_pull walks previous_league_id back through 2022 — so a missed
+      # update fails quietly: the site simply never gains the new season.
       - name: Pull league history from Sleeper
         run: python scripts/sleeper_pull.py 1312221243742621696 --out sleeper_data
       - name: Compute WAA/WAR
@@ -72,6 +77,12 @@ jobs:
       # shared from the cached copy above rather than re-downloaded. The whole
       # block is fail-soft: a problem with the second league must never cost
       # Big Dog its daily refresh.
+      #
+      # SEPTEMBER RITUAL, same as the Big Dog id above: 1382780734728597504 is
+      # Pineapple Pizza's CURRENT-SEASON league_id and Sleeper mints a new one
+      # each season — update it by hand when the new league is created. The
+      # chain walk back through previous_league_id keeps every past season
+      # working either way, so a missed update just means no new season.
       - name: Pineapple Pizza — pull, WAR, build
         id: pizza
         continue-on-error: true
@@ -119,8 +130,6 @@ jobs:
         run: python scripts/week_odds.py --snapshot
       - name: Recompute WAR projections
         run: python scripts/project_war.py
-      - name: Shard per-player projections for the site
-        run: python scripts/shard_players.py --out data
       - name: Bridge B (market value -> WAR, refit on fresh projections)
         run: python scripts/value_bridge.py
       # after project_war and the analog model: the matrix reads both, so it
@@ -143,6 +152,19 @@ jobs:
         run: python scripts/project_war_knn.py --space hybrid
       - name: Six-curve projection matrix (scalar / analog / blend)
         run: python scripts/project_matrix.py
+      # LAST of the projection chain, and that ordering is the whole point: a
+      # shard now carries the player's matrix row and his analog projection
+      # (with the named comparables) as well as his projections.json row, so the
+      # player page fetches ~2 KB instead of the two whole files (~1 MB).
+      # Running before project_war_knn / project_matrix — where this step sat
+      # until 2026-09-01 — published shards holding the PREVIOUS night's curves
+      # beside the current night's scalar projection, which is worse than stale:
+      # the six-curve table would have disagreed with itself by one day.
+      # Its other inputs all land earlier — projections.json (project_war),
+      # proj_sleeper.json (fetch_projections) and players_min.json
+      # (build_site_data) — so the move is safe in both directions.
+      - name: Shard per-player projections for the site
+        run: python scripts/shard_players.py --out data
       # ONE step, not two: index_models.py runs blend_values and contender_index
       # across all six projection curves and writes dvi.json + cvi.json on the
       # default (blend_composite) plus index_models.json with all six. It loads
@@ -180,8 +202,10 @@ jobs:
           # crawl-trades movers job), which is a different concurrency group and
           # so genuinely can push mid-run. The allow-list above already excludes
           # them; this catches the future edit that widens it back to a
-          # directory without thinking about ownership.
-          CRAWL='^data/(league_signals|crawl_leagues|draft_signals|rookie_pick_corpus|draft_index|benchmarks|dynasty_movers|tep_map|outcome_signals_[0-9]+)\.json$'
+          # directory without thinking about ownership. The `_redraft` suffixes
+          # are crawl-signals-redraft's two files: the guard has to name what a
+          # widened allow-list could catch, not only what one catches today.
+          CRAWL='^data/(league_signals(_redraft)?|crawl_leagues(_redraft)?|draft_signals|rookie_pick_corpus|draft_index|benchmarks|dynasty_movers|tep_map|outcome_signals_[0-9]+)\.json$'
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD

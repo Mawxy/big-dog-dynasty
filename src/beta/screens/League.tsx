@@ -13,7 +13,9 @@ import { ktcOf } from "../../lib/values";
 import { readTrades, tradeWhen } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
 import { useActivity, useSeasonPhase, useStandings, type ActMove } from "../model";
-import { Band, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure } from "../ui";
+import {
+  Band, DataError, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure,
+} from "../ui";
 import ScopeControl, { useScope, type ScopeSeason } from "../Scope";
 import "./league.css";
 
@@ -140,13 +142,16 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const betaPath = useBetaPath();
   const phase = useSeasonPhase();
 
-  const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
-  const proj = useJson<ProjectionsFile>("projections.json").data;
+  const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
+  const teams = teamsQ.data;
+  const projQ = useJson<ProjectionsFile>("projections.json");
+  const proj = projQ.data;
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
   const ins = useJson<Insights>("insights.json").data;
   const tradesFile = useJson<TradesPayload>("trades.json").data;
   // the market prices a FORMAT, not a league — global files, global scope
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const valsQ = useJson<Values>("data/values.json", "globalDaily");
+  const vals = valsQ.data;
   const dyn = useJson<DynastyMovers>("data/dynasty_movers.json", "globalDaily").data;
   /* The window is a span of TIME and useActivity's argument is a row count, so
      it is asked for far more rows than it will show and then filtered by
@@ -229,10 +234,15 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
        frozen at the trade: `expThen` (projected WAR), `mktThen` (KTC) and
        `fcThen`. Market points are the only one most sides carry and the only
        one whose magnitude compares across deals, so "biggest" is the largest
-       side's at-trade market price. A pick-only side is unpriced — which is
-       why this is a MAX over sides rather than a sum: one priced side is
-       enough to size a deal, and summing would rank a two-sided trade above an
-       identical one where the picks went the other way. */
+       side's at-trade market price.
+
+       A MAX over sides rather than a sum, and the reason is no longer that a
+       pick-only side is unpriced — the snapshot has priced picks at their
+       mid-tier ladder key since 2026-08-21. It is that the two sides of a deal
+       are two readings of ONE size, not two halves of it: summing them would
+       rank a trade above an identical one where the picks went the other way,
+       and one priced side is enough to size a deal where the other still
+       carries an asset the history cannot reach. */
     const size = (t: Trade) => Math.max(0, ...t.sides.map(s => s.mktThen ?? 0));
     const biggest = inWindow.length
       ? inWindow.slice().sort((a, b) => size(b) - size(a) || b.ts - a.ts)[0]
@@ -330,7 +340,12 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {/* ---- 2. power rankings ------------------------------------------- */}
       <Band label={`Power rankings · ${rosterSeason}`}
         note="Projected starter WAR — the best legal lineup, not the lineup as set" />
-      {!power ? <div className="empty">Loading projections…</div> : (
+      {/* A FAILED FETCH IS NOT A SLOW ONE. Without the error arm the band
+          claims to be loading projections that are never coming, for the life
+          of the page. */}
+      {teamsQ.error || projQ.error
+        ? <DataError what="Power rankings didn't load" />
+        : !power ? <div className="empty">Loading projections…</div> : (
         <table className="v3tbl">
           <thead>
             <tr>
@@ -426,7 +441,12 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {openMoves && (
         <div className="v3-feed">
           {recent.moves.map(a => (
-            <div className="v3-act" key={`m${a.ts}${a.team}`}>
+            /* the ACTIVITY'S OWN ID, not ts+team. Sleeper batch-processes
+               waivers, so a whole Wednesday's claims share one timestamp to the
+               millisecond and one franchise can hold several of them — the old
+               key collided and React silently dropped every row after the first
+               of each collision, which read as moves that never happened. */
+            <div className="v3-act" key={a.id}>
               <div className="when">
                 <span>{tradeWhen(a.ts)}</span>
                 <span>{a.waiver ? "Waiver" : "Free agent"}</span>
@@ -453,7 +473,12 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {/* ---- 4. model vs market ------------------------------------------ */}
       <Band label="Model vs market"
         note={`Three-year WAR, ours against the price · ${MARKET_FLOOR.toLocaleString()}+ market value`} />
-      {!mvm ? <div className="empty">Waiting on the nightly market pull…</div> : (
+      {/* "Waiting on the nightly pull" is a claim about a fetch that is still
+          coming. Once values.json has failed it is the wrong sentence — the
+          reader is waiting on nothing. */}
+      {valsQ.error
+        ? <DataError what="Market didn't load" />
+        : !mvm ? <div className="empty">Waiting on the nightly market pull…</div> : (
         <table className="v3tbl">
           <thead>
             <tr>
@@ -550,7 +575,9 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
       {/* ---- 6. market movers -------------------------------------------- */}
       <Band label="Market movers" note="KeepTradeCut, 7-day change in points" />
-      {!movers ? <div className="empty">Waiting on the nightly market pull…</div> : (
+      {valsQ.error
+        ? <DataError what="Market didn't load" />
+        : !movers ? <div className="empty">Waiting on the nightly market pull…</div> : (
         <table className="v3tbl">
           <thead>
             <tr>
@@ -687,9 +714,14 @@ function HistoryView({ season }: { season: string }) {
   const brq = useJson<BracketFile>(`${season}/bracket.json`);
   const br = brq.data;
   const fr = useJson<Franchises>("franchises.json").data;
-  const sum = useJson<SummaryRow[]>(`${season}/summary.json`).data;
-  // already fetched by useStandings — same path, so the cache serves it
-  const teams = useJson<Team[]>(`${season}/teams.json`).data;
+  const sumQ = useJson<SummaryRow[]>(`${season}/summary.json`);
+  const sum = sumQ.data;
+  /* already fetched by useStandings — same path, so the cache serves it, and
+     its `error` therefore doubles as the standings' error: useStandings builds
+     `rows` from this file and that season's matchups, so a null `rows` with
+     this query failed is a failure rather than a wait. */
+  const teamsQ = useJson<Team[]>(`${season}/teams.json`);
+  const teams = teamsQ.data;
 
   /** the title game, and which of its two point totals belongs to the winner */
   const title = useMemo(() => {
@@ -732,16 +764,21 @@ function HistoryView({ season }: { season: string }) {
   const finishOf = (rid: number) =>
     fr?.[String(rid)]?.seasons.find(s => s.season === season)?.finish ?? null;
 
+  /* DASH, NOT NUL. `Strip` renders `.v3strip .cell` divs and beta.css scopes
+     `.nul` to `.v3tbl td`, so a NUL in here is an unstyled em dash sitting at
+     figure weight in primary ink — a missing figure shouting louder than the
+     ones that exist. DASH is the same glyph in decorative ink, defined at the
+     top of this file for exactly this. */
   const figures: Figure[] = [
-    { key: "seed", label: "Seed", value: seed != null ? ord(seed) : NUL,
+    { key: "seed", label: "Seed", value: seed != null ? ord(seed) : DASH,
       sub: "regular-season finish" },
-    { key: "rec", label: "Record", value: champ?.rec ?? NUL,
+    { key: "rec", label: "Record", value: champ?.rec ?? DASH,
       sub: champ?.played ? `${fmt(champ.ppg, 1)} ppg` : undefined },
-    { key: "med", label: "Vs median", value: champ?.med ?? NUL,
+    { key: "med", label: "Vs median", value: champ?.med ?? DASH,
       sub: "against each week's league median" },
     { key: "final", label: "Title game",
       value: title && title.pts != null && title.oppPts != null
-        ? `${fmt(title.pts, 1)}–${fmt(title.oppPts, 1)}` : NUL,
+        ? `${fmt(title.pts, 1)}–${fmt(title.oppPts, 1)}` : DASH,
       sub: title
         ? `beat ${runnerUp?.team ?? (title.loser != null ? br?.names[String(title.loser)] : null) ?? "—"} · wk ${title.week}`
         : undefined },
@@ -766,7 +803,8 @@ function HistoryView({ season }: { season: string }) {
           Gated on the fetch, not on the data: an em dash is a claim, and a
           champion block full of them while the files are still in flight makes
           a claim the screen is about to contradict. */}
-      {!rows || brq.loading ? <div className="empty">Loading {season}…</div> : <>
+      {teamsQ.error ? <DataError what={`${season} didn't load`} />
+        : !rows || brq.loading ? <div className="empty">Loading {season}…</div> : <>
         <div className="lgx-champ">
           <div className="k">{season} champion</div>
           {champName && champRid != null
@@ -783,7 +821,8 @@ function HistoryView({ season }: { season: string }) {
       {/* ---- final standings ---------------------------------------------- */}
       <Band label={`${season} final standings`}
         note="# is the playoff seed — regular-season record, then points" />
-      {!rows ? <div className="empty">Loading {season}…</div> : (
+      {teamsQ.error ? <DataError what={`${season} standings didn't load`} />
+        : !rows ? <div className="empty">Loading {season}…</div> : (
         <table className="v3tbl">
           <thead>
             <tr>
@@ -823,7 +862,8 @@ function HistoryView({ season }: { season: string }) {
       {/* ---- WAR leaders --------------------------------------------------- */}
       <Band label={`${season} WAR leaders`}
         note="Wins above replacement on this league's own scoring · regular season" />
-      {!leaders ? <div className="empty">Loading {season}…</div> : (
+      {sumQ.error ? <DataError what={`${season} WAR leaders didn't load`} />
+        : !leaders ? <div className="empty">Loading {season}…</div> : (
         <table className="v3tbl">
           <thead>
             <tr>

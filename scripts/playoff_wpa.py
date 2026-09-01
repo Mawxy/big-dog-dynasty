@@ -114,6 +114,7 @@ import argparse, json, math, sys
 from itertools import combinations
 from pathlib import Path
 
+from ioutil import write_json
 from leaguepaths import DataDir
 # the production half of the win split needs the same positional replacement
 # baseline playoff_war.py uses — one implementation, in the regular-season engine
@@ -595,7 +596,7 @@ def main():
                 "mvp_avg": round(mvp_avg, 4),
                 "mvp_avg_seasons": sorted(season_best),
             }
-            f.write_text(json.dumps(b, separators=(",", ":")), encoding="utf-8")
+            write_json(f, b, separators=(",", ":"))
             n += 1
     print(f"\n{'probe: nothing written' if args.probe else f'wrote {n} bracket.json'}")
 

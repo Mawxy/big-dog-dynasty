@@ -16,8 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from week_odds import (best_lineup, pos_stats,          # noqa: E402
-                       season_odds, snapshot_projections)
+from week_odds import (best_lineup, pos_stats, season_odds,   # noqa: E402
+                       snapshot_projections, snapshot_week)
 from playoff_wpa import shrink                          # noqa: E402
 
 
@@ -255,6 +255,48 @@ class TestSnapshotFirstWriteWins(unittest.TestCase):
     def test_players_without_a_projection_are_dropped_not_zeroed(self):
         self.snap(5, {"a": {"ppg": 18.0}, "b": {"ppg": None}})
         self.assertEqual(sorted(self.hist()["5"]), ["a"])
+
+
+class TestSnapshotIsRegularSeasonOnly(unittest.TestCase):
+    """The gate in front of first-write-wins. Sleeper's /state/nfl reports
+    season_type "pre" through August with `week` counting PREseason weeks — so
+    an ungated August run archives preseason projections under week 1, 2 and 3
+    of the regular season, and because the FIRST write of a week wins, the
+    honest pregame snapshot is refused when that week actually arrives. This
+    poisoned 2026's proj_history.json (three preseason weeks, committed
+    2026-08-07/16/24) before the gate existed."""
+
+    SEASONS = [SEASON]
+
+    def state(self, **kw):
+        return {"season": SEASON, "season_type": "regular", "week": 3, **kw}
+
+    def test_the_regular_season_snapshots(self):
+        self.assertEqual(snapshot_week(self.state(), self.SEASONS), (SEASON, 3))
+
+    def test_the_preseason_does_not(self):
+        """`week` here counts PREseason weeks, not regular-season ones."""
+        self.assertIsNone(snapshot_week(self.state(season_type="pre"),
+                                        self.SEASONS))
+
+    def test_the_postseason_and_offseason_do_not(self):
+        for st in ("post", "off"):
+            self.assertIsNone(snapshot_week(self.state(season_type=st),
+                                            self.SEASONS), st)
+
+    def test_a_state_with_no_type_at_all_does_not(self):
+        s = self.state()
+        del s["season_type"]
+        self.assertIsNone(snapshot_week(s, self.SEASONS))
+        self.assertIsNone(snapshot_week({}, self.SEASONS))
+        self.assertIsNone(snapshot_week(None, self.SEASONS))
+
+    def test_a_season_that_is_not_built_does_not(self):
+        self.assertIsNone(snapshot_week(self.state(season="2099"), self.SEASONS))
+
+    def test_week_zero_or_missing_does_not(self):
+        self.assertIsNone(snapshot_week(self.state(week=0), self.SEASONS))
+        self.assertIsNone(snapshot_week(self.state(week=None), self.SEASONS))
 
 
 if __name__ == "__main__":

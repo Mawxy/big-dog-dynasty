@@ -63,11 +63,22 @@ def week_complete(season, wk, state):
     'Any points present' is not enough: on a mid-week manual run the Thu/early
     games have points while the Sun-night/Mon players still read 0, so freezing
     then records a partial week (bad sigma, real players marked DNP). Use the
-    current NFL week from /state/nfl — already fetched — as the cutoff."""
-    if not state or not str(season).isdigit():
-        return True                                  # no state / unknown season: old behavior
-    cur_season = int(state.get("season") or 0)
+    current NFL week from /state/nfl — already fetched — as the cutoff.
+
+    NO STATE FAILS CLOSED. main() require()s the state, so a missing one only
+    reaches here from an external caller — and "complete" is the dangerous
+    guess there, since it freezes the live week mid-Sunday. The one thing
+    provable without state is that the CALENDAR has already put a season
+    behind us, so that season stays freezable."""
+    if not str(season).isdigit():
+        return True                                  # unknown season: old behavior
     season = int(season)
+    if not state:
+        # NFL season Y runs Sep Y into Feb Y+1, so before March the season in
+        # progress is still last year's.
+        today = _dt.date.today()
+        return season < (today.year if today.month >= 3 else today.year - 1)
+    cur_season = int(state.get("season") or 0)
     if season != cur_season:
         return season < cur_season                   # past season done; future not
     st = state.get("season_type")
@@ -305,7 +316,10 @@ def main():
     args = ap.parse_args()
 
     root = Path(args.out)
-    state = get("/state/nfl")
+    # Everything downstream reads this: week_complete's freeze cutoff,
+    # effective_week's set-lineup capture, and the fallback season below. A
+    # null here would save the string "null" and then silently fail open.
+    state = require(get("/state/nfl"), "NFL state")
     save(state, root / "nfl_state.json")
 
     # --players-only needs no league at all: the map is global to Sleeper.
@@ -313,7 +327,7 @@ def main():
     # arguments and never touch a league endpoint.
     if args.players_only:
         print("Downloading full player map (~19MB)...")
-        save(get("/players/nfl"), root / "players.json")
+        save(require(get("/players/nfl"), "players map"), root / "players.json")
         print("--players-only: player map written, skipping the league pull")
         return
 
@@ -336,7 +350,7 @@ def main():
 
     if args.players:
         print("Downloading full player map (~19MB)...")
-        save(get("/players/nfl"), root / "players.json")
+        save(require(get("/players/nfl"), "players map"), root / "players.json")
 
     if not args.no_forward:
         league_id = newest_of(league_id)

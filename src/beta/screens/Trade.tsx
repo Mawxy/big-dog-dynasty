@@ -18,8 +18,8 @@ import {
 import { useAssets, type Asset } from "../model";
 import ScopeControl, { useScope, type ScopeSeason } from "../Scope";
 import {
-  Band, IdCell, IdLines, Ledger, LedgerRow, LEDGER_GUARDRAIL, NUL, PosSpine,
-  Sheet, SheetRow, TapRow, useBetaPath,
+  Band, DataError, IdCell, IdLines, Ledger, LedgerRow, LEDGER_GUARDRAIL, NUL,
+  PosSpine, Sheet, SheetRow, TapRow, useBetaPath,
 } from "../ui";
 import "./trade.css";
 
@@ -88,9 +88,12 @@ const whenShort = (ts: number) => ts
  *
  * The first nightly run that sees a trade FREEZES what each side's haul was
  * worth on the day and never overwrites it (`scripts/trade_analysis.py`). `mkt`
- * is that side's KTC; it is null for a side holding a pick or FAAB — those have
- * no honest market sum — and null for a trade older than the committed value
- * history can reach back to.
+ * is that side's KTC: players by pid and PICKS BY THEIR MID-TIER LADDER KEY
+ * (since 2026-08-21 — a pick is a market asset until draft night), FAAB
+ * skipped. It is null only where the writer could not price every asset on the
+ * side, or where the committed value history does not reach back to the trade
+ * — and entries frozen before picks were priced are backfilled from that
+ * history rather than left as permanent em dashes.
  */
 interface SnapSide { exp: number | null; mkt: number | null; fc?: number | null }
 interface Snap { taken: string; kind: string; sides: Record<string, SnapSide> }
@@ -266,11 +269,13 @@ export default function Trade() {
           the league is in. */}
       <ScopeControl value={scope} onChange={setScope} seasons={seasons} currentLabel="Build" />
 
-      {file.loading
-        ? <div className="empty">Loading trades…</div>
-        : scope.scope === "history"
-          ? <History trades={trades ?? []} season={scope.season} open={open} setOpen={setOpen} />
-          : <Build />}
+      {file.error
+        ? <DataError what="Trades didn't load" />
+        : file.loading
+          ? <div className="empty">Loading trades…</div>
+          : scope.scope === "history"
+            ? <History trades={trades ?? []} season={scope.season} open={open} setOpen={setOpen} />
+            : <Build />}
     </>
   );
 }
@@ -379,7 +384,8 @@ const sumWar = (rows: Holding[]) => rows.reduce((a, h) => a + (h.asset.war ?? 0)
 function Build() {
   const { league } = useLeague();
   const rosterSeason = rosterSeasonOf(league);
-  const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
+  const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
+  const teams = teamsQ.data;
   const owned = useJson<PicksOwned>("picks_owned.json").data;
   const assets = useAssets();
   // Bridge B, market-implied: per-band, per-year WAR streams keyed by exactly
@@ -569,6 +575,7 @@ function Build() {
   // is a second thing to compare it to
   const showAll = allView || (desktop && st.offers.length > 1);
 
+  if (teamsQ.error) return <DataError what="Rosters didn't load" />;
   if (!teams || !assets) return <div className="empty">Loading…</div>;
 
   return (
@@ -1142,28 +1149,43 @@ function Drawer({ t, at, vals }: { t: TradeT; at: AtTrade; vals: Values | null }
 /**
  * A side's market TODAY, on the same basis the snapshot froze.
  *
- * Two rules carried over from the writer (`trade_analysis.py: mkt_players`), so
- * that the two ends of `then → now` are the same measurement twice:
+ * THIS IS A PORT OF `scripts/trade_analysis.py: mkt_side`, asset for asset, and
+ * it has to stay one: it supplies the right-hand end of `then → now`, and a
+ * delta between two different measurements is not a delta.
  *
- *  - PLAYERS ONLY. A side holding a pick or a FAAB payment has no honest market
- *    sum, at either end. Comparing a then-players basket to a now-with-picks one
- *    would move the goalposts, not the market.
- *  - THE BASE KTC LADDER, not `lib/values.ktcOf`. This league is TE-premium and
- *    every other KTC figure on the site is priced in that column — but the
- *    snapshot froze `row.ktc`, so pricing today's end on the premium ladder
- *    would credit a scoring rule to the market and show every tight end gaining
- *    value he never gained. A delta has to be like for like, and the like here
- *    is what was written down on the day.
+ *  - PICKS ARE PRICED (settled with Max, 2026-08-21: a pick IS a market asset
+ *    until draft night). The writer keys them `"<ps> Mid <ord>"` off
+ *    `values.json`'s pick ladder, and has done since that date — which is what
+ *    this end had never caught up with. It declined any side holding a pick, so
+ *    a pick-holding basket rendered "12,345 → —" with no delta, permanently, on
+ *    the majority of this league's recent deals. A CONVERTED pick keeps the
+ *    pick key too, even though it carries the drafted player's id: the writer
+ *    branches on `kind == "pick"`, not on whether a pid is present.
+ *  - FAAB IS SKIPPED, not declined — same as the writer's `continue`.
+ *  - THE BASE KTC LADDER, not `lib/values.ktcOf`. This is the one deliberate
+ *    exception to the site-wide TE-premium rule. The writer's `price_now` reads
+ *    `row.get("ktc")` and the frozen history rows are the same base column, so
+ *    pricing today's end on the premium ladder would credit a scoring rule to
+ *    the market and show every tight end gaining value he never gained. Like
+ *    for like, and the like is what was written down on the day.
+ *  - ONE UNPRICEABLE ASSET VOIDS THE SIDE, which is the writer's rule too: it
+ *    sets the running total to None the moment a source can't price an asset.
  */
 function marketNow(s: TradeSide, vals: Values | null): number | null {
   if (!vals) return null;
+  const pickKtc = new Map(vals.picks?.ktc ?? []);
   let sum = 0;
   for (const a of s.got) {
     if (a.kind === "faab") continue;
-    if (a.kind !== "player" || !a.pid) return null;
-    const k = vals.players[a.pid]?.ktc;
-    if (!k) return null;
-    sum += k;
+    let v: number | undefined;
+    if (a.kind === "pick" && a.ps != null && a.rnd != null) {
+      // the writer's `pick_key`, glyph for glyph
+      v = pickKtc.get(`${a.ps} Mid ${ROUND_ORD[a.rnd - 1] ?? `${a.rnd}th`}`);
+    } else if (a.pid) {
+      v = vals.players[a.pid]?.ktc;
+    }
+    if (!v) return null;
+    sum += v;
   }
   return sum || null;
 }

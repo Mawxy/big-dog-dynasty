@@ -60,6 +60,7 @@ import argparse, json, statistics, sys
 from collections import defaultdict
 from pathlib import Path
 
+from ioutil import write_json
 from leaguepaths import DataDir
 from sleeper_war import (build_week, load_json, norm_win_shift,   # noqa: E402
                          player_pos, score_stats, slot_counts)
@@ -119,6 +120,14 @@ def season_war(season, ld, raw_root, players):
     out = {}
     for wk, lineup in sorted(starts.items()):
         wf = sdir / "matchups" / f"week_{wk}.json"
+        # Who actually played, from Sleeper's stats feed — sleeper_pull saves
+        # `played/week_NN.json` for playoff weeks too. With it a dressed 0.00
+        # is a real zero and accrues NEGATIVE points above replacement, which
+        # is the position-independent played rule (methodology #5) and is what
+        # playoff_wpa already does. Without it (older dumps) fall back to
+        # treating 0.00 as did-not-play, exactly as sleeper_war does.
+        pfile = sdir / "played" / f"week_{wk:02d}.json"
+        played = set(load_json(pfile)) if pfile.exists() else None
         # The pool every baseline is measured against: every rostered player's
         # actual points that week. Lineups are NOT consulted here — that is
         # what keeps the consolation bracket from moving replacement level.
@@ -126,8 +135,14 @@ def season_war(season, ld, raw_root, players):
         for team in load_json(wf):
             for pid, pts in (team.get("players_points") or {}).items():
                 pos = player_pos(players, pid)
-                if pos and pts:
-                    points[str(pid)], positions[str(pid)] = pts, pos
+                if not pos or pts is None:
+                    continue
+                if played is not None:
+                    if str(pid) not in played:
+                        continue
+                elif not pts:
+                    continue
+                points[str(pid)], positions[str(pid)] = pts, pos
         if not points:
             continue
         # widen the pool with unrostered NFL production, exactly as the
@@ -151,7 +166,8 @@ def season_war(season, ld, raw_root, players):
         for pid, rid in lineup.items():
             pts = points.get(pid)
             if pts is None:
-                continue                        # started but did not play
+                continue                        # bye/inactive (or, with no
+                                                # played file, a 0.00)
             par = pts - repl[positions[pid]]
             war = norm_win_shift(par, sigma)
             rec = out.setdefault(pid, {"rid": rid, "war": 0.0, "pts": 0.0,
@@ -216,7 +232,7 @@ def main():
             "note": "points above positional replacement, converted to wins; "
                     "credited win or lose",
         }
-        f.write_text(json.dumps(b, separators=(",", ":")), encoding="utf-8")
+        write_json(f, b, separators=(",", ":"))
         n += 1
     print(f"\n{'probe: nothing written' if args.probe else f'wrote {n} bracket.json'}")
 

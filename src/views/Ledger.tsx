@@ -90,9 +90,15 @@ export default function Ledger() {
    *  it still is. Each source goes null when it can't price every asset. */
   const marketNow = (s: TradeSide): { ktc: number | null; fc: number | null } => {
     if (!vals) return { ktc: null, fc: null };
-    let ktc: number | null = 0, fc: number | null = 0;
+    // COUNT the assets a market figure is even about, rather than testing the
+    // sum: `ktc || null` at the end turned a legitimately summed 0 into
+    // "unpriced". A side that is nothing but FAAB has no market figure and
+    // reads —; a side whose assets all priced and summed to zero HAS one, and
+    // it is zero. (An asset the feed didn't cover still nulls the sum below.)
+    let ktc: number | null = 0, fc: number | null = 0, n = 0;
     for (const a of s.got) {
       if (a.kind === "faab") continue;
+      n++;
       let k: number | null | undefined, f: number | null | undefined;
       if (a.pid) {
         const row = vals.players[a.pid];
@@ -106,7 +112,7 @@ export default function Ledger() {
       ktc = ktc == null || k == null ? null : ktc + k;
       fc = fc == null || f == null ? null : fc + f;
     }
-    return { ktc: ktc || null, fc: fc || null };
+    return { ktc: n ? ktc : null, fc: n ? fc : null };
   };
 
   /** one drawer row: "KTC · 5,120 → 6,340 · +1,220" */

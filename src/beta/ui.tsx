@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import {
+  Fragment, createContext, useCallback, useContext, useEffect, useReducer,
+  useState, type ReactNode,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeaguePath } from "../lib/context";
 
@@ -242,17 +245,6 @@ export function IdLines({ name, sub, tags }: {
   );
 }
 
-/** The compact ordinals carrying the lenses that are not featured. */
-export function Ords({ items }: { items: { k: string; v: number | null }[] }) {
-  return (
-    <div className="ords">
-      {items.map(i => (
-        <span key={i.k} className="o">{i.k}<b>{i.v == null ? "—" : i.v}</b></span>
-      ))}
-    </div>
-  );
-}
-
 /**
  * A tappable row.
  *
@@ -276,6 +268,69 @@ export function TapRow({ to, onTap, className = "", children }: {
       }}>
       {children}
     </tr>
+  );
+}
+
+/* ---- a fetch that didn't land -------------------------------------------- */
+
+/**
+ * THE RETRY HANDLE, and why it is a context rather than a prop.
+ *
+ * `useJson` re-fetches when its PATH changes and at no other time, so a screen
+ * cannot re-run its own failed fetch from inside itself. What it can do is ask
+ * to be born again: `lib/data.ts` evicts a rejected promise from its cache
+ * (`p.catch(() => cache.delete(path))`), so a remount of the subtree issues a
+ * real second request rather than inheriting the same rejection.
+ *
+ * `RetryScope` owns that key and hands the bump down. It wraps the WHOLE beta
+ * shell — the shell's own `teams.json` is one of the fetches that can fail, and
+ * a scope inside the router could not reach it. The default is a page reload,
+ * so a `DataError` rendered outside a scope still has a working button.
+ */
+const RetryContext = createContext<() => void>(() => window.location.reload());
+
+export function useRetry() { return useContext(RetryContext); }
+
+export function RetryScope({ children }: { children: ReactNode }) {
+  const [attempt, again] = useReducer((n: number) => n + 1, 0);
+  return (
+    <RetryContext.Provider value={again}>
+      <Fragment key={attempt}>{children}</Fragment>
+    </RetryContext.Provider>
+  );
+}
+
+/**
+ * A FETCH THAT FAILED, said out loud, with a way out.
+ *
+ * ONE component, used at every site. Five bespoke versions is how the classic
+ * board ended up with three different spellings of "couldn't load"; this is the
+ * boot screen's panel (App.tsx / `.errbox`) at the beta shell's scale, so the
+ * two shells say the same thing in the same voice.
+ *
+ * It stands in for the band's table, not for the screen: a screen whose market
+ * bands failed still has power rankings worth reading, and blanking the whole
+ * page to report one dropped file loses more than it explains.
+ *
+ * --warn, not --acc. Gold is the headline figure everywhere else on this board
+ * and a dropped fetch is not a headline.
+ */
+export function DataError({ what = "Didn't load", note }: {
+  /** what failed, in the band's own vocabulary — "Market didn't load" */
+  what?: ReactNode;
+  /** anything the reader needs beyond the default reassurance */
+  note?: ReactNode;
+}) {
+  const again = useRetry();
+  return (
+    <div className="v3-err">
+      <div className="k">{what}</div>
+      <div className="body">
+        {note ?? "The data didn't come back. That's usually a deploy still landing or a "
+          + "dropped connection, not a broken board."}
+      </div>
+      <button type="button" className="retry" onClick={again}>Try again</button>
+    </div>
   );
 }
 
@@ -468,18 +523,27 @@ export function SheetRow({ name, meta, mark, on, disabled, onClick }: {
 
 /* ---- sorting ------------------------------------------------------------ */
 
-/** Header-click sorting, phone-sized: one sort column, one direction. */
+/**
+ * Header-click sorting, phone-sized: one sort column, one direction.
+ *
+ * ONE STATE OBJECT, and it has to be one. The column and its direction move
+ * together on every tap, and the previous shape dispatched `setDir` from inside
+ * the `setSort` updater — which React.StrictMode double-invokes in development,
+ * so tapping the sorted header flipped the direction twice and the table never
+ * moved. An updater must be pure; the toggle is computed here and both fields
+ * are written in a single transition.
+ */
 export function useSort<K extends string>(initial: K, initialDir: 1 | -1 = -1) {
-  const [sort, setSort] = useState<K>(initial);
-  const [dir, setDir] = useState<1 | -1>(initialDir);
+  const [st, setSt] = useState<{ sort: K; dir: 1 | -1 }>(
+    { sort: initial, dir: initialDir });
   const onSort = useCallback((id: K, asc = false) => {
-    setSort(prev => {
-      if (prev === id) { setDir(d => (d === 1 ? -1 : 1)); return prev; }
-      setDir(asc ? 1 : -1);
-      return id;
-    });
+    setSt(p => p.sort === id
+      // the same column again: flip
+      ? { sort: p.sort, dir: p.dir === 1 ? -1 : 1 }
+      // a new column: its own natural direction, biggest-first unless it asked
+      : { sort: id, dir: asc ? 1 : -1 });
   }, []);
-  return { sort, dir, onSort, setSort };
+  return { sort: st.sort, dir: st.dir, onSort };
 }
 
 /** A sortable header cell. */

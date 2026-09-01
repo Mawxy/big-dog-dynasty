@@ -9,10 +9,11 @@ import { useCvi, useDvi, useProjWar } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { fmt, ord, sgnWar } from "../../lib/stats";
 import { POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf } from "../../lib/league";
+import { ktcOf } from "../../lib/values";
 import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
 import { nearestPick, rankMap, useTeamValues } from "../model";
 import {
-  Band, IdCell, LensStrip, NUL, Spine, Strip, TapRow, useBetaPath,
+  Band, DataError, IdCell, LensStrip, NUL, Spine, Strip, TapRow, useBetaPath,
   type Figure, type IdTag,
 } from "../ui";
 import { RouteLink } from "../../components/RouteLink";
@@ -71,6 +72,21 @@ const surname = (name: string) => {
  *  you the position and four that need help. */
 const TIER_N = 4;
 
+/** A route segment as a non-negative integer, or null for a bogus one. The
+ *  house pattern, replicated from App.tsx's `intParam` rather than imported —
+ *  it is a private helper of the classic router, and a cross-shell import for
+ *  four lines buys a coupling neither side wants.
+ *
+ *  `Number("abc")` is NaN, and the old `Number.isInteger(NaN) ? … : ident.rid`
+ *  read a garbage segment as "no segment at all" and quietly showed the reader
+ *  his OWN franchise under someone else's address — a wrong answer wearing a
+ *  right one's clothes. */
+const intParam = (seg: string | undefined): number | null => {
+  if (seg == null) return null;
+  const n = Number(seg);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+};
+
 interface RosterRow {
   key: string;
   name: string;
@@ -119,10 +135,15 @@ export default function Team() {
   const { meta, league, players } = useLeague();
   const betaPath = useBetaPath();
   const ident = useIdentity();
-  const routeRid = Number(useParams().rid);
+  const ridSeg = useParams().rid;
+  const routeRid = intParam(ridSeg);
+  /** the address named a franchise and it is not one. Distinct from "no
+   *  segment": /team falls back to the reader's own roster, /team/abc must not. */
+  const bogus = ridSeg != null && routeRid == null;
   const rosterSeason = rosterSeasonOf(league);
 
-  const teams = useJson<TeamT[]>(`${rosterSeason}/teams.json`).data;
+  const teamsQ = useJson<TeamT[]>(`${rosterSeason}/teams.json`);
+  const teams = teamsQ.data;
   const fr = useJson<Franchises>("franchises.json").data;
   const owned = useJson<PicksOwned>("picks_owned.json").data;
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
@@ -137,8 +158,9 @@ export default function Team() {
 
   const [lens, setLens] = useState<Lens>("dvi");
 
-  // the route's franchise, or — on the bare /team address — yours
-  const rid = Number.isInteger(routeRid) ? routeRid : ident.rid;
+  // the route's franchise, or — on the bare /team address — yours. A bogus
+  // segment is neither: it stays null and the screen says so below.
+  const rid = bogus ? null : routeRid ?? ident.rid;
   const team = teams?.find(t => t.roster_id === rid) ?? null;
 
   const roster = useMemo<{ bands: RosterBand[]; lineupWar: number } | null>(() => {
@@ -176,7 +198,13 @@ export default function Team() {
         // activated. An em dash says that; the figure he would post if he could
         // play would be a lineup contribution the league does not allow.
         war: o?.taxi ? null : war[pid] ?? null,
-        market: vals?.players?.[pid]?.ktc ?? null,
+        // THIS LEAGUE'S KTC COLUMN (lib/values.ktcOf, off meta.tep), never the
+        // base `row.ktc`: this is a TE-premium league and the two ladders are
+        // materially apart for a tight end. Reading the base column here priced
+        // one roster row in a market the league does not play in while the
+        // strip above it, the leaderboard and the trade machine all quoted the
+        // premium one.
+        market: ktcOf(vals?.players?.[pid], meta.tep),
       };
     };
 
@@ -356,14 +384,28 @@ export default function Team() {
      screens/Claim. Wait for the rosters first: deriving from a username needs
      them, and redirecting before they land sends a returning reader to the
      picker for one frame every time they open the app. */
+  /* A GARBAGE SEGMENT GETS THE SAME ANSWER A MISSING FRANCHISE DOES, and it
+     gets it BEFORE the claim redirect: /team/abc is a reader following a broken
+     link, not one who has never claimed a team, and bouncing him to the picker
+     would answer a question he did not ask. */
+  if (bogus) return (
+    <div className="empty">No franchise {ridSeg} in {rosterSeason}.</div>
+  );
   if (rid == null) {
+    if (teamsQ.error) return <DataError what="Rosters didn't load" />;
     if (!teams) return <div className="empty">Loading…</div>;
     return <Navigate to={betaPath("/claim")} replace />;
   }
-  if (!teams || !roster) return <div className="empty">Loading…</div>;
+  if (teamsQ.error) return <DataError what="This roster didn't load" />;
+  if (!teams) return <div className="empty">Loading…</div>;
+  /* BEFORE the roster gate, not after. `roster` is null whenever `team` is,
+     so `!teams || !roster` swallowed this case and /team/9999 sat on "Loading…"
+     for the life of the page with the line below it unreachable. A franchise
+     that is not in this season is an answer; only the indices are still coming. */
   if (!team) return (
     <div className="empty">No franchise {rid} in {rosterSeason}.</div>
   );
+  if (!roster) return <div className="empty">Loading…</div>;
 
   const season = fr?.[String(rid)]?.seasons.slice().reverse()
     .find(s => s.wins + s.losses + s.ties > 0);

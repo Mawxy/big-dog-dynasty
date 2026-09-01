@@ -59,6 +59,7 @@ from collections import defaultdict
 from datetime import date
 from pathlib import Path
 
+from ioutil import atomic_write
 from leaguepaths import DataDir
 # The corpus is keyed by nflverse gsis_id; the SITE joins on Sleeper player ids.
 # Reuse project_war.py's matcher rather than writing a second one — it carries a
@@ -526,16 +527,37 @@ def project(q, corpus, max_dist, horizon, sc):  # noqa: C901
             gw = w * min(gp, FULL_GP) / FULL_GP
             if gw > 0:
                 pairs.append((v, gw))
-                trip.append((c["rates"][0], v, gw))
+                # THE REGRESSION'S X-AXIS IS MASKED. rates[0] is 0.0 whenever
+                # has[0] is false, and distance() already skips those slots —
+                # feeding them here would put "did not play" on the axis as
+                # "produced nothing" and tilt the slope toward zero.
+                if c["has"][0]:
+                    trip.append((c["rates"][0], v, gw))
+        # NO OBSERVATION IS NOT AN OBSERVATION OF ZERO. This used to substitute
+        # pairs = [(0.0, 1.0)] and publish it as median 0.0 over n_scored 1 — an
+        # invented comparable, indistinguishable in the file from a real cohort
+        # that genuinely returned nothing. A year nobody in the neighbourhood
+        # has a scorable outcome for is published as null.
         if not pairs:
-            pairs = [(0.0, 1.0)]
+            for k in ("median", "median_flat", "mean", "p20", "p80",
+                      "share_useful"):
+                out[k].append(None)
+            out["n_scored"].append(0)
+            out["fitted"].append(False)
+            out["avail"].append(round(avail_n / avail_d, 3) if avail_d else 0.0)
+            continue
         tw = sum(w for _, w in pairs)
         out["n_scored"].append(len(pairs))
         # Local linear where the cohort supports it, weighted median otherwise.
         # The median stays the fallback because a backup's cohort has no usable
         # gradient — everyone scored nothing — and because it is robust where
         # the outcome distribution is a spike at zero with a thin breakout tail.
-        fit = local_linear(trip, q["rates"][0])
+        #
+        # AND WHERE THE QUERY'S OWN MOST RECENT SEASON EXISTS. The fit is read
+        # at q["rates"][0], which is a phantom 0.0 when has[0] is false, so a
+        # player who missed last season would be priced at the bottom of the
+        # cohort's gradient rather than at his own position on it.
+        fit = local_linear(trip, q["rates"][0]) if q["has"][0] else None
         med = wquantile(pairs, 0.5)
         out["fitted"].append(fit is not None)
         out["median"].append(round(fit if fit is not None else med, 3))
@@ -665,6 +687,12 @@ def main():
         c = curves.get(pos)
         return (c["a"] + c["b"] * v) if c else v
 
+    def w3(v, pos):
+        """to_war + round, passing a NULL horizon year straight through. A year
+        no comparable could score publishes null rather than a fabricated 0.0 —
+        see project()."""
+        return None if v is None else round(to_war(v, pos), 3)
+
     out = {"meta": {"model": f"analog / k-nearest historical comparables ({args.space})",
                     "space": args.space,
                     # Same stamp and format projections.json carries, so
@@ -702,28 +730,34 @@ def main():
         if not r:
             continue
         pos = q["pos"]
-        proj = [round(to_war(x, pos), 3) for x in r["median"]]
+        proj = [w3(x, pos) for x in r["median"]]
         out["players"].append({
             "gsis": pid, "name": meta.get(pid, {}).get("name"),
             "pos": pos, "age": q["age"], "exp": q["exp"],
-            "seen": [round(x, 3) for x in q["rates"]],
-            "gps": [round(x * FULL_GP) for x in q["gps"]],
+            # SAME MASK THE COHORT ROWS USE. rates[]/gps[] carry a phantom 0.0
+            # for a season that does not exist, and `near[].seen` already nulls
+            # those — publishing them raw here made a player who missed last
+            # season read as one who dressed and produced nothing.
+            "seen": [round(x, 3) if h else None
+                     for x, h in zip(q["rates"], q["has"])],
+            "gps": [round(x * FULL_GP) if h else None
+                    for x, h in zip(q["gps"], q["has"])],
             "n": r["n"], "eff_n": r["eff_n"], "n_scored": r["n_scored"],
             "d_med": r["d_med"], "d_max": r["d_max"], "padded": r["padded"],
             # the cohort's typical match, on the same 0-100 scale as `near.sim`
             "sim_med": similarity(r["d_med"]),
             "avail": r["avail"], "fitted": r["fitted"],
-            "median_flat": [round(to_war(x, pos), 3) for x in r["median_flat"]],
+            "median_flat": [w3(x, pos) for x in r["median_flat"]],
             # if-healthy median x the cohort's availability
-            "expected": [round(to_war(r["median"][i], pos) * r["avail"][i], 3)
-                         for i in range(len(r["median"]))],
+            "expected": [None if m is None else round(to_war(m, pos) * a, 3)
+                         for m, a in zip(r["median"], r["avail"])],
             "proj": proj,
-            "proj_mean": [round(to_war(x, pos), 3) for x in r["mean"]],
-            "low": [round(to_war(x, pos), 3) for x in r["p20"]],
-            "high": [round(to_war(x, pos), 3) for x in r["p80"]],
+            "proj_mean": [w3(x, pos) for x in r["mean"]],
+            "low": [w3(x, pos) for x in r["p20"]],
+            "high": [w3(x, pos) for x in r["p80"]],
             "raw_median": r["median"],
             "share_useful": r["share_useful"],
-            "total": round(sum(proj), 3),
+            "total": round(sum(x for x in proj if x is not None), 3),
             # the named comparables, in the same league WAR units as `proj` so a
             # reader can compare a cohort member's actual result against the
             # projection it helped produce without converting anything
@@ -763,7 +797,7 @@ def main():
 
     out["players"].sort(key=lambda d: -d["total"])
     dest = DATA / out_name
-    dest.write_text(json.dumps(out, separators=(",", ":")) + "\n")
+    atomic_write(dest, json.dumps(out, separators=(",", ":")) + "\n")
     print(f"[{args.space}] corpus {len(corpus)} player-seasons {years[0]}-{years[-1]} · "
           f"seed {seed} · corpus WAR, unrescaled")
     print(f"wrote {dest} · {len(out['players'])} players")

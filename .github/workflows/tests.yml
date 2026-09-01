@@ -1,5 +1,6 @@
 name: Tests
-# Engine invariants (WAA/WAR pool, win-shift, played rule) + front-end types.
+# Engine invariants (WAA/WAR pool, win-shift, played rule), front-end types,
+# and the trade-model invariants that both shells' trade screens share.
 # Fast, no network, no Sleeper calls — safe to run on every push.
 on:
   push:
@@ -50,8 +51,26 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 22, not 20: tests/tradeModel.test.ts is a TypeScript file run
+          # directly by `node --test`, which needs Node >= 22.18 (the release
+          # that unflagged type stripping). tsc doesn't care which of the two
+          # it runs under, and nothing else in this job pinned 20 — so the
+          # whole job moves rather than growing a second setup-node. deploy.yml
+          # still builds on 20; that is the shipping toolchain, untouched.
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Typecheck (vite build does NOT typecheck)
         run: npm run typecheck
+      # The trade maths behind both shells' trade screens — monotonicity,
+      # 1-for-1 neutrality, pick timing, the throw-in floor. It is NOT covered
+      # by the typecheck above (tsconfig's `include` is ["src"], so the test
+      # file is outside the program) and NOT covered by the Python job, so
+      # without this step nothing in CI enforced it.
+      #
+      # Node's own runner with native type stripping: no framework, no build
+      # step, no dependency — and no node_modules either, since the module
+      # under test has zero runtime imports. Run from the repo root; the file's
+      # own header documents the invocation, and `npm test` wraps it.
+      - name: Trade-model invariants (node --test, TS via type stripping)
+        run: npm test

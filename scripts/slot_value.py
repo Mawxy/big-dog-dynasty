@@ -40,6 +40,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from franchise_players import FRANCHISE_BAR          # noqa: E402
 from leaguepaths import DataDir                      # noqa: E402
 from crawl_schema import LINEUP_SLOTS, ROW_FIELDS    # noqa: E402
+from ioutil import write_json                        # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 # Slot -> the position whose bar decides whether the slot "hit". QB2 is judged
@@ -148,8 +149,7 @@ def main():
         "slots": slots,
     }
     dest = Path(args.out) if args.out else DataDir(ROOT / "data") / "slot_values.json"
-    Path(dest).parent.mkdir(parents=True, exist_ok=True)
-    Path(dest).write_text(json.dumps(out), encoding="utf-8")
+    write_json(dest, out)
     print(f"wrote {dest} — {len(rows)} league-seasons, "
           f"{n_champ} champions, {n_field} field rosters")
     hdr = f"{'slot':<6}{'median':>8}{'champ':>8}{'field':>8}{'gap':>7}{'hit%':>7}{'champ hit%':>12}"

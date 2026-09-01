@@ -278,7 +278,12 @@ def main():
         # --- naturals -------------------------------------------------------
         if k:
             n_an += 1
-            an_nat = k["proj"]
+            # A horizon year whose cohort had no scorable outcome publishes
+            # null rather than a fabricated 0.0 (project_war_knn). The analog
+            # arm has nothing to say about that year, so it falls back to the
+            # scalar curve for it — the same thing `has_analog: False` already
+            # does for a player with no cohort at all, one year at a time.
+            an_nat = [s if a is None else a for a, s in zip(k["proj"], sc_nat)]
             t = trust_of(k, d_ref)
             bl_nat = [round(t * a + (1 - t) * s, 3)
                       for a, s in zip(an_nat, sc_nat)]

@@ -53,8 +53,6 @@ export interface HonorIndex {
   byPlayer: Record<string, Record<string, HonorKey[]>>;
   /** position -> p98 season WAR, pooled across every season */
   eliteBar: Record<string, number>;
-  /** seasons that had a decided champion */
-  champSeasons: string[];
 }
 
 /** p98 of a sorted ascending list, nearest-rank */
@@ -130,7 +128,6 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
      * This is the widest of the five tiers by some distance — roughly 29 a
      * season against 9 for the lineup-only rule. That is the intended
      * meaning, not an oversight. */
-    const champSeasons: string[] = [];
     try {
       const fr = await jl<Franchises>("franchises.json");
       const champRid: Record<string, string> = {};
@@ -150,12 +147,11 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
         const finalWk = Math.max(...playoff.map(r => r[0]));
         const final = playoff.find(r => r[0] === finalWk);
         if (!final) return;
-        champSeasons.push(season);
         for (const pid of [...(final[4] ?? []), ...(final[5] ?? [])]) add(pid, season, "champ");
       });
     } catch { /* no franchises.json — the other four tiers still stand */ }
 
-    return { byPlayer, eliteBar, champSeasons };
+    return { byPlayer, eliteBar };
   })();
 
   pending.catch(() => { pending = null; });
@@ -351,6 +347,16 @@ export function yearSpan(years: string[]): string {
  * Weeks are capped at the regular season so a split always sums back to the season's own WAR;
  * summary WAR is regular season, while the ownership spans run through the
  * playoffs.
+ *
+ * THE SPLIT PARTITIONS THE SEASON, it does not sample it. An ownership span
+ * covers only the weeks he was ON a roster, so a week he scored while sitting
+ * on waivers between two managers belonged to nobody and the split summed
+ * BELOW the season figure — breaking the invariant the paragraph above states.
+ * The boundaries between owners are changes of hands, so each span is extended
+ * to run until the week the NEXT owner picked him up: a gap rides with the
+ * departing owner, the weeks before the first pickup ride with the first owner
+ * and everything after the last drop rides with the last. Every regular-season
+ * week then lands with exactly one franchise, which is what makes the sum hold.
  */
 export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
   type Acc = OwnerSplit & {
@@ -415,13 +421,22 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
       bump(main, r.season, r.gp, r.pts, r.war);
       continue;
     }
-    for (const o of r.owners) {
-      const mine = wk.filter(x => x[0] <= REG_WEEKS && x[0] >= o.from && x[0] <= o.to);
-      if (!mine.length) continue;
+    // Change-of-hands boundaries, not roster spans: owner i keeps every week
+    // from his own first one until owner i+1's, and the first owner also keeps
+    // everything before he arrived. `o.to` is deliberately not consulted here
+    // — it is where he DROPPED him, and the weeks between a drop and the next
+    // pickup are the ones that were going missing. It still decides who held
+    // him longest in `primary()` below, which is a question about roster time.
+    const ord = [...r.owners].sort((a, b) => a.from - b.from);
+    ord.forEach((o, i) => {
+      const from = i === 0 ? -Infinity : o.from;
+      const to = i + 1 < ord.length ? ord[i + 1].from - 1 : Infinity;
+      const mine = wk.filter(x => x[0] <= REG_WEEKS && x[0] >= from && x[0] <= to);
+      if (!mine.length) return;
       bump(o, r.season, mine.length,
         mine.reduce((s, x) => s + x[1], 0),
         mine.reduce((s, x) => s + x[5], 0));
-    }
+    });
   }
 
   // finish and honors, attributed whole to the season's primary owner

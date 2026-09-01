@@ -115,12 +115,20 @@ export default function More() {
   const mine = teams?.find(t => t.roster_id === ident.rid);
 
   /* WHERE THE LEAGUE IS. `useSeasonPhase` reads the roster season's matchups
-     file, so "offseason" is a fact the pipeline states — no scored week yet —
-     rather than a month boundary that approximates it. Once a week is scored
-     the figure is that week, which is the one number this row exists for. */
+     file, so every one of these is a fact the pipeline states — no scored week
+     yet, or a scored week, or a finished regular season — rather than a month
+     boundary that approximates it. Once a week is scored the figure is that
+     week, which is the one number this row exists for.
+
+     THREE STATES, NOT TWO. The postseason is its own phase and gets its own
+     word: the matchups file's week list stops at the regular season, so through
+     the playoffs the "week now in progress" expression ran off the end and this
+     row republished the last regular week — "Week 14" from December to
+     February, which is a wrong number rather than a missing one. */
   const seasonState: ReactNode = phase.loading ? NUL
     : phase.offseason ? "Offseason"
-      : `Week ${phase.week}`;
+      : phase.playoffs ? "Playoffs"
+        : `Week ${phase.week}`;
 
   /* THE DRAFTS ROW, and why it names a state rather than counting down days.
      The row rides the same signal as the shell's seasonal sixth nav slot

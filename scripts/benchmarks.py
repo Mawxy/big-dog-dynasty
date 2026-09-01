@@ -31,6 +31,7 @@ from leaguepaths import DataDir                      # noqa: E402
 # dropped, and a LEAGUE_YEAR_CAP below the crawler's silently drops every deeper
 # league-year — neither failure shows up anywhere except in the published rates.
 from crawl_schema import LEAGUE_YEAR_CAP, LINEUP_SLOTS   # noqa: E402
+from ioutil import write_json                            # noqa: E402
 
 ROOT = Path(__file__).resolve().parent.parent
 # counter names are lowercase (champ_qb1_war_sum); the published label is not
@@ -151,8 +152,7 @@ def main():
         raise SystemExit(f"no signals files matched {pats}")
     out = build(counts, meta, files)
     dest = Path(args.out) if args.out else DataDir(ROOT / "data") / "benchmarks.json"
-    Path(dest).parent.mkdir(parents=True, exist_ok=True)
-    Path(dest).write_text(json.dumps(out), encoding="utf-8")
+    write_json(dest, out)
     m = out["meta"]
     print(f"wrote {dest} — {len(files)} shard(s), {m['league_seasons']} league-seasons, "
           f"{m['champions']} champions, {m['rosters']} rosters")

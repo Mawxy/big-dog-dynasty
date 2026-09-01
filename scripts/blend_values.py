@@ -83,7 +83,19 @@ def pctl(xs, q):
 
 
 def clamp(x, lo, hi):
-    return None if x is None else max(0.0, min(1.0, (x - lo) / (hi - lo)))
+    if x is None:
+        return None
+    if hi <= lo:
+        # A COLLAPSED RANGE. The bounds are percentiles of the live field, so
+        # they coincide whenever the signal is degenerate — a one-player
+        # population, or a component nobody has a spread on (every projection
+        # 0.0 in the offseason puts p10 and p95 both on zero). Dividing by
+        # hi - lo raised ZeroDivisionError and took the whole index down.
+        # This is the limit of the ratio as hi -> lo, so the ordering the clamp
+        # exists to express survives: at the collapsed point, no credit; above
+        # it, full credit.
+        return 0.0 if x <= lo else 1.0
+    return max(0.0, min(1.0, (x - lo) / (hi - lo)))
 
 
 def load_inputs():

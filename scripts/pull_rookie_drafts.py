@@ -23,9 +23,11 @@ without writing.
 
 No dependencies beyond the standard library. Read-only API, no auth.
 """
-import argparse, csv, sys
+import argparse, csv, io, sys
 from collections import defaultdict
 from pathlib import Path
+
+from ioutil import atomic_write
 
 # Shared Sleeper client. This script already ran the module's defaults — 0.15s
 # pacing, broad retry, 404 -> None, and a 429 budget that raises rather than
@@ -137,10 +139,15 @@ def main():
 
     combined = existing + new_rows
     combined.sort(key=lambda r: (r["source"], int(r["season"]), int(r["pick_no"])))
-    with open(csv_path, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=COLUMNS)
-        w.writeheader()
-        w.writerows({k: r[k] for k in COLUMNS} for r in combined)
+    # Rendered to a buffer first so the corpus lands via one atomic replace:
+    # this is a read-modify-REWRITE of a committed file, so a truncating open
+    # that dies mid-flush loses every row already in it, not just the new ones.
+    # newline="" on both the buffer and the write keeps csv's own \r\n intact.
+    buf = io.StringIO(newline="")
+    w = csv.DictWriter(buf, fieldnames=COLUMNS)
+    w.writeheader()
+    w.writerows({k: r[k] for k in COLUMNS} for r in combined)
+    atomic_write(csv_path, buf.getvalue(), newline="")
     print(f"wrote {csv_path}  ({len(existing)} -> {len(combined)} rows)")
 
 

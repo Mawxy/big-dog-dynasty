@@ -95,14 +95,45 @@ jobs:
           merge-multiple: true
       - name: Merge shards into one corpus
         run: python scripts/merge_trade_corpus.py
+      - name: Day stamp for the player-map cache key
+        id: day
+        run: echo "d=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+      - name: Restore/persist the Sleeper player map
+        id: pmap
+        uses: actions/cache@v4
+        with:
+          # Same shape as the crawl lanes' shared-player-map entry (see
+          # crawl-signals.yml), keyed on the UTC DATE instead of the run id.
+          # This job runs after EVERY shard pass — 12x a day on the odd-hour
+          # cron — and a run-id key would re-download the map every one of
+          # those times. With a date key the first run of a day misses the
+          # exact key, restores yesterday's copy through the prefix, fetches
+          # over it and saves under today's; every later run that day is an
+          # exact hit and makes no call at all.
+          path: sleeper_data/players.json
+          key: movers-players-nfl-${{ steps.day.outputs.d }}
+          restore-keys: movers-players-nfl-
       - name: Fetch the Sleeper player map
-        # names/positions for the board; ~5 MB, the documented once-a-day call.
-        # Soft-fail: dynasty_movers.py degrades to "#pid" labels rather than
-        # publishing nothing.
+        # names/positions for the board; ~19 MB, the call PROJECT_NOTES caveat
+        # #3 says to make at most once a day — which is what the date-keyed
+        # cache above buys, this step running only when today's key missed.
+        # Downloaded to a temp path and validated first: curl truncates its -o
+        # target before the transfer, so a failed fetch would otherwise clobber
+        # the restored copy with an empty file AND cache that for the day.
+        # Soft-fail either way — dynasty_movers.py degrades to "#pid" labels
+        # with no map at all, and a day-old map is fine here (the daily
+        # pipeline runs off a WEEKLY one).
+        if: steps.pmap.outputs.cache-hit != 'true'
         run: |
           mkdir -p sleeper_data
-          curl -sf --retry 3 https://api.sleeper.app/v1/players/nfl \
-            -o sleeper_data/players.json || echo "::warning::player map fetch failed"
+          if curl -sf --retry 3 https://api.sleeper.app/v1/players/nfl \
+               -o sleeper_data/players.json.tmp \
+             && python -m json.tool sleeper_data/players.json.tmp > /dev/null 2>&1; then
+            mv sleeper_data/players.json.tmp sleeper_data/players.json
+          else
+            rm -f sleeper_data/players.json.tmp
+            echo "::warning::player map fetch failed — falling back to the restored copy if there is one"
+          fi
       - name: Build dynasty movers
         run: python scripts/dynasty_movers.py
       - name: Commit dynasty_movers.json + TE-premium cache

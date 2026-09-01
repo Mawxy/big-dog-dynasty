@@ -1001,7 +1001,11 @@ def mode_outcomes(args, t0):
                 n_playoff = len({r for g in (bracket or [])
                                  for r in (g.get("t1"), g.get("t2")) if r})
                 rec = {r.get("roster_id"): (r.get("settings") or {}) for r in rosters}
-                ranked = sorted(rids, key=lambda i: (-(rec[i].get("wins") or 0),
+                # A tie is half a win, matching build_site_data's `standing` —
+                # the two rankings must agree or crawl placements drift from
+                # the published `finish`.
+                ranked = sorted(rids, key=lambda i: (-((rec[i].get("wins") or 0)
+                                                       + 0.5 * (rec[i].get("ties") or 0)),
                                                      -float(rec[i].get("fpts") or 0)))
                 place = placements_of(bracket, ranked)
                 held, sold1 = pick_holdings(

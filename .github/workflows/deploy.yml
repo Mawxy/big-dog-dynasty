@@ -13,7 +13,9 @@ on:
       - "data/tep_map.json"
       - "data/rookie_pick_corpus.json"
       - "data/crawl_leagues.json"
+      - "data/crawl_leagues_redraft.json"
       - "data/league_signals.json"
+      - "data/league_signals_redraft.json"
       - "data/draft_signals.json"
       - "data/draft_index.json"
       - "data/outcome_signals_*.json"
@@ -83,8 +85,10 @@ jobs:
                 tep_map.json \
                 rookie_pick_corpus.json \
                 crawl_leagues.json \
+                crawl_leagues_redraft.json \
                 draft_signals.json \
                 league_signals.json \
+                league_signals_redraft.json \
                 values_history.json \
                 values_history_deep.json \
                 outcome_signals_*.json

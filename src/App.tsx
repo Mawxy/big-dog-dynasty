@@ -325,7 +325,7 @@ function Shell() {
                 you are looking at was built; the picker says under which
                 assumptions. */}
             <ModelPicker />
-            <span className="mast-updated">Data refreshes Wed 1:00 AM ET · {meta.updated}</span>
+            <span className="mast-updated">Rebuilt nightly, 06:00 UTC · {meta.updated}</span>
             {/* THE WAY ACROSS. The beta shell is a second board at a second
                 address, and until now the only way to reach it was to know the
                 URL — which meant the redesign existed for whoever had been

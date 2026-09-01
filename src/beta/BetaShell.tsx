@@ -4,13 +4,13 @@ import {
 } from "react-router-dom";
 import type { Drafts, Team as TeamT } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { leagueSeg, useLeague } from "../lib/context";
+import { leagueSeg, useLeague, useLeaguePath } from "../lib/context";
 import { IdentityContext, useIdentityState } from "../lib/identity";
 import { latestSeasonOf, rosterSeasonOf, seasonSeg } from "../lib/league";
 import { useSeasonData } from "../lib/useSeasonData";
 import ErrorBoundary from "../components/ErrorBoundary";
 import QuickJump from "../components/QuickJump";
-import { Sheet, SheetRow, useBetaPath } from "./ui";
+import { RetryScope, Sheet, SheetRow, useBetaPath } from "./ui";
 import League from "./screens/League";
 import Team from "./screens/Team";
 import Claim from "./screens/Claim";
@@ -57,7 +57,21 @@ const HUB_OF: Record<string, string> = {
   history: "more", insights: "more",
 };
 
+/**
+ * THE SHELL, wrapped in the one thing above it: a retry key.
+ *
+ * `useJson` re-fetches on a path change and at no other time, so nothing inside
+ * can re-run its own failed fetch. `RetryScope` remounts this whole subtree
+ * instead — `lib/data.ts` evicts rejected promises, so the remount issues real
+ * second requests — and every `DataError` on every screen drives it. It has to
+ * sit OUTSIDE the board because the board's own `teams.json` (identity, the
+ * Team tab, More) is one of the fetches that can drop.
+ */
 export default function BetaShell() {
+  return <RetryScope><BetaBoard /></RetryScope>;
+}
+
+function BetaBoard() {
   const { meta, league } = useLeague();
   const loc = useLocation();
   const nav = useNavigate();
@@ -66,7 +80,8 @@ export default function BetaShell() {
 
   // The rosters, hoisted: identity derives from them (a manager name IS a
   // Sleeper username), and both the Team screen and More want the same array.
-  const teams = useJson<TeamT[]>(`${rosterSeason}/teams.json`).data;
+  const teamsQ = useJson<TeamT[]>(`${rosterSeason}/teams.json`);
+  const teams = teamsQ.data;
   const identity = useIdentityState(league.key || "default", teams);
 
   const base = `/${leagueSeg(league)}/beta`;
@@ -74,7 +89,6 @@ export default function BetaShell() {
   const seg = loc.pathname.startsWith(base)
     ? loc.pathname.slice(base.length).split("/").filter(Boolean)[0] ?? ""
     : "";
-  const active = TABS.some(t => t.id === seg) ? seg : HUB_OF[seg] ?? "";
 
   /* ---- the index is a REDIRECT, not a screen ----------------------------
      A reader who has claimed a franchise opens on his own roster; one who has
@@ -86,8 +100,15 @@ export default function BetaShell() {
      then sends a claimed reader to League and, because the redirect replaces,
      leaves him there with no back step to undo it. One paint of the loading
      line is the honest version. A manual claim needs no file and resolves
-     immediately, which is why the wait is conditioned on the derivation. */
-  const identityPending = identity.user != null && identity.rid == null && !teams;
+     immediately, which is why the wait is conditioned on the derivation.
+
+     A FAILED FETCH IS AN ANSWER, not a longer wait. Without the error term this
+     waits on a file that is never coming and the index route paints "Loading…"
+     for the life of the page — a dead end with no screen, no bar affordance and
+     nothing to retry. Unresolved is unresolved: the redirect runs, lands on
+     League, and League states the failure with a Try again of its own. */
+  const identityPending =
+    identity.user != null && identity.rid == null && !teams && !teamsQ.error;
   const indexTo = `${base}/${identity.rid != null ? "team" : "league"}`;
 
   useEffect(() => {
@@ -133,6 +154,15 @@ export default function BetaShell() {
   const tabs = draftPending
     ? [...TABS.slice(0, 4), { id: "drafts", label: "Draft", dot: true }, TABS[4]]
     : TABS;
+
+  /* ---- which tab is lit --------------------------------------------------
+     WHILE THE SIXTH TAB IS UP, DRAFTS IS A TAB. `HUB_OF` maps drafts -> more,
+     which is right for the eleven months a year the Draft tab is not there and
+     wrong for the weeks it is: on /drafts the bar lit both "Draft" (the tab
+     itself) and "More" (its hub), which is two answers to "where am I". So the
+     tab list is consulted BEFORE the hub table, and the tab list is the one
+     that grew a sixth entry. */
+  const active = tabs.some(t => t.id === seg) ? seg : HUB_OF[seg] ?? "";
 
   const [sheet, setSheet] = useState(false);
   /* The masthead has two states, and this is the second one: searching. Held
@@ -196,7 +226,7 @@ export default function BetaShell() {
             has no browser chrome at all. The player page is the exception — it
             carries its own ← Back in the split rail, and two of them on one
             screen is a question about which one is real. */}
-        {!TABS.some(t => t.id === seg) && seg !== "" && seg !== "player" && (
+        {!tabs.some(t => t.id === seg) && seg !== "" && seg !== "player" && (
           <a className="v3-back" href={`#${base}${active ? `/${active}` : ""}`}
             onClick={e => { e.preventDefault(); nav(-1); }}>← Back</a>
         )}
@@ -246,7 +276,7 @@ export default function BetaShell() {
           <div className="railtop">{meta.league}<b>War Board Beta</b></div>
           {tabs.map(t => {
             const to = `${base}/${t.id}`;
-            const on = active === t.id || (t.id === "drafts" && seg === "drafts");
+            const on = active === t.id;
             return (
               <a key={t.id} href={`#${to}`} className={on ? "on" : ""}
                 onClick={e => {
@@ -328,8 +358,20 @@ function MastSearch({ open, onToggle }: {
   // QuickJump builds the classic board's addresses; rebasing them here is what
   // keeps a jump inside this shell. Franchise pages live at team/:rid in it.
   const bp = useBetaPath();
-  const path = useCallback(
-    (p: string) => bp(p.replace(/^\/franchise\//, "/team/")), [bp]);
+  const lp = useLeaguePath();
+  const path = useCallback((p: string) => {
+    const fkey = /^\/franchise\/([^/]+)$/.exec(p)?.[1];
+    /* A FRANCHISE KEY IS NOT ALWAYS A ROSTER ID. It is the roster_id in a
+       dynasty league and the owner's Sleeper user_id in a redraft or keeper one
+       (build_site_data.py: an inherited roster slot is a new franchise). This
+       shell's Team screen looks a franchise up strictly by roster_id, so
+       rebasing an 18-digit user_id onto /team/<id> landed every redraft team
+       hit on "No franchise …". Those keep the classic franchise page, which
+       knows how to read either shape — leaving the shell is the honest
+       outcome when the shell has no such screen. */
+    if (fkey != null && !/^\d{1,3}$/.test(fkey)) return lp(p);
+    return bp(fkey != null ? `/team/${fkey}` : p);
+  }, [bp, lp]);
   return (
     // Escape bubbles up from the input (QuickJump closes its list and lets the
     // event through), so one press closes the list and the field together.

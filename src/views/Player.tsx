@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Absences, KnnFile, KnnProjection, MatrixFile, MatrixModel, MatrixRow, Ownership, PlayerShard, SummaryRow, Team, Values, Weekly, WeeklyRow,
+  Absences, MatrixModel, Ownership, PlayerShard, SummaryRow, Team, Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
@@ -94,15 +94,25 @@ export default function Player({ pid }: { pid: string }) {
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   // global file: the market prices a format, not a league
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
-  /** the experimental analog projection, shown beside the parametric one */
-  const knnFile = useJson<KnnFile>("projections_knn_hybrid.json").data;
-  const knn = useMemo<KnnProjection | null>(
-    () => knnFile?.players.find(p => p.pid === pid) ?? null, [knnFile, pid]);
-  /** the six-curve matrix */
-  const mxFile = useJson<MatrixFile>("projections_matrix.json").data;
-  const mxMeta: MatrixFile["meta"] | null = mxFile?.meta ?? null;
-  const mx = useMemo<MatrixRow | null>(
-    () => mxFile?.players.find(p => p.pid === pid) ?? null, [mxFile, pid]);
+
+  /**
+   * The six-curve matrix row and the analog read — BOTH out of the shard.
+   *
+   * They used to be two whole-file fetches, projections_knn_hybrid.json (788
+   * KB) and projections_matrix.json (228 KB), linear-scanned for one pid: a
+   * megabyte downloaded per player page to render two tables about one man,
+   * against a shard that exists precisely so the page does not do that. They
+   * are ~1.2 KB of it now, and they arrive WITH the shard rather than a second
+   * later, so the projection section no longer paints the fallback table first
+   * and swaps to the six-curve one when the matrix lands.
+   *
+   * A shard predating the enrichment simply lacks the fields, which reads the
+   * same as a player the matrix does not price: null, and the fallbacks below
+   * take over.
+   */
+  const knn = shard?.knn ?? null;
+  const mx = shard?.mx ?? null;
+  const blendW = shard?.blend_w ?? null;
 
   const last = latestSeasonOf(meta);
   /** the open career row. Null means every row is collapsed — the week grid is
@@ -111,20 +121,35 @@ export default function Player({ pid }: { pid: string }) {
 
   useEffect(() => {
     let live = true;
-    jl<PlayerShard>(`player/${pid}.json`)
-      .then(sh => { if (live) setShard(sh); })
-      .catch(async () => {
-        // 404 = no projection; the ladder falls back to league seasons
-        const sums = await Promise.all(meta.seasons.map(s =>
-          jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[])));
+    /** the ladder's fallback source for a player the projection model never
+     *  priced: league-season WAR read out of each season's summary */
+    const leagueLadder = async () => {
+      const sums = await Promise.all(meta.seasons.map(s =>
+        jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[])));
+      if (!live) return;
+      const career: [number, number][] = [];
+      meta.seasons.forEach((s, i) => {
+        const r = sums[i].find(x => x[0] === pid);
+        if (r) career.push([+s, r[6]]);
+      });
+      setLeagueCareer(career);
+    };
+    jl<PlayerShard>(`player/${pid}.json`).then(
+      sh => {
         if (!live) return;
-        const career: [number, number][] = [];
-        meta.seasons.forEach((s, i) => {
-          const r = sums[i].find(x => x[0] === pid);
-          if (r) career.push([+s, r[6]]);
-        });
-        setLeagueCareer(career);
+        setShard(sh);
+        // A shard carrying NEITHER projection is one the analog arm alone put
+        // there — before the shard held `knn` that player had no shard at all,
+        // and the ladder fell back to league seasons. Keep that: what the
+        // ladder reads is `proj.career`, so the trigger is the projection's
+        // absence, not the file's.
+        if (!sh?.proj && !sh?.sproj) leagueLadder();
+      },
+      () => {
+        // 404 = no record in any projection source; same fallback
+        if (!live) return;
         setShard(null);
+        leagueLadder();
       });
     loadHonors(meta.seasons).then(h => { if (live) setHonors(h); }).catch(() => {});
     loadCareer(meta.seasons).then(c => {
@@ -468,7 +493,7 @@ export default function Player({ pid }: { pid: string }) {
                     </>}
                     {mx.w_sleeper != null && <>
                       {" · "}
-                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmtWar(mx.sleeper_war ?? 0)} WAR. The analog composite takes it at this weight in year one; scalar and blend take it at ${Math.round((mxMeta?.blend_w?.[0] ?? 0.9) * 100)}%.`}>
+                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmtWar(mx.sleeper_war ?? 0)} WAR. The analog composite takes it at this weight in year one; scalar and blend take it at ${Math.round((blendW?.[0] ?? 0.9) * 100)}%.`}>
                         Sleeper {Math.round(mx.w_sleeper * 100)}%
                       </span>
                     </>}

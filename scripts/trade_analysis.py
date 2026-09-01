@@ -21,6 +21,7 @@ Usage: python scripts/trade_analysis.py
 """
 import argparse, datetime, json, re, sys, time
 from pathlib import Path
+from ioutil import write_json
 from leaguepaths import DataDir
 
 
@@ -395,8 +396,7 @@ def main():
                 s["expThen"], s["mktThen"] = rec.get("exp"), rec.get("mkt")
                 s["fcThen"] = rec.get("fc")
     if n_new or not Path(snap_path).exists():
-        Path(snap_path).write_text(
-            json.dumps(snaps, separators=(",", ":")), encoding="utf-8")
+        write_json(snap_path, snaps, separators=(",", ":"))
     print(f"trade snapshots: {len(snaps)} frozen, {n_new} new this run")
 
     trades.sort(key=lambda t: -t["ts"])
@@ -416,12 +416,13 @@ def main():
             sys.exit(f"newest rebuilt trade predates the committed ledger's "
                      f"({DATA / 'trades.json'}) — sleeper_data/ is stale; "
                      "run sleeper_pull.py first; refusing to overwrite")
-    (DATA / "trades.json").write_text(json.dumps(
+    write_json(
+        DATA / "trades.json",
         {"meta": {"delta": delta, "proj_season": proj_season,
                   "note": "war = realized while starting for the acquiring team; "
                           "future = discounted expected WAR still to come for assets "
                           "that team still holds; total = war + future"},
-         "trades": trades}, separators=(",", ":")), encoding="utf-8")
+         "trades": trades}, separators=(",", ":"))
     zero = sum(1 for t in trades if all(abs(s["total"]) < 1e-9 for s in t["sides"]))
     print(f"wrote {DATA/'trades.json'} — {len(trades)} trades, delta {delta}, "
           f"{zero} still scoring 0-0")

@@ -25,7 +25,10 @@ declare global {
   interface Window { goatcounter?: GoatCounter }
 }
 
-type Hit = { path: string; event?: boolean };
+/** A pageview, which is the only kind of hit this site sends. GoatCounter's
+ *  `count` also takes `event: true` for a named feature use; nothing here has
+ *  ever called for one, so the queue carries paths and nothing else. */
+type Hit = { path: string };
 
 const queue: Hit[] = [];
 let poller: ReturnType<typeof setInterval> | null = null;
@@ -58,9 +61,4 @@ function send(hit: Hit): void {
 /** one screen view; `path` is the hash-route path (e.g. "/bigdog/trades") */
 export function pageview(path: string): void {
   send({ path });
-}
-
-/** one named feature use, e.g. track("ledger-team-filter") */
-export function track(name: string): void {
-  send({ path: name, event: true });
 }

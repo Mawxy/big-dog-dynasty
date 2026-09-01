@@ -52,6 +52,8 @@ import argparse, csv, datetime, json, math, statistics
 from collections import defaultdict
 from pathlib import Path
 
+from ioutil import atomic_write
+
 AGE_GROUPS = {
     "QB": [("le24", 0, 24), ("25_29", 25, 29), ("30_33", 30, 33), ("ge34", 34, 99)],
     "RB": [("le23", 0, 23), ("24_26", 24, 26), ("ge27", 27, 99)],
@@ -69,13 +71,6 @@ AVAIL_MIN_LEVEL = 0.5  # availability is measured over contributor-level seasons
 
 def age_on_sep1(birth, season):
     return season - birth.year - (1 if (birth.month, birth.day) > (9, 1) else 0)
-
-
-def quantile(v, p):
-    v = sorted(v)
-    i = (len(v) - 1) * p
-    lo = int(i)
-    return v[lo] + (v[lo + 1] - v[lo]) * (i - lo) if lo + 1 < len(v) else v[lo]
 
 
 def load(data, start, end):
@@ -130,10 +125,24 @@ def fit_curve(rows):
     b = (sum(w * (x - mx) * (y - my) for x, y, w in zip(xs, ys, ws)) / sxx
          if sxx else 0.0)
     a = my - b * mx
-    resid = [y - (a + b * x) for x, y in zip(xs, ys)]
+    # THE BANDS ARE WEIGHTED THE WAY THE LINE IS. They used to be unweighted
+    # residual quantiles sitting under a weighted slope and intercept, so the
+    # 51-59% dressed-zero population — near-zero weight in the fit, by design —
+    # still fully decided the band, narrowing it against the population it is
+    # supposed to describe. Same wq pattern local_at() already uses.
+    resid = sorted((y - (a + b * x), w) for x, y, w in zip(xs, ys, ws))
+    tot = sum(w for _, w in resid)
+
+    def wq(q):
+        acc = 0.0
+        for v, w in resid:
+            acc += w
+            if acc >= q * tot:
+                return v
+        return resid[-1][0]
     return {"n": len(rows), "eff_n": round(sw ** 2 / sum(w * w for w in ws), 1),
             "a": round(a, 4), "b": round(b, 4),
-            "p20": round(quantile(resid, 0.2), 4), "p80": round(quantile(resid, 0.8), 4)}
+            "p20": round(wq(0.2), 4), "p80": round(wq(0.8), 4)}
 
 
 # median full season of points per position, filled in main() once the data is
@@ -355,7 +364,11 @@ def main():
             avail = statistics.mean(min(t[6], FULL_GP) / FULL_GP for t in src) if src else 1.0
             out["availability"][p].append(
                 {"group": label, "min_age": lo, "max_age": hi,
-                 "avail": round(avail, 3), "n": len(acell)})
+                 # n IS THE SAMPLE THAT PRODUCED `avail`. Where no season in the
+                 # bucket clears AVAIL_MIN_LEVEL the mean falls back to the whole
+                 # cell, and reporting len(acell) there claimed a sample of zero
+                 # behind a real number.
+                 "avail": round(avail, 3), "n": len(src)})
             if g:
                 print(f"{p:4s} {label:6s} {g['n']:>4d} {g['a']:>7.3f} {g['b']:>6.3f} "
                       f"{avail:>5.2f}   {g['a']+g['b']*0.5:.2f}/{g['a']+g['b']*1.5:.2f}")
@@ -421,6 +434,18 @@ def main():
                  else statistics.mean(h) if fname == "mean3"
                  else 0.5 * h[2] + 0.3 * h[1] + 0.2 * h[0])
             xs.append(f); sds.append(statistics.pstdev(h)); ys.append(nxt)
+        if not xs:
+            # Nobody at this position has four consecutive contributor seasons
+            # (the feature needs three plus the one it predicts). statistics.mean
+            # raises StatisticsError on an empty sequence, which took the whole
+            # run down on a thin corpus or a short --start/--end window. Publish
+            # a no-signal row instead: b = 0 leaves project_war on the pos x age
+            # availability baseline, which is what "no durability signal" means.
+            out["durability"][p] = {"feature": fname, "n": 0, "b": 0.0,
+                                    "b_sd": 0.0, "feat_mean": 0.0, "sd_mean": 0.0}
+            print(f"  {p:3s} {fname:10s} n=   0  (no contributor histories — "
+                  f"no durability signal)")
+            continue
         mx, ms, my = statistics.mean(xs), statistics.mean(sds), statistics.mean(ys)
         sxx = sum((x - mx) ** 2 for x in xs)
         sxy = sum((x - mx) * (y - my) for x, y in zip(xs, ys))
@@ -496,7 +521,7 @@ def main():
               "  ".join(f"L{x:+.1f}->{y:+.2f}" for x, y in pts))
 
     dest = data / "aging_curves.json"
-    dest.write_text(json.dumps(out, indent=1), encoding="utf-8")
+    atomic_write(dest, json.dumps(out, indent=1))
     print(f"\nwrote {dest}")
 
 

@@ -200,9 +200,6 @@ export default function FranchisePage({ fkey, players, tab }:
   const mobile = useMobile();
   const rosterSeason = rosterSeasonOf(league);
 
-  /** which season's roster the Roster band shows — the ladder sets it */
-  const [viewSeason, setViewSeason] = useState<string>(rosterSeason);
-
   /* ---- the page's ten files ---------------------------------------------
      One `useJson` per file, each keyed on its own resolved path. This was a
      single effect over [rid, rosterSeason, viewSeason] that re-ran ALL ten
@@ -218,25 +215,10 @@ export default function FranchisePage({ fkey, players, tab }:
      what stops a frame pairing last season's summary with this season's
      roster — the guard in the roster memo below only ever caught the null. */
   const frFile = useJson<Franchises>("franchises.json");
-  const insights = useJson<Insights>("insights.json").data;
-  const drafts = useJson<Drafts>("drafts.json").data;
-  const tradesFile = useJson<TradesPayload>("trades.json");
-  const teamsFile = useJson<Team[]>(`${viewSeason}/teams.json`);
-  const projFile = useJson<ProjectionsFile>("projections.json");
-  const sprojFile = useJson<SleeperProjFile>("proj_sleeper.json");
-  // the daily pair, and the scope has to match what the rest of the site uses
-  // for the same file or the cache downloads it twice (useJson.ts)
-  // model-aware: these follow the masthead's projection-model control
-  const dvi = useDvi();
-  const cvi = useCvi();
-  // A past roster is priced in what those players ACTUALLY did that year, not
-  // in today's projection: 2022's roster carries 2022 WAR and 2022 PPG. DVI
-  // and CVI are current-market indices with no historical series, so they
-  // read — - see the Roster band's note. On the roster season there is no
-  // summary to read, and `null` is how useJson is told there is nothing yet.
-  const onRosterSeason = viewSeason === rosterSeason;
-  const summaryFile = useJson<SummaryRow[]>(
-    onRosterSeason ? null : `${viewSeason}/summary.json`);
+
+  /* franchises.json is resolved FIRST, ahead of the rest of the list, because
+     the two season-scoped fetches below are keyed on a season this franchise
+     has to actually have. */
 
   /** Resolve the route key against the franchise map. A legacy
    *  /franchise/<rid> link into an OWNER-keyed league (redraft: franchise =
@@ -261,6 +243,42 @@ export default function FranchisePage({ fkey, players, tab }:
   const fr: Franchise | null | undefined = frFile.data
     ? frFile.data[resolvedKey] ?? null
     : frFile.error ? null : undefined;
+
+  /** Which season's roster the Roster band shows. Null until the ladder sets
+   *  it, so the default can follow the franchise once it resolves.
+   *
+   *  THE DEFAULT IS NOT ALWAYS THE ROSTER SEASON. In an owner-keyed league a
+   *  departed manager's franchise lists the seasons he played and nothing
+   *  else, so pinning the view to the current roster season left `rid` null,
+   *  `team` null and the Roster band reading "Loading roster…" for a load that
+   *  was never coming — while the figure strip printed a lineup WAR for a
+   *  season this franchise was not in. Defaulting to the newest season it
+   *  actually has puts the page on a year the ladder can also mark. */
+  const [picked, setPicked] = useState<string | null>(null);
+  const viewSeason = picked
+    ?? (fr && !fr.seasons.some(sn => sn.season === rosterSeason)
+      ? fr.seasons[fr.seasons.length - 1]?.season ?? rosterSeason
+      : rosterSeason);
+
+  const insights = useJson<Insights>("insights.json").data;
+  const drafts = useJson<Drafts>("drafts.json").data;
+  const tradesFile = useJson<TradesPayload>("trades.json");
+  const teamsFile = useJson<Team[]>(`${viewSeason}/teams.json`);
+  const projFile = useJson<ProjectionsFile>("projections.json");
+  const sprojFile = useJson<SleeperProjFile>("proj_sleeper.json");
+  // the daily pair, and the scope has to match what the rest of the site uses
+  // for the same file or the cache downloads it twice (useJson.ts)
+  // model-aware: these follow the masthead's projection-model control
+  const dvi = useDvi();
+  const cvi = useCvi();
+  // A past roster is priced in what those players ACTUALLY did that year, not
+  // in today's projection: 2022's roster carries 2022 WAR and 2022 PPG. DVI
+  // and CVI are current-market indices with no historical series, so they
+  // read — - see the Roster band's note. On the roster season there is no
+  // summary to read, and `null` is how useJson is told there is nothing yet.
+  const onRosterSeason = viewSeason === rosterSeason;
+  const summaryFile = useJson<SummaryRow[]>(
+    onRosterSeason ? null : `${viewSeason}/summary.json`);
 
   /** The roster slot this franchise held in `season` — the join key for every
    *  per-season file. Constant for dynasty (franchise = slot, and the numeric
@@ -577,8 +595,8 @@ export default function FranchisePage({ fkey, players, tab }:
                   // from the selected row — the CHAMP tag already says champion.
                   <div key={s.season} role="button" tabIndex={0}
                     className={`rail-season pick${s.season === viewSeason ? " mark" : ""}`}
-                    onClick={() => setViewSeason(s.season)}
-                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setViewSeason(s.season); } }}>
+                    onClick={() => setPicked(s.season)}
+                    onKeyDown={e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPicked(s.season); } }}>
                     <div className="l1">
                       <span className="yr">{s.season}</span>
                       <span className="fin" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
@@ -661,7 +679,17 @@ export default function FranchisePage({ fkey, players, tab }:
                   ? `Best legal lineup by WAR actually produced in ${viewSeason}, not the lineup as set · DVI and CVI are current-market indices with no historical series`
                   : "Best legal lineup by projected WAR, not the lineup as set"}</span>
               </div>
-              {!roster ? <div className="empty">Loading roster…</div> : mobile ? (
+              {/* "Loading roster…" is a claim that something is still coming.
+                  It only is while the season's teams.json is in flight — once
+                  that file has settled with no row for this slot there is no
+                  roster to wait for, and the band says so instead of hanging. */}
+              {!roster ? (
+                teamsFile.error
+                  ? <div className="empty">Couldn't load the {viewSeason} roster.</div>
+                  : teamsFile.data && !team
+                    ? <div className="empty">No roster recorded for {viewSeason}.</div>
+                    : <div className="empty">Loading roster…</div>
+              ) : mobile ? (
                 <div className="records wrk">
                   {mBand("Starting lineup",
                     groupTot(roster.slots.flatMap(s => s.player ? [s.player as RosterRow] : [])))}

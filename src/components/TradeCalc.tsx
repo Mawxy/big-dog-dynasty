@@ -243,12 +243,18 @@ export default function TradeCalc() {
     setOffers(p => [...p, { id, keys: [] }]);
     setActive(id);
   };
-  const dropOffer = (id: number) => setOffers(p => {
-    const next = p.filter(o => o.id !== id);
+  /** Removing the last offer leaves a fresh empty one — the screen always has a
+   *  basket to build in. Every side effect (the id counter, the active tab)
+   *  happens HERE, in the handler, never inside the `setOffers` updater: an
+   *  updater has to be pure, and StrictMode runs it twice — which minted two
+   *  ids and set the active tab to the one that was thrown away
+   *  (views/Player.tsx:269 is the same rule). */
+  const dropOffer = (id: number) => {
+    const next = offers.filter(o => o.id !== id);
     const kept = next.length ? next : [{ id: nextId.current++, keys: [] }];
+    setOffers(kept);
     if (id === active) setActive(kept[0].id);
-    return kept;
-  });
+  };
 
   /** WAR is the one currency the trade model does not price. `s_lens(v)` is
    *  defined in market points and in index points; a 3-year WAR sum lives in

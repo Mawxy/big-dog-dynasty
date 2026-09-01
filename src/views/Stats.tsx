@@ -166,7 +166,9 @@ export default function Stats() {
       onClick={() => nav(lp(to))}>{label}</button>
   );
 
-  const empty = data != null && data.summary.length === 0;
+  /** genuinely nothing scored — NOT a fetch that failed, which arrives with the
+   *  same empty summary and would otherwise print the same false claim */
+  const empty = data != null && !data.error && data.summary.length === 0;
 
   return (
     <>
@@ -201,7 +203,16 @@ export default function Stats() {
       </div>
 
       {!data ? <div className="empty">Loading…</div>
-        : empty ? (
+        /* a failed fetch, said as one: the same empty summary used to render as
+           "no scored weeks yet", which claims something about the season that
+           nothing here knows — same empty state, same Retry, as Standings */
+        : data.error ? (
+          <div className="empty">
+            Couldn't load {allTime ? "the all-time board" : `${scope} player data`} —
+            a dropped connection, not an empty season.{" "}
+            <button className="retry" onClick={data.retry}>Retry</button>
+          </div>
+        ) : empty ? (
           <div className="empty">
             No scored weeks yet for {scope} — the preseason answer is a projection,
             and projections are on Value.

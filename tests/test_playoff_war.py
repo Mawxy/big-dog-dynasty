@@ -106,7 +106,8 @@ class SeasonFixture:
               "settings": {"playoff_week_start": PLAYOFF_START},
               "scoring_settings": {}}
 
-    def __init__(self, tmp, regular_scores, playoff_teams, bracket_games):
+    def __init__(self, tmp, regular_scores, playoff_teams, bracket_games,
+                 played=None):
         self.raw, self.ld = Path(tmp) / "raw", Path(tmp) / "data"
         self.sdir = self.raw / "2025"
         write_json(self.sdir / "league.json", self.LEAGUE)
@@ -116,6 +117,11 @@ class SeasonFixture:
                         for i, s in enumerate(scores)])
         for wk, teams in playoff_teams.items():
             write_json(self.sdir / "matchups" / f"week_{wk}.json", teams)
+        # sleeper_pull's played map: pid -> nfl team, for the players the stats
+        # feed says DRESSED. Absent for older dumps, which is a tested branch.
+        for wk, pids in (played or {}).items():
+            write_json(self.sdir / "played" / f"week_{wk:02d}.json",
+                       {p: "KC" for p in pids})
         write_json(self.ld / "2025" / "bracket.json", {"winners": bracket_games})
 
     def run(self):
@@ -133,6 +139,13 @@ WEEK16 = [team(1, {"q1": 30.0, "q5": 5.0}, ["q1"]),
           team(2, {"q2": 25.0, "q6": 4.0}, ["q2"]),
           team(3, {"q3": 22.0, "q7": 3.0}, ["q3"]),
           team(4, {"q4": 20.0, "q8": 2.0}, ["q4"])]
+# the same week, but q2 DRESSED and scored exactly 0.00 in the final. His zero
+# sorts below q5..q8, so replacement is 4.0 (q6) whether or not he is counted —
+# which is what makes the two branches below directly comparable.
+WEEK16_ZERO = [team(1, {"q1": 30.0, "q5": 5.0}, ["q1"]),
+               team(2, {"q2": 0.0, "q6": 4.0}, ["q2"]),
+               team(3, {"q3": 22.0, "q7": 3.0}, ["q3"]),
+               team(4, {"q4": 20.0, "q8": 2.0}, ["q4"])]
 # the final (p == 1) and the third-place game (p == 3) in the same week
 FINAL = {"r": 3, "m": 1, "week": 16, "t1": 1, "t2": 2, "w": 1, "l": 2, "p": 1}
 PLACEMENT = {"r": 3, "m": 2, "week": 16, "t1": 3, "t2": 4, "w": 3, "l": 4, "p": 3}
@@ -262,6 +275,66 @@ class TestEliminationGamesOnly(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             self.assertIsNone(SeasonFixture(td, {1: [100.0]}, {16: WEEK16},
                                             [FINAL]).run())
+
+
+class TestADressedZeroIsAPlayedZero(unittest.TestCase):
+    """The played rule (PROJECT_NOTES methodology #5, settled 2026-08-07) is
+    position-INDEPENDENT: dressed = played, and a dressed 0.00 is a real zero
+    that accrues NEGATIVE points above replacement. playoff_war used to drop
+    any starter whose points were falsy, so a dressed zero in an elimination
+    game accrued nothing — disagreeing with sleeper_war, with playoff_wpa, and
+    with the rule itself.
+
+    `played/week_NN.json` is the evidence, and sleeper_pull writes it for
+    playoff weeks too. WITHOUT one (older dumps) there is no way to tell a
+    dressed zero from a bye, so the old 0.00 = DNP fallback stands — the same
+    fallback sleeper_war keeps."""
+
+    ALL_EIGHT = [f"q{i}" for i in range(1, 9)]
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+
+    def run_week(self, played=None):
+        return SeasonFixture(tempfile.mkdtemp(dir=self._tmp.name), REGULAR,
+                             {16: WEEK16_ZERO}, [FINAL],
+                             {16: played} if played else None).run()
+
+    def test_with_a_played_file_the_zero_is_credited_and_it_is_negative(self):
+        """q2 dressed and scored 0.00 in the final. Replacement that week is
+        4.0 (q6, the best QB left out of the four slots), so he is 4.0 points
+        BELOW replacement and the wins that converts to are negative."""
+        war, sigma = self.run_week(self.ALL_EIGHT)
+        self.assertIn("q2", war)
+        self.assertAlmostEqual(war["q2"]["par"], -4.0, places=6)
+        self.assertLess(war["q2"]["war"], 0.0)
+        self.assertEqual(war["q2"]["gp"], 1)
+        self.assertAlmostEqual(war["q2"]["war"],
+                               round(norm_win_shift(-4.0, sigma), 4), places=4)
+
+    def test_without_a_played_file_the_zero_stays_a_dnp(self):
+        """Nothing distinguishes it from a bye, and inventing a penalty out of
+        a dump that cannot support one is worse than the omission."""
+        war, _ = self.run_week()
+        self.assertNotIn("q2", war)
+        self.assertIn("q1", war)                       # and the week did price
+
+    def test_a_starter_the_feed_says_did_not_dress_is_still_excluded(self):
+        """The file is a played SET, not a licence to count everyone: q2 is
+        listed nowhere in it, so his 0.00 is a bye/inactive and accrues
+        nothing."""
+        war, _ = self.run_week([p for p in self.ALL_EIGHT if p != "q2"])
+        self.assertNotIn("q2", war)
+
+    def test_the_zero_does_not_move_the_replacement_baseline(self):
+        """A 0.00 can only enter the pool below everyone already in it, so
+        every other starter's figure is untouched by the fix."""
+        with_file, _ = self.run_week(self.ALL_EIGHT)
+        without, _ = self.run_week()
+        self.assertAlmostEqual(with_file["q1"]["par"], 30.0 - 4.0, places=6)
+        self.assertAlmostEqual(with_file["q1"]["war"], without["q1"]["war"],
+                               places=9)
 
 
 if __name__ == "__main__":
