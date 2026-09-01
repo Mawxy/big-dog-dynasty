@@ -45,6 +45,18 @@ ROOT = Path(__file__).resolve().parent.parent
 DELAY = 0.12               # this crawler paces itself harder than the one-shot
                            # scripts: it makes six figures of calls a day
 STARTUP_MIN_ROUNDS = 10
+# In-season activity gate for the signals lanes (REGULAR SEASON ONLY — the
+# gate never fires out of season, where long quiets are normal). Every
+# transaction fires a system chat message, so last_message_time is a free
+# liveness read on the /league call already being made. Thresholds are
+# per-lane (Max, 2026-09-01), calibrated on his own leagues' worst-ever
+# in-season quiet stretches:
+#   redraft 7d  — Pineapple Pizza 2023-25 never went 6.0d without an event
+#                 (median gap ~4 HOURS); filter aggressively by design
+#   dynasty 14d — Big Dog's worst lull was 7.8d (2022); 14 clears it with
+#                 margin while any dead league still trips it easily
+# A false drop costs one rediscovery, not the league: it re-counts awake.
+STALE_MSG_DAYS = {"redraft": 7, "dynasty": 14}
 CHECKPOINT_EVERY = 250
 PLAYERS_CACHE_V = 1        # bump when a field is added to the shared player map
 # Rookie-corpus chain walk. Sleeper's /league/<id>/drafts is per league_id, and
@@ -397,8 +409,9 @@ def mode_signals(args, t0):
     for lid, m in registry.items():
         if m.get("counts") and not fresh(m.get("last_signals"), args.cooldown_days):
             frontier.append(lid)
-    n_visited = n_counted = 0
+    n_visited = n_counted = n_stale = 0
     counters = lambda: {"visited": n_visited, "counted": n_counted,
+                        "stale": n_stale,
                         "registry": len(registry), "frontier": len(frontier)}
     hb = make_heartbeat(t0, counters)
     print(f"[signals:{args.league_type}] seeds={list(frontier)[:3]}... "
@@ -449,6 +462,13 @@ def mode_signals(args, t0):
         prior_file = jload(ROOT / args.leagues_out, {})
         prior = set(prior_file.get("leagues", []))
         merged = sorted(counted_ids | prior)
+        # The redraft lane filters AGGRESSIVELY (Max, 2026-09-01): a league
+        # judged stale is discarded from the published list at once — the
+        # union's "a league that counted once counts forever" premise holds
+        # for FORMAT, which never changes, not for being alive, which does.
+        if args.league_type == "redraft":
+            stale_ids = {lid for lid, m in registry.items() if m.get("stale")}
+            merged = sorted(set(merged) - stale_ids)
         if len(merged) > len(counted_ids):
             print(f"  leagues: {len(counted_ids)} this run + {len(merged) - len(counted_ids)} "
                   f"already committed = {len(merged)}")
@@ -493,7 +513,21 @@ def mode_signals(args, t0):
                 continue
             n_visited += 1
             counts = counts_for_data(league, args.teams, require_sf)
-            registry[lid] = {"counts": counts, "last_signals": time.time(),
+            # Dead leagues don't get to vote: unattended rosters and default
+            # lineups are noise, not opinions (see STALE_MSG_DAYS). The
+            # verdict is IMMEDIATE and aggressive (Max, 2026-09-01): the
+            # league's standing snapshot is purged on the spot so its stale
+            # observations leave the current window, not just future ones. It
+            # earns its way back only by being rediscovered awake.
+            stale = False
+            if counts and args.season_type == "regular":
+                lmt = league.get("last_message_time") or 0
+                if time.time() - lmt / 1000 > STALE_MSG_DAYS[args.league_type] * 86400:
+                    counts, stale = False, True
+                    n_stale += 1
+                    snapshots.pop(lid, None)
+            registry[lid] = {"counts": counts, "stale": stale,
+                             "last_signals": time.time(),
                              "tep": tep_class(league),
                              "last_trades": (m or {}).get("last_trades"),
                              "last_drafts": (m or {}).get("last_drafts")}
