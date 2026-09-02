@@ -220,6 +220,17 @@ function BetaBoard() {
           )}
           <span className="tag">War Board Beta</span>
           <MastSearch open={finding} onToggle={setFinding} />
+          {/* THE WAY BACK, mirroring the classic masthead's "Beta board →" in
+              the same corner, so a reader who crossed over from the top right
+              finds the return in the top right. Desktop only (beta.css): a
+              375px masthead holding a league name, a tag and the Search word
+              has no room for a fourth thing, and More already carries the
+              "Classic War Board" row for the phone. */}
+          <a className="classic desk" href={`#/${leagueSeg(league)}`}
+            onClick={e => {
+              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+              e.preventDefault(); nav(`/${leagueSeg(league)}`);
+            }}>← Classic board</a>
         </header>
 
         {/* Every screen below a tab needs an on-screen way back: an iOS web clip

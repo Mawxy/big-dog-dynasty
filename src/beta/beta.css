@@ -101,6 +101,17 @@
   font: 600 11px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase;
   color: var(--dim2);
 }
+/* THE WAY BACK TO CLASSIC — style.css's `.mast-beta` in this masthead's
+   vocabulary, in the same corner it occupies over there. Desktop only: the
+   phone bar has no width for a fourth item and More carries the row. */
+.v3-mast .classic {
+  display: none;
+  margin-left: 14px;
+  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim); text-decoration: none; white-space: nowrap;
+}
+.v3-mast .classic:hover { color: var(--acc); text-decoration: none; }
+.v3-mast .classic:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
 /* ---- the masthead's typeahead (BetaShell MastSearch) --------------------
    QuickJump's field wants 170px and this bar is 375px wide holding a league
@@ -743,6 +754,7 @@
      than left as a second way to reach the same box. */
   .v3-find .findbox { display: flex; }
   .v3-find .findbtn { display: none; }
+  .v3-mast .classic { display: inline-block; }
 
   /* the sheet is a phone pattern; on desktop the rail already lists the
      leagues, so the switcher opens centred rather than climbing from the edge.
