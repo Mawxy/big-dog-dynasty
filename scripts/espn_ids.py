@@ -4,9 +4,9 @@ Sleeper player id -> ESPN player id, for headshots.
 ESPN serves every player's headshot as a PNG on a transparent ground
 (https://a.espncdn.com/i/headshots/nfl/players/full/<espn_id>.png); Sleeper's
 own CDN only has JPGs on white. Sleeper's player map carries `espn_id` for
-barely a third of the active pool, so this pulls nflverse's player table —
-which has both `sleeper_id` and `espn_id` for nearly everyone — and writes the
-join to data/espn_ids.json. build_site_data.py reads that file when it builds
+barely a third of the active pool, so this pulls nflverse's ff_playerids
+table — the cross-platform id map, with sleeper, espn, sportradar and
+rotowire ids side by side — and writes the join to data/espn_ids.json. build_site_data.py reads that file when it builds
 players_min.json, and this script also patches the committed players_min.json
 files in place so the site does not have to wait for the next data refresh.
 
@@ -49,8 +49,15 @@ def main() -> int:
 
     import nflreadpy as nfl
 
-    rows = nfl.load_players().to_dicts()
-    by_sleeper, by_gsis = {}, {}
+    # nflverse's ff_playerids table — the cross-platform id map (dynastyprocess)
+    # — not load_players(): that one has espn_id but no sleeper_id, so the join
+    # matched nobody on the first run. ff_playerids carries sleeper, espn,
+    # sportradar, rotowire and gsis ids side by side. Sleeper's own map lacks
+    # gsis_id and espn_id for most 2021+ players (Chase, Gibbs, Caleb Williams
+    # are all null) but does carry sportradar_id and rotowire_id, so those are
+    # the join keys that actually reach the modern pool.
+    rows = nfl.load_ff_playerids().to_dicts()
+    by_sleeper, by_sr, by_rw, by_gsis = {}, {}, {}, {}
     for r in rows:
         espn = as_int(r.get("espn_id"))
         if not espn:
@@ -58,24 +65,32 @@ def main() -> int:
         s = as_int(r.get("sleeper_id"))
         if s:
             by_sleeper[str(s)] = espn
-        g = r.get("gsis_id")
-        if g:
-            by_gsis[g] = espn
-    print(f"nflverse: {len(by_sleeper)} sleeper->espn, {len(by_gsis)} gsis->espn")
+        if r.get("sportradar_id"):
+            by_sr[r["sportradar_id"]] = espn
+        rw = as_int(r.get("rotowire_id"))
+        if rw:
+            by_rw[rw] = espn
+        if r.get("gsis_id"):
+            by_gsis[r["gsis_id"]] = espn
+    print(f"nflverse ff_playerids: {len(by_sleeper)} sleeper, {len(by_sr)} sportradar, "
+          f"{len(by_rw)} rotowire, {len(by_gsis)} gsis -> espn")
 
-    # Sleeper's own map fills gaps two ways: its espn_id where nflverse lacks a
-    # sleeper_id, and its gsis_id as a second join key.
+    # Sleeper's own map fills the rest: its espn_id where it has one, then
+    # sportradar / rotowire / gsis as join keys into the nflverse table.
     if SLEEPER_MAP.exists():
         sp = json.loads(SLEEPER_MAP.read_text(encoding="utf-8"))
         added = 0
         for pid, p in sp.items():
             if pid in by_sleeper:
                 continue
-            espn = as_int(p.get("espn_id")) or by_gsis.get(p.get("gsis_id") or "")
+            espn = (as_int(p.get("espn_id"))
+                    or by_sr.get(p.get("sportradar_id") or "")
+                    or by_rw.get(as_int(p.get("rotowire_id")) or -1)
+                    or by_gsis.get(p.get("gsis_id") or ""))
             if espn:
                 by_sleeper[pid] = espn
                 added += 1
-        print(f"sleeper map: +{added} via its own espn_id / gsis_id")
+        print(f"sleeper map: +{added} via its own espn_id / sportradar / rotowire / gsis")
     else:
         print("no sleeper_data/players.json — nflverse only", file=sys.stderr)
 
