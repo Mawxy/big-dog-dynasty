@@ -475,7 +475,14 @@ def main():
         ppg = (round((comp[0] - ptw[pos]['a']) / ptw[pos]['b'] / FULL_GP, 2)
                if pos in ptw and ptw[pos]['b'] else None)
         L0, _ = wlevel(rate_s[pid], gp_s[pid], seed)
-        exp0 = (seed - draft_season + 1) if draft_season else None
+        # EXPERIENCE. Seasons since the draft class where one is known; an
+        # undrafted player has no class (Ekeler, 2017 UDFA, read "0 seasons"
+        # — Max, 2026-09-02), so his first season with a WAR line stands in.
+        # Only the published figure, not the prior weight, which keeps the
+        # projection math untouched for the drafted.
+        first_yr = min((y for y, _ in career), default=None)
+        exp0 = ((seed - draft_season + 1) if draft_season
+                else (seed - first_yr + 1) if first_yr is not None else None)
         pw0 = prior_weight(exp0, L0 if L0 is not None else 0.0)
         rows.append({
             'pid': pid, 'name': nm, 'pos': pos, 'team': owner.get(pid, ''),

@@ -7,7 +7,7 @@ import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, fmtWar, sgnWar, mean } from "../lib/stats";
-import { latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
+import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { ktcOf } from "../lib/values";
 import PosBadge from "../components/PosBadge";
@@ -366,11 +366,18 @@ export default function Player({ pid }: { pid: string }) {
             <Portrait pid={pid} />
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <PosBadge pos={pos} />
-              {nfl && <span style={{ font: "600 13px/1 var(--cond)", letterSpacing: ".12em", color: "var(--dim)" }}>{nfl}</span>}
+              {/* the club in full — the rail has the width, and "GB" beside
+                  a badge was a code where a name fits. No club is a fact too:
+                  "NFL Free Agent", not a blank (Max, 2026-09-02). */}
+              <span style={{ font: "600 13px/1.2 var(--cond)", letterSpacing: ".12em", color: "var(--dim)", textTransform: "uppercase" }}>
+                {clubName(nfl)}
+              </span>
             </div>
             <div className="rail-name">{nm}</div>
             <div className="rail-sub">
-              {proj && <>age {proj.age} · {proj.exp ?? 0} seasons · bye {proj.bye ?? "—"} · </>}
+              {/* "— seasons", never "0 seasons": an unknown career length is
+                  not a rookie's */}
+              {proj && <>age {proj.age} · {proj.exp ?? "—"} seasons · bye {proj.bye ?? "—"} · </>}
               {owner ?? "free agent"}
             </div>
 

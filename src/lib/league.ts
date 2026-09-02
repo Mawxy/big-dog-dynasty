@@ -22,6 +22,30 @@ export const headshots = (players: PlayersMin, pid: string): string[] => {
   return espn ? [`https://a.espncdn.com/i/headshots/nfl/players/full/${espn}.png`] : [];
 };
 
+/** Sleeper's club abbreviation -> the club's full name, for the one place on
+ *  the site that has room for it (the player page's identity line). Sleeper
+ *  uses its own codes (LAR, LV, WAS, JAX); the historical ones map to the
+ *  club's current name so a player last seen in Oakland reads as a Raider.
+ *  A player with no club is an NFL free agent, which is a fact worth the
+ *  words — a blank beside the badge read as missing data. */
+export const NFL_CLUB: Record<string, string> = {
+  ARI: "Arizona Cardinals", ATL: "Atlanta Falcons", BAL: "Baltimore Ravens",
+  BUF: "Buffalo Bills", CAR: "Carolina Panthers", CHI: "Chicago Bears",
+  CIN: "Cincinnati Bengals", CLE: "Cleveland Browns", DAL: "Dallas Cowboys",
+  DEN: "Denver Broncos", DET: "Detroit Lions", GB: "Green Bay Packers",
+  HOU: "Houston Texans", IND: "Indianapolis Colts", JAX: "Jacksonville Jaguars",
+  KC: "Kansas City Chiefs", LAC: "Los Angeles Chargers", LAR: "Los Angeles Rams",
+  LV: "Las Vegas Raiders", MIA: "Miami Dolphins", MIN: "Minnesota Vikings",
+  NE: "New England Patriots", NO: "New Orleans Saints", NYG: "New York Giants",
+  NYJ: "New York Jets", PHI: "Philadelphia Eagles", PIT: "Pittsburgh Steelers",
+  SEA: "Seattle Seahawks", SF: "San Francisco 49ers", TB: "Tampa Bay Buccaneers",
+  TEN: "Tennessee Titans", WAS: "Washington Commanders",
+  // codes Sleeper has retired but old rows still carry
+  OAK: "Las Vegas Raiders", SD: "Los Angeles Chargers", STL: "Los Angeles Rams",
+};
+export const clubName = (abbr: string | null | undefined): string =>
+  abbr ? NFL_CLUB[abbr] ?? abbr : "NFL Free Agent";
+
 /** position -> badge/spine color. One copy — the same map was pasted into
  *  seven files before this. Callers pick their own fallback for non-core. */
 export const POS_COLOR: Record<string, string> = {
