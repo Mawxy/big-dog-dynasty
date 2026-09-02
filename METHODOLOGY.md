@@ -9,6 +9,12 @@ Everything starts from one input: `players_points` in Sleeper's weekly matchup
 dumps, which are already scored with the league's exact ruleset (PPR, TE
 premium, superflex). No figure here re-scores anything by hand.
 
+**Paths.** League-scoped files live under `data/leagues/<founding_league_id>/`
+(Big Dog is `814608002207334400`); `scripts/leaguepaths.py` decides which files
+are global (`data/values.json`, `data/benchmarks.json`, the crawl corpora) and
+which are per-league. Paths below are written relative to the league directory
+unless they start with `data/`.
+
 **Contents**
 
 | Figure | Question it answers | Script |
@@ -16,15 +22,26 @@ premium, superflex). No figure here re-scores anything by hand.
 | [WAA / WAR](#waa-and-war) | How many wins was he worth over a season? | `sleeper_war.py` |
 | [VoWP](#vowp) | How much better than the waiver wire? | `sleeper_war.py` |
 | [Team win probability](#team-win-probability) | Who was favoured in this matchup? | `week_odds.py` |
+| [Projected records](#projected-records) | Where does this roster finish? | `week_odds.py` + `src/views/Franchises.tsx` |
 | [Playoff WPA](#playoff-wpa) | How much did he swing a playoff game? | `playoff_wpa.py` |
 | [Win share](#win-share) | How much of a playoff win was his? | `playoff_wpa.py` |
 | [MVP and MVP+](#mvp-and-mvp) | Who won the postseason, and how great was it? | `playoff_wpa.py` |
 | [Playoff WAR](#playoff-war) | Who produced in the playoffs, win or lose? | `playoff_war.py` |
-| [Projections](#projections) | What will he be worth over 3 years? | `project_war.py` |
-| [DVI](#dvi-dynasty-value-index) | What is he worth in a dynasty trade? | `blend_values.py` |
-| [CVI](#cvi-contender-value-index) | What is he worth for THIS season? | `contender_index.py` |
+| [Finish](#finish) | What place did a team take? | `build_site_data.py` |
+| [Scalar projections](#scalar-projections) | What will he be worth over 3 years? | `project_war.py`, `aging_curves.py` |
+| [Analog projections](#analog-projections) | What did players like him do next? | `project_war_knn.py` |
+| [The six-curve matrix](#the-six-curve-matrix) | Which model, and is Sleeper's read folded in? | `project_matrix.py`, `curves.py` |
+| [DVI](#dvi-dynasty-value-index) | What is he worth in a dynasty trade? | `blend_values.py` via `index_models.py` |
+| [CVI](#cvi-contender-value-index) | What is he worth for THIS season? | `contender_index.py` via `index_models.py` |
 | [Bridge A / Bridge B](#pick-values-bridge-a-and-bridge-b) | What is a draft pick worth? | `pick_value.py`, `value_bridge.py` |
+| [Draft results](#draft-results) | Did that pick beat its slot? | `draft_analysis.py` |
+| [Trade machine](#trade-machine) | Is this offer fair, in each currency? | `src/lib/tradeModel.ts` |
+| [Trade ledger](#trade-ledger) | What did each side actually get? | `trade_analysis.py` |
+| [Dynasty movers](#dynasty-movers) | Who is going over or under value across leagues? | `dynasty_movers.py` |
+| [Benchmarks](#benchmarks) | What does a champion look like, across leagues? | `sleeper_crawl.py`, `benchmarks.py` |
+| [Slot values](#slot-values) | What is a lineup slot worth? | `slot_value.py` |
 | [Franchise players](#franchise-players) | Who was a real starter, repeatedly? | `franchise_players.py` |
+| [Honors](#honors) | What marks does a career carry? | `src/lib/honors.ts` |
 
 ---
 
@@ -59,6 +76,15 @@ WAA = Σ weekly win shift vs the average starter at his position
 WAR = Σ weekly win shift vs replacement level
 ```
 
+**4. Played, or absent.** A week counts only if the player *dressed*: any
+stats-feed record beyond the bare `gms_active` placeholder (`gp`, snap counts,
+team snap counts, or a real stat line). A dressed player who scored nothing
+takes a real 0.00 and the negative WAR that comes with it. Byes, game-day
+inactives, IR, NFI and practice squad are absences and count for nothing. The
+rule is position-independent (settled 2026-08-07; the earlier QB carve-out is
+retired — WAR measures production, not opportunity) and locked by
+`tests/test_war_engine.py::TestPlayedRule`.
+
 **What it deliberately ignores.** Whether the player was actually started, and
 whether his team won. WAR is production against a market-wide baseline, not
 credit for outcomes.
@@ -66,6 +92,14 @@ credit for outcomes.
 **Where it breaks down.** It needs a full season of league-wide scoring to
 build honest baselines, which is exactly why it does not extend to the
 postseason — see [Playoff WAR](#playoff-war).
+
+**Historical WAR (2012–present)** is the same engine run on nflverse data
+shaped like a Sleeper dump by `scripts/nfl_history.py`: 12 synthetic teams,
+14-week seasons, the league's frozen scoring, weekly σ calibrated so matched
+2022–25 player-seasons ratio 1.0 against the real league (`SIGMA_COEF =
+0.160`). Position is current-state for a whole career, with `POS_OVERRIDE`
+corrections — see [Franchise players](#franchise-players). The corpus must
+start at 2012: a partial rebuild splices two played rules.
 
 ## VoWP
 
@@ -83,7 +117,7 @@ without it the unrostered pool cannot be seen at all.
 
 ## Team win probability
 
-**Owner:** `scripts/week_odds.py` · **Output:** `data/<season>/odds.json`
+**Owner:** `scripts/week_odds.py` · **Output:** `<season>/odds.json`
 
 The pregame line for every matchup, played or upcoming.
 
@@ -112,7 +146,8 @@ projection reaches):
 
 The entire gain is early — four games of history is mostly noise, and a
 form-only model was a coin flip through week 4. Variance always comes from
-positional form, because a projection is a point estimate with no spread.
+positional form, because a projection is a point estimate with no spread. An
+unknown starter arrives with `DEFAULT_SD = 8.0` — deliberately wide.
 
 **Strictly pregame.** Week W uses weeks 1..W−1 only, positional priors
 included. A team that went on to win week 9 does not get to have known that in
@@ -123,9 +158,26 @@ week 9's line. This is what makes an upset legible after the fact.
 
 **Where it breaks down.** Sleeper only serves *current* projections, so pricing
 a past week needs the projections as they stood then. `--snapshot` archives
-them weekly into `proj_history.json`; seasons before that existed fall back to
-a positional prior, and week 1 of those seasons is left unpriced entirely
-rather than printing a meaningless 50%.
+them weekly into `<season>/proj_history.json`; seasons before that existed fall
+back to a positional prior, and week 1 of those seasons is left unpriced
+entirely rather than printing a meaningless 50%.
+
+**Sleeper projections themselves** come from `scripts/fetch_projections.py`,
+which sums the *weekly* projection lines (weeks 1–18) rather than the season
+endpoint — the season product is a coarser rotowire feed with an availability
+discount baked in, and it drifts from what the Sleeper app displays (settled
+2026-08-31). `pts13 = mean projected week × 13`, full participation; injury
+discounting lives in the projection's `expected` stream, not here.
+
+## Projected records
+
+**Owner:** `scripts/week_odds.py` for the per-game lines; the standings and
+league-home views sum them.
+
+A roster season's projected record is the sum of its pregame win probabilities
+over the published schedule — expected wins in tenths, filled in with results
+as weeks land. Byes are ignored. Projected figures are dimmed on the standings
+board so a 9.4–4.6 never reads as a played record.
 
 ---
 
@@ -236,9 +288,11 @@ lets both be true.
 | Year | MVP winner | MVP | MVP+ |
 |---|---|---|---|
 | 2022 | George Kittle | 100.0 | 80 |
-| 2023 | James Conner | 100.0 | 122 |
+| 2023 | James Conner | 100.0 | ≈122 |
 | 2024 | Brian Thomas | 100.0 | 72 |
 | 2025 | Bijan Robinson | 100.0 | 126 |
+
+(MVP+ rebases as seasons are added; `bracket.json` is the authority.)
 
 **Where it breaks down.** Neither figure can go negative, because win share
 cannot. The "who cost them" ranking reads raw WPA instead, which is signed. And
@@ -275,32 +329,148 @@ playoff figures are closer to WPA.
 **Replacement level needs no correction** — `build_week` reads the player pool
 and never anyone's lineup, so a team benching its stars cannot move it.
 
+## Finish
+
+**Owner:** `scripts/build_site_data.py`
+
+Final placing is a **split column**. Places 1..N come from the winners
+bracket; places N+1.. are the regular-season standings, *not* the consolation
+bracket. The toilet bowl is a tournament a bad team can win, and in 2025 one
+did: it would have placed a 1-13 / 90.9 ppg roster 8th and a 7-7 / 118.3 roster
+10th. A team that made the playoffs is placed by the playoffs; a team that
+missed never got that chance and is placed by the season it played. Gated on a
+decided winners-bracket game, so an unplayed season has no placings.
+
 ---
 
-## Projections
+## Scalar projections
 
-**Owner:** `scripts/project_war.py` (model fit by `aging_curves.py`)
+**Owner:** `scripts/project_war.py` · **Model fit:** `scripts/aging_curves.py`
+· **Output:** `projections.json`
 
 Three-year forward WAR per rostered player.
 
-1. **Level** — a recency- and games-weighted per-13 rate over the last three seasons.
+1. **Level** — a recency- and games-weighted per-13 rate over the last three
+   seasons (`RECENCY = [0.5, 0.4, 0.1]`).
 2. **Shrink to draft capital** — `level = w·realized + (1−w)·prior`, with
-   `w = depth/(depth+K)`. A rookie leans on pedigree; a proven veteran ignores it.
+   `w = depth/(depth+K)`. A rookie leans on pedigree; a proven veteran ignores
+   it. The prior is shed entirely by a level of ~1.2 WAR.
 3. **Age forward** — `next_rate = a + b·level` per position/age bucket, rolling
-   each projected rate back into the level so the prior fades as seasons accrue.
+   each projected rate back into the level so the prior fades as seasons
+   accrue. Durability (`DUR_STEP 0.15`, `DUR_MAX 0.30`) pulls proven perennials
+   toward their own level.
+
+**The curve fit weights by production.** Each (season → next season)
+transition in the 2012+ corpus is weighted by `min(pts / the position's median
+full season, 1)`. The played rule made `gp` mean "games dressed", which
+silently disabled the old `MIN_GP` gate: QB buckets roughly doubled and half of
+each became players at a level near −1.0, and least squares set the line where
+the starters are too. Production weighting removes them from the fit without
+leaving a hole in the support. Validated on four rolling holdouts (starters'
+MAE 0.385 → 0.373; QB 0.543 → 0.534). A level-local grid alternative was
+measured and rejected (worse end to end, because durability was fitted against
+the biased line). Locked by `tests/test_aging_curves.py`.
 
 **Three streams**, each with p20/p80 bands:
 
 - **Natural** — the rate, i.e. a full healthy 13-game season.
 - **Composite** — natural blended with Sleeper's year-1 projection aged along
-  the natural decay shape (80/20 year 1, 50/50 year 2, 20/80 year 3).
+  the natural decay shape. **Sleeper's weight is `BLEND_W = [0.9, 0.5, 0.1]`**
+  — 90 % of year 1, 50 % of year 2, 10 % of year 3. Deliberately steep: Sleeper
+  is the only input that knows this season's depth charts, and knows nothing
+  about the ones after it.
 - **Expected** — natural × availability, i.e. discounted for injury.
 
 Composite carries **no** injury discount; only `expected` does.
 
+**No Sleeper gate.** Every positive Sleeper projection counts at full weight
+(`SLEEPER_GATE = "none"` in `project_matrix.py`; a 25-point floor was tried
+and removed). Both arguments for a floor were measured and found wrong: the
+pts→WAR line is fitted *on* the low-projection population (620 of 1041 QB
+seasons sit below its zero crossing and track it), and a low projection does
+not encode missed games because `gp` counts dressed games. Projected WAR is
+production, not worth — a backup QB's optionality is priced by the market and
+by DVI/CVI, not here.
+
+## Analog projections
+
+**Owner:** `scripts/project_war_knn.py` · **Output:** `projections_knn_hybrid.json`
+
+A second, independent projection: find the players in the 2012+ corpus whose
+last three seasons look most like this player's, and report what *they* did
+over the next three years.
+
+- **Distance** over a standardized feature vector — per-13 rate and points for
+  each of the last three seasons (`SEASON_W = [1.0, 0.80, 0.60]`), age
+  (`AGE_W 0.30`), experience (`EXP_W 0.45`), games (`GP_W 0.60`), a missing
+  season penalised (`MISSING_PEN 0.50`). Z-scored against the position's own
+  distribution, so age is priced in position terms.
+- **Cohort** is everyone inside `MAX_DIST = 1.0954`, between `MIN_COHORT 12`
+  and `MAX_COHORT 100`; cohort size is an outcome, not a parameter (Joe Milton
+  has ~190 analogs, Josh Allen 11, Bijan Robinson 2 — then padded).
+- **Projection** is the gaussian-kernel-weighted **median** of the cohort's
+  realized WAR (`KERNEL_H = 0.5` × median cohort distance), with p20/p80 from
+  the cohort itself. Median, because one Malik Willis cannot carry a projection.
+- **A vanished analog is a zero, not a gap.** The players who fall out of the
+  league are the answer to "what happens to players like him".
+- **Closest comparables** ship with each projection: `TOP_N = 3`, with a 0–100
+  match score (50 at `MAX_DIST`).
+
+**No corpus→league rescale.** A fitted ratio of 0.9645 was removed: on the
+honest sample size (four seasons, ratios 1.065 / 0.933 / 1.008 / 0.866) it is
+indistinguishable from 1.0.
+
+**Where it breaks down.** Rookies cannot be projected — the model seeds from
+played seasons. Accuracy is no better than the scalar model (MAE ~0.63 either
+way); the point is that it disagrees in *legible* ways — shape, and "didn't
+play" as a state — which the scalar model cannot express.
+
+## The six-curve matrix
+
+**Owners:** `scripts/project_matrix.py`, `scripts/curves.py` · **Output:**
+`projections_matrix.json`, and `blend_w` inside each player shard
+
+Three models × two streams:
+
+| | natural | composite |
+|---|---|---|
+| **scalar** | the aging-curve rate | + Sleeper at 0.9 / 0.5 / 0.1 |
+| **analog** | the cohort median | + Sleeper, weighted by *trust* |
+| **blend** | trust-weighted mix of the two naturals | + Sleeper, same trust |
+
+**Trust** measures how tight the analog cohort is relative to the position's
+own median tightness: `trust = 1 / (1 + (d_med / d_ref[pos])⁴)`, halved when
+the cohort was padded. Sleeper's year-1 weight on the analog composite is
+`0.25 + 0.65·(1 − trust)` — a tight cohort keeps its own opinion, a loose one
+defers to Sleeper. Without this the two composites agree to 0.02 WAR and six
+curves collapse to four. Sleeper's leg is always aged along the *scalar* path:
+distrusting a curve's level while borrowing its shape is incoherent.
+
+**One owner per number.** `composite_path()` lives in `project_war.py`; the
+matrix imports it and reads the scalar columns rather than deriving them. Two
+tests lock this — the matrix must not re-grow a composite function, and its
+scalar columns must equal `projections.json` exactly.
+
+**The published default is `blend_composite`** (`curves.DEFAULT_CURVE`,
+mirrored by `DEFAULT_CURVE` in `src/lib/model.ts`). Blend over scalar because
+the analog arm is a real second opinion; composite over natural because
+Sleeper is the only input that sees this season's depth chart.
+
+**The model is a site-wide control.** The masthead's model picker (two
+controls: which model; whether Sleeper is folded in) switches DVI, CVI and
+projected WAR everywhere at once. The URL carries it as `?m=<curve>` so a
+shared link shows the sender's numbers; localStorage only remembers it
+between sessions; the default is the absence of the param.
+
+**Staleness.** The scalar arm advances nightly; the analog corpus
+(`nfl_history/*.csv`) rebuilds only on the manual `war-history` job. A SEED
+warning from the matrix means the two arms are reading different histories —
+run `war-history`. A DATE warning means the nightly analog step broke.
+
 ## DVI (Dynasty Value Index)
 
-**Owner:** `scripts/blend_values.py` · **Output:** `data/dvi.json`
+**Owner:** `scripts/blend_values.py`, run by `scripts/index_models.py` ·
+**Output:** `dvi.json`, and all six curves in `index_models.json`
 
 An ensemble trade rating in the spirit of passer rating: each signal is clamped
 into a meaningful range (below a floor earns no credit, above a ceiling earns
@@ -314,6 +484,14 @@ DVI = 0.50 × market  +  0.50 × non-market
 ```
 
 `MARKET_SHARE = 0.50` makes it a genuine second opinion rather than a KTC echo.
+The KTC figure is the ladder that prices *this* league's TE premium
+(`ktcTep` for Big Dog), falling back down the ladder to base `ktc`.
+
+**Projected WAR is the year-1 figure of the selected curve** (default
+`blend_composite`). Year 1 is inherited from the pre-matrix index, and is the
+odd part of a *dynasty* index — left alone deliberately, because changing the
+horizon moves every published figure and is a separate argument from changing
+the model.
 
 **start% is the subtle one.** It blends the crawl's season average with the
 current snapshot on a schedule that trusts the snapshot early (when data is
@@ -321,9 +499,23 @@ thin) and shifts to the season average by week 8, so one injured week never
 tanks a value. Injured-flagged players skip the start component entirely while
 the snapshot still dominates.
 
+**Six curves, one file.** `index_models.py` computes DVI and CVI under every
+curve from one load and writes them together (~180 KB) so a model flip is free
+and no two screens can disagree. `--curve scalar_composite` reproduces the
+pre-matrix numbers exactly (393/393, locked by a test) — that equivalence is
+what makes any future diff readable.
+
+**`has_analog` / `has_sleeper` are claims about the projection, never about
+the figure.** 65 players have no analog cohort; their WAR is identical across
+curves in all 65 cases and their DVI in only 4, because the index clamps on
+percentiles of the whole field and changing the model reprices everyone around
+them. Read them as "no second opinion was measured for him", never as "this
+number won't move".
+
 ## CVI (Contender Value Index)
 
-**Owner:** `scripts/contender_index.py` · **Output:** `data/cvi.json`
+**Owner:** `scripts/contender_index.py`, run by `scripts/index_models.py` ·
+**Output:** `cvi.json`, and all six curves in `index_models.json`
 
 DVI's opposite number: what a player is worth over **one** season.
 
@@ -333,6 +525,9 @@ CVI = 0.50 × FantasyPros ECR  +  0.50 × non-market
 ```
 
 ECR is a *redraft* consensus and therefore already scoped to this year.
+Roster% and start% come from the dynasty crawl until the redraft crawl covers
+`REDRAFT_SIGNALS_MIN = 250` leagues, at which point CVI switches to redraft
+signals — a win-now roster rate is the honest input for a win-now index.
 
 **The consequence that matters: no age channel.** DVI inherits a youth premium
 through KTC and FantasyCalc; CVI has no way to see a birthdate. A 29-year-old
@@ -343,15 +538,20 @@ the two diverge sharply per player but rank *teams* almost identically.
 
 ## Pick values: Bridge A and Bridge B
 
-**Owners:** `scripts/pick_value.py`, `scripts/value_bridge.py`
+**Owners:** `scripts/pick_value.py`, `scripts/value_bridge.py` · **Outputs:**
+`pick_values.json`, `value_bridge.json`
 
 Two independent routes to what a rookie pick is worth, blended by sample
 confidence and pick maturity.
 
-**Bridge A — empirical.** What picks at each slot have *actually* returned:
-~1.5 million rookie picks across a crawled corpus of 12-team superflex leagues
-(classes 2019–2025), every season calibrated to this league's WAR scale. A player-season with no source
-is skipped, not zeroed — but a player who is out of the league is a real 0.0.
+**Bridge A — empirical.** What picks at each slot have *actually* returned: the
+league's own rookie drafts plus millions of pick observations across a crawled
+corpus of 12-team superflex leagues (classes 2019 onward,
+`data/rookie_pick_corpus.json` — its meta carries the current count), every
+season calibrated to this league's WAR scale. The crawl's weight is capped
+(`CRAWL_BUDGET = 40` per slot, largest-remainder allocated) so one famous pick
+cannot own a slot's median. A player-season with no source is skipped, not
+zeroed — but a player who is out of the league is a real 0.0.
 
 - `picks` — every slot 1.01–4.12 individually.
 - `bands` — Early/Mid/Late tiers per round (picks 1–4 / 5–8 / 9–12), larger samples.
@@ -365,8 +565,139 @@ observation bar, so a published column is honest everywhere on the board.
 
 **Bridge B — market-implied.** An isotonic (monotone) regression fit from
 market value to projected 3-year composite WAR, applied to the market's own
-pick values. Position-agnostic on purpose: picks have no position, so the
-bridge must not either.
+pick values. The pick curve is position-agnostic on purpose: picks have no
+position, so the bridge must not either. A per-position fit (`fits_by_pos`)
+exists only for player-level implied WAR, because the global curve put 93 % of
+QBs on one side of it.
+
+**A pick's net option value** (`src/lib/rosterModel.ts`) is Bridge A's band
+stream with outcomes clamped at 0, the Late-4th band subtracted as the
+waiver-dart baseline, and a monotone pass so 3-year totals never rise down the
+board.
+
+## Draft results
+
+**Owner:** `scripts/draft_analysis.py` · **Output:** `drafts.json`
+
+Every league rookie pick against its slot. Expected WAR is compared over the
+*same elapsed window* — a 2024 pick with two seasons played is measured against
+the slot's expected years 1–2 — and the "should have taken" alternatives are
+restricted to players drafted *later* in that same draft. Realistic
+alternatives only. A traded pick names the original owner's roster, not a board
+position; `draft_slots.py` resolves the slot (with `SLOT_FIX` for the 2023
+roster whose owner Sleeper lost).
+
+---
+
+## Trade machine
+
+**Owner:** `src/lib/tradeModel.ts` · shared by the classic and beta shells,
+locked by `tests/tradeModel.test.ts`
+
+One pinned outgoing basket, priced against many competing offers, so every row
+of the comparison shares a denominator. Each side is scored in three
+currencies — **market** (KTC), **DVI**, **CVI** — plus 3-year projected WAR,
+and deltas are signed on both sides *per currency*, never combined. DVI and CVI
+answer different questions and routinely point at different sides; refusing a
+single verdict is the point.
+
+**Consolidation.** Two 4500s are not a 9000: a roster has 108 starting jobs
+(12 × 9) and a lesser asset spends weeks on the bench. Each asset's value is
+scaled by its expected *utilization*, a logistic in its value:
+
+```
+s(v) = u_min + (1 − u_min) / (1 + exp(−(v − v50) / τ))      u_min = 0.10
+market  v50 3400, τ 1200     dvi  v50 34, τ 24     cvi  v50 72, τ 9
+```
+
+`v50` sits near the 108th asset in each currency. A package's *effective*
+value is `Σ v·s(v)`; the difference from face value is the consolidation
+adjustment, shown as its own ledger row and never folded into a total. WAR
+gets no adjustment — `s(v)` is defined in market and index points, and a WAR
+sum is in neither space. `dynasty_movers.py` carries the market curve's
+constants and must stay in lockstep.
+
+**Picks carry an index.** A pick has no DVI or CVI of its own; the machine
+estimates one from its market price through a monotone KTC→index fit over the
+loaded player field, then shapes it by timing: `value_bridge.json`'s per-band
+per-year stream under a CVI kernel `[1, 0.35, 0.10]` (a 2028 pick is nearly
+worthless to a contender) or a DVI kernel that decays ~5 % a year. Estimates
+print with `≈`; anything the estimator declines prints `—`, never 0.
+
+## Trade ledger
+
+**Owner:** `scripts/trade_analysis.py` · **Outputs:** `trades.json`,
+`trade_snapshots.json`
+
+Every trade in league history with what each side actually got.
+
+**Realized WAR** counts only while the acquired player was *starting for the
+acquiring team*, from the trade week onward; one hop only (a re-traded player
+is not chased). Picks resolve to the player selected. Multi-year streams
+collapse to one number with the per-team discount `δ = 0.7` (year 1 in full,
+year 2 at δ, year 3 at δ²; Max's settled range is 0.6–0.8) and a lag for picks
+that cannot produce yet.
+
+**The at-trade snapshot is frozen.** When a trade first appears, its
+projection, KTC and FantasyCalc values are written once and never overwritten,
+so "projected then" cannot be rewritten by tonight's projection. Merging is
+enrich-only; the single exception backfills a pick's market value that froze as
+null before picks were priced. A guard refuses to write a ledger whose newest
+trade predates the committed one — a rebuild rode a feature push on 2026-08-21
+and clobbered three August trades.
+
+The Ledger view colours nothing: it records a settled fact. The trade machine
+evaluates a hypothetical and is allowed to say who gains.
+
+## Dynasty movers
+
+**Owner:** `scripts/dynasty_movers.py` · **Output:** `data/dynasty_movers.json`
+
+Who is going for **more** than their value, and who for **less**, across the
+crawled corpus of dynasty-league trades (trailing 7 days, anchored at the
+corpus's newest trade).
+
+- **Centerpiece attribution.** For a two-sided trade, each side's package
+  delta is assigned to that side's highest-valued asset, when that asset is a
+  player: `delta(P on side A) = value(side B) − value(side A)`. A side whose
+  centerpiece is a pick contributes no mover.
+- **A player's own value is never deflated.** The consolidation curve enters
+  only as a package-level adjustment — the best asset at face, lesser assets
+  scaled by `s(v)` — so a 1-for-1 reads in pure KTC.
+- Each trade is priced on the KTC ladder matching *its* league's TE premium,
+  fetched live for leagues the signals crawl has not classified.
+- Picks are KTC's generic mid value for the (season, round); FAAB is 0.
+- Floors: value ≥ 2000 (a 900-point scrub overpaid by 90 % is trivia), and an
+  adaptive minimum trade count `max(3, 0.08·√trades_scored)`.
+
+## Benchmarks
+
+**Owners:** `scripts/sleeper_crawl.py --mode outcomes`, `scripts/benchmarks.py`
+· **Output:** `data/benchmarks.json` · **Site:** Insights
+
+What a championship roster looks like, measured over every 12-team superflex
+dynasty league the crawl can reach (~170k league-seasons, ~875k rosters as of
+2026-09): the average championship lineup by slot, drafted-vs-acquired share by
+league year, champions' draft capital, playoff persistence, and turnaround
+rates from the bottom third. Four crawl shards emit *counts and sums only*
+(a rate cannot be added); `benchmarks.py` merges and divides once, and every
+published rate carries its denominator. Below `MIN_N = 20` a rate is null and
+the site prints `—` with `n` in the tooltip. `LEAGUE_YEAR_CAP = 8` bounds the
+league-year axis.
+
+## Slot values
+
+**Owner:** `scripts/slot_value.py` · **Output:** `data/slot_values.json` ·
+hand-run
+
+What a lineup slot (QB1, QB2, RB1 … TE1) is worth, priced the way a pick is:
+the **median** production at that slot (a champion's mean is inflated by a
+handful of superteams) and the hit rate against the position's franchise bar,
+in three scopes — all rosters, champions, the field. The champ-vs-field gap is
+the point: a slot where champions and the field agree is a slot that does not
+decide titles. QB2 is judged against the QB bar — a superflex starter is a
+starting quarterback. Needs the outcome corpus rows, which are artifact-only,
+so it is run by hand and validated only when present.
 
 ---
 
@@ -377,18 +708,18 @@ bridge must not either.
 A **franchise player** cleared his position's bar in at least **three separate
 seasons**. Seasons need not be consecutive.
 
-| Position | Bar | Its rank-12 season value |
-|---|---|---|
-| QB | 1.00 | 1.003 |
-| RB | 0.70 | 0.693 |
-| WR | 0.85 | 0.845 |
-| TE | **0.50** | 0.290 |
+| Position | Bar | Its rank-12 season value | Elite bar |
+|---|---|---|---|
+| QB | 1.00 | 1.003 | 1.60 |
+| RB | 0.70 | 0.693 | 1.30 |
+| WR | 0.85 | 0.845 | 1.30 |
+| TE | **0.50** | 0.290 | 1.00 |
 
 The bars are position-specific on purpose. A flat 1.0 WAR test returns 23 QBs
 and 5 TEs, which measures the shape of the positions rather than the players
 inside them. Three of the four sit at their position's twelfth-rank season
 value, so "franchise" means the same thing at each: a genuine starter, three
-times over.
+times over. `ELITE_BAR` is the same idea one tier up.
 
 **Tight end is a judgement, and is documented as one.** At its rank-12
 equivalent of 0.29 the bar admits fringe starters, and no threshold produces a
@@ -440,6 +771,26 @@ contemporary reality will find names that were never tight ends.
 An override only takes effect on a rebuild: `nfl_history.py` regenerates
 `waa_war_<season>.csv`, and every figure downstream of it moves with them.
 
+## Honors
+
+**Owner:** `src/lib/honors.ts` · rendered by `components/HonorMarks.tsx`
+
+Five marks a league career can carry, rarest-first after the team result:
+
+| Mark | Rule |
+|---|---|
+| Championship | on the winner's roster in the title game — starters and bench, from the week the final was played (the widest tier, ~29 a season) |
+| MVP season | most WAR in the league that season |
+| Positional king | most WAR at his position that season |
+| Elite season | top 2 % of season WAR at the position, all seasons pooled (a per-season p98 would collapse into "king") |
+| Franchise bar | cleared `FRANCHISE_BAR` for the position (QB 1.0 / RB 0.7 / WR 0.85 / TE 0.5) |
+
+When a career splits across franchises, **production splits week by week and
+a season's finish and honors go whole to the primary owner** — the franchise
+that held him most weeks. Splits are cut on change-of-hands boundaries so a
+week on waivers between two managers lands with exactly one franchise and the
+split sums back to the season's WAR.
+
 ---
 
 ## Conventions that hold everywhere
@@ -449,10 +800,16 @@ An override only takes effect on a rebuild: `nfl_history.py` regenerates
 - **Signed values** use `+` / `−` (U+2212), coloured, neutral within ±0.005.
 - **Indices (DVI, CVI, MVP) are never metered.** They are already normalised
   0–100; a bar restates the number.
+- **Estimates are marked.** A pick's index, or a basket total containing one,
+  carries `≈`.
 - **No lookahead, anywhere.** A figure describing week W is built from data
-  available before week W.
+  available before week W; a trade's "then" is frozen when the trade lands.
 - **Rows add up.** Where a table shows components and a total, the total is
   computed as the sum of the displayed components, not rounded separately.
+- **One owner per number.** A figure is computed in one place and read
+  everywhere else. Where two languages must agree (`curves.py` ↔ `types.ts`
+  `MATRIX_CURVES`; `dynasty_movers.py` ↔ `tradeModel.ts` market curve) the
+  pairing is named in both files.
 
 ## Verifying any of this
 
@@ -460,13 +817,14 @@ The methodology decisions above are locked by the test suite — a failure there
 is a change in what a figure *means*, not a broken build:
 
 ```
-python -m unittest discover -s tests      # the invariants
+python -m unittest discover -s tests      # the invariants (382 tests)
+npm test                                  # the trade machine (Node ≥ 22.18)
 python scripts/validate_data.py           # published-data consistency
 ```
 
-The suite reports its own size; there is no target number to hit. A handful of
-tests are gated on a local Sleeper dump and are skipped everywhere else,
-including CI — see the testing section of PROJECT_NOTES.md.
+Eight tests are gated on a local Sleeper dump or crawl sample and are skipped
+in CI — `tests.yml` pins that count. See the testing section of
+PROJECT_NOTES.md.
 
 Each engine also has a `--probe` mode that reports without writing:
 
