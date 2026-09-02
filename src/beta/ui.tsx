@@ -3,7 +3,8 @@ import {
   useState, type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useLeaguePath } from "../lib/context";
+import { useLeague, useLeaguePath } from "../lib/context";
+import { headshots } from "../lib/league";
 import { fmt, sgn } from "../lib/stats";
 
 /* ---- WAR figures, at this shell's precision ------------------------------
@@ -169,28 +170,34 @@ export function PosSpine({ color }: { color?: string }) {
 }
 
 /**
- * THE PORTRAIT SLOT in an identity cell (Max, 2026-09-02): Sleeper's public
- * headshot for the player id the site already runs on, in a 34px square that
- * fits the 44px row. No API call and no pipeline change.
+ * THE PORTRAIT SLOT in an identity cell (Max, 2026-09-02): a public headshot
+ * for the player id the site already runs on, in a 34px square that fits the
+ * 44px row. No API call. `lib/league.headshots` lists the sources best-first
+ * — ESPN's transparent PNG via the ESPN id in players_min, then Sleeper's JPG
+ * on white — and this walks them on error.
  *
- * The slot is RESERVED whether or not Sleeper has a photo — `pid` null, or a
- * 404 for a rookie before camp — because this sits in a column: a name that
- * indents 42px only when its owner has a headshot is a ragged left edge the
- * eye trips on all the way down. A missing face is a plain --band square,
- * not a silhouette, since a silhouette is a claim about what he looks like.
+ * The slot is RESERVED whether or not anyone has a photo — `pid` null, or
+ * every source 404ing for a rookie before camp — because this sits in a
+ * column: a name that indents 42px only when its owner has a headshot is a
+ * ragged left edge the eye trips on all the way down. A missing face is a
+ * plain --band square, not a silhouette, since a silhouette is a claim about
+ * what he looks like.
  *
  * Callers decide whether the slot exists at all: a table of franchises has no
  * portraits and passes nothing; a roster table passes every player row's pid
  * and null for an empty seat, so the seats stay aligned with the bodies.
  */
 export function Thumb({ pid }: { pid: string | null }) {
-  const [dead, setDead] = useState(false);
-  useEffect(() => { setDead(false); }, [pid]);
+  const { players } = useLeague();
+  const [i, setI] = useState(0);
+  useEffect(() => { setI(0); }, [pid]);
+  const srcs = pid ? headshots(players, pid) : [];
+  const src = srcs[i];
   return (
     <span className="idc-th" aria-hidden="true">
-      {pid && !dead && (
-        <img src={`https://sleepercdn.com/content/nfl/players/thumb/${pid}.jpg`}
-          alt="" loading="lazy" decoding="async" onError={() => setDead(true)} />
+      {src && (
+        <img src={src} alt="" loading="lazy" decoding="async"
+          onError={() => setI(n => n + 1)} />
       )}
     </span>
   );

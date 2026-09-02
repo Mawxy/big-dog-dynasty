@@ -1,7 +1,24 @@
 import type { PlayersMin, Team, Weekly } from "./types";
 
-export const pInfo = (players: PlayersMin, pid: string): [string, string, string] =>
+export const pInfo = (players: PlayersMin, pid: string): [string, string, string, number?] =>
   players[pid] ?? [`#${pid}`, "?", ""];
+
+/**
+ * THE HEADSHOT URLS for a player, best first.
+ *
+ * ESPN's is a PNG on a transparent ground, so it sits on --band without a
+ * white box around the head; it needs the ESPN id, which players_min carries
+ * as its fourth slot. Sleeper's is a JPG on white, keyed on the Sleeper id
+ * every row already has — the fallback when there is no ESPN id, or when
+ * ESPN 404s (they lag Sleeper on rookies). Callers walk the list on error.
+ */
+export const headshots = (players: PlayersMin, pid: string): string[] => {
+  const espn = players[pid]?.[3];
+  const out: string[] = [];
+  if (espn) out.push(`https://a.espncdn.com/i/headshots/nfl/players/full/${espn}.png`);
+  out.push(`https://sleepercdn.com/content/nfl/players/thumb/${pid}.jpg`);
+  return out;
+};
 
 /** position -> badge/spine color. One copy — the same map was pasted into
  *  seven files before this. Callers pick their own fallback for non-core. */

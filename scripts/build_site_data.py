@@ -7,7 +7,7 @@ into the compact JSON files the website reads. Run AFTER those two scripts.
 
 Outputs:
   data/meta.json                seasons list, league name, updated timestamp
-  data/players_min.json         player_id -> [name, pos, NFL team] (only ids used)
+  data/players_min.json         player_id -> [name, pos, NFL team, espn_id?] (only ids used)
   data/<season>/summary.json    season table: WAR/WAA/gp/pts/ppg per player
   data/<season>/teams.json      fantasy teams: manager, record, roster
   data/<season>/weekly.json     player_id -> [[week, pts, pAA, pAR, WAA, WAR], ...]
@@ -621,12 +621,23 @@ def main():
                 if pid in players:
                     used_ids.add(pid)
 
+    # ESPN ids for headshots (scripts/espn_ids.py -> data/espn_ids.json, built
+    # from nflverse, which covers the pool Sleeper's own espn_id field does not).
+    # Sleeper's field is the fallback for anyone the file lacks.
+    espn_file = root_out / "espn_ids.json"
+    espn_ids = load(espn_file) if espn_file.exists() else {}
+
     pmin = {}
     for pid in used_ids:
         p = players.get(pid)
         if p:
             pmin[pid] = [f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
                          p.get("position") or "?", p.get("team") or ""]
+            # Appended rather than always present so the row shape stays
+            # [name, pos, team] for everyone without one.
+            espn = espn_ids.get(pid) or p.get("espn_id")
+            if espn:
+                pmin[pid].append(int(espn))
         else:
             pmin[pid] = [f"#{pid}", "?", ""]   # team defenses etc.
     guard_write(out / "players_min.json", pmin)

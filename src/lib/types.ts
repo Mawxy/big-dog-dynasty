@@ -59,8 +59,12 @@ export interface Meta {
   ptsRange?: [number, number];
 }
 
-/** player_id -> [name, position, NFL team] */
-export type PlayersMin = Record<string, [string, string, string]>;
+/** player_id -> [name, position, NFL team, espn_id?]
+ *  The optional fourth slot is the ESPN player id, which is the key to a
+ *  transparent-background headshot (a.espncdn.com); Sleeper's own CDN only
+ *  serves JPGs on white. Absent for anyone the Sleeper map has no ESPN id
+ *  for, and for rows built before 2026-09-02. */
+export type PlayersMin = Record<string, [string, string, string, number?]>;
 
 export interface Team {
   roster_id: number; team: string; manager: string;
