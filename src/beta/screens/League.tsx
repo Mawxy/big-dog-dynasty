@@ -1,9 +1,10 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
   BracketFile, DynastyMovers, Franchises, Insights, Matchups, ProjectionsFile,
   SummaryRow, Team, Trade, TradesPayload, Values,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
 import { fmt, mean, normCdf, normInv, ord, sgn } from "../../lib/stats";
 import {
@@ -16,7 +17,7 @@ import { useActivity, useSeasonPhase, useStandings, type ActMove } from "../mode
 import {
   Band, DataError, fmtWar, IdCell, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath, type Figure,
 } from "../ui";
-import ScopeControl, { useScope, type ScopeSeason } from "../Scope";
+import ScopeControl, { ALL_SEASONS, useScope, type ScopeSeason } from "../Scope";
 import "./league.css";
 
 /**
@@ -80,7 +81,9 @@ export default function League() {
     return (i < 0 ? meta.seasons : meta.seasons.slice(0, i + 1)).slice().reverse();
   }, [meta.seasons, latest]);
 
-  const [scope, setScope] = useScope(played);
+  // "All-time" is a row in the picker (Max, 2026-09-02): every franchise's
+  // record across the league's life, and the career WAR leaders
+  const [scope, setScope] = useScope(played, { allowAll: true });
 
   /* The picker's per-season note — "champion · record", so choosing a year is
      reading a history table rather than picking a number off a list. From
@@ -98,11 +101,13 @@ export default function League() {
 
   return (
     <>
-      <ScopeControl value={scope} onChange={setScope} seasons={seasons} />
+      <ScopeControl value={scope} onChange={setScope} seasons={seasons} allTime />
       {/* keyed on the season so switching years resets the screen rather than
           rendering one year's champion over another's standings for a frame */}
       {scope.scope === "history"
-        ? <HistoryView key={scope.season} season={scope.season} />
+        ? (scope.season === ALL_SEASONS
+          ? <AllTimeView played={played} />
+          : <HistoryView key={scope.season} season={scope.season} />)
         : <CurrentView rosterSeason={rosterSeasonOf(league)} />}
     </>
   );
@@ -699,6 +704,174 @@ function BigTrade({ trade, sized }: { trade: Trade; sized: boolean }) {
  * club comes from players_min, which is CURRENT, so the sub-line here names the
  * fantasy franchise that held him at that season's end instead.
  */
+/* ========================================================================
+   ALL-TIME — every season at once
+   ======================================================================== */
+
+/** one franchise's whole record */
+interface AllTimeRow {
+  rid: number; team: string; manager: string;
+  seasons: number; wins: number; losses: number; ties: number;
+  fpts: number; ppg: number;
+  /** mean playoff-inclusive finish over the seasons that have one */
+  avgFinish: number | null;
+  titles: number;
+}
+
+/** one player's career in this league */
+interface CareerRow { pid: string; pos: string; gp: number; war: number; seasons: number }
+
+/**
+ * Every franchise's record across the league's life, and the career WAR
+ * leaders (Max, 2026-09-02). franchises.json already carries each franchise's
+ * per-season line, so the table is a sum; the leaders need every played
+ * season's summary.json, fetched together once.
+ *
+ * ORDERED BY WIN PERCENTAGE, then points — the tiebreak the league seeds on,
+ * over a career. Average finish is the mean of the seasons that HAVE a finish
+ * (a season without one is not a mid-table finish, it is no finish), and the
+ * franchise's name and manager are its most recent, since that is who the
+ * reader will look for.
+ */
+function AllTimeView({ played }: { played: string[] }) {
+  const { players } = useLeague();
+  const betaPath = useBetaPath();
+  const frQ = useJson<Franchises>("franchises.json");
+  const fr = frQ.data;
+
+  const rows = useMemo<AllTimeRow[] | null>(() => {
+    if (!fr) return null;
+    const out: AllTimeRow[] = [];
+    for (const [key, f] of Object.entries(fr)) {
+      const ss = f.seasons.filter(x => played.includes(x.season) && (x.wins + x.losses + x.ties > 0));
+      if (!ss.length) continue;
+      // named as it is TODAY: the newest entry of all, roster season included,
+      // not the newest played one — a franchise renamed this offseason should
+      // be found under the name on its door
+      const last = f.seasons.slice().sort((a, b) => b.season.localeCompare(a.season))[0];
+      const fins = ss.map(x => x.finish).filter((x): x is number => x != null);
+      const wins = ss.reduce((a, x) => a + x.wins, 0);
+      const losses = ss.reduce((a, x) => a + x.losses, 0);
+      const ties = ss.reduce((a, x) => a + x.ties, 0);
+      const fpts = ss.reduce((a, x) => a + x.fpts, 0);
+      const games = wins + losses + ties;
+      out.push({
+        rid: last.rid ?? Number(key), team: last.name, manager: last.manager,
+        seasons: ss.length, wins, losses, ties, fpts,
+        ppg: games ? fpts / games : 0,
+        avgFinish: fins.length ? mean(fins) : null,
+        titles: fins.filter(x => x === 1).length,
+      });
+    }
+    const pct = (r: AllTimeRow) => (r.wins + r.ties / 2) / Math.max(1, r.wins + r.losses + r.ties);
+    return out.sort((a, b) => pct(b) - pct(a) || b.fpts - a.fpts);
+  }, [fr, played]);
+
+  /* every played season's summary, together. Not useJson: the hook count would
+     follow the season count, and four small files in one Promise.all is what
+     the classic board's All-time mode does anyway. */
+  const [sums, setSums] = useState<Record<string, SummaryRow[]> | null | "error">(null);
+  useEffect(() => {
+    let dead = false;
+    Promise.all(played.map(s => jl<SummaryRow[]>(`${s}/summary.json`).then(r => [s, r] as const)))
+      .then(all => { if (!dead) setSums(Object.fromEntries(all)); })
+      .catch(() => { if (!dead) setSums("error"); });
+    return () => { dead = true; };
+  }, [played]);
+
+  const leaders = useMemo<CareerRow[] | null>(() => {
+    if (!sums || sums === "error") return null;
+    const acc = new Map<string, CareerRow>();
+    // oldest first, so the position on the row is the most recent season's
+    for (const s of played.slice().reverse()) {
+      for (const r of sums[s] ?? []) {
+        const c = acc.get(r[0]) ?? { pid: r[0], pos: r[1], gp: 0, war: 0, seasons: 0 };
+        c.pos = r[1]; c.gp += r[2]; c.war += r[6]; c.seasons += 1;
+        acc.set(r[0], c);
+      }
+    }
+    return [...acc.values()].sort((a, b) => b.war - a.war).slice(0, 15);
+  }, [sums, played]);
+
+  const span = played.length ? `${played[played.length - 1]}–${played[0]}` : "";
+
+  return (
+    <>
+      <Band label="All-time standings"
+        note={`${span} · regular season · ordered by win percentage, then points`} />
+      {frQ.error ? <DataError what="Franchise history didn't load" />
+        : !rows ? <div className="empty">Loading…</div> : (
+        <table className="v3tbl">
+          <thead>
+            <tr>
+              <th className="c sp">#</th>
+              <th className="t">Franchise</th>
+              <th className="n" style={{ width: "17%" }}>W-L</th>
+              <th className="n" style={{ width: "17%" }}>Points</th>
+              <th className="n" style={{ width: "16%" }}>Avg finish</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
+                {/* the accent marks titles won, in the one place the screen
+                    spends it: the ordinal of every franchise with a ring */}
+                <Spine rank={i + 1} top={r.titles > 0} />
+                <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)}
+                  sub={[r.manager, `${r.seasons} season${r.seasons === 1 ? "" : "s"}`,
+                    r.titles ? `${r.titles} title${r.titles === 1 ? "" : "s"}` : null]
+                    .filter(Boolean).join(" · ")} />
+                <td className="n">
+                  <span className="f hd">{r.wins}-{r.losses}{r.ties ? `-${r.ties}` : ""}</span>
+                  <div className="idc-s r">{fmt(r.ppg, 1)} ppg</div>
+                </td>
+                <td className="n"><span className="f">{Math.round(r.fpts).toLocaleString()}</span></td>
+                <td className="n">
+                  <span className="f">{r.avgFinish == null ? NUL : fmt(r.avgFinish, 1)}</span>
+                </td>
+              </TapRow>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <Band label="Career WAR leaders"
+        note="Regular-season WAR on this league's own scoring, summed over every season" />
+      {sums === "error" ? <DataError what="Career WAR didn't load" />
+        : !leaders ? <div className="empty">Loading…</div> : (
+        <table className="v3tbl">
+          <thead>
+            <tr>
+              <th className="c sp">#</th>
+              <th className="t">Player</th>
+              <th className="n" style={{ width: "14%" }}>GP</th>
+              <th className="n" style={{ width: "30%" }}>WAR</th>
+            </tr>
+          </thead>
+          <tbody>
+            {leaders.map((r, i) => (
+              <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)} className={i % 2 ? "zebra" : ""}>
+                <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
+                <IdCell name={pInfo(players, r.pid)[0]} to={betaPath(`/player/${r.pid}`)}
+                  sub={`${r.pos} · ${r.seasons} season${r.seasons === 1 ? "" : "s"}`} />
+                <td className="n"><span className="f q">{r.gp}</span></td>
+                <td className="n"><span className="f hd">{fmtWar(r.war)}</span></td>
+              </TapRow>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <div className="tnote screen">
+        Records and points are regular season only, summed over every season the franchise
+        played; average finish is the mean of its playoff-inclusive finishes, over the seasons
+        that have one. A franchise is named as it is today. Career WAR is the plain sum of each
+        season's regular-season WAR — no market price appears under a result.
+      </div>
+    </>
+  );
+}
+
 function HistoryView({ season }: { season: string }) {
   const { players } = useLeague();
   const betaPath = useBetaPath();

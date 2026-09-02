@@ -2,7 +2,13 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- viewport-fit=cover: the page runs under the notch and the home-indicator
+     strip, and env(safe-area-inset-*) becomes a real number. Without it those
+     insets are 0, so the beta shell's bottom bar sat flush on the screen's
+     rounded corners and its outer two tabs were half a thumb from unreachable
+     on an iPhone web app (Max, 2026-09-02). Every fixed/sticky edge pads by
+     the inset: the beta masthead and bar, the classic masthead, the body. -->
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Big Dog Dynasty — WAR Board</title>
 <!-- Inline SVG mark in public/ (Vite copies it into dist and rewrites the href
      for base "./"). Without this every load 404s on /favicon.ico. -->

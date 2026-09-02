@@ -42,10 +42,14 @@ export function useScope(seasons: string[], opts?: {
    *  and a single season is a FILTER the screen applies on top, not the tense.
    *  The default season is then "all", and "all" is a legal URL value. */
   all?: boolean;
+  /** ALL-TIME AS A CHOICE: "all" is a legal season beside the played ones —
+   *  the picker offers it as a row — but the default History is still the
+   *  newest season. League uses this for its all-time table. */
+  allowAll?: boolean;
 }): [ScopeSel, (s: ScopeSel) => void] {
   const loc = useLocation();
   const nav = useNavigate();
-  const all = !!opts?.all;
+  const all = !!opts?.all, allowAll = !!opts?.allowAll;
   const sel = useMemo<ScopeSel>(() => {
     const q = new URLSearchParams(loc.search);
     if (q.get("scope") !== "history" || seasons.length === 0) return { scope: "current" };
@@ -55,9 +59,10 @@ export function useScope(seasons: string[], opts?: {
       const picked = seasons.filter(id => seasonSet(want ?? "").has(id));
       return { scope: "history", season: picked.length ? picked.join(",") : ALL_SEASONS };
     }
+    if (allowAll && want === ALL_SEASONS) return { scope: "history", season: ALL_SEASONS };
     const season = want && seasons.includes(want) ? want : seasons[0];
     return { scope: "history", season };
-  }, [loc.search, seasons, all]);
+  }, [loc.search, seasons, all, allowAll]);
   const set = useCallback((s: ScopeSel) => {
     const q = new URLSearchParams(loc.search);
     if (s.scope === "current") { q.delete("scope"); q.delete("season"); }
@@ -76,7 +81,7 @@ export function useScope(seasons: string[], opts?: {
  * with more than one it opens the picker sheet, and tapping the History
  * segment while already in history reopens the picker.
  */
-export default function ScopeControl({ value, onChange, seasons, currentLabel = "Current", all }: {
+export default function ScopeControl({ value, onChange, seasons, currentLabel = "Current", all, allTime }: {
   value: ScopeSel;
   onChange: (s: ScopeSel) => void;
   seasons: ScopeSeason[];
@@ -84,6 +89,9 @@ export default function ScopeControl({ value, onChange, seasons, currentLabel = 
   /** all-history mode: History is one tap to every season, no picker here —
    *  the screen filters by season itself. Pair with `useScope(…, { all })`. */
   all?: boolean;
+  /** an "All-time" row at the top of the picker, selecting ALL_SEASONS. Pair
+   *  with `useScope(…, { allowAll })`. */
+  allTime?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const onHistory = value.scope === "history";
@@ -103,13 +111,19 @@ export default function ScopeControl({ value, onChange, seasons, currentLabel = 
               if (seasons.length === 1) onChange({ scope: "history", season: seasons[0].id });
               else setPicking(true);
             }}>
-            {onHistory ? value.season : "History"}
+            {onHistory ? (value.season === ALL_SEASONS ? "All-time" : value.season) : "History"}
             {seasons.length > 1 && <span className="caret">▾</span>}
           </button>
         )}
       </div>
       {picking && !all && (
         <Sheet label="Pick a season" title="Seasons" onClose={() => setPicking(false)}>
+          {allTime && (
+            <SheetRow on={onHistory && value.season === ALL_SEASONS}
+              mark={onHistory && value.season === ALL_SEASONS ? "Here" : undefined}
+              name="All-time" meta={`${seasons.length} seasons`}
+              onClick={() => { setPicking(false); onChange({ scope: "history", season: ALL_SEASONS }); }} />
+          )}
           {seasons.map(s => {
             const on = onHistory && value.season === s.id;
             return (

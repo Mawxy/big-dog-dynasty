@@ -94,13 +94,20 @@ a:hover { text-decoration: underline; }
 
 /* ---------- shell -------------------------------------------------------- */
 
-.app { min-height: 100vh; background: var(--bg); }
+.app {
+  min-height: 100vh; background: var(--bg);
+  /* the home-indicator strip on an iPhone web app (viewport-fit=cover). The
+     beta shell is not inside .app and pads by its own bar plus the inset. */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
 
 /* masthead ---------------------------------------------------------------- */
 .mast {
   display: flex;
   align-items: stretch;
   background: var(--deep);
+  /* the notch, on an iPhone web app (index.html viewport-fit=cover) */
+  padding-top: env(safe-area-inset-top, 0px);
 }
 .mast::before {                     /* the accent slab */
   content: "";

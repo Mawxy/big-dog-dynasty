@@ -59,8 +59,11 @@
   --navh: 72px;
   /* The masthead's height, declared rather than emergent: a sticky table header
      has to be offset by exactly this, and a header sized by its own font
-     metrics left a 2px slot for rows to show through as they scrolled under. */
-  --masth: 42px;
+     metrics left a 2px slot for rows to show through as they scrolled under.
+     INCLUDES the top safe-area inset (the notch, on a web app with
+     viewport-fit=cover): the masthead pads by it, so everything that sticks
+     under the masthead offsets by the padded height. */
+  --masth: calc(42px + env(safe-area-inset-top, 0px));
   --v3pad: 14px;
   min-height: 100vh;
   background: var(--bg);
@@ -74,8 +77,9 @@
    masthead that spends two lines on metadata has no room left to be a header. */
 .v3-mast {
   display: flex; align-items: center; gap: 10px;
-  height: var(--masth);
-  padding: 0 var(--v3pad);
+  box-sizing: border-box; height: var(--masth);
+  /* the notch's inset on top; the 42px of masthead sit under it */
+  padding: env(safe-area-inset-top, 0px) var(--v3pad) 0;
   background: var(--deep);
   border-bottom: 1px solid var(--rule);
   /* sticks so the league you are in is never off-screen — on an iOS web clip
