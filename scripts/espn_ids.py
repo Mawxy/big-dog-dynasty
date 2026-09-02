@@ -14,10 +14,16 @@ Run from the repo root, on a machine that can reach nflverse (GitHub release
 assets):
 
     pip install nflreadpy
-    python scripts/espn_ids.py
+    python scripts/espn_ids.py            # map + patch players_min.json
+    python scripts/espn_ids.py --no-patch # map only (what CI does)
 
-Both outputs are committed. Re-run whenever a rookie class lands.
+players-refresh.yml runs it weekly, right after the Sleeper map lands, and
+commits data/espn_ids.json; the daily data-refresh then rebuilds
+players_min.json from it, so CI never patches players_min directly — two
+workflows writing the league tree is a race. The patch mode is for a local
+run, so the site does not wait a day for the next refresh.
 """
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -36,6 +42,11 @@ def as_int(v):
 
 
 def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--no-patch", action="store_true",
+                    help="write data/espn_ids.json only; leave players_min.json alone")
+    args = ap.parse_args()
+
     import nflreadpy as nfl
 
     rows = nfl.load_players().to_dicts()
@@ -71,6 +82,9 @@ def main() -> int:
     OUT.write_text(json.dumps(dict(sorted(by_sleeper.items())), separators=(",", ":")),
                    encoding="utf-8")
     print(f"wrote {OUT.relative_to(ROOT)} ({len(by_sleeper)} ids)")
+
+    if args.no_patch:
+        return 0
 
     # patch the committed players_min.json files in place: [name, pos, team, espn?]
     for f in sorted(DATA.glob("leagues/*/players_min.json")):

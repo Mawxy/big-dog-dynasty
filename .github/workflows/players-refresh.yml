@@ -11,14 +11,27 @@ name: Players map refresh (weekly)
 #
 # Runs Tuesdays, a day ahead of nothing in particular — just early enough that
 # a fresh map is in place before the week's heaviest daily run.
+#
+# ALSO THE ESPN-ID JOIN (2026-09-02). Headshots come from ESPN's CDN, keyed on
+# an ESPN player id the Sleeper map only carries for a third of the pool;
+# scripts/espn_ids.py joins nflverse's player table (which has both ids) to the
+# fresh map and writes data/espn_ids.json. It rides here rather than in the
+# daily job because it is a property of the map, not of the scores, and
+# because nflverse is a second external fetch the daily pipeline should not
+# inherit. The daily build_site_data.py reads the committed file an hour
+# later, so this job commits ONLY data/espn_ids.json — never players_min.json,
+# which is the daily job's to write.
 on:
   schedule:
     - cron: "0 5 * * 2"      # Tuesdays 05:00 UTC
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
+# data-push, not a group of its own, now that it commits: the daily refresh,
+# values-refresh and war-history push to main under this group, and a job that
+# pushes outside it can race them.
 concurrency:
-  group: players-map
+  group: data-push
   cancel-in-progress: false
 jobs:
   players:
@@ -45,3 +58,36 @@ jobs:
         with:
           path: sleeper_data/players.json
           key: players-nfl-${{ github.run_id }}
+      # Fail-soft: a bad nflverse download must never cost the week its map,
+      # which is already cached above. A miss leaves last week's espn_ids.json
+      # in place, which is at worst a few rookies behind.
+      - name: Install nflreadpy
+        run: pip install nflreadpy
+      - name: Sleeper -> ESPN id join (headshots)
+        id: espn
+        continue-on-error: true
+        run: python scripts/espn_ids.py --no-patch
+      - name: Flag a failed ESPN join
+        if: steps.espn.outcome == 'failure'
+        run: |
+          echo "::warning title=ESPN id join failed::espn_ids.py failed; \
+          data/espn_ids.json is unchanged this week. Rookie headshots may lag."
+      - name: Commit data/espn_ids.json
+        if: steps.espn.outcome == 'success'
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rebase --abort 2>/dev/null || true
+          # RE-PARENT, never rebase — the daily refresh's pattern, for the same
+          # reason: this is one generated file rewritten whole, so ours wins by
+          # construction and everything else on main is carried forward.
+          for i in 1 2 3 4 5; do
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            git add data/espn_ids.json
+            git diff --cached --quiet && { echo "espn_ids.json unchanged"; exit 0; }
+            git commit -m "ESPN id map $(date -u +%F)"
+            git push origin HEAD:main && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1
