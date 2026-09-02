@@ -18,9 +18,18 @@ export function useLeague() {
  *  league_id, which every league always has. */
 export const leagueSeg = (l: LeagueEntry) => l.alias || l.key || "league";
 
+/** the classic board's mount under a league: /<league>/classic/... (Max,
+ *  2026-09-02 — the beta shell took the bare league address and the classic
+ *  board moved here). Every classic link goes through `useLeaguePath`, which
+ *  carries this; the beta shell's links go through beta/ui `useBetaPath`. */
+export const CLASSIC_SEG = "classic";
+
 /**
- * Prefix an in-app path with the current league. Every internal link goes
- * through this so no click has to bounce off the legacy redirect.
+ * Prefix an in-app path with the current league AND the classic board's
+ * segment: `lp("/players")` -> `/big-dog/classic/players`. Every classic
+ * internal link goes through this so no click has to bounce off the legacy
+ * redirect. (The beta shell has its own builder, `useBetaPath`, which lands
+ * on the bare league address.)
  *
  * Memoized on the league SEGMENT, which is the only thing the closure reads —
  * so the identity holds for the life of the page (switching leagues re-boots).
@@ -31,7 +40,7 @@ export const leagueSeg = (l: LeagueEntry) => l.alias || l.key || "league";
 export function useLeaguePath() {
   const seg = leagueSeg(useLeague().league);
   return useCallback(
-    (p: string) => `/${seg}${p.startsWith("/") ? p : `/${p}`}`, [seg]);
+    (p: string) => `/${seg}/${CLASSIC_SEG}${p.startsWith("/") ? p : `/${p}`}`, [seg]);
 }
 
 /**

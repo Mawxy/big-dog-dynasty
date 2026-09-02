@@ -4,7 +4,7 @@ import {
 } from "react-router-dom";
 import type { Drafts, Team as TeamT } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { leagueSeg, useLeague, useLeaguePath } from "../lib/context";
+import { CLASSIC_SEG, leagueSeg, useLeague, useLeaguePath } from "../lib/context";
 import { IdentityContext, useIdentityState } from "../lib/identity";
 import { latestSeasonOf, rosterSeasonOf, seasonSeg } from "../lib/league";
 import { useSeasonData } from "../lib/useSeasonData";
@@ -84,8 +84,10 @@ function BetaBoard() {
   const teams = teamsQ.data;
   const identity = useIdentityState(league.key || "default", teams);
 
-  const base = `/${leagueSeg(league)}/beta`;
-  // the segment after /beta — "" only on the index, which is a redirect
+  // THE BARE LEAGUE ADDRESS (Max, 2026-09-02): this shell is the board; the
+  // classic one lives under /<league>/classic
+  const base = `/${leagueSeg(league)}`;
+  // the segment after the league — "" only on the index, which is a redirect
   const seg = loc.pathname.startsWith(base)
     ? loc.pathname.slice(base.length).split("/").filter(Boolean)[0] ?? ""
     : "";
@@ -226,11 +228,11 @@ function BetaBoard() {
               375px masthead holding a league name, a tag and the Search word
               has no room for a fourth thing, and More already carries the
               "Classic War Board" row for the phone. */}
-          <a className="classic desk" href={`#/${leagueSeg(league)}`}
+          <a className="classic desk" href={`#/${leagueSeg(league)}/${CLASSIC_SEG}`}
             onClick={e => {
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              e.preventDefault(); nav(`/${leagueSeg(league)}`);
-            }}>← Classic board</a>
+              e.preventDefault(); nav(`/${leagueSeg(league)}/${CLASSIC_SEG}`);
+            }}>Classic board →</a>
         </header>
 
         {/* Every screen below a tab needs an on-screen way back: an iOS web clip
@@ -277,6 +279,15 @@ function BetaBoard() {
                 <Route path="seasons/:season/:wk/:mid" element={<WeeklyRoute />} />
                 <Route path="history" element={<History />} />
                 <Route path="insights" element={<Insights />} />
+                {/* THE CLASSIC BOARD'S OLD BARE ADDRESSES. Every link anyone
+                    shared before 2026-09-02 named a classic view at
+                    /<league>/<view>, which is this shell's address now; the
+                    views this shell has no screen for forward to /classic
+                    with their path intact, so a bookmarked standings table or
+                    franchise page still opens. */}
+                {CLASSIC_ONLY.map(seg => (
+                  <Route key={seg} path={`${seg}/*`} element={<ToClassic />} />
+                ))}
                 <Route path="*" element={<Navigate to={base} replace />} />
               </Routes>
             </Suspense>
@@ -421,7 +432,7 @@ function LeagueSheet({ onClose }: { onClose: () => void }) {
             meta={`${l.seasons[0]}–${l.seasons[l.seasons.length - 1]} · ${l.members.length} managers`}
             onClick={() => {
               if (on) { onClose(); return; }
-              window.location.hash = `/${l.alias || l.key}/beta`;
+              window.location.hash = `/${l.alias || l.key}`;
               window.location.reload();
             }} />
         );
@@ -458,10 +469,24 @@ function DraftDetailRoute() {
   return <DraftDetail key={season} />;
 }
 
+/** classic views with no beta screen: their old bare addresses forward */
+const CLASSIC_ONLY = [
+  "home", "stats", "value", "teams", "standings", "franchise", "weekly", "draft",
+  "trades", "dvi", "cvi", "playoffs",
+];
+
+function ToClassic() {
+  const { league } = useLeague();
+  const loc = useLocation();
+  const seg = leagueSeg(league);
+  const rest = loc.pathname.startsWith(`/${seg}`) ? loc.pathname.slice(seg.length + 1) : loc.pathname;
+  return <Navigate replace to={{ pathname: `/${seg}/${CLASSIC_SEG}${rest}`, search: loc.search }} />;
+}
+
 function SeasonRedirect() {
   const { meta, league } = useLeague();
   return <Navigate replace
-    to={`/${leagueSeg(league)}/beta/seasons/${seasonSeg(latestSeasonOf(meta))}`} />;
+    to={`/${leagueSeg(league)}/seasons/${seasonSeg(latestSeasonOf(meta))}`} />;
 }
 
 function WeeklyRoute() {

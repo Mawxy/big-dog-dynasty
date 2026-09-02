@@ -6,7 +6,7 @@ import { pageview } from "./lib/analytics";
 import { useJson } from "./lib/useJson";
 import { DEFAULT_CURVE, ModelContext, isCurve } from "./lib/model";
 import ModelPicker from "./components/ModelPicker";
-import { LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
+import { CLASSIC_SEG, LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
 import { latestSeasonOf, seasonSeg } from "./lib/league";
 import Home from "./views/Home";
@@ -30,17 +30,18 @@ const Cvi = lazy(() => import("./views/Cvi"));
 const FranchisePage = lazy(() => import("./components/FranchisePage"));
 const Player = lazy(() => import("./views/Player"));
 /**
- * The beta shell — the phone-first redesign (formerly "v3"), mounted BESIDE
- * this board rather than over it.
+ * THE BETA SHELL IS THE BOARD (Max, 2026-09-02). The phone-first redesign
+ * (formerly "v3", then "beta") answers the bare league address —
+ * `/<league>/...` — and the classic board moved under `/<league>/classic/...`.
+ * `wantedLeague()` still reads the first segment, so league resolution is
+ * untouched either way; the old `/beta` and `/v3` addresses redirect by
+ * dropping their segment, and a classic view's old bare address is forwarded
+ * to `/classic` by the beta shell (BetaShell's ClassicFallback), so every
+ * link anyone has shared still lands.
  *
- * `/<league>/beta/...`, so league resolution is untouched: `wantedLeague()`
- * reads the first segment and never sees the second. Everything below this
- * line is the classic board, unchanged, and nothing in the beta shell writes
- * to a file it reads. Deleting the lines that reference it in the router
- * below removes it completely.
- *
- * It is lazy for the same reason every other route is: a reader on the classic
- * board should not download a second shell to look at a standings table.
+ * Nothing in the beta shell writes to a file the classic board reads. It is
+ * lazy for the same reason every other route is: a reader on one board should
+ * not download the other to look at a standings table.
  */
 const BetaShell = lazy(() => import("./beta/BetaShell"));
 
@@ -79,20 +80,27 @@ function Track() {
 }
 
 /** Old season-first URLs (#/players/2025) keep working: prefix the league and
- *  replace. Prefixing the whole pathname rather than rebuilding from params
- *  means every legacy shape — including /teams/:season/:rid/:tab — survives
- *  without being enumerated. */
+ *  the classic segment and replace. Prefixing the whole pathname rather than
+ *  rebuilding from params means every legacy shape — including
+ *  /teams/:season/:rid/:tab — survives without being enumerated. */
 function LegacyRedirect() {
   const { league } = useLeague();
   const loc = useLocation();
-  return <Navigate to={`/${leagueSeg(league)}${loc.pathname}${loc.search}`} replace />;
+  return <Navigate to={`/${leagueSeg(league)}/${CLASSIC_SEG}${loc.pathname}${loc.search}`} replace />;
 }
 
-/** the beta shell's old address: /<league>/v3/... -> /<league>/beta/... */
-function V3Redirect() {
+/** the beta shell's old addresses: /<league>/beta/... and /<league>/v3/...
+ *  -> /<league>/..., which is where the shell answers now */
+function DropSegRedirect({ seg }: { seg: string }) {
   const loc = useLocation();
   return <Navigate replace
-    to={{ pathname: loc.pathname.replace("/v3", "/beta"), search: loc.search }} />;
+    to={{ pathname: loc.pathname.replace(`/${seg}`, ""), search: loc.search }} />;
+}
+
+/** the site's root: the default league's board */
+function RootRedirect() {
+  const { league } = useLeague();
+  return <Navigate to={`/${leagueSeg(league)}`} replace />;
 }
 
 /** a route segment as a non-negative integer, or null for a bogus one (e.g.
@@ -199,16 +207,34 @@ export default function App() {
               classic Shell — masthead, tab strip, footer — never renders
               underneath it. */}
           <Routes>
-            <Route path="/:league/beta/*" element={
+            {/* the classic board, under its own segment */}
+            <Route path={`/:league/${CLASSIC_SEG}/*`} element={<Shell />} />
+            {/* the beta shell's two old prefixes — shared links redirect */}
+            <Route path="/:league/beta/*" element={<DropSegRedirect seg="beta" />} />
+            <Route path="/:league/v3/*" element={<DropSegRedirect seg="v3" />} />
+            {/* pre-league URLs (#/players/2025): static first segments outrank
+                the dynamic :league below, so these can never be read as a
+                league named "players" */}
+            <Route path="/players/*" element={<LegacyRedirect />} />
+            <Route path="/stats/*" element={<LegacyRedirect />} />
+            <Route path="/teams/*" element={<LegacyRedirect />} />
+            <Route path="/weekly/*" element={<LegacyRedirect />} />
+            <Route path="/standings/*" element={<LegacyRedirect />} />
+            <Route path="/draft" element={<LegacyRedirect />} />
+            <Route path="/trades" element={<LegacyRedirect />} />
+            <Route path="/value" element={<LegacyRedirect />} />
+            <Route path="/dvi" element={<LegacyRedirect />} />
+            <Route path="/cvi" element={<LegacyRedirect />} />
+            <Route path="/player/*" element={<LegacyRedirect />} />
+            {/* the board: the beta shell, at the bare league address */}
+            <Route path="/:league/*" element={
               <ErrorBoundary resetKey="beta">
                 <Suspense fallback={<div className="empty">Loading…</div>}>
                   <BetaShell />
                 </Suspense>
               </ErrorBoundary>
             } />
-            {/* the shell shipped as /v3 for a while — shared links redirect */}
-            <Route path="/:league/v3/*" element={<V3Redirect />} />
-            <Route path="*" element={<Shell />} />
+            <Route path="*" element={<RootRedirect />} />
           </Routes>
         </ModelProvider>
       </HashRouter>
@@ -262,9 +288,12 @@ function Shell() {
     if (navType === "PUSH") window.scrollTo(0, 0);
   }, [loc.pathname, navType]);
   const latest = latestSeasonOf(meta);
-  // paths are league-first now: /<league>/<view>[/<season>...]
-  const base = `/${leagueSeg(league)}`;
-  const parts = loc.pathname.split("/");
+  // paths are league-first, then the classic segment:
+  // /<league>/classic/<view>[/<season>...]. `parts` drops the classic segment
+  // so the view/season indices below read as they always have.
+  const base = `/${leagueSeg(league)}/${CLASSIC_SEG}`;
+  const raw = loc.pathname.split("/");
+  const parts = raw[2] === CLASSIC_SEG ? [raw[0], raw[1], ...raw.slice(3)] : raw;
 
   /**
    * The URL's league segment against the one actually loaded.
@@ -326,17 +355,16 @@ function Shell() {
                 assumptions. */}
             <ModelPicker />
             <span className="mast-updated">Rebuilt nightly, 06:00 UTC · {meta.updated}</span>
-            {/* THE WAY ACROSS. The beta shell is a second board at a second
-                address, and until now the only way to reach it was to know the
-                URL — which meant the redesign existed for whoever had been
-                told about it. A plain link in the masthead's own label
-                vocabulary, not a toggle: the two shells are places, not a
-                setting. The way back is the beta shell's More screen. */}
-            <a className="mast-beta" href={`#${base}/beta`}
+            {/* THE WAY ACROSS. The beta shell is the board now and this is
+                the classic one, kept at /classic; a plain link in the
+                masthead's own label vocabulary, not a toggle — the two shells
+                are places, not a setting. The way back is the beta masthead's
+                "← Classic board" and More's row. */}
+            <a className="mast-beta" href={`#/${leagueSeg(league)}`}
               onClick={e => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-                e.preventDefault(); nav(`${base}/beta`);
-              }}>Beta board →</a>
+                e.preventDefault(); nav(`/${leagueSeg(league)}`);
+              }}>← Beta board</a>
           </div>
         </div>
       </header>
@@ -361,68 +389,56 @@ function Shell() {
         <ErrorBoundary resetKey={loc.pathname}>
         <Suspense fallback={<div className="empty">Loading…</div>}>
         {unknownLeague ? <Navigate to={base} replace /> : <Routes>
-          {/* league-first. A static first segment outranks the dynamic
-              :league, so the legacy block below can never be shadowed. */}
-          <Route path="/:league" element={<Home />} />
-          <Route path="/:league/home" element={<Home />} />
+          {/* RELATIVE to the /:league/classic mount in App: "stats" here is
+              /<league>/classic/stats. The pre-league legacy redirects moved up
+              to App's table, where their static first segments outrank the
+              dynamic :league route. */}
+          <Route index element={<Home />} />
+          <Route path="home" element={<Home />} />
           {/* the Players tab's two boards. /stats is the latest played season,
               /stats/<season> a given year, /stats/all the career board;
               /value is the one merged price table. /players is the tab's own
               address and rests on Value. */}
-          <Route path="/:league/stats" element={<Stats />} />
-          <Route path="/:league/stats/:season" element={<Stats />} />
-          <Route path="/:league/value" element={<Value />} />
+          <Route path="stats" element={<Stats />} />
+          <Route path="stats/:season" element={<Stats />} />
+          <Route path="value" element={<Value />} />
           {/* /players once held both boards behind a lens control */}
-          <Route path="/:league/players" element={<PlayersRedirect />} />
-          <Route path="/:league/players/:season" element={<PlayersRedirect />} />
-          <Route path="/:league/standings/:season" element={<StandingsRedirect />} />
+          <Route path="players" element={<PlayersRedirect />} />
+          <Route path="players/:season" element={<PlayersRedirect />} />
+          <Route path="standings/:season" element={<StandingsRedirect />} />
           {/* A franchise is keyed by roster_id, which is stable across seasons —
               so its URL carries no year. The page picks its own roster season. */}
-          <Route path="/:league/franchise/:rid" element={<FranchiseRoute />} />
-          <Route path="/:league/franchise/:rid/:tab" element={<FranchiseRoute />} />
+          <Route path="franchise/:rid" element={<FranchiseRoute />} />
+          <Route path="franchise/:rid/:tab" element={<FranchiseRoute />} />
 
           {/* franchise-level hub: the 5C board plus the season spine.
               /teams is the roster board, /teams/<season> that year's
               standings, /teams/all the franchise history board. */}
-          <Route path="/:league/teams" element={<FranchisesView />} />
-          <Route path="/:league/teams/:season" element={<FranchisesView />} />
+          <Route path="teams" element={<FranchisesView />} />
+          <Route path="teams/:season" element={<FranchisesView />} />
           {/* the season-scoped franchise URLs the franchise pages replaced */}
-          <Route path="/:league/teams/:season/:rid/:tab" element={<TeamRedirect />} />
-          <Route path="/:league/teams/:season/:rid" element={<TeamRedirect />} />
-          <Route path="/:league/weekly/:season" element={<WeeklyRoute />} />
-          <Route path="/:league/weekly/:season/:wk" element={<WeeklyRoute />} />
-          <Route path="/:league/weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
-          <Route path="/:league/draft" element={<Draft />} />
+          <Route path="teams/:season/:rid/:tab" element={<TeamRedirect />} />
+          <Route path="teams/:season/:rid" element={<TeamRedirect />} />
+          <Route path="weekly/:season" element={<WeeklyRoute />} />
+          <Route path="weekly/:season/:wk" element={<WeeklyRoute />} />
+          <Route path="weekly/:season/:wk/:mid" element={<WeeklyRoute />} />
+          <Route path="draft" element={<Draft />} />
           {/* /draft/history is the draft-boards scope of the Draft page;
               /draft/history/<season> is that draft's own page */}
-          <Route path="/:league/draft/:sub" element={<Draft />} />
-          <Route path="/:league/draft/history/:season" element={<DraftDetailRoute />} />
-          <Route path="/:league/trades" element={<Trades />} />
-          <Route path="/:league/ledger" element={<Ledger />} />
+          <Route path="draft/:sub" element={<Draft />} />
+          <Route path="draft/history/:season" element={<DraftDetailRoute />} />
+          <Route path="trades" element={<Trades />} />
+          <Route path="ledger" element={<Ledger />} />
           {/* the year-by-year league story — off the tab bar, reached from the
               League dashboard's summary band */}
-          <Route path="/:league/history" element={<History />} />
-          <Route path="/:league/insights" element={<Insights />} />
-          <Route path="/:league/dvi" element={<Dvi />} />
-          <Route path="/:league/cvi" element={<Cvi />} />
-          <Route path="/:league/player/:pid" element={<PlayerRoute />} />
+          <Route path="history" element={<History />} />
+          <Route path="insights" element={<Insights />} />
+          <Route path="dvi" element={<Dvi />} />
+          <Route path="cvi" element={<Cvi />} />
+          <Route path="player/:pid" element={<PlayerRoute />} />
 
           {/* pre-restructure URLs — bookmarks, and anything already shared */}
-          <Route path="/:league/playoffs/:season" element={<PlayoffsRedirect />} />
-
-          <Route path="/players/*" element={<LegacyRedirect />} />
-          <Route path="/stats/*" element={<LegacyRedirect />} />
-          <Route path="/teams/*" element={<LegacyRedirect />} />
-          <Route path="/weekly/*" element={<LegacyRedirect />} />
-          {/* /standings/<season> predates the league prefix too — without this
-              it fell through to the catchall and lost the season entirely */}
-          <Route path="/standings/*" element={<LegacyRedirect />} />
-          <Route path="/draft" element={<LegacyRedirect />} />
-          <Route path="/trades" element={<LegacyRedirect />} />
-          <Route path="/value" element={<LegacyRedirect />} />
-          <Route path="/dvi" element={<LegacyRedirect />} />
-          <Route path="/cvi" element={<LegacyRedirect />} />
-          <Route path="/player/*" element={<LegacyRedirect />} />
+          <Route path="playoffs/:season" element={<PlayoffsRedirect />} />
 
           <Route path="*" element={<Navigate to={base} replace />} />
         </Routes>}
@@ -482,7 +498,7 @@ function StandingsRedirect() {
   const { meta, league } = useLeague();
   const p = useParams();
   return <Navigate replace
-    to={`/${leagueSeg(league)}/teams/${seasonSeg(seasonOf(p.season, meta))}`} />;
+    to={`/${leagueSeg(league)}/${CLASSIC_SEG}/teams/${seasonSeg(seasonOf(p.season, meta))}`} />;
 }
 
 /**
@@ -493,7 +509,7 @@ function StandingsRedirect() {
 function TeamRedirect() {
   const { league } = useLeague();
   const p = useParams();
-  const base = `/${leagueSeg(league)}`;
+  const base = `/${leagueSeg(league)}/${CLASSIC_SEG}`;
   const rid = intParam(p.rid);
   if (rid == null) return <Navigate replace to={`${base}/teams`} />;
   return <Navigate replace to={`${base}/franchise/${rid}${p.tab ? `/${p.tab}` : ""}`} />;
@@ -504,7 +520,7 @@ function TeamRedirect() {
 function PlayoffsRedirect() {
   const { league } = useLeague();
   const p = useParams();
-  return <Navigate replace to={`/${leagueSeg(league)}/weekly/${p.season}/playoffs`} />;
+  return <Navigate replace to={`/${leagueSeg(league)}/${CLASSIC_SEG}/weekly/${p.season}/playoffs`} />;
 }
 
 /** key={season} forces a fresh mount per draft, resetting sort/scroll state */
@@ -520,7 +536,7 @@ function FranchiseRoute() {
   // for redraft (see Franchises in types.ts). FranchisePage itself resolves
   // legacy rid-shaped links against owner-keyed data.
   const fkey = p.rid || "";
-  const base = `/${leagueSeg(league)}`;
+  const base = `/${leagueSeg(league)}/${CLASSIC_SEG}`;
   if (!fkey) return <Navigate replace to={base} />;
   return <FranchisePage key={fkey} fkey={fkey} players={players} tab={p.tab} />;
 }

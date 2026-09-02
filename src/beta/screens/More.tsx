@@ -2,7 +2,7 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import type { Drafts, Insights, Team, TradesPayload } from "../../lib/types";
 import { MATRIX_CURVES, type MatrixCurve } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
-import { leagueSeg, useLeague } from "../../lib/context";
+import { CLASSIC_SEG, leagueSeg, useLeague } from "../../lib/context";
 import { rosterSeasonOf } from "../../lib/league";
 import { useIdentity } from "../../lib/identity";
 import { MODEL_NOTE, splitCurve, STREAM_NOTE, useModel } from "../../lib/model";
@@ -110,7 +110,7 @@ export default function More() {
      survive the trip or the reader lands on whichever league the registry
      defaults to. `leagueSeg` is the same function the classic router resolves
      against, so the two can't drift. */
-  const classic = `/${leagueSeg(league)}`;
+  const classic = `/${leagueSeg(league)}/${CLASSIC_SEG}`;
 
   const mine = teams?.find(t => t.roster_id === ident.rid);
 

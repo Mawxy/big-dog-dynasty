@@ -3,7 +3,7 @@ import {
   useState, type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useLeaguePath } from "../lib/context";
+import { leagueSeg, useLeague } from "../lib/context";
 import { fmt, sgn } from "../lib/stats";
 
 /* ---- WAR figures, at this shell's precision ------------------------------
@@ -19,15 +19,16 @@ export const fmtWar = (v: number) => fmt(v, WAR_DP_BETA);
 export const sgnWar = (v: number) => sgn(v, WAR_DP_BETA);
 
 /**
- * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/beta/team`.
+ * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/team`.
  *
- * Every internal link goes through this. A bare `lp("/team")` would land on the
- * classic board's routes and drop the reader out of the shell mid-tap — which
- * is exactly the failure a prototype mounted beside a live site invites.
+ * THE BETA SHELL IS THE BOARD (Max, 2026-09-02): it answers the bare league
+ * address, and the classic board moved under /<league>/classic. Every beta
+ * internal link goes through this; `lib/context.useLeaguePath` is the
+ * CLASSIC builder now and would drop the reader out of the shell mid-tap.
  */
 export function useBetaPath() {
-  const lp = useLeaguePath();
-  return useCallback((p: string) => lp(`/beta${p.startsWith("/") ? p : `/${p}`}`), [lp]);
+  const seg = leagueSeg(useLeague().league);
+  return useCallback((p: string) => `/${seg}${p.startsWith("/") ? p : `/${p}`}`, [seg]);
 }
 
 /**
