@@ -5,8 +5,8 @@ import { headshots } from "../lib/league";
 /**
  * A player headshot, keyed on the Sleeper player id the whole site runs on.
  * `lib/league.headshots` lists the sources best-first — ESPN's transparent
- * PNG (via the ESPN id in players_min), then Sleeper's JPG on white — and
- * this walks them on error. No API call.
+ * cutout, via the ESPN id in players_min — and this walks them on error. No
+ * API call.
  *
  * Nobody has a photo for everyone (rookies before camp, deep practice-squad
  * bodies), and the CDNs answer those with a 404 rather than a placeholder.
@@ -15,8 +15,7 @@ import { headshots } from "../lib/league";
  * generic silhouette would be a claim ("this is what he looks like") the site
  * cannot back. Absent is absent.
  *
- * Achromatic on purpose — 1px --rule on --band, radius zero. Position colour
- * stays on the badge and the spine; a tinted frame would be a fifth accent.
+ * No frame (style.css .portrait): the cutout sits straight on the rail.
  */
 export default function Portrait({ pid, size = 112, className = "" }: {
   pid: string;

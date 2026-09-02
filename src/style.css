@@ -1314,18 +1314,22 @@ button.dband:hover .band-label { color: var(--txt2); }
   color: var(--dim);
 }
 .rail-back:hover { color: var(--txt); text-decoration: none; }
-/* THE PORTRAIT (components/Portrait). Out of the layout until the CDN has
-   answered — `display: none` rather than a reserved box, so a player Sleeper
-   has no photo for leaves no hole — then a bordered square above the badge.
-   Sleeper's thumbs are head-and-shoulders on a plain ground, so cover-cropping
-   to a square loses nothing that matters. Achromatic frame: the position
-   colour is the badge's and the spine's, not the picture's. */
-.portrait { display: none; }
-.portrait.on {
+/* THE PORTRAIT (components/Portrait). NO FRAME (Max, 2026-09-02): ESPN's
+   headshots are cutouts on a transparent ground, and a --band square with a
+   --rule border behind one read as a grey box with a head pasted on it. The
+   cutout sits straight on the rail's --deep, and the only geometry is the
+   square it occupies. That square is in the layout from the FIRST paint —
+   sized by the img's width/height attributes — so the badge and name do not
+   drop 124px when the file arrives; if every source fails the component
+   unmounts and the rail closes up. Sleeper's JPG fallback is on white and
+   will show its box; that is the fallback's problem, and the ESPN id map
+   keeps it rare. */
+.portrait {
   display: block; object-fit: cover; object-position: top;
-  background: var(--band); border: 1px solid var(--rule);
-  margin-bottom: 12px;
+  margin-bottom: 8px;
 }
+/* `.on` (loaded) is a hook with no rule: before the picture lands the <img>
+   paints nothing, which on --deep is the same as the finished cutout's ground. */
 .rail-name { font: 700 24px/1.05 var(--cond); letter-spacing: .02em; text-transform: uppercase; overflow-wrap: anywhere; }
 .rail-sub { font: 400 12px/1.55 var(--sans); color: var(--dim); margin-top: 6px; }
 .rail-h {

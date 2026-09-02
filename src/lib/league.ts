@@ -6,18 +6,20 @@ export const pInfo = (players: PlayersMin, pid: string): [string, string, string
 /**
  * THE HEADSHOT URLS for a player, best first.
  *
- * ESPN's is a PNG on a transparent ground, so it sits on --band without a
- * white box around the head; it needs the ESPN id, which players_min carries
- * as its fourth slot. Sleeper's is a JPG on white, keyed on the Sleeper id
- * every row already has — the fallback when there is no ESPN id, or when
- * ESPN 404s (they lag Sleeper on rookies). Callers walk the list on error.
+ * ESPN only (Max, 2026-09-02). Its headshots are cutouts on a transparent
+ * ground, so they sit on the rail's --deep with no frame; it needs the ESPN
+ * id, which players_min carries as its fourth slot (scripts/espn_ids.py).
+ * Sleeper's JPG-on-white was the fallback for a day and is gone: with no
+ * frame around the portrait a white box floating on the rail is worse than
+ * no picture, and the nflverse join covers nearly everyone anyway. A player
+ * with no ESPN id, or one ESPN 404s, gets nothing — absent is absent.
+ *
+ * Still a list, so a second transparent source can be appended without
+ * touching the callers, which walk it on error.
  */
 export const headshots = (players: PlayersMin, pid: string): string[] => {
   const espn = players[pid]?.[3];
-  const out: string[] = [];
-  if (espn) out.push(`https://a.espncdn.com/i/headshots/nfl/players/full/${espn}.png`);
-  out.push(`https://sleepercdn.com/content/nfl/players/thumb/${pid}.jpg`);
-  return out;
+  return espn ? [`https://a.espncdn.com/i/headshots/nfl/players/full/${espn}.png`] : [];
 };
 
 /** position -> badge/spine color. One copy — the same map was pasted into
