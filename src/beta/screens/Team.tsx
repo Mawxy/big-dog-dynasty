@@ -5,7 +5,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
-import { useCvi, useDvi, useProjWar } from "../../lib/useIndices";
+import { useCvi, useDvi, useProjWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { fmt, ord, sgnWar } from "../../lib/stats";
 import { POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf } from "../../lib/league";
@@ -153,7 +153,10 @@ export default function Team() {
   const proj = useJson<ProjectionsFile>("projections.json").data;
   const dvi = useDvi();
   const cvi = useCvi();
-  const war = useProjWar();
+  // YEAR-ONE composite, matching the League screen and the price board: a
+  // lineup card is next season's lineup, and the 3-year stream tripled it
+  // (Max, 2026-09-02).
+  const war = useProjWar1();
   const tvals = useTeamValues(rosterSeason);
 
   const [lens, setLens] = useState<Lens>("dvi");
@@ -434,7 +437,7 @@ export default function Team() {
       // lineup card does, and a strip figure that disagreed with the total two
       // bands below it would be a bug the reader can see.
       key: "war", label: "Proj WAR",
-      value: sgnWar(roster.lineupWar), sub: "best legal lineup, 3 yr",
+      value: sgnWar(roster.lineupWar), sub: `best legal lineup, ${rosterSeason}`,
     },
     {
       key: "mkt", label: "Market",
