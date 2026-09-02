@@ -11,7 +11,7 @@ import { fmt, ord } from "../../lib/stats";
 import { POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf } from "../../lib/league";
 import { ktcOf } from "../../lib/values";
 import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
-import { nearestPick, rankMap, useTeamValues } from "../model";
+import { nearestPick, rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
 import {
   Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath,
   type Figure, type IdTag,
@@ -158,6 +158,9 @@ export default function Team() {
   // (Max, 2026-09-02).
   const war = useProjWar1();
   const tvals = useTeamValues(rosterSeason);
+  // where each franchise's own picks project to land — a pick is tiered by
+  // its ORIGINAL owner's projected finish, not its holder's
+  const tiers = usePickTiers();
 
   const [lens, setLens] = useState<Lens>("dvi");
 
@@ -288,22 +291,23 @@ export default function Team() {
         return {
           key: `${p.season}-${p.round}-${p.orig}-${p.holder}`,
           pid: null, name: `${p.season} ${roundOrd(p.round)}`, pos: "PICK",
-          sub: held
+          sub: (held
             ? (p.orig === rid ? "Own" : `via ${teamName(p.orig)}`)
-            : `to ${teamName(p.holder)}`,
+            : `to ${teamName(p.holder)}`) + ` · proj. ${tierOf(tiers, p.orig).toLowerCase()}`,
           tags: held ? [] : ["Traded"],
           // A pick has no index and never will until it converts: DVI and CVI
           // are computed from a projection, and there is no player to project.
           // An em dash says that; a 0 would say the pick is worthless.
           idx: null, war: null,
-          // Mid tier for every future pick: the slot depends on a finish nobody
-          // knows yet, and a uniform assumption keeps twelve rosters comparable.
-          // A pick that is gone carries no price at all — it is not this
-          // franchise's to be worth anything.
+          // The tier is INFERRED (Max, 2026-09-02): the original owner's
+          // projected finish says where the pick lands, so a 1st from the
+          // projected worst team prices Early and one from the projected
+          // champion prices Late. A pick that is gone carries no price at all
+          // — it is not this franchise's to be worth anything.
           market: held
-            ? ktcPicks.get(`${p.season} Mid ${roundOrd(p.round)}`) ?? null
+            ? ktcPicks.get(`${p.season} ${tierOf(tiers, p.orig)} ${roundOrd(p.round)}`) ?? null
             : null,
-          equiv: held ? nearestPick(vals, p.season, p.round, "Mid") : null,
+          equiv: held ? nearestPick(vals, p.season, p.round, tierOf(tiers, p.orig)) : null,
           gone: !held,
         };
       });
@@ -351,13 +355,13 @@ export default function Team() {
     });
     if (pickRows.length) bands.push({
       key: "pk", label: "Draft capital", spLabel: "#",
-      note: "Held and traded away · future picks priced Mid tier, since the slot depends on a finish nobody knows yet",
+      note: "Held and traded away · each pick tiered Early / Mid / Late by its original owner's projected finish this season",
       rows: pickRows,
       total: `≈ ${Math.round(sum(pickRows, r => r.market)).toLocaleString()}`,
       empty: "No picks on the books.",
     });
     return { bands, lineupWar };
-  }, [team, dvi, cvi, war, vals, owned, players, meta, lens, rid, teams]);
+  }, [team, dvi, cvi, war, vals, owned, players, meta, lens, rid, teams, tiers]);
 
   /* ---- strengths --------------------------------------------------------
      rosterShapes' own output, unchanged: the optimal starting eight and the

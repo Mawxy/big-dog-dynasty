@@ -26,10 +26,45 @@ from leaguepaths import DataDir
 
 
 from draft_slots import SLOT_FIX, build_slot_maps  # noqa: F401  (SLOT_FIX re-exported)
+from week_odds import best_lineup
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA, RAW = DataDir(ROOT / "data"), ROOT / "sleeper_data"
 ORD = {1: "1st", 2: "2nd", 3: "3rd", 4: "4th", 5: "5th"}
+TIERS = ("Early", "Mid", "Late")
+
+
+def tier_of_slot(slot, n_teams):
+    """Draft slot 1..n -> Early / Mid / Late, thirds of the round — the same
+    floor((slot-1)/4) partition the site uses for a 12-team league."""
+    per = max(1, n_teams / 3)
+    return TIERS[min(2, int((slot - 1) // per))]
+
+
+def projected_slots(data_dir, load):
+    """roster_id -> (projected draft slot, tier) for every franchise, off the
+    projected year-one lineup WAR of the CURRENT rosters (Max, 2026-09-02).
+    The worst projected team picks first. Mirrors src/beta/model.ts
+    usePickTiers, which the site uses for the same figure; the two must agree
+    or a pick prices differently on the ledger and in the machine."""
+    projf = load(data_dir / "projections.json") or {}
+    meta = load(data_dir / "meta.json") or {}
+    season = str((projf.get("meta") or {}).get("roster_season")
+                 or meta.get("rosterSeason") or "")
+    teams = (load(data_dir / season / "teams.json") or []) if season else []
+    slots = meta.get("rosterPositions") or []
+    if not teams or not slots:
+        return {}
+    y1 = {r["pid"]: ((r.get("composite") or [0.0])[0], r.get("pos"))
+          for r in projf.get("players", [])}
+    strength = []
+    for t in teams:
+        cands = [(pid, y1[pid][1], y1[pid][0]) for pid in (t.get("players") or []) if pid in y1]
+        war = sum(v for _, _, v in best_lineup(cands, slots))
+        strength.append((war, t["roster_id"]))
+    strength.sort()                                   # weakest first = picks first
+    n = len(strength)
+    return {rid: (i + 1, tier_of_slot(i + 1, n)) for i, (_, rid) in enumerate(strength)}
 
 # Per-team discount that collapses a multi-year WAR stream to one number.
 # Year 1 counts in full, year 2 at delta, year 3 at delta^2 ... Max's settled
@@ -168,6 +203,70 @@ def main():
     # value, it is not an "unused" slot. `ps > max(seasons)` mislabeled every
     # current-year pick as unused each Feb–May before that draft ran.
     drafted_seasons = {k[0] for k in sel_at}
+    # where each franchise's OWN picks project to land, for the picks that
+    # have not been drafted yet; a drafted pick's tier is its actual slot's
+    proj_slot = projected_slots(DATA, load)
+    n_teams = max(12, len(proj_slot))
+
+    def pick_tier(ps, orig):
+        slot = slot_of.get(ps, {}).get(orig)
+        if slot and ps in drafted_seasons:
+            return tier_of_slot(slot, n_teams)
+        return proj_slot.get(orig, (None, "Mid"))[1]
+
+    # ---- the tier AT THE TIME OF THE TRADE (Max, 2026-09-02) ------------
+    # "A projected mid first should be priced as such": the ledger's THEN end
+    # prices a pick where it looked like landing on the day of the deal, and
+    # the NOW end where it lands today (or did land), so the delta carries the
+    # tier drift too. What "looked like" means, in order:
+    #   * the draft had already happened -> the actual slot (known then);
+    #   * four or more weeks into the season -> the original owner's standing
+    #     through the trade week (wins, then points);
+    #   * earlier than that, or the offseason -> the previous season's final
+    #     standing, the last finish anybody had to go on;
+    #   * nothing to go on (the league's first season) -> Mid.
+    # Snapshots frozen from today on carry these tiers per asset, so a later
+    # run cannot re-derive them differently; older snapshots are re-frozen
+    # off the same rule, which is the only record of "then" they can have.
+    mw_all = {s: (load(DATA / str(s) / "matchups.json") or {}) for s in seasons}
+    final_std = {}
+    for s in seasons:
+        rows = load(DATA / str(s) / "teams.json") or []
+        if rows and any(t.get("wins") or t.get("losses") for t in rows):
+            order = sorted(rows, key=lambda t: (t.get("wins", 0), t.get("fpts", 0.0)))
+            final_std[s] = {t["roster_id"]: i + 1 for i, t in enumerate(order)}
+
+    def standing_tier(season, week, orig):
+        if week >= 4:
+            mw = mw_all.get(season) or {}
+            ps_ = mw.get("playoff_start") or 15
+            rec = {}
+            for rid_str, ents in (mw.get("teams") or {}).items():
+                w = pts = 0.0
+                for e in ents:
+                    if e[0] <= week and e[0] < ps_:
+                        pts += e[1]
+                        w += 1 if e[1] > e[3] else 0.5 if e[1] == e[3] else 0
+                rec[int(rid_str)] = (w, pts)
+            if orig in rec:
+                order = sorted(rec, key=lambda r: rec[r])
+                return tier_of_slot(order.index(orig) + 1, len(order))
+        prev = final_std.get(season - 1)
+        if prev and orig in prev:
+            return tier_of_slot(prev[orig], len(prev))
+        return "Mid"
+
+    def tier_then(a, t):
+        ps, orig = a.get("ps"), a.get("orig")
+        if ps is None or orig is None:
+            return a.get("tier") or "Mid"
+        slot = slot_of.get(ps, {}).get(orig)
+        # drafted before the trade: the slot was a fact, not a projection.
+        # (A same-season trade after draft day is caught by draft_day below.)
+        season = int(t["season"])
+        if slot and ps < season:
+            return tier_of_slot(slot, n_teams)
+        return standing_tier(season, int(t["week"] or 0), orig)
 
     trades = []
     for s in seasons:
@@ -201,14 +300,16 @@ def main():
                         w = war_for(rid, sel["player_id"], ps, 0)
                         side(rid)["got"].append({"kind": "pick", "pid": str(sel["player_id"]),
                                                  "label": f"{label} → {nm}", "war": w,
-                                                 "ps": ps, "rnd": rnd,
+                                                 "ps": ps, "rnd": rnd, "orig": orig,
+                                                 "tier": pick_tier(ps, orig),
                                                  "future": future_player(rid, str(sel["player_id"]))})
                     else:   # not drafted yet (future pick) or the slot went unused
                         undrafted = ps not in drafted_seasons
                         tail = " (not yet drafted)" if undrafted else " (unused)"
                         side(rid)["got"].append({"kind": "pick", "pid": None,
                                                  "label": label + tail, "war": 0.0,
-                                                 "ps": ps, "rnd": rnd,
+                                                 "ps": ps, "rnd": rnd, "orig": orig,
+                                                 "tier": pick_tier(ps, orig),
                                                  "future": future_pick(ps, rnd) if undrafted else 0.0})
                 for wb in (tx.get("waiver_budget") or []):
                     side(wb.get("receiver"))["got"].append(
@@ -253,31 +354,52 @@ def main():
     hist_start = min((r[0][0] for r in hist.values() if r), default=None)
     today = datetime.date.today().isoformat()
 
-    # current canonical mid-tier pick prices, same keying as the history
+    # current pick prices at EVERY tier, keyed like the history:
+    # "pick:<season> <Early|Mid|Late> <ord>". KTC labels the tier directly;
+    # FC's plain "2027 1st" is its Mid and "(Early)" / "(Late)" the others.
     cur_pick = {}
-    for src, idx, rx in (("ktc", "ktc", r"^(20\d\d) Mid (\d\w\w)$"),
-                         ("fc", "fc", r"^(20\d\d) (\d\w\w)( \(Mid\))?$")):
-        for label, val in (values_file.get("picks") or {}).get(src, []):
-            m = re.match(rx, label)
-            if m:
-                key = f"pick:{m.group(1)} Mid {m.group(2)}"
-                e = cur_pick.setdefault(key, {})
-                if idx not in e or (len(m.groups()) > 2 and m.group(3)):
-                    e[idx] = val
+    for label, val in (values_file.get("picks") or {}).get("ktc", []):
+        m = re.match(r"^(20\d\d) (Early|Mid|Late) (\d\w\w)$", label)
+        if m:
+            cur_pick.setdefault(f"pick:{m.group(1)} {m.group(2)} {m.group(3)}", {})["ktc"] = val
+    for label, val in (values_file.get("picks") or {}).get("fc", []):
+        m = re.match(r"^(20\d\d) (\d\w\w)( \((Early|Mid|Late)\))?$", label)
+        if m:
+            tier = m.group(4) or "Mid"
+            e = cur_pick.setdefault(f"pick:{m.group(1)} {tier} {m.group(2)}", {})
+            if "fc" not in e or m.group(3):          # "(Mid)" beats plain
+                e["fc"] = val
 
-    def pick_key(a):
-        return f"pick:{a['ps']} Mid {ORD.get(a['rnd'], str(a['rnd']) + 'th')}"
+    def pick_key(a, tier=None):
+        """A pick prices AT ITS TIER (Max, 2026-09-02): a drafted pick at the
+        tier its actual slot fell in, an undrafted one at the tier its
+        original owner's projected finish puts it in. Both ends of "then ->
+        now" use the same key, so the delta is a delta."""
+        return f"pick:{a['ps']} {tier or a.get('tier') or 'Mid'} {ORD.get(a['rnd'], str(a['rnd']) + 'th')}"
 
-    def mkt_side(side, price):
+    def mid_key(key):
+        return re.sub(r" (Early|Late) ", " Mid ", key)
+
+    def tier_scale(key, src):
+        """Early/Late history only began 2026-09-02; before that the ladders
+        recorded Mid alone. A tiered price on an earlier day is the Mid price
+        that day scaled by TODAY's tier/Mid ratio for the same pick — the tier
+        spread on a rookie ladder is slow-moving and this beats an em dash."""
+        cur, mid = cur_pick.get(key, {}).get(src), cur_pick.get(mid_key(key), {}).get(src)
+        return (cur / mid) if cur and mid else None
+
+    def mkt_side(side, price, tier_for=None):
         """Market sums of a side {ktc, fc}. Players price by pid, picks by
-        their mid-tier pick key (settled with Max, 2026-08-21: a pick IS a
-        market asset until draft night). Each SOURCE goes None independently
-        when it can't price every asset on the side."""
+        their pick key at a tier (settled with Max, 2026-08-21: a pick IS a
+        market asset until draft night) — `tier_for(asset)` chooses it, the
+        asset's own `tier` (today's) when None. Each SOURCE goes None
+        independently when it can't price every asset on the side."""
         tots = {"ktc": 0, "fc": 0}
         for a in side["got"]:
             if a["kind"] == "faab":
                 continue
-            key = pick_key(a) if a["kind"] == "pick" and "ps" in a else str(a["pid"] or "")
+            key = (pick_key(a, tier_for(a) if tier_for else None)
+                   if a["kind"] == "pick" and "ps" in a else str(a["pid"] or ""))
             row = (price(key) if key else None) or {}
             for src in ("ktc", "fc"):
                 if tots[src] is None:
@@ -295,7 +417,7 @@ def main():
     AFTER_TOL_DAYS = 45
 
     def price_at(day):
-        def p(key):
+        def rows_at(key):
             best = after = None
             for d, ktc, fc in hist.get(key) or []:
                 if d <= day and (best is None or d > best[0]):
@@ -308,6 +430,21 @@ def main():
                 if gap <= AFTER_TOL_DAYS:
                     best = after
             return {"ktc": best[1], "fc": best[2]} if best else None
+
+        def p(key):
+            row = rows_at(key)
+            if key.startswith("pick:") and " Mid " not in key:
+                # a tiered pick: its own history where it exists, else the Mid
+                # row that day scaled by today's tier spread (see tier_scale)
+                mid = rows_at(mid_key(key)) or {}
+                out = dict(row or {})
+                for src in ("ktc", "fc"):
+                    if out.get(src) is None and mid.get(src) is not None:
+                        k = tier_scale(key, src)
+                        if k:
+                            out[src] = round(mid[src] * k)
+                row = out or None
+            return row
         return p
 
     def price_now(key):
@@ -333,11 +470,21 @@ def main():
         for sd in t["sides"]:
             for a in sd["got"]:
                 if a["kind"] == "pick" and a.get("pid") and a.get("ps") in draft_day:
+                    # the pick at its ACTUAL slot's tier on draft day — the slot
+                    # is a fact by then, whatever it projected as
                     row = price_at(draft_day[a["ps"]])(pick_key(a)) or {}
                     if row.get("ktc") is not None:
                         a["mktDraft"] = row["ktc"]
                     if row.get("fc") is not None:
                         a["fcDraft"] = row["fc"]
+
+    # THE PRICING BASIS. Snapshots frozen before 2026-09-02 priced every pick
+    # Mid; the ledger now prices a pick at its tier, and a frozen market sum
+    # on the old basis against a live one on the new is not a delta. A
+    # snapshot without `basis: "tier"` gets its mkt/fc RE-FROZEN off the
+    # immutable history at its own day — same source, same day, new basis —
+    # and stamped. `exp` is sacred and untouched.
+    BASIS = "tier"
 
     n_new = 0
     for t in trades:
@@ -346,23 +493,57 @@ def main():
         sn = snaps.get(key)
         ts_s = (t["ts"] or 0) / 1000
         day = datetime.date.fromtimestamp(ts_s).isoformat() if ts_s else ""
+        # the tier each pick priced at THEN: frozen in the snapshot when one
+        # exists, derived by `tier_then` otherwise (and frozen on first use)
+        def then_tiers(sn_):
+            got = (sn_ or {}).get("tiers") or {}
+            out = {}
+            for s in t["sides"]:
+                lst = got.get(str(s["rid"]))
+                out[str(s["rid"])] = lst if isinstance(lst, list) and len(lst) == len(s["got"]) \
+                    else [tier_then(a, t) if a["kind"] == "pick" else None for a in s["got"]]
+            return out
+
+        def tier_chooser(tiers, s):
+            lst = tiers[str(s["rid"])]
+            return lambda a: lst[s["got"].index(a)] or a.get("tier") or "Mid"
+
+        if sn is not None and (sn.get("basis") != BASIS or "tiers" not in sn) and day and \
+                day >= (hist_start or "9999"):
+            tiers = then_tiers(sn)
+            for s in t["sides"]:
+                rec = sn["sides"].get(str(s["rid"]))
+                if rec is None:
+                    continue
+                m = mkt_side(s, price_at(day), tier_chooser(tiers, s))
+                # NEVER TRADE A NUMBER FOR A NONE. A figure frozen when the
+                # history reached further (the deep backfill is not in every
+                # checkout) is kept on its old basis rather than blanked; a
+                # re-freeze that loses the figure is worse than the basis gap.
+                for field, src in (("mkt", "ktc"), ("fc", "fc")):
+                    if m[src] is not None:
+                        rec[field] = m[src]
+            sn["basis"], sn["tiers"] = BASIS, tiers
+            n_new += 1
         if sn is None:
+            tiers = then_tiers(None)
             if ts_s and (time.time() - ts_s) / 86400 <= SNAP_MAX_AGE_DAYS:
-                sn = {"taken": today, "kind": "model",
-                      "sides": {}}
+                sn = {"taken": today, "kind": "model", "basis": BASIS,
+                      "tiers": tiers, "sides": {}}
                 for s in t["sides"]:
-                    m = mkt_side(s, price_now)
+                    m = mkt_side(s, price_now, tier_chooser(tiers, s))
                     sn["sides"][str(s["rid"])] = {"exp": s["total"],
                                                   "mkt": m["ktc"], "fc": m["fc"]}
             elif hist_start and day >= hist_start:
                 sides = {}
                 for s in t["sides"]:
-                    m = mkt_side(s, price_at(day))
+                    m = mkt_side(s, price_at(day), tier_chooser(tiers, s))
                     sides[str(s["rid"])] = {"exp": None,
                                             "mkt": m["ktc"], "fc": m["fc"]}
                 if any(v["mkt"] is not None or v["fc"] is not None
                        for v in sides.values()):
-                    sn = {"taken": today, "kind": "market", "sides": sides}
+                    sn = {"taken": today, "kind": "market", "basis": BASIS,
+                          "tiers": tiers, "sides": sides}
             if sn:
                 snaps[key] = sn
                 n_new += 1
@@ -380,21 +561,26 @@ def main():
             # deserves the same healing — that gap is exactly what left
             # pick-heavy sides reading "KTC then —" forever.
             filled = False
+            tiers = then_tiers(sn)
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"]))
                 if rec is None:
                     continue
-                m = mkt_side(s, price_at(day))
+                m = mkt_side(s, price_at(day), tier_chooser(tiers, s))
                 for field, src in (("mkt", "ktc"), ("fc", "fc")):
                     if rec.get(field) is None and m[src] is not None:
                         rec[field] = m[src]
                         filled = True
             n_new += filled
         if sn:
+            tiers = then_tiers(sn)
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"])) or {}
                 s["expThen"], s["mktThen"] = rec.get("exp"), rec.get("mkt")
                 s["fcThen"] = rec.get("fc")
+                for a, tier in zip(s["got"], tiers[str(s["rid"])]):
+                    if tier:
+                        a["tierThen"] = tier
     if n_new or not Path(snap_path).exists():
         write_json(snap_path, snaps, separators=(",", ":"))
     print(f"trade snapshots: {len(snaps)} frozen, {n_new} new this run")

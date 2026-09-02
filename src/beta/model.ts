@@ -1,12 +1,14 @@
 import { useMemo } from "react";
 import type {
-  Franchises, Matchups, PickValues, PicksOwned, Team, TradesPayload, Values,
+  Franchises, Matchups, PickValues, PicksOwned, ProjectionsFile, Team, TradesPayload, Values,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi, useProjWar } from "../lib/useIndices";
 import { useLeague } from "../lib/context";
 import { ktcOf } from "../lib/values";
-import { LEAGUE_TEAMS, latestSeasonOf, lineupOf, pricedLineup, rosterSeasonOf } from "../lib/league";
+import {
+  LEAGUE_TEAMS, latestSeasonOf, lineupOf, optimalLineup, pricedLineup, rosterSeasonOf,
+} from "../lib/league";
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 
 /**
@@ -19,6 +21,66 @@ import { pickStream, ROUND_ORD } from "../lib/rosterModel";
  */
 
 export const TIERS = ["Early", "Mid", "Late"];
+export type Tier = "Early" | "Mid" | "Late";
+
+/* ========================================================================
+   PICK TIERS — where a future pick lands, inferred from its ORIGINAL owner
+   ======================================================================== */
+
+/**
+ * The draft slot and tier every franchise's own picks project to (Max,
+ * 2026-09-02). Until now every future pick was priced Mid, "since the slot
+ * depends on a finish nobody knows yet" — but the board projects that finish
+ * on every League screen, and a pick's price is exactly where that projection
+ * bites. So: rank the twelve franchises by projected year-one lineup WAR (the
+ * same figure the power rankings sort on), and the WORST projected team
+ * picks FIRST. Slot 1–4 is Early, 5–8 Mid, 9–12 Late — the same
+ * floor((slot−1)/4) partition `useAssets` uses to place exact slots in tiers,
+ * generalised to n/3 for a league of another size.
+ *
+ * Keyed by the pick's ORIGINAL franchise, never its holder: who owns a pick
+ * says nothing about where it lands. The same projection stands in for every
+ * future year — a 2028 pick is tiered by 2026 strength — because it is the
+ * only finish the model projects; the captions say so.
+ *
+ * Null until rosters and projections are both in hand. A franchise the
+ * projection cannot seat (no projected players) ranks last, i.e. picks Early,
+ * which is what a roster with nothing on it would do.
+ */
+export interface PickSlot { slot: number; tier: Tier }
+
+export function usePickTiers(): Map<number, PickSlot> | null {
+  const { meta, league } = useLeague();
+  const rosterSeason = rosterSeasonOf(league);
+  const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
+  const proj = useJson<ProjectionsFile>("projections.json").data;
+  return useMemo(() => {
+    if (!teams || !proj) return null;
+    const lineup = lineupOf(meta);
+    const byPid = new Map(proj.players.map(p => [p.pid, p]));
+    const strength = teams.map(t => {
+      const pool = t.players.map(p => byPid.get(p))
+        .filter((p): p is NonNullable<typeof p> => !!p)
+        .map(p => ({ id: p.pid, pos: p.pos, war: p.composite?.[0] ?? 0 }));
+      const starters = optimalLineup(pool, lineup).slots.flatMap(s => s.player ? [s.player] : []);
+      return { rid: t.roster_id, war: starters.reduce((a, p) => a + p.war, 0) };
+    }).sort((a, b) => a.war - b.war);          // weakest first = picks first
+    const n = strength.length;
+    const per = n / 3;
+    const out = new Map<number, PickSlot>();
+    strength.forEach((s, i) => {
+      const slot = i + 1;
+      const k = Math.min(2, Math.floor((slot - 1) / per));
+      out.set(s.rid, { slot, tier: TIERS[k] as Tier });
+    });
+    return out;
+  }, [teams, proj, meta]);
+}
+
+/** the tier a pick prices at: its original owner's projected slot, or Mid
+ *  when the projection is not in hand yet */
+export const tierOf = (tiers: Map<number, PickSlot> | null, orig: number): Tier =>
+  tiers?.get(orig)?.tier ?? "Mid";
 
 /* ========================================================================
    SEASON PHASE
@@ -355,6 +417,7 @@ export function useTeamValues(season: string) {
   const dvi = useDvi();
   const cvi = useCvi();
   const war = useProjWar();
+  const tiers = usePickTiers();
 
   return useMemo<TeamVal[] | null>(() => {
     if (!teams || !dvi || !cvi || !war) return null;
@@ -383,12 +446,10 @@ export function useTeamValues(season: string) {
         // and direction and magnitude read the same either way.
         market30 += v?.ktcT?.["30"] ?? 0;
       }
-      // picks the franchise holds. Priced by tier off the original owner's
-      // finish — which nobody knows yet, so every future pick is priced Mid.
-      // Stated in the screen's caption; a Mid assumption applied uniformly
-      // shifts every team the same way and leaves the ORDER honest.
+      // picks the franchise holds, priced by tier off the ORIGINAL owner's
+      // projected finish (usePickTiers) — Mid only until the projection lands
       for (const p of owned?.owned?.[String(t.roster_id)] ?? [])
-        market += pickKtc.get(`${p.season} Mid ${ROUND_ORD[p.round - 1]}`) ?? 0;
+        market += pickKtc.get(`${p.season} ${tierOf(tiers, p.orig)} ${ROUND_ORD[p.round - 1]}`) ?? 0;
       return {
         rid: t.roster_id, team: t.team, manager: t.manager,
         war: pricedLineup(t, warIdx, (_p, r) => r.v, lineup).starters,
@@ -397,7 +458,7 @@ export function useTeamValues(season: string) {
         market, market30,
       };
     });
-  }, [teams, dvi, cvi, war, vals, owned, meta]);
+  }, [teams, dvi, cvi, war, vals, owned, meta, tiers]);
 }
 
 /** Dense 1..n ranks over a numeric key, highest first. */

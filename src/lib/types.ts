@@ -503,11 +503,21 @@ export interface TradeAsset {
   war: number;
   /** discounted expected WAR still ahead of this asset (0 once it's gone) */
   future: number;
-  /** picks only: the pick's season and round, for market pricing by the
-   *  canonical mid-tier key */
+  /** picks only: the pick's season and round, for market pricing */
   ps?: number;
   rnd?: number;
-  /** converted picks only: the pick's mid-tier market price ON DRAFT DAY —
+  /** picks only: the original owner's roster id, and the TIER the pick
+   *  prices at — a drafted pick's actual slot, an undrafted one's projected
+   *  slot off its original owner's projected finish (trade_analysis.py
+   *  pick_tier). Absent on rows written before 2026-09-02, which read Mid. */
+  orig?: number;
+  tier?: "Early" | "Mid" | "Late";
+  /** picks only: the tier the pick priced at ON THE DAY OF THE TRADE — where
+   *  it looked like landing then (the actual slot if already drafted, else
+   *  the original owner's standing at the time). The ledger's "then" end
+   *  uses this and its "now" end uses `tier`, so the delta carries the drift. */
+  tierThen?: "Early" | "Mid" | "Late";
+  /** converted picks only: the pick's market price at its tier ON DRAFT DAY —
    *  the splice point where the asset stops being a pick and becomes the
    *  player. Delta vs the player's current value = what the slot bought. */
   mktDraft?: number;

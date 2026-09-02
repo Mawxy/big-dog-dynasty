@@ -17,6 +17,16 @@ import "./scope.css";
 
 export type ScopeSel = { scope: "current" } | { scope: "history"; season: string };
 
+/** the season value that means "every season at once" — only screens that
+ *  opt into `all` mode (below) ever see it. In that mode `season` may also be
+ *  a comma-joined SET of season ids ("2024,2025"): a filter, not a tense. */
+export const ALL_SEASONS = "all";
+
+/** the season set a scope selection names, for all-mode screens: empty means
+ *  every season */
+export const seasonSet = (season: string): Set<string> =>
+  new Set(season === ALL_SEASONS ? [] : season.split(",").filter(Boolean));
+
 /** Seasons the picker offers, newest first. `note` is the settled season's
  *  one-line identity — champion and record — so the picker is a history table,
  *  not a bare list of years. */
@@ -27,16 +37,27 @@ export interface ScopeSeason { id: string; note?: string }
  * seasons (newest first); a history link naming a season this league never
  * played clamps to the newest one rather than rendering an empty year.
  */
-export function useScope(seasons: string[]): [ScopeSel, (s: ScopeSel) => void] {
+export function useScope(seasons: string[], opts?: {
+  /** ALL-HISTORY MODE (Max, 2026-09-02): History means every season at once,
+   *  and a single season is a FILTER the screen applies on top, not the tense.
+   *  The default season is then "all", and "all" is a legal URL value. */
+  all?: boolean;
+}): [ScopeSel, (s: ScopeSel) => void] {
   const loc = useLocation();
   const nav = useNavigate();
+  const all = !!opts?.all;
   const sel = useMemo<ScopeSel>(() => {
     const q = new URLSearchParams(loc.search);
     if (q.get("scope") !== "history" || seasons.length === 0) return { scope: "current" };
     const want = q.get("season");
+    if (all) {
+      // a set of known seasons, in the list's own order; nothing known = all
+      const picked = seasons.filter(id => seasonSet(want ?? "").has(id));
+      return { scope: "history", season: picked.length ? picked.join(",") : ALL_SEASONS };
+    }
     const season = want && seasons.includes(want) ? want : seasons[0];
     return { scope: "history", season };
-  }, [loc.search, seasons]);
+  }, [loc.search, seasons, all]);
   const set = useCallback((s: ScopeSel) => {
     const q = new URLSearchParams(loc.search);
     if (s.scope === "current") { q.delete("scope"); q.delete("season"); }
@@ -55,11 +76,14 @@ export function useScope(seasons: string[]): [ScopeSel, (s: ScopeSel) => void] {
  * with more than one it opens the picker sheet, and tapping the History
  * segment while already in history reopens the picker.
  */
-export default function ScopeControl({ value, onChange, seasons, currentLabel = "Current" }: {
+export default function ScopeControl({ value, onChange, seasons, currentLabel = "Current", all }: {
   value: ScopeSel;
   onChange: (s: ScopeSel) => void;
   seasons: ScopeSeason[];
   currentLabel?: string;
+  /** all-history mode: History is one tap to every season, no picker here —
+   *  the screen filters by season itself. Pair with `useScope(…, { all })`. */
+  all?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const onHistory = value.scope === "history";
@@ -69,17 +93,22 @@ export default function ScopeControl({ value, onChange, seasons, currentLabel = 
       <div className="v3-scopectl" role="group" aria-label="Scope">
         <button className={onHistory ? "" : "on"}
           onClick={() => onChange({ scope: "current" })}>{currentLabel}</button>
-        <button className={onHistory ? "on" : ""}
-          aria-haspopup={seasons.length > 1 ? "dialog" : undefined}
-          onClick={() => {
-            if (seasons.length === 1) onChange({ scope: "history", season: seasons[0].id });
-            else setPicking(true);
-          }}>
-          {onHistory ? value.season : "History"}
-          {seasons.length > 1 && <span className="caret">▾</span>}
-        </button>
+        {all ? (
+          <button className={onHistory ? "on" : ""}
+            onClick={() => onChange({ scope: "history", season: ALL_SEASONS })}>History</button>
+        ) : (
+          <button className={onHistory ? "on" : ""}
+            aria-haspopup={seasons.length > 1 ? "dialog" : undefined}
+            onClick={() => {
+              if (seasons.length === 1) onChange({ scope: "history", season: seasons[0].id });
+              else setPicking(true);
+            }}>
+            {onHistory ? value.season : "History"}
+            {seasons.length > 1 && <span className="caret">▾</span>}
+          </button>
+        )}
       </div>
-      {picking && (
+      {picking && !all && (
         <Sheet label="Pick a season" title="Seasons" onClose={() => setPicking(false)}>
           {seasons.map(s => {
             const on = onHistory && value.season === s.id;

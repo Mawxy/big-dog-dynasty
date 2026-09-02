@@ -187,53 +187,42 @@
    full-bleed band. One wrapper, one gutter. */
 .trx-hist { padding-top: 10px; }
 
-/* The header percentages are authoritative. Two stacked identity columns both
-   asking for the remainder is a fight the auto algorithm settles differently in
-   every browser, and beta.css's `td.idc { max-width: 0; width: 100% }` — the
-   shrink-and-ellipsis trick — only works when there is ONE of them. */
-.trx-hist .v3tbl { table-layout: fixed; }
-
-/* A FRANCHISE NAME WRAPS HERE. Everywhere else the identity cell ellipsises,
-   which is right when the name has a whole column; in a five-column row on a
-   phone it truncates nearly every team in the league. Two lines and a taller
-   row beats a name nobody can read — the assets under it still ellipsise,
-   because the drawer holds them in full. */
-.trx-hist .v3tbl td.idc .idc-n { white-space: normal; }
-
-/* `When` is a date over a week. It keeps the CONDENSED face rather than the
-   monospaced one every other figure now takes: a date is a label, not a
-   magnitude anybody compares down the column, and mono digits at 0.6em do not
-   fit the narrowest column on the board. */
-.trx-when .d {
-  font: 600 12.5px/1.2 var(--cond); color: var(--txt2);
+/* ---- THE LEDGER FEED (Max, 2026-09-02) ----------------------------------
+   One card per trade, every card open. The card is a header line — date,
+   season, week, and the WAR edge naming its owner — over the side columns
+   that used to be the row's drawer. Cards are separated by a rule, not
+   boxed: a card inside a bordered feed is a card inside a card. The one
+   accent in this view is the top rule on a card a `?load=` link named. */
+.trx-feed { display: flex; flex-direction: column; }
+.trx-card { padding: 10px var(--v3pad) 12px; border-bottom: 1px solid var(--rule); }
+.trx-card.on { border-top: 3px solid var(--acc); }
+.trx-cardhd {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  flex-wrap: wrap; margin-bottom: 8px;
+}
+/* the date keeps the CONDENSED face: a label, not a magnitude anybody
+   compares down the feed */
+.trx-cardhd .when {
+  font: 600 12.5px/1.3 var(--cond); color: var(--txt2);
   font-variant-numeric: tabular-nums; white-space: nowrap;
 }
-.trx-when .w {
-  margin-top: 1px;
-  font: 400 10.5px/1.3 var(--sans); color: var(--dim); white-space: nowrap;
+.trx-cardhd .when b { font-weight: 400; color: var(--dim); }
+/* WHOSE MARGIN IT IS, on the same line as the magnitude. A signed WAR figure
+   with no owner is the one thing this feed must never print. Never inked. */
+.trx-cardhd .edge { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; }
+.trx-cardhd .edge .k {
+  font: 600 10px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2);
 }
-.trx-when .w .cv { color: var(--dim2); }
+.trx-cardhd .edge .v {
+  font: 600 12.5px/1.3 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
+}
+.trx-cardhd .edge .n {
+  font: 400 11px/1.3 var(--sans); color: var(--dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;
+}
+.trx-feed .empty { padding: 30px var(--v3pad); }
 
-/* WHOSE MARGIN IT IS, under the magnitude. A signed WAR figure with no owner
-   is the one thing this column must never be, so the name is part of the cell
-   rather than something the reader infers from the two identity columns to its
-   left. It WRAPS rather than ellipsising, for the same reason: a half-named
-   owner is not an owner. */
-.v3tbl td .trx-owner {
-  margin-top: 1px;
-  font: 400 10.5px/1.3 var(--sans); color: var(--dim); text-align: right;
-  white-space: normal;
-}
-
-/* ---- the row drawer -----------------------------------------------------
-   Below the row, inside the same table flow — never a modal, never a popover
-   (SKILL §5). Accent top rule on the panel surface; this is the one accent
-   the ledger view spends. */
-.v3tbl tbody tr.trx-dr td {
-  padding: 0; white-space: normal;
-  background: var(--band);
-  border-top: 3px solid var(--acc); border-bottom: 1px solid var(--rule);
-}
 .trx-drin { display: flex; flex-wrap: wrap; gap: 1px; background: var(--rule); }
 /* flex-basis rather than a fixed count: a three-team deal has three sides, and
    they wrap to their own rows on a phone instead of squeezing to a third each */
@@ -245,6 +234,14 @@
 .trx-drgot { margin: 5px 0 9px; font: 400 12.5px/1.45 var(--sans); color: var(--txt2); }
 .trx-drgot .it { overflow-wrap: anywhere; }
 .trx-drgot .it.pick { color: var(--dim); }
+/* whose pick it is, in the body face beside the pick's name */
+.trx-drgot .it .whose { color: var(--dim); }
+/* the pick's tier, then → now, in the label face so it reads as a
+   qualifier and not as part of the pick's name */
+.trx-drgot .it .tier {
+  font: 600 10px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--dim2);
+}
 .trx-drgot a { color: var(--txt2); }
 .trx-drgot a:hover { color: var(--acc); }
 
@@ -276,6 +273,8 @@
 .trx-drrow .nul { color: var(--dim3); }
 
 /* ---- the team filter, in the band --------------------------------------- */
+/* the two filter buttons in the history band, side by side */
+.trx-fils { display: inline-flex; gap: 6px; }
 .trx-fil {
   padding: 5px 11px;
   background: var(--band); border: 1px solid var(--rule); color: var(--dim);

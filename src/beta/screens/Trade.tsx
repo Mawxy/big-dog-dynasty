@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
   PickValues, PicksOwned, Team, Trade as TradeT, TradeAsset, TradeSide,
@@ -15,11 +15,11 @@ import {
   makePickIndexer, tradeLedger,
   type PickIndexer, type PricedAsset, type SideLedger, type ValueBridge,
 } from "../../lib/tradeModel";
-import { useAssets, type Asset } from "../model";
-import ScopeControl, { useScope, type ScopeSeason } from "../Scope";
+import { tierOf, useAssets, usePickTiers, type Asset } from "../model";
+import ScopeControl, { ALL_SEASONS, seasonSet, useScope, type ScopeSeason } from "../Scope";
 import {
-  Band, DataError, fmtWar, IdCell, IdLines, Ledger, LedgerRow, LEDGER_GUARDRAIL, NUL,
-  PosSpine, sgnWar, Sheet, SheetRow, TapRow, useBetaPath,
+  Band, DataError, fmtWar, IdLines, Ledger, LedgerRow, LEDGER_GUARDRAIL, NUL,
+  PosSpine, sgnWar, Sheet, SheetRow, useBetaPath,
 } from "../ui";
 import "./trade.css";
 
@@ -33,12 +33,14 @@ import "./trade.css";
  * are the same object in two tenses, so they are one screen on one axis rather
  * than two destinations a reader has to know the difference between.
  *
- * NEITHER SIDE IS "YOU". The panels are named after franchises now — the old
- * "Side A gets / Side B gets" could not tell you whether a package was even
- * legal, because it drew from the whole priced field rather than from anybody's
- * roster — but naming them is not picking a side. There is no "my team" panel,
- * no posture to tilt by, and the two panels are typographically identical. The
- * league-wide read is still the point.
+ * TEAM-AGNOSTIC BY DEFAULT (decision #13, restored by Max 2026-09-02). The
+ * panels open as "Side A gets / Side B gets" and draw from the whole priced
+ * field plus generic picks — the machine is a scale for a package, not a
+ * negotiation between two rosters. Naming a franchise on a side is an
+ * OPTIONAL narrowing: it limits the other side to what that franchise really
+ * holds, which is how to check a package is one two teams could make. Either
+ * way, NEITHER SIDE IS "YOU": there is no "my team" panel, no posture to tilt
+ * by, and the two panels are typographically identical.
  *
  * BOTH SIDES STAY NEUTRAL, IN BOTH TENSES (SKILL §5). No figure on this screen
  * is inked by who is ahead. Colouring one basket green and the other amber
@@ -74,7 +76,7 @@ const sgnMkt = (v: number) =>
 const idx = (v: number) => fmt(v, 1);
 const sgnIdx = (v: number) => sgn(v, 1);
 
-/** the date without its year — the season is already the scope */
+/** the date without its year — the season column beside it carries that */
 const whenShort = (ts: number) => ts
   ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })
   : "—";
@@ -225,14 +227,16 @@ export default function Trade() {
    */
   const seasonIds = useMemo(
     () => [...new Set((trades ?? []).map(t => t.season))].sort().reverse(), [trades]);
-  const [scope, setScope] = useScope(seasonIds);
+  // ALL HISTORY (Max, 2026-09-02): the History tab is every deal the league
+  // has made; a season is a filter on the ledger, beside the franchise filter.
+  const [scope, setScope] = useScope(seasonIds, { all: true });
   const seasons = useMemo<ScopeSeason[]>(() => seasonIds.map(id => {
     const n = (trades ?? []).filter(t => t.season === id).length;
     return { id, note: `${n} trade${n === 1 ? "" : "s"}` };
   }), [seasonIds, trades]);
 
-  /** which trade's drawer is open — one at a time, so the detail stays beside
-   *  the row that opened it */
+  /** the card a `?load=` link named — highlighted with the view's one accent
+   *  and scrolled to. Every card is open; this is a pointer, not a state. */
   const [open, setOpen] = useState<string | null>(null);
 
   /* The League screen's activity cards link in with `?load=<ts>`. That used to
@@ -250,7 +254,7 @@ export default function Trade() {
     setParams(p => {
       const n = new URLSearchParams(p);
       n.delete("load");
-      if (t) { n.set("scope", "history"); n.set("season", t.season); }
+      if (t) { n.set("scope", "history"); n.set("season", ALL_SEASONS); }
       return n;
     }, { replace: true });
   }, [wantTs, trades, setParams]);
@@ -267,14 +271,16 @@ export default function Trade() {
       </div>
       {/* "Build" rather than "Current": a trade being assembled is not a state
           the league is in. */}
-      <ScopeControl value={scope} onChange={setScope} seasons={seasons} currentLabel="Build" />
+      <ScopeControl value={scope} onChange={setScope} seasons={seasons} currentLabel="Build" all />
 
       {file.error
         ? <DataError what="Trades didn't load" />
         : file.loading
           ? <div className="empty">Loading trades…</div>
           : scope.scope === "history"
-            ? <History trades={trades ?? []} season={scope.season} open={open} setOpen={setOpen} />
+            ? <History trades={trades ?? []} season={scope.season} seasons={seasons}
+                setSeason={id => setScope({ scope: "history", season: id })}
+                open={open} setOpen={setOpen} />
             : <Build />}
     </>
   );
@@ -396,6 +402,9 @@ function Build() {
   // lag 0. The same expression `model.ts` uses to LABEL the current class, so
   // the two cannot drift apart.
   const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
+  // where every franchise's own picks project to land (tier, and the exact
+  // slot for the class drafting now)
+  const tiers = usePickTiers();
 
   // beta.css's breakpoint, not useWidth's 640px default: 900px is where the
   // shell's bottom bar becomes a left rail, and a layout that reflowed at some
@@ -428,10 +437,10 @@ function Build() {
   }, [assets, bridge, pv]);
 
   /* ---- what each franchise actually holds --------------------------------
-     THE ACCEPTANCE TEST FOR THIS SCREEN: a player offered here is on the roster
-     the current rosters say holds him. The old machine drew from the whole
-     priced field, so it would happily assemble a package out of three players
-     none of whom belonged to either side of the trade. */
+     Used once a side NAMES a franchise: then a player offered to the other
+     side is on the roster the current rosters say holds him. With no
+     franchise named the side draws from the open pool below instead — see
+     `pool` — which is the classic machine's shape and the default. */
   const holdings = useMemo<Map<number, Holding[]> | null>(() => {
     if (!teams || !assets) return null;
     const byKey = new Map(assets.map(x => [x.key, x]));
@@ -457,23 +466,21 @@ function Build() {
       const picks: Holding[] = [];
       for (const p of owned?.owned[String(t.roster_id)] ?? []) {
         const ord = ROUND_ORD[p.round - 1] ?? `${p.round}th`;
-        // A future pick's slot depends on a finish nobody knows yet, so it is
-        // priced at its round's MID tier — the same uniform assumption the
-        // League screen's draft-capital band states out loud. Uniform across
-        // all twelve franchises, so the ORDER stays honest where the level is
-        // an assumption.
-        const a = byKey.get(`k${p.season} Mid ${ord}`)
-          // Once a class is the one drafting NOW, `useAssets` names it by exact
-          // slot rather than by tier, and the tier key stops existing. 1.06 is
-          // the Mid partition's own middle, by the floor((slot−1)/4) split
-          // model.ts uses to assign them.
-          ?? byKey.get(`k${p.season} Pick ${p.round}.06`);
+        // THE TIER IS INFERRED from the ORIGINAL owner's projected finish
+        // (model.ts usePickTiers; Max, 2026-09-02) — a 1st from the projected
+        // worst team is an Early 1st. Once a class is the one drafting NOW,
+        // `useAssets` names it by exact slot rather than by tier, and the same
+        // projection gives the slot itself.
+        const ps = tiers?.get(p.orig);
+        const a = byKey.get(`k${p.season} ${tierOf(tiers, p.orig)} ${ord}`)
+          ?? byKey.get(`k${p.season} Pick ${p.round}.${String(ps?.slot ?? 6).padStart(2, "0")}`);
         if (!a) continue;
         picks.push({
           id: `k${p.season}-${p.round}-${p.orig}`, asset: a,
           label: `${p.season} ${ord}`,
           sub: ["Pick",
             p.orig === t.roster_id ? "own" : `from ${name.get(p.orig) ?? `Team ${p.orig}`}`,
+            `proj. ${tierOf(tiers, p.orig).toLowerCase()}`,
             a.ktc?.toLocaleString() ?? null].filter(Boolean).join(" · "),
         });
       }
@@ -481,19 +488,45 @@ function Build() {
       out.set(t.roster_id, [...players, ...picks]);
     }
     return out;
-  }, [teams, assets, owned]);
+  }, [teams, assets, owned, tiers]);
+
+  /* ---- THE OPEN POOL: team-agnostic, the classic machine's shape ---------
+     (Max, 2026-09-02, restoring decision #13's letter.) A side with NO
+     franchise named draws from every priced player and every generic pick —
+     "is this fair" asked about a package, not about two rosters. Naming a
+     franchise is an OPTIONAL narrowing: then that side's basket is limited to
+     what the other franchise actually holds, which is the acceptance test the
+     roster-bound version was built for. Holding ids are the asset keys, so an
+     open-pool basket survives a later naming only where the named roster holds
+     the same asset; the rest drop and are counted, as ever. */
+  const pool = useMemo<Holding[] | null>(() => {
+    if (!assets) return null;
+    const rows: Holding[] = assets.map(a => ({
+      id: a.key, asset: a, label: a.label,
+      sub: (a.kind === "player"
+        ? [a.nfl || null, a.pos, a.ktc?.toLocaleString() ?? null]
+        : ["Pick", a.ktc?.toLocaleString() ?? null]).filter(Boolean).join(" · "),
+    }));
+    // players by price, then picks by their own label order (year, tier, round)
+    rows.sort((x, y) => (x.asset.kind === y.asset.kind
+      ? (x.asset.kind === "player" ? (y.asset.ktc ?? -1) - (x.asset.ktc ?? -1)
+        : x.label.localeCompare(y.label))
+      : (x.asset.kind === "player" ? -1 : 1)));
+    return rows;
+  }, [assets]);
 
   /**
-   * A basket's stored ids, resolved against the roster they were drawn from.
+   * A basket's stored ids, resolved against the source they were drawn from:
+   * the OTHER franchise's holdings when one is named (it is who gives them
+   * up), the open pool when not.
    *
-   * The panel names who RECEIVES; the holdings come off the OTHER franchise,
-   * because that is who is giving them up. An id that no longer resolves —
-   * the player has since been traded, or the franchise on the other side was
-   * changed — is dropped and COUNTED, so the panel can say so rather than
-   * quietly shrinking under a total the reader has already read.
+   * An id that no longer resolves — the player has since been traded, or the
+   * franchise on the other side was changed — is dropped and COUNTED, so the
+   * panel can say so rather than quietly shrinking under a total the reader
+   * has already read.
    */
   const resolve = useCallback((from: number | null, ids: string[]) => {
-    const src = from == null ? [] : holdings?.get(from) ?? [];
+    const src = from == null ? pool ?? [] : holdings?.get(from) ?? [];
     const byId = new Map(src.map(h => [h.id, h]));
     const rows: Holding[] = [];
     let lost = 0;
@@ -502,7 +535,7 @@ function Build() {
       if (h) rows.push(h); else lost++;
     }
     return { rows, lost };
-  }, [holdings]);
+  }, [holdings, pool]);
 
   const offer = st.offers.find(o => o.id === st.active) ?? st.offers[0];
   const viewA = resolve(st.b, offer.a);      // what A gets comes off B's roster
@@ -518,11 +551,12 @@ function Build() {
     ? { ...o, a: o.a.filter(x => x !== id) }
     : { ...o, b: o.b.filter(x => x !== id) });
 
-  /** Naming a franchise EMPTIES the baskets it supplies, across every offer,
-   *  because the franchises are shared. Panel B lists what B receives, which
-   *  comes off A's roster, so replacing A invalidates it. Dropped rather than
-   *  silently re-pointed at a roster that never held those players. */
-  const chooseTeam = (side: Side, rid: number) => set(p => {
+  /** Naming a franchise — or un-naming it back to the open pool — EMPTIES the
+   *  baskets it supplies, across every offer, because the franchises are
+   *  shared. Panel B lists what B receives, which comes off A's roster, so
+   *  replacing A invalidates it. Dropped rather than silently re-pointed at a
+   *  source that never held those assets. */
+  const chooseTeam = (side: Side, rid: number | null) => set(p => {
     if (side === "a") {
       if (p.a === rid) return p;
       return { ...p, a: rid, offers: p.offers.map(o => ({ ...o, b: [] })) };
@@ -566,6 +600,8 @@ function Build() {
 
   const nameA = teams?.find(t => t.roster_id === st.a)?.team ?? null;
   const nameB = teams?.find(t => t.roster_id === st.b)?.team ?? null;
+  /** the panel's name when no franchise is: the old machine's bare sides */
+  const sideA = nameA ?? "Side A", sideB = nameB ?? "Side B";
   /** a total containing an estimated index IS an estimate, and says so with the
    *  same mark the asset carries */
   const apA = led.a.estimated ? "≈ " : "", apB = led.b.estimated ? "≈ " : "";
@@ -608,11 +644,11 @@ function Build() {
       {showBuilder && (
         <>
           <div className="v3-sides">
-            <Panel gets={nameA} from={nameB} rows={viewA.rows} lost={viewA.lost}
-              priced={led.a.rows} onTeam={() => setChoosing("a")}
+            <Panel gets={sideA} named={!!nameA} from={nameB} rows={viewA.rows}
+              lost={viewA.lost} priced={led.a.rows} onTeam={() => setChoosing("a")}
               onAdd={() => setPicking("a")} onRemove={id => drop("a", id)} />
-            <Panel gets={nameB} from={nameA} rows={viewB.rows} lost={viewB.lost}
-              priced={led.b.rows} onTeam={() => setChoosing("b")}
+            <Panel gets={sideB} named={!!nameB} from={nameA} rows={viewB.rows}
+              lost={viewB.lost} priced={led.b.rows} onTeam={() => setChoosing("b")}
               onAdd={() => setPicking("b")} onRemove={id => drop("b", id)} />
           </div>
 
@@ -681,7 +717,7 @@ function Build() {
             <div className="tnote screen">
               {nameA && nameB
                 ? "Add to either panel. A side can only be given what the other franchise actually holds today — players off its roster, and the picks it owns."
-                : "Name both franchises. Each panel then lists what that side receives, drawn from the other one's current roster — so a package built here is one those two teams could really make."}
+                : "Add any player or pick to either side and the ledger prices the package. Naming a franchise on a side is optional: it limits the other side to what that franchise actually holds today."}
             </div>
           )}
         </>
@@ -689,7 +725,7 @@ function Build() {
 
       {showAll && (
         <Compare offers={st.offers} active={st.active} loaded={showBuilder}
-          nameA={nameA} nameB={nameB} ridA={st.a} ridB={st.b}
+          nameA={sideA} nameB={sideB} ridA={st.a} ridB={st.b}
           indexer={indexer} resolve={resolve} onLoad={loadOffer} />
       )}
 
@@ -704,7 +740,10 @@ function Build() {
       {picking && (
         <AssetSheet
           from={picking === "a" ? nameB : nameA}
-          rows={holdings?.get((picking === "a" ? st.b : st.a) ?? -1) ?? []}
+          rows={(() => {
+            const rid = picking === "a" ? st.b : st.a;
+            return rid == null ? pool ?? [] : holdings?.get(rid) ?? [];
+          })()}
           taken={new Set(picking === "a" ? offer.a : offer.b)}
           onPick={id => add(picking, id)}
           onClose={() => setPicking(null)} />
@@ -722,10 +761,12 @@ function Build() {
  * add button is dead until the OTHER franchise is named, because this panel
  * lists what this side receives and it receives from over there.
  */
-function Panel({ gets, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
-  /** the franchise this panel is named for — who receives */
-  gets: string | null;
-  /** the franchise the assets come off. Null until it is chosen. */
+function Panel({ gets, named, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
+  /** who receives — the franchise, or "Side A" / "Side B" when none is named */
+  gets: string;
+  /** whether a franchise is named (the header's quiet ink says "still open") */
+  named: boolean;
+  /** the franchise the assets come off, or null for the open pool */
   from: string | null;
   rows: Holding[]; lost: number;
   /** the ledger's priced rows, in the order they went in, so each asset can
@@ -736,8 +777,8 @@ function Panel({ gets, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
   return (
     <div className="v3-side">
       <button type="button" className="trx-sidehd" aria-haspopup="dialog" onClick={onTeam}>
-        <span className={`k${gets ? "" : " none"}`}>
-          {gets ? `${gets} gets` : "Choose franchise"}<span className="caret"> ▾</span>
+        <span className={`k${named ? "" : " none"}`}>
+          {gets} gets<span className="caret"> ▾</span>
         </span>
         <span className="n">{rows.length || ""}</span>
       </button>
@@ -755,11 +796,7 @@ function Panel({ gets, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
             onClick={() => onRemove(h.id)}>×</button>
         </div>
       ))}
-      {!rows.length && (
-        <div className="empty2">
-          {from ? "Nothing yet." : "Name the other franchise first."}
-        </div>
-      )}
+      {!rows.length && <div className="empty2">Nothing yet.</div>}
       {lost > 0 && (
         /* Said out loud rather than absorbed. A saved basket outlives a nightly
            refresh, and a package that quietly shrank is a package the reader is
@@ -768,7 +805,9 @@ function Panel({ gets, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
           {lost} saved asset{lost === 1 ? "" : "s"} dropped — no longer on that roster.
         </div>
       )}
-      <button className="addbtn" type="button" disabled={!from} onClick={onAdd}>+ Add</button>
+      <button className="addbtn" type="button" onClick={onAdd}>
+        {from ? `+ Add from ${from}` : "+ Add"}
+      </button>
     </div>
   );
 }
@@ -777,11 +816,18 @@ function Panel({ gets, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
 
 function TeamSheet({ teams, side, current, other, onPick, onClose }: {
   teams: Team[]; side: Side; current: number | null; other: number | null;
-  onPick: (rid: number) => void; onClose: () => void;
+  onPick: (rid: number | null) => void; onClose: () => void;
 }) {
   return (
     <Sheet label={`Franchise for side ${side.toUpperCase()}`} title="Franchises"
       onClose={onClose}>
+      {/* THE OPEN POOL is a real choice, not the absence of one, so it is a
+          row: naming a franchise is optional and has to be reversible from
+          the same sheet that did it. */}
+      <SheetRow on={current == null} mark={current == null ? "Here" : undefined}
+        name={`Side ${side.toUpperCase()} — no franchise`}
+        meta="the other side may be given any player or pick"
+        onClick={() => onPick(null)} />
       {teams.slice().sort((a, b) => a.team.localeCompare(b.team)).map(t => {
         const on = t.roster_id === current;
         return (
@@ -816,13 +862,17 @@ function AssetSheet({ from, rows, taken, onPick, onClose }: {
     return needle ? pool.filter(h => h.label.toLowerCase().includes(needle)) : pool;
   }, [rows, taken, q]);
   return (
-    <Sheet label={`Add from ${from ?? "the other franchise"}`}
-      title={`From ${from ?? "—"}`} onClose={onClose}>
+    <Sheet label={`Add from ${from ?? "any roster"}`}
+      title={from ? `From ${from}` : "Any player or pick"} onClose={onClose}>
       <div className="trx-psearch">
         <input type="search" autoFocus value={q} placeholder="Player or pick"
-          aria-label="Search this roster" onChange={e => setQ(e.target.value)} />
+          aria-label={from ? "Search this roster" : "Search every player and pick"}
+          onChange={e => setQ(e.target.value)} />
       </div>
-      {hits.map(h => (
+      {/* The open pool is ~900 rows; a sheet that renders all of them on every
+          keystroke is a jank generator on a phone. The list is price-ordered,
+          so the first 60 are the ones a search is most often for anyway. */}
+      {hits.slice(0, from ? hits.length : 60).map(h => (
         <button type="button" className="trx-prow" key={h.id}
           onClick={() => { onPick(h.id); setQ(""); }}>
           <PosSpine color={POS_COLOR[h.asset.pos]} />
@@ -832,9 +882,13 @@ function AssetSheet({ from, rows, taken, onPick, onClose }: {
       ))}
       {!hits.length && (
         <div className="trx-pempty">
-          {q ? <>Nothing on this roster matches “{q}”.</>
-            : "Everything this franchise holds is already in the offer."}
+          {q ? <>Nothing {from ? "on this roster" : "in the pool"} matches “{q}”.</>
+            : from ? "Everything this franchise holds is already in the offer."
+              : "Nothing left to add."}
         </div>
+      )}
+      {!from && hits.length > 60 && (
+        <div className="trx-pempty">Top 60 by price shown — search for the rest.</div>
       )}
     </Sheet>
   );
@@ -855,7 +909,7 @@ function Compare({ offers, active, loaded, nameA, nameB, ridA, ridB, indexer, re
   offers: Offer[]; active: number;
   /** whether the builder is also on screen — desktop shows both */
   loaded: boolean;
-  nameA: string | null; nameB: string | null;
+  nameA: string; nameB: string;
   ridA: number | null; ridB: number | null;
   indexer: PickIndexer | null;
   resolve: (from: number | null, ids: string[]) => { rows: Holding[]; lost: number };
@@ -898,12 +952,12 @@ function Compare({ offers, active, loaded, nameA, nameB, ridA, ridB, indexer, re
 }
 
 function Column({ name, rows, led, war }: {
-  name: string | null; rows: Holding[]; led: SideLedger; war: number;
+  name: string; rows: Holding[]; led: SideLedger; war: number;
 }) {
   const ap = led.estimated ? "≈ " : "";
   return (
     <div className="trx-cmpside">
-      <div className="who">{name ? `${name} gets` : "Side unnamed"}</div>
+      <div className="who">{name} gets</div>
       <div className={`its${rows.length ? "" : " none"}`}>
         {rows.length ? rows.map(h => h.label).join(" · ") : "empty"}
       </div>
@@ -928,16 +982,22 @@ function Column({ name, rows, led, war }: {
    ======================================================================== */
 
 /**
- * Every trade of one season, newest first, with no sort control anywhere.
+ * Every trade the league has made, newest first, with no sort control anywhere.
  *
  * TWO FILTERS AND NO SORT (this is `views/Ledger.tsx`, absorbed). A ledger is a
  * chronology: a column that reorders it by size stops it being one, and "the
  * biggest trade of 2024" is a question the Value column already answers by eye.
- * Season comes from the scope control above; team is a sheet, because twelve
- * franchises is a list to pick from and not something to cycle through.
+ * Season and team are both sheets in the band (Max, 2026-09-02: History is
+ * ALL history, and a year is a filter on it) — a list to pick from, not
+ * something to cycle through. The season filter rides the URL's `season`
+ * param so a filtered ledger is a link; the team filter is local.
  */
-function History({ trades, season, open, setOpen }: {
-  trades: TradeT[]; season: string;
+function History({ trades, season, seasons, setSeason, open, setOpen }: {
+  trades: TradeT[];
+  /** a season id, or ALL_SEASONS */
+  season: string;
+  seasons: ScopeSeason[];
+  setSeason: (id: string) => void;
   open: string | null; setOpen: (k: string | null) => void;
 }) {
   const { meta, league } = useLeague();
@@ -945,8 +1005,32 @@ function History({ trades, season, open, setOpen }: {
   // the current market, for the drawer's change-since read
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
-  const [team, setTeam] = useState<number | null>(null);
-  const [filtering, setFiltering] = useState(false);
+  /** franchises in force — empty is every team. MULTI-SELECT like the season
+   *  filter: a trade shows if ANY picked franchise was a side of it. */
+  const [teamsOn, setTeamsOn] = useState<Set<number>>(() => new Set());
+  const toggleTeam = (rid: number) => setTeamsOn(prev => {
+    const next = new Set(prev);
+    if (next.has(rid)) next.delete(rid); else next.add(rid);
+    return next;
+  });
+  const [filtering, setFiltering] = useState<"team" | "season" | null>(null);
+  /** the seasons in force — empty is every season. MULTI-SELECT (Max,
+   *  2026-09-02): a set, joined into the URL's `season` param. */
+  const picked = useMemo(() => seasonSet(season), [season]);
+  const allSeasons = picked.size === 0;
+  const seasonLabel = allSeasons ? "All seasons"
+    : picked.size <= 3 ? [...picked].join(" · ") : `${picked.size} seasons`;
+  const toggleSeason = (id: string) => {
+    const next = new Set(picked);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    // keep the list's order (newest first) rather than tap order
+    setSeason(next.size ? seasons.map(s => s.id).filter(x => next.has(x)).join(",") : ALL_SEASONS);
+  };
+
+  /** the card a `?load=` link named, scrolled to once it renders */
+  const scrollTo = useCallback((el: HTMLElement | null) => {
+    el?.scrollIntoView({ block: "center" });
+  }, []);
 
   /** WHETHER ANY FOOTBALL HAS BEEN PLAYED SINCE. A trade made in the roster
    *  season has no realized WAR yet, and 0.000 in that column would read as
@@ -954,123 +1038,135 @@ function History({ trades, season, open, setOpen }: {
   const latest = latestSeasonOf(meta);
 
   const rows = useMemo(() => trades
-    .filter(t => t.season === season && t.sides.length >= 2)
+    .filter(t => (allSeasons || picked.has(t.season)) && t.sides.length >= 2)
     .slice()
-    .sort((a, b) => b.ts - a.ts), [trades, season]);
+    .sort((a, b) => b.ts - a.ts), [trades, picked, allSeasons]);
+  const allTeams = teamsOn.size === 0;
   const shown = useMemo(
-    () => (team == null ? rows : rows.filter(t => t.sides.some(s => s.rid === team))),
-    [rows, team]);
-  const teamName = team == null ? null
-    : teams?.find(t => t.roster_id === team)?.team ?? `Team ${team}`;
+    () => (allTeams ? rows : rows.filter(t => t.sides.some(s => teamsOn.has(s.rid)))),
+    [rows, teamsOn, allTeams]);
+  const nameOf = (rid: number) => teams?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
+  const teamName = allTeams ? null
+    : teamsOn.size <= 2 ? [...teamsOn].map(nameOf).join(" · ") : `${teamsOn.size} teams`;
 
   return (
     <div className="trx-hist">
       <Band
-        label={team == null
-          ? `${season} · ${rows.length} trade${rows.length === 1 ? "" : "s"}`
-          : `${shown.length} of ${rows.length} · ${season}`}
+        label={allTeams
+          ? `${rows.length} trade${rows.length === 1 ? "" : "s"}`
+          : `${shown.length} of ${rows.length}`}
         right={
-          <button type="button" className={`trx-fil${team == null ? "" : " on"}`}
-            aria-haspopup="dialog" onClick={() => setFiltering(true)}>
-            {teamName ?? "All teams"}<span className="caret">▾</span>
-          </button>
+          /* TWO FILTERS, SEASON THEN TEAM, and no sort: a ledger is a
+             chronology. Season lives in the URL (the scope's `season` param)
+             so a filtered ledger is a shareable link; team is local. */
+          <span className="trx-fils">
+            <button type="button" className={`trx-fil${allSeasons ? "" : " on"}`}
+              aria-haspopup="dialog" onClick={() => setFiltering("season")}>
+              {seasonLabel}<span className="caret">▾</span>
+            </button>
+            <button type="button" className={`trx-fil${allTeams ? "" : " on"}`}
+              aria-haspopup="dialog" onClick={() => setFiltering("team")}>
+              {teamName ?? "All teams"}<span className="caret">▾</span>
+            </button>
+          </span>
         } />
-      {/* Percentage widths on every header cell, and `table-layout: fixed` in
-          trade.css so they are authoritative: two stacked identity columns both
-          asking for the remainder is a fight the auto algorithm settles
-          differently in every browser. The budget is set by the widest FIGURE
-          each numeric column has to hold on a 375px screen — the largest
-          at-trade KTC on the ledger is five digits, and the figure face is now
-          monospaced. */}
-      <table className="v3tbl">
-        <thead>
-          <tr>
-            <th className="t" style={{ width: "15%" }}>When</th>
-            <th className="t" style={{ width: "22%" }}>Team gets</th>
-            <th className="t" style={{ width: "22%" }}>Team gets</th>
-            <th className="n" style={{ width: "19%" }}>Value</th>
-            <th className="n" style={{ width: "22%" }}>WAR edge</th>
-          </tr>
-        </thead>
-        <tbody>
-          {shown.map((t, i) => {
-            const k = snapKey(t);
-            const at = atTrade(t);
-            const sides = ordered(t);
-            const edge = warEdge(sides, Number(t.season) <= Number(latest));
-            const on = open === k;
-            return (
-              <Fragment key={k}>
-                <TapRow className={i % 2 ? "zebra" : ""}
-                  onTap={() => setOpen(on ? null : k)}>
-                  <td className="t trx-when">
-                    <div className="d">{whenShort(t.ts)}</div>
-                    <div className="w">
-                      wk {t.week}{sides.length > 2 && " · 3-team"}
-                      <span className="cv"> {on ? "▴" : "▾"}</span>
-                    </div>
-                  </td>
-                  {/* Both sides named, with what each one received under the
-                      name. The stacked identity cell the whole shell uses, so a
-                      franchise reads the same here as in the standings. */}
-                  <IdCell name={sides[0].team}
-                    sub={sides[0].got.map(a => a.label).join(" · ")} />
-                  <IdCell name={sides[1].team}
-                    sub={sides[1].got.map(a => a.label).join(" · ")} />
-                  {/* THE VALUE COLUMN AND THE DRAWER READ ONE RECORD. `at.value`
-                      is the largest at-trade KTC any side carried and
-                      `at.side(rid)` is where it came from — one call, two
-                      readers, so the column and the detail cannot disagree. */}
-                  <td className="n">
-                    {at.value == null ? NUL : <span className="f">{at.value.toLocaleString()}</span>}
-                  </td>
-                  {/* THE MARGIN NAMES ITS OWNER, on the line under it. A signed
-                      WAR figure with nobody's name on it is the one thing this
-                      column must never be. */}
-                  <td className="n">
-                    {edge.v == null
-                      ? NUL
-                      : <span className="f">{edge.v === 0 ? fmtWar(0) : `+${fmtWar(edge.v)}`}</span>}
-                    <div className="trx-owner">{edge.owner ?? edge.note}</div>
-                  </td>
-                </TapRow>
-                {on && <Drawer t={t} at={at} vals={vals} />}
-              </Fragment>
-            );
-          })}
-          {!shown.length && (
-            <tr><td colSpan={5} className="t">
-              <div className="empty">
-                {team == null
-                  ? "No trades this season."
-                  : `No ${season} trades involving ${teamName}.`}
+      {/* THE LEDGER IS A FEED OF CARDS, NOT A TABLE (Max, 2026-09-02). Every
+          trade is open: one card, one column per side, each column carrying
+          what the franchise got, its KTC then → now, and its realized WAR.
+          The row-and-drawer version put the whole point of the ledger — how
+          each side has done since — behind a tap, and a five-column phone row
+          truncated every franchise name to reach it. What the row carried that
+          the card does not is the largest-side at-trade KTC, which the columns
+          now state per side, and the WAR edge, which moves to the card's
+          header line where it can name its owner in full. */}
+      <div className="trx-feed">
+        {shown.map(t => {
+          const k = snapKey(t);
+          const at = atTrade(t);
+          const sides = ordered(t);
+          const edge = warEdge(sides, Number(t.season) <= Number(latest));
+          return (
+            <article className={`trx-card${open === k ? " on" : ""}`} key={k}
+              ref={open === k ? scrollTo : undefined}>
+              <div className="trx-cardhd">
+                <span className="when">
+                  {whenShort(t.ts)}
+                  <b> · {t.season} · wk {t.week}{sides.length > 2 ? " · 3-team" : ""}</b>
+                </span>
+                {/* THE MARGIN NAMES ITS OWNER, on the same line. A signed WAR
+                    figure with nobody's name on it is the one thing this
+                    ledger must never print. A record, not a verdict: neither
+                    the figure nor the name is inked. */}
+                <span className="edge">
+                  <span className="k">WAR edge</span>
+                  {edge.v == null
+                    ? <span className="n">{edge.note}</span>
+                    : <>
+                      <span className="v">{edge.v === 0 ? fmtWar(0) : `+${fmtWar(edge.v)}`}</span>
+                      <span className="n">{edge.owner}</span>
+                    </>}
+                </span>
               </div>
-            </td></tr>
-          )}
-        </tbody>
-      </table>
-
-      <div className="tnote screen">
-        Value is the larger side's KTC on the day of the deal, frozen by the first nightly run
-        that saw the trade and never overwritten; a side holding picks or FAAB carries no market
-        sum, and a trade older than the committed value history reads —. WAR edge counts realized
-        WAR only — what each side's assets produced while starting for the team that acquired them
-        — and names the franchise ahead. Both are records, not verdicts: neither side is inked.
+              <Sides t={t} at={at} vals={vals} nameOf={nameOf} />
+            </article>
+          );
+        })}
+        {!shown.length && (
+          <div className="empty">
+            {allTeams
+              ? (allSeasons ? "No trades on record." : "No trades in those seasons.")
+              : `No ${allSeasons ? "" : `${seasonLabel} `}trades involving ${teamName}.`}
+          </div>
+        )}
       </div>
 
-      {filtering && teams && (
-        <Sheet label="Filter by franchise" title="Franchises" onClose={() => setFiltering(false)}>
-          <SheetRow on={team == null} mark={team == null ? "Here" : undefined}
+      <div className="tnote screen">
+        KTC since trade is each side's market on the day of the deal — frozen by the first nightly
+        run that saw it — against today's. A pick prices at its tier: then, where it looked like
+        landing on the day (the original owner's standing at the time, or the slot if already
+        drafted); now, where it lands today. A side holding FAAB carries no market sum, and a trade
+        older than the committed value history reads —. Realized WAR is
+        what each side's assets produced while starting for the team that acquired them; WAR edge
+        is the gap and names the franchise ahead. All of it is a record, not a verdict: no side is
+        inked.
+      </div>
+
+      {filtering === "season" && (
+        /* MULTI-SELECT: rows toggle and the sheet stays open, so two or three
+           seasons can be ticked in one visit; Close (or the scrim, or Escape)
+           is the way out. "All seasons" clears the set and closes, because
+           there is nothing left to pick after it. */
+        <Sheet label="Filter by season" title="Seasons · pick any" onClose={() => setFiltering(null)}>
+          <SheetRow on={allSeasons} mark={allSeasons ? "On" : undefined}
+            name="All seasons"
+            meta={`${trades.filter(t => t.sides.length >= 2).length} trades on record`}
+            onClick={() => { setSeason(ALL_SEASONS); setFiltering(null); }} />
+          {seasons.map(sn => {
+            const on = picked.has(sn.id);
+            return (
+              <SheetRow key={sn.id} on={on} mark={on ? "On" : undefined}
+                name={sn.id} meta={sn.note}
+                onClick={() => toggleSeason(sn.id)} />
+            );
+          })}
+        </Sheet>
+      )}
+      {filtering === "team" && teams && (
+        /* MULTI-SELECT, same grammar as the season sheet: rows toggle, the
+           sheet stays open, "All teams" clears and closes. A trade shows if
+           any ticked franchise was a side of it. */
+        <Sheet label="Filter by franchise" title="Franchises · pick any" onClose={() => setFiltering(null)}>
+          <SheetRow on={allTeams} mark={allTeams ? "On" : undefined}
             name="All teams"
-            meta={`${rows.length} trade${rows.length === 1 ? "" : "s"} in ${season}`}
-            onClick={() => { setTeam(null); setFiltering(false); }} />
+            meta={`${rows.length} trade${rows.length === 1 ? "" : "s"}${allSeasons ? "" : ` in ${seasonLabel}`}`}
+            onClick={() => { setTeamsOn(new Set()); setFiltering(null); }} />
           {teams.slice().sort((a, b) => a.team.localeCompare(b.team)).map(t => {
             const n = rows.filter(x => x.sides.some(s => s.rid === t.roster_id)).length;
-            const on = team === t.roster_id;
+            const on = teamsOn.has(t.roster_id);
             return (
-              <SheetRow key={t.roster_id} on={on} mark={on ? "Here" : undefined}
+              <SheetRow key={t.roster_id} on={on} mark={on ? "On" : undefined}
                 name={t.team} meta={`${n} trade${n === 1 ? "" : "s"} · ${t.manager}`}
-                onClick={() => { setTeam(t.roster_id); setFiltering(false); }} />
+                onClick={() => toggleTeam(t.roster_id)} />
             );
           })}
         </Sheet>
@@ -1079,24 +1175,24 @@ function History({ trades, season, open, setOpen }: {
   );
 }
 
-/* ---- the row drawer ------------------------------------------------------ */
+/* ---- a trade's sides ------------------------------------------------------ */
 
 /**
- * Below the row, inside the same table flow — never a modal, never a popover
- * (SKILL §5). One column per side, each naming its franchise and carrying
- * k / value / delta lines.
+ * One column per side, each naming its franchise and carrying what it got,
+ * then k / value / delta lines. This was the row drawer; it is the whole card
+ * now.
  *
- * THE AT-TRADE KTC HERE IS THE FIGURE THE VALUE COLUMN USED. Both come off the
- * `AtTrade` record the row already built; the drawer is handed it rather than
- * deriving its own.
+ * THE AT-TRADE KTC HERE IS THE FIGURE THE SNAPSHOT FROZE. It comes off the
+ * `AtTrade` record the card built; this is handed it rather than deriving its
+ * own.
  */
-function Drawer({ t, at, vals }: { t: TradeT; at: AtTrade; vals: Values | null }) {
+function Sides({ t, at, vals, nameOf }: {
+  t: TradeT; at: AtTrade; vals: Values | null;
+  /** a franchise's current name, for "whose pick" */
+  nameOf: (rid: number) => string;
+}) {
   const betaPath = useBetaPath();
   return (
-    <tr className="trx-dr">
-      <td colSpan={5}>
-        {/* the same side order the row above uses, so a column in here is the
-            column it opened from */}
         <div className="trx-drin">
           {ordered(t).map(s => {
             const then = at.side(s.rid).mkt;
@@ -1108,12 +1204,32 @@ function Drawer({ t, at, vals }: { t: TradeT; at: AtTrade; vals: Values | null }
                 <div className="trx-drgot">
                   {s.got.map((a, i) => {
                     const [head, tail] = a.label.split(" → ");
+                    // AN UNDRAFTED PICK SAYS WHOSE IT IS AND WHERE IT PROJECTS
+                    // (Max, 2026-09-02): "2027 1st · Point Drake's · proj. mid"
+                    // rather than the writer's "(not yet drafted)", which said
+                    // only what the reader could already see. The writer's
+                    // suffix is dropped here; an "(unused)" slot keeps its word,
+                    // since that is a fact about the draft, not the pick.
+                    const undrafted = a.kind === "pick" && !a.pid && / \(not yet drafted\)$/.test(head);
+                    const name = undrafted ? head.replace(/ \(not yet drafted\)$/, "") : head;
+                    const whose = undrafted && a.orig != null ? `${nameOf(a.orig)}’s` : null;
+                    // THE TIER, THEN AND NOW. A pick prices where it looked
+                    // like landing on the day of the deal and where it lands
+                    // today; when those differ the line says so, because
+                    // that drift is part of the KTC delta beneath it.
+                    const tier = a.kind === "pick" && a.tier
+                      ? (a.tierThen && a.tierThen !== a.tier
+                        ? `${a.tierThen.toLowerCase()} → ${a.tier.toLowerCase()}`
+                        : a.tier.toLowerCase())
+                      : null;
                     return (
                       <div className={`it${a.kind !== "player" ? " pick" : ""}`} key={i}>
-                        {a.kind !== "player" && tail ? `${head} → ` : null}
+                        {a.kind !== "player" && tail ? `${name} → ` : null}
                         {a.pid
-                          ? <a href={`#${betaPath(`/player/${a.pid}`)}`}>{tail ?? head}</a>
-                          : (tail ?? head)}
+                          ? <a href={`#${betaPath(`/player/${a.pid}`)}`}>{tail ?? name}</a>
+                          : (tail ?? name)}
+                        {whose && <span className="whose"> · {whose}</span>}
+                        {tier && <span className="tier"> · {undrafted ? "proj. " : ""}{tier}</span>}
                       </div>
                     );
                   })}
@@ -1135,14 +1251,18 @@ function Drawer({ t, at, vals }: { t: TradeT; at: AtTrade; vals: Values | null }
                 <div className="trx-drrow">
                   <span className="k">Realized WAR</span>
                   <span className="v">{real == null ? NUL : fmtWar(real)}</span>
-                  <span className="d">{sgnWar(s.future ?? 0)} to come</span>
+                </div>
+                {/* its own line, its own label: "+1.85 to come" tacked onto the
+                    realized figure read as a delta of it, which it is not — it
+                    is the side's remaining projected stream (Max, 2026-09-02) */}
+                <div className="trx-drrow">
+                  <span className="k">Proj WAR</span>
+                  <span className="v">{s.future == null ? NUL : sgnWar(s.future)}</span>
                 </div>
               </div>
             );
           })}
         </div>
-      </td>
-    </tr>
   );
 }
 
@@ -1154,13 +1274,14 @@ function Drawer({ t, at, vals }: { t: TradeT; at: AtTrade; vals: Values | null }
  * delta between two different measurements is not a delta.
  *
  *  - PICKS ARE PRICED (settled with Max, 2026-08-21: a pick IS a market asset
- *    until draft night). The writer keys them `"<ps> Mid <ord>"` off
- *    `values.json`'s pick ladder, and has done since that date — which is what
- *    this end had never caught up with. It declined any side holding a pick, so
- *    a pick-holding basket rendered "12,345 → —" with no delta, permanently, on
- *    the majority of this league's recent deals. A CONVERTED pick keeps the
- *    pick key too, even though it carries the drafted player's id: the writer
- *    branches on `kind == "pick"`, not on whether a pid is present.
+ *    until draft night), AT THEIR TIER (Max, 2026-09-02). The writer keys
+ *    them `"<ps> <tier> <ord>"` off `values.json`'s pick ladder, where the
+ *    tier is a drafted pick's actual slot or an undrafted one's projected
+ *    slot off its original owner's projected finish; the asset carries it as
+ *    `tier`, and rows written before that date carry none and read Mid. A
+ *    CONVERTED pick keeps the pick key too, even though it carries the
+ *    drafted player's id: the writer branches on `kind == "pick"`, not on
+ *    whether a pid is present.
  *  - FAAB IS SKIPPED, not declined — same as the writer's `continue`.
  *  - THE BASE KTC LADDER, not `lib/values.ktcOf`. This is the one deliberate
  *    exception to the site-wide TE-premium rule. The writer's `price_now` reads
@@ -1179,8 +1300,9 @@ function marketNow(s: TradeSide, vals: Values | null): number | null {
     if (a.kind === "faab") continue;
     let v: number | undefined;
     if (a.kind === "pick" && a.ps != null && a.rnd != null) {
-      // the writer's `pick_key`, glyph for glyph
-      v = pickKtc.get(`${a.ps} Mid ${ROUND_ORD[a.rnd - 1] ?? `${a.rnd}th`}`);
+      // the writer's `pick_key`, glyph for glyph: the pick AT ITS TIER, the
+      // same tier the frozen "then" priced it at, so the delta is a delta
+      v = pickKtc.get(`${a.ps} ${a.tier ?? "Mid"} ${ROUND_ORD[a.rnd - 1] ?? `${a.rnd}th`}`);
     } else if (a.pid) {
       v = vals.players[a.pid]?.ktc;
     }

@@ -291,21 +291,23 @@ def main():
     # player. Both are carried forward into values.json (the site should still
     # show a price) and neither is written into the history. See update_history.
     update_history(hist, vals, seen_today, today, cutoffs)
-    # canonical PICK history rows, keyed "pick:<season> Mid <round>" — the mid
-    # tier is what a slotless pick in a trade is worth, and what the ledger's
-    # pick-at-trade / pick-at-draft snapshots price against. KTC publishes the
-    # tier directly ("2027 Mid 1st"); FC's mid is the "(Mid)" variant when it
-    # exists, else the plain generic ("2027 1st").
+    # canonical PICK history rows, keyed "pick:<season> <Early|Mid|Late> <round>".
+    # Mid is what a slotless pick was worth until 2026-09-02; the ledger now
+    # prices a pick at the tier its original owner's finish puts it in, so
+    # EVERY tier is recorded (Max, 2026-09-02). KTC publishes the tier
+    # directly ("2027 Early 1st"); FC's mid is the "(Mid)" variant when it
+    # exists, else the plain generic ("2027 1st"), and "(Early)" / "(Late)"
+    # name themselves.
     ktc_mid = {}
     for label, val in picks.get("ktc", []):
-        m = re.match(r"^(20\d\d) Mid (\d\w\w)$", label)
+        m = re.match(r"^(20\d\d) (Early|Mid|Late) (\d\w\w)$", label)
         if m:
-            ktc_mid[f"{m.group(1)} Mid {m.group(2)}"] = val
+            ktc_mid[f"{m.group(1)} {m.group(2)} {m.group(3)}"] = val
     fc_mid = {}
     for label, val in picks.get("fc", []):
-        m = re.match(r"^(20\d\d) (\d\w\w)( \(Mid\))?$", label)
+        m = re.match(r"^(20\d\d) (\d\w\w)( \((Early|Mid|Late)\))?$", label)
         if m:
-            key = f"{m.group(1)} Mid {m.group(2)}"
+            key = f"{m.group(1)} {m.group(4) or 'Mid'} {m.group(2)}"
             if m.group(3) or key not in fc_mid:      # "(Mid)" beats plain
                 fc_mid[key] = val
     for key in sorted(set(ktc_mid) | set(fc_mid)):
