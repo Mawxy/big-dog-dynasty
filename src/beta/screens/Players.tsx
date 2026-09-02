@@ -523,13 +523,14 @@ export default function Players() {
                       by whatever you last sorted by" is not a threshold, and
                       this screen spends its accent on the sort. */}
                   <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                  {/* NO LINK ON THE NAME. Everywhere else on the beta shell a
-                      row navigates and the name is the same destination; here
-                      the row opens a drawer, and the drawer's button is the one
-                      control that leaves the screen. A linked name would be a
-                      second exit sitting under the thumb that was reaching for
-                      the row. */}
-                  <IdCell name={r.name}
+                  {/* THE NAME IS THE LINK, THE ROW IS THE DRAWER (Max,
+                      2026-09-02) — the classic board's split, restored. The
+                      name goes straight to the player page; anywhere else on
+                      the row opens the drawer in place. IdCell stops the
+                      click at the anchor so a name tap never also toggles the
+                      drawer. The earlier "no second exit under the thumb"
+                      rule lost to a reader who knows which he wants. */}
+                  <IdCell name={r.name} to={betaPath(`/player/${r.pid}`)}
                     sub={[r.affil, `${r.pos}${ordered!.posRank.get(r.pid)}`]
                       .filter(Boolean).join(" · ")} />
                   {mobile ? (
