@@ -4,6 +4,19 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLeaguePath } from "../lib/context";
+import { fmt, sgn } from "../lib/stats";
+
+/* ---- WAR figures, at this shell's precision ------------------------------
+   TWO DECIMALS, not the classic board's three (Max, 2026-09-02): "1.35", not
+   "1.346". On a phone the third digit is noise a mono column has to pay width
+   for, and nobody in the league reads WAR to a thousandth. The classic board
+   keeps WAR_DP = 3, so these are the beta shell's own and every beta screen
+   imports them from here rather than from lib/stats. */
+export const WAR_DP_BETA = 2;
+/** a WAR figure, unsigned, at two places */
+export const fmtWar = (v: number) => fmt(v, WAR_DP_BETA);
+/** a WAR figure, signed with a true minus glyph, at two places */
+export const sgnWar = (v: number) => sgn(v, WAR_DP_BETA);
 
 /**
  * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/beta/team`.
@@ -156,13 +169,44 @@ export function PosSpine({ color }: { color?: string }) {
 }
 
 /**
+ * THE PORTRAIT SLOT in an identity cell (Max, 2026-09-02): Sleeper's public
+ * headshot for the player id the site already runs on, in a 34px square that
+ * fits the 44px row. No API call and no pipeline change.
+ *
+ * The slot is RESERVED whether or not Sleeper has a photo — `pid` null, or a
+ * 404 for a rookie before camp — because this sits in a column: a name that
+ * indents 42px only when its owner has a headshot is a ragged left edge the
+ * eye trips on all the way down. A missing face is a plain --band square,
+ * not a silhouette, since a silhouette is a claim about what he looks like.
+ *
+ * Callers decide whether the slot exists at all: a table of franchises has no
+ * portraits and passes nothing; a roster table passes every player row's pid
+ * and null for an empty seat, so the seats stay aligned with the bodies.
+ */
+export function Thumb({ pid }: { pid: string | null }) {
+  const [dead, setDead] = useState(false);
+  useEffect(() => { setDead(false); }, [pid]);
+  return (
+    <span className="idc-th" aria-hidden="true">
+      {pid && !dead && (
+        <img src={`https://sleepercdn.com/content/nfl/players/thumb/${pid}.jpg`}
+          alt="" loading="lazy" decoding="async" onError={() => setDead(true)} />
+      )}
+    </span>
+  );
+}
+
+/**
  * The stacked identity cell — line 1 the name, line 2 `TEAM · POS-rank · tags`.
  *
  * Always two lines, even when the sub-line is thin, so a column of these has
  * one height and the eye tracks straight down the names.
  */
-export function IdCell({ name, sub, tags, to }: {
+export function IdCell({ name, sub, tags, to, thumb }: {
   name: ReactNode; sub?: ReactNode;
+  /** the portrait slot — see `Thumb`. Omit for no slot; null for a reserved
+   *  empty one; a Sleeper player id for the photo. */
+  thumb?: string | null;
   /** SLOT TAGS — FLX, SFLX, TAXI, IR — on the sub-line, after `sub`.
    *
    *  Passed structurally rather than joined into `sub` by the caller, because a
@@ -178,8 +222,8 @@ export function IdCell({ name, sub, tags, to }: {
   to?: string;
 }) {
   const nav = useNavigate();
-  return (
-    <td className="idc t">
+  const text = (
+    <>
       <div className="idc-n">
         {to
           ? <a href={`#${to}`} onClick={e => {
@@ -190,6 +234,13 @@ export function IdCell({ name, sub, tags, to }: {
           : name}
       </div>
       <div className="idc-s">{subLine(sub, tags)}</div>
+    </>
+  );
+  return (
+    <td className={`idc t${thumb !== undefined ? " has-th" : ""}`}>
+      {thumb !== undefined
+        ? <div className="idc-row"><Thumb pid={thumb} /><div className="idc-txt">{text}</div></div>
+        : text}
     </td>
   );
 }
@@ -234,13 +285,22 @@ function subLine(sub: ReactNode, tags?: IdTag[]): ReactNode {
  *
  * This renders the identical `.idc-n` / `.idc-s` pair the table cell does.
  */
-export function IdLines({ name, sub, tags }: {
+export function IdLines({ name, sub, tags, thumb }: {
   name: ReactNode; sub?: ReactNode; tags?: IdTag[];
+  /** the portrait slot, as on IdCell */
+  thumb?: string | null;
 }) {
-  return (
-    <span className="v3id">
+  const text = (
+    <>
       <span className="idc-n">{name}</span>
       <span className="idc-s">{subLine(sub, tags)}</span>
+    </>
+  );
+  return (
+    <span className={`v3id${thumb !== undefined ? " has-th" : ""}`}>
+      {thumb !== undefined
+        ? <span className="idc-row"><Thumb pid={thumb} /><span className="idc-txt">{text}</span></span>
+        : text}
     </span>
   );
 }

@@ -5,7 +5,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
-import { fmt, fmtWar, mean, meterWidth, normCdf, normInv, ord, sgn } from "../../lib/stats";
+import { fmt, mean, normCdf, normInv, ord, sgn } from "../../lib/stats";
 import {
   POS_COLOR, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
@@ -14,7 +14,7 @@ import { readTrades, tradeWhen } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
 import { useActivity, useSeasonPhase, useStandings, type ActMove } from "../model";
 import {
-  Band, DataError, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure,
+  Band, DataError, fmtWar, IdCell, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath, type Figure,
 } from "../ui";
 import ScopeControl, { useScope, type ScopeSeason } from "../Scope";
 import "./league.css";
@@ -209,7 +209,6 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   }, [teams, proj, mw, lineup]);
 
   const leader = power?.[0] ?? null;
-  const maxWar = power?.[0]?.war || 1;
 
   /* THE WRITTEN CLAIM belongs to whoever the board actually puts first, which
      is why it is read off `power` rather than off a rank parsed out of the
@@ -379,13 +378,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                 <td className="n">{NUL}</td>
                 <td className="n"><span className="f">{r.rec ?? NUL}</span></td>
                 <td className="n">
-                  {/* THE ONE METERED COLUMN here, and it is the sort column.
-                      Legal because WAR is unbounded; DVI and CVI are clamped
-                      0–100 and a bar would only restate them. */}
-                  <div className="lgx-meter">
-                    <span className="bar"><i style={{ width: meterWidth(r.war, maxWar) }} /></span>
-                    <span className="f">{fmtWar(r.war)}</span>
-                  </div>
+                  {/* NO METER (Max, 2026-09-02): the WAR bar that filled with
+                      the figure read as a dashboard gauge on this board, not a
+                      statistic. The sort column is the headline weight and
+                      the ordinal spine carries the order. */}
+                  <span className="f hd">{fmtWar(r.war)}</span>
                 </td>
               </TapRow>
             ))}
@@ -504,7 +501,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)}
                     className={i % 2 ? "zebra" : ""}>
                     <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                    <IdCell name={r.name}
+                    <IdCell name={r.name} thumb={r.pid}
                       sub={[r.nfl || null, r.pos].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
                     <td className="n"><span className="f">{fmtWar(r.model)}</span></td>
@@ -514,7 +511,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                         Legal here and nowhere near a trade ledger: a gap is a
                         direction of travel, not a verdict about who won. */}
                     <td className="n">
-                      <span className={`f hd ${r.gap > 0 ? "pos" : "neg"}`}>{sgn(r.gap)}</span>
+                      <span className={`f hd ${r.gap > 0 ? "pos" : "neg"}`}>{sgnWar(r.gap)}</span>
                     </td>
                   </TapRow>
                 ))}
@@ -555,7 +552,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
                     className={i % 2 ? "zebra" : ""}>
                     <Spine rank={i + 1} color={r.pos ? POS_COLOR[r.pos] : undefined} />
-                    <IdCell name={r.name}
+                    <IdCell name={r.name} thumb={r.pid}
                       sub={[r.team, r.pos, `${r.n} trades`].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
                     <td className="n"><span className="f q">{r.value.toLocaleString()}</span></td>
@@ -602,7 +599,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
                     className={i % 2 ? "zebra" : ""}>
                     <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                    <IdCell name={r.name}
+                    <IdCell name={r.name} thumb={r.pid}
                       sub={[r.nfl || null, r.pos].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
                     <td className="n"><span className="f">{r.price.toLocaleString()}</span></td>
@@ -795,7 +792,6 @@ function HistoryView({ season }: { season: string }) {
       .slice(0, 10)
       .map(r => ({ pid: r[0], pos: r[1], gp: r[2], war: r[6], team: owner[r[0]] ?? null }));
   }, [sum, teams]);
-  const maxWar = leaders?.[0]?.war || 1;
 
   return (
     <>
@@ -878,17 +874,13 @@ function HistoryView({ season }: { season: string }) {
               <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)}
                 className={i % 2 ? "zebra" : ""}>
                 <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                <IdCell name={pInfo(players, r.pid)[0]}
+                <IdCell name={pInfo(players, r.pid)[0]} thumb={r.pid}
                   sub={[r.team, r.pos].filter(Boolean).join(" · ")}
                   to={betaPath(`/player/${r.pid}`)} />
                 <td className="n"><span className="f q">{r.gp}</span></td>
                 <td className="n">
-                  {/* metered, and the only metered column here: WAR is
-                      unbounded and it is what the table is sorted by */}
-                  <div className="lgx-meter">
-                    <span className="bar"><i style={{ width: meterWidth(r.war, maxWar) }} /></span>
-                    <span className="f">{fmtWar(r.war)}</span>
-                  </div>
+                  {/* no meter — see the power-rankings table */}
+                  <span className="f hd">{fmtWar(r.war)}</span>
                 </td>
               </TapRow>
             ))}

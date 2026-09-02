@@ -6,7 +6,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
-import { fmt, fmtWar, sgn, sgnWar } from "../../lib/stats";
+import { fmt, sgn } from "../../lib/stats";
 import { latestSeasonOf, POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
 import { readTrades } from "../../lib/trades";
@@ -18,8 +18,8 @@ import {
 import { useAssets, type Asset } from "../model";
 import ScopeControl, { useScope, type ScopeSeason } from "../Scope";
 import {
-  Band, DataError, IdCell, IdLines, Ledger, LedgerRow, LEDGER_GUARDRAIL, NUL,
-  PosSpine, Sheet, SheetRow, TapRow, useBetaPath,
+  Band, DataError, fmtWar, IdCell, IdLines, Ledger, LedgerRow, LEDGER_GUARDRAIL, NUL,
+  PosSpine, sgnWar, Sheet, SheetRow, TapRow, useBetaPath,
 } from "../ui";
 import "./trade.css";
 
@@ -749,7 +749,7 @@ function Panel({ gets, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
               projection the way a player's are, and the totals below include
               them. Marking it on the asset it qualifies keeps the ledger's
               caption to the one sentence the design system asks for. */}
-          <IdLines name={h.label} sub={h.sub}
+          <IdLines name={h.label} sub={h.sub} thumb={h.asset.pid}
             tags={priced[i]?.estimated ? ["≈ est"] : undefined} />
           <button className="x" type="button" aria-label={`Remove ${h.label}`}
             onClick={() => onRemove(h.id)}>×</button>
@@ -826,7 +826,7 @@ function AssetSheet({ from, rows, taken, onPick, onClose }: {
         <button type="button" className="trx-prow" key={h.id}
           onClick={() => { onPick(h.id); setQ(""); }}>
           <PosSpine color={POS_COLOR[h.asset.pos]} />
-          <IdLines name={h.label} sub={h.sub} />
+          <IdLines name={h.label} sub={h.sub} thumb={h.asset.pid} />
           <span className="v">{h.asset.ktc == null ? NUL : h.asset.ktc.toLocaleString()}</span>
         </button>
       ))}

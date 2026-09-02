@@ -141,3 +141,14 @@
   .mtx-fig { flex-basis: 36px; font-size: 15px; }
   .mtx-who { flex-basis: 130px; font-size: 12px; }
 }
+
+/* THE ROSTER'S THREE FIGURE COLUMNS, ONE RAMP (Max, 2026-09-02). Index, WAR
+   and market in the same face, size and weight: 13px, a half-step under the
+   shell's 13.5px `.f`, so the widest of the three ("10,000" at five characters
+   plus a separator) still clears its 20% column on a 375px screen. Neutral
+   ink on all three — the `.hd` / `.q` ladder that made market read as a
+   footnote is gone; the column order says which is the headline. */
+.v3tbl.roster td .f:not(.q) { font: 600 13px/1.15 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt); }
+@media (min-width: 900px) {
+  .v3tbl.roster td .f:not(.q) { font-size: 14.5px; }
+}

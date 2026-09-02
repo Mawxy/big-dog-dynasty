@@ -7,13 +7,13 @@ import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useProjWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
-import { fmt, ord, sgnWar } from "../../lib/stats";
+import { fmt, ord } from "../../lib/stats";
 import { POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf } from "../../lib/league";
 import { ktcOf } from "../../lib/values";
 import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
 import { nearestPick, rankMap, useTeamValues } from "../model";
 import {
-  Band, DataError, IdCell, LensStrip, NUL, Spine, Strip, TapRow, useBetaPath,
+  Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath,
   type Figure, type IdTag,
 } from "../ui";
 import { RouteLink } from "../../components/RouteLink";
@@ -548,15 +548,23 @@ function RosterTable({ band, lens, betaPath }: {
                     league rank it would be lying about. */}
                 <Spine color={POS_COLOR[r.pos]} rank={r.seat ?? i + 1} />
                 <IdCell name={r.name} sub={r.sub} tags={r.tags}
-                  to={r.pid ? betaPath(`/player/${r.pid}`) : undefined} />
+                  to={r.pid ? betaPath(`/player/${r.pid}`) : undefined}
+                  thumb={r.pos === "PICK" ? undefined : r.pid} />
+                {/* ONE FIGURE RAMP ACROSS THE THREE COLUMNS (Max, 2026-09-02):
+                    the same face, size and weight for index, WAR and market,
+                    a step under `.f` so the row still fits a phone. The old
+                    `.hd` / plain / `.q` ladder made the market column read as
+                    a footnote to the index; decision #12's "market trails" now
+                    rides the column ORDER and nothing else. Size lives on
+                    `.v3tbl.roster td .f` in team.css. */}
                 <td className="n">
-                  <span className="f hd">{r.idx == null ? NUL : fmt(r.idx, 1)}</span>
+                  <span className="f">{r.idx == null ? NUL : fmt(r.idx, 1)}</span>
                 </td>
                 <td className="n">
                   <span className="f">{r.war == null ? NUL : sgnWar(r.war)}</span>
                 </td>
                 <td className="n">
-                  <span className="f q">{r.market == null ? NUL : r.market.toLocaleString()}</span>
+                  <span className="f">{r.market == null ? NUL : r.market.toLocaleString()}</span>
                   {r.equiv && <div className="idc-s r">≈ {r.equiv}</div>}
                 </td>
               </>

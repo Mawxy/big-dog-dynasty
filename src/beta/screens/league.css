@@ -22,20 +22,11 @@
    place. */
 .v3 .verdict.lgx-verdict { margin: 12px var(--v3pad) 14px; }
 
-/* ---- meter --------------------------------------------------------------
-   A meter sits BESIDE its figure, never behind it, and only on the column the
-   table is sorted by (SKILL §3). Two tables on this screen qualify and no
-   others: power rankings sorted by projected starter WAR, and a season's WAR
-   leaders. Both are WAR, which is unbounded — an index is already normalised
-   0–100 and a bar would restate it, which is why DVI and CVI never get one.
-
-   The fill is --acc-dim, the token that exists for exactly this ("mid-range
-   fill in a scaled bar"). Not --acc: the accent on this screen is spent on the
-   leader, and twelve gold bars would take it back. */
-.lgx-meter { display: flex; align-items: center; justify-content: flex-end; gap: 7px; }
-.lgx-meter .bar { flex: 1 1 auto; min-width: 16px; height: 4px; background: var(--bar-track); }
-.lgx-meter .bar i { display: block; height: 100%; background: var(--acc-dim); }
-.lgx-meter .f { flex: 0 0 auto; }
+/* ---- no meter -----------------------------------------------------------
+   The WAR meter that sat beside the figure on the power rankings and the
+   season leaders is gone (Max, 2026-09-02): on this shell it read as a
+   dashboard gauge filling up, not as a statistic. The sort column carries
+   `.f.hd` and the ordinal spine carries the order. */
 
 /* ---- an in-table group band ---------------------------------------------
    Sell high / buy low, over value / under value, rising / falling: three

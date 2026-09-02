@@ -6,7 +6,7 @@ import type {
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { useCviQuery, useDviQuery, useProjWar1 } from "../../lib/useIndices";
-import { fmt, fmtWar, meterWidth } from "../../lib/stats";
+import { fmt } from "../../lib/stats";
 import { ktcOf } from "../../lib/values";
 import {
   latestSeasonOf, ownerOf, pInfo, POS_CHIPS, POS_COLOR, rosterSeasonOf,
@@ -14,7 +14,7 @@ import {
 import { useMobile } from "../../lib/useWidth";
 import ScopeControl, { useScope } from "../Scope";
 import {
-  Band, DataError, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
+  Band, DataError, fmtWar, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
   useBetaPath, useSort,
 } from "../ui";
 import "./players.css";
@@ -110,8 +110,8 @@ const CUR_STRIP: Key[] = ["dvi", "cvi", "war", "ktc"];
 const HIST_STRIP: Key[] = ["war", "ppg", "pts"];
 
 /** One formatter per key, so a figure carries the same precision in a column,
- *  on the micro line and in the drawer. WAR is 3dp everywhere on the board
- *  (lib/stats WAR_DP); the indices are 0–100 and take one place. */
+ *  on the micro line and in the drawer. WAR is 2dp everywhere on the beta
+ *  board (ui.tsx WAR_DP_BETA); the indices are 0–100 and take one place. */
 const FMT: Record<Key, (v: number) => string> = {
   dvi: v => fmt(v, 1), cvi: v => fmt(v, 1),
   war: fmtWar,
@@ -381,13 +381,6 @@ export default function Players() {
   const grps = hist ? HIST_GRPS : CUR_GRPS;
   const strip = hist ? HIST_STRIP : CUR_STRIP;
 
-  /* The meter's scale is the FULL population's maximum, so a position filter is
-     not its own little league — RB bars keep their length when the RB chip is
-     on. */
-  const warMax = useMemo(
-    () => Math.max(0.01, ...(population ?? []).map(r => r.f.war ?? 0)),
-    [population]);
-
   /* Sort the whole population, assign rank within position off that order, THEN
      filter — so RB4 is still RB4 inside the RB-only view. The ranks live in a
      map rather than on the row objects: a memo that mutates its input is a memo
@@ -536,26 +529,16 @@ export default function Players() {
                       control that leaves the screen. A linked name would be a
                       second exit sitting under the thumb that was reaching for
                       the row. */}
-                  <IdCell name={r.name}
+                  <IdCell name={r.name} thumb={r.pid}
                     sub={[r.affil, `${r.pos}${ordered!.posRank.get(r.pid)}`]
                       .filter(Boolean).join(" · ")} />
                   {mobile ? (
                     <td className="n plx-lead">
-                      {/* THE PICKED KEY IS THE LEAD FIGURE. The meter appears
-                          beside it only when the sort is WAR — the one
-                          unbounded figure on the board. DVI and CVI are already
-                          0–100, so a bar restates them, and a table sorted by
-                          an index has no metered column at all. */}
-                      {s.sort === "war" ? (
-                        <div className="meter-row">
-                          <div className="meter">
-                            <i style={{ width: meterWidth(r.f.war ?? 0, warMax) }} />
-                          </div>
-                          <span className="fig">{figOf("war", r.f.war ?? null)}</span>
-                        </div>
-                      ) : (
-                        <span className="f hd">{figOf(s.sort, r.f[s.sort] ?? null)}</span>
-                      )}
+                      {/* THE PICKED KEY IS THE LEAD FIGURE. No meter beside it
+                          (Max, 2026-09-02): the WAR bar read as a gauge, not a
+                          statistic, and the headline weight already says which
+                          column the board is sorted by. */}
+                      <span className="f hd">{figOf(s.sort, r.f[s.sort] ?? null)}</span>
                       {micro.length > 0 && (
                         <div className="plx-micro">
                           {micro.map(k => (
@@ -569,18 +552,9 @@ export default function Players() {
                     </td>
                   ) : cols.map(c => (
                     <td key={c.id} className={`n${c.edge ? " plx-edge" : ""}`}>
-                      {c.id === "war" && s.sort === "war" ? (
-                        <div className="meter-row">
-                          <div className="meter">
-                            <i style={{ width: meterWidth(r.f.war ?? 0, warMax) }} />
-                          </div>
-                          <span className="fig">{figOf("war", r.f.war ?? null)}</span>
-                        </div>
-                      ) : (
-                        <span className={`f${c.id === s.sort ? " hd" : ""}`}>
-                          {figOf(c.id, r.f[c.id] ?? null)}
-                        </span>
-                      )}
+                      <span className={`f${c.id === s.sort ? " hd" : ""}`}>
+                        {figOf(c.id, r.f[c.id] ?? null)}
+                      </span>
                     </td>
                   ))}
                 </TapRow>
@@ -619,10 +593,8 @@ export default function Players() {
           </>
         ) : (
           <>
-            DVI prices the dynasty horizon and CVI the coming season — both 0–100 and both
-            bare, since a meter would only restate a figure that is already normalised. Proj
-            WAR is the model's three-year composite and is the only metered column, and only
-            while it is the sort. KTC and FantasyCalc are dynasty market prices in their own
+            DVI prices the dynasty horizon and CVI the coming season, both 0–100. Proj WAR
+            is the model's projection for the coming season. KTC and FantasyCalc are dynasty market prices in their own
             currencies; ECR is the FantasyPros redraft consensus, where 1 is best, so a rookie
             sits below his dynasty price by design. None of them are blended. The position
             badge carries rank within position for the active sort. What a player actually did
