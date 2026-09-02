@@ -529,7 +529,7 @@ export default function Players() {
                       control that leaves the screen. A linked name would be a
                       second exit sitting under the thumb that was reaching for
                       the row. */}
-                  <IdCell name={r.name} thumb={r.pid}
+                  <IdCell name={r.name}
                     sub={[r.affil, `${r.pos}${ordered!.posRank.get(r.pid)}`]
                       .filter(Boolean).join(" · ")} />
                   {mobile ? (

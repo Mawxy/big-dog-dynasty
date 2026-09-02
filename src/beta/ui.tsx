@@ -3,8 +3,7 @@ import {
   useState, type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useLeague, useLeaguePath } from "../lib/context";
-import { headshots } from "../lib/league";
+import { useLeaguePath } from "../lib/context";
 import { fmt, sgn } from "../lib/stats";
 
 /* ---- WAR figures, at this shell's precision ------------------------------
@@ -170,50 +169,13 @@ export function PosSpine({ color }: { color?: string }) {
 }
 
 /**
- * THE PORTRAIT SLOT in an identity cell (Max, 2026-09-02): a public headshot
- * for the player id the site already runs on, in a 34px square that fits the
- * 44px row. No API call. `lib/league.headshots` lists the sources best-first
- * — ESPN's transparent PNG via the ESPN id in players_min, then Sleeper's JPG
- * on white — and this walks them on error.
- *
- * The slot is RESERVED whether or not anyone has a photo — `pid` null, or
- * every source 404ing for a rookie before camp — because this sits in a
- * column: a name that indents 42px only when its owner has a headshot is a
- * ragged left edge the eye trips on all the way down. A missing face is a
- * plain --band square, not a silhouette, since a silhouette is a claim about
- * what he looks like.
- *
- * Callers decide whether the slot exists at all: a table of franchises has no
- * portraits and passes nothing; a roster table passes every player row's pid
- * and null for an empty seat, so the seats stay aligned with the bodies.
- */
-export function Thumb({ pid }: { pid: string | null }) {
-  const { players } = useLeague();
-  const [i, setI] = useState(0);
-  useEffect(() => { setI(0); }, [pid]);
-  const srcs = pid ? headshots(players, pid) : [];
-  const src = srcs[i];
-  return (
-    <span className="idc-th" aria-hidden="true">
-      {src && (
-        <img src={src} alt="" loading="lazy" decoding="async"
-          onError={() => setI(n => n + 1)} />
-      )}
-    </span>
-  );
-}
-
-/**
  * The stacked identity cell — line 1 the name, line 2 `TEAM · POS-rank · tags`.
  *
  * Always two lines, even when the sub-line is thin, so a column of these has
  * one height and the eye tracks straight down the names.
  */
-export function IdCell({ name, sub, tags, to, thumb }: {
+export function IdCell({ name, sub, tags, to }: {
   name: ReactNode; sub?: ReactNode;
-  /** the portrait slot — see `Thumb`. Omit for no slot; null for a reserved
-   *  empty one; a Sleeper player id for the photo. */
-  thumb?: string | null;
   /** SLOT TAGS — FLX, SFLX, TAXI, IR — on the sub-line, after `sub`.
    *
    *  Passed structurally rather than joined into `sub` by the caller, because a
@@ -229,8 +191,8 @@ export function IdCell({ name, sub, tags, to, thumb }: {
   to?: string;
 }) {
   const nav = useNavigate();
-  const text = (
-    <>
+  return (
+    <td className="idc t">
       <div className="idc-n">
         {to
           ? <a href={`#${to}`} onClick={e => {
@@ -241,13 +203,6 @@ export function IdCell({ name, sub, tags, to, thumb }: {
           : name}
       </div>
       <div className="idc-s">{subLine(sub, tags)}</div>
-    </>
-  );
-  return (
-    <td className={`idc t${thumb !== undefined ? " has-th" : ""}`}>
-      {thumb !== undefined
-        ? <div className="idc-row"><Thumb pid={thumb} /><div className="idc-txt">{text}</div></div>
-        : text}
     </td>
   );
 }
@@ -292,22 +247,13 @@ function subLine(sub: ReactNode, tags?: IdTag[]): ReactNode {
  *
  * This renders the identical `.idc-n` / `.idc-s` pair the table cell does.
  */
-export function IdLines({ name, sub, tags, thumb }: {
+export function IdLines({ name, sub, tags }: {
   name: ReactNode; sub?: ReactNode; tags?: IdTag[];
-  /** the portrait slot, as on IdCell */
-  thumb?: string | null;
 }) {
-  const text = (
-    <>
+  return (
+    <span className="v3id">
       <span className="idc-n">{name}</span>
       <span className="idc-s">{subLine(sub, tags)}</span>
-    </>
-  );
-  return (
-    <span className={`v3id${thumb !== undefined ? " has-th" : ""}`}>
-      {thumb !== undefined
-        ? <span className="idc-row"><Thumb pid={thumb} /><span className="idc-txt">{text}</span></span>
-        : text}
     </span>
   );
 }

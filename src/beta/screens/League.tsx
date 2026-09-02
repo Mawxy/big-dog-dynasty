@@ -501,7 +501,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)}
                     className={i % 2 ? "zebra" : ""}>
                     <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                    <IdCell name={r.name} thumb={r.pid}
+                    <IdCell name={r.name}
                       sub={[r.nfl || null, r.pos].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
                     <td className="n"><span className="f">{fmtWar(r.model)}</span></td>
@@ -552,7 +552,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
                     className={i % 2 ? "zebra" : ""}>
                     <Spine rank={i + 1} color={r.pos ? POS_COLOR[r.pos] : undefined} />
-                    <IdCell name={r.name} thumb={r.pid}
+                    <IdCell name={r.name}
                       sub={[r.team, r.pos, `${r.n} trades`].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
                     <td className="n"><span className="f q">{r.value.toLocaleString()}</span></td>
@@ -599,7 +599,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
                     className={i % 2 ? "zebra" : ""}>
                     <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                    <IdCell name={r.name} thumb={r.pid}
+                    <IdCell name={r.name}
                       sub={[r.nfl || null, r.pos].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
                     <td className="n"><span className="f">{r.price.toLocaleString()}</span></td>
@@ -874,7 +874,7 @@ function HistoryView({ season }: { season: string }) {
               <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)}
                 className={i % 2 ? "zebra" : ""}>
                 <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                <IdCell name={pInfo(players, r.pid)[0]} thumb={r.pid}
+                <IdCell name={pInfo(players, r.pid)[0]}
                   sub={[r.team, r.pos].filter(Boolean).join(" · ")}
                   to={betaPath(`/player/${r.pid}`)} />
                 <td className="n"><span className="f q">{r.gp}</span></td>

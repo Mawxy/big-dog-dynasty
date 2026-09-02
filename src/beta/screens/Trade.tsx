@@ -749,7 +749,7 @@ function Panel({ gets, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
               projection the way a player's are, and the totals below include
               them. Marking it on the asset it qualifies keeps the ledger's
               caption to the one sentence the design system asks for. */}
-          <IdLines name={h.label} sub={h.sub} thumb={h.asset.pid}
+          <IdLines name={h.label} sub={h.sub}
             tags={priced[i]?.estimated ? ["≈ est"] : undefined} />
           <button className="x" type="button" aria-label={`Remove ${h.label}`}
             onClick={() => onRemove(h.id)}>×</button>
@@ -826,7 +826,7 @@ function AssetSheet({ from, rows, taken, onPick, onClose }: {
         <button type="button" className="trx-prow" key={h.id}
           onClick={() => { onPick(h.id); setQ(""); }}>
           <PosSpine color={POS_COLOR[h.asset.pos]} />
-          <IdLines name={h.label} sub={h.sub} thumb={h.asset.pid} />
+          <IdLines name={h.label} sub={h.sub} />
           <span className="v">{h.asset.ktc == null ? NUL : h.asset.ktc.toLocaleString()}</span>
         </button>
       ))}

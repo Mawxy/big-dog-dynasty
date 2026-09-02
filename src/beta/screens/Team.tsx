@@ -548,8 +548,7 @@ function RosterTable({ band, lens, betaPath }: {
                     league rank it would be lying about. */}
                 <Spine color={POS_COLOR[r.pos]} rank={r.seat ?? i + 1} />
                 <IdCell name={r.name} sub={r.sub} tags={r.tags}
-                  to={r.pid ? betaPath(`/player/${r.pid}`) : undefined}
-                  thumb={r.pos === "PICK" ? undefined : r.pid} />
+                  to={r.pid ? betaPath(`/player/${r.pid}`) : undefined} />
                 {/* ONE FIGURE RAMP ACROSS THE THREE COLUMNS (Max, 2026-09-02):
                     the same face, size and weight for index, WAR and market,
                     a step under `.f` so the row still fits a phone. The old
