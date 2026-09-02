@@ -1314,6 +1314,18 @@ button.dband:hover .band-label { color: var(--txt2); }
   color: var(--dim);
 }
 .rail-back:hover { color: var(--txt); text-decoration: none; }
+/* THE PORTRAIT (components/Portrait). Out of the layout until the CDN has
+   answered — `display: none` rather than a reserved box, so a player Sleeper
+   has no photo for leaves no hole — then a bordered square above the badge.
+   Sleeper's thumbs are head-and-shoulders on a plain ground, so cover-cropping
+   to a square loses nothing that matters. Achromatic frame: the position
+   colour is the badge's and the spine's, not the picture's. */
+.portrait { display: none; }
+.portrait.on {
+  display: block; object-fit: cover; object-position: top;
+  background: var(--band); border: 1px solid var(--rule);
+  margin-bottom: 12px;
+}
 .rail-name { font: 700 24px/1.05 var(--cond); letter-spacing: .02em; text-transform: uppercase; overflow-wrap: anywhere; }
 .rail-sub { font: 400 12px/1.55 var(--sans); color: var(--dim); margin-top: 6px; }
 .rail-h {

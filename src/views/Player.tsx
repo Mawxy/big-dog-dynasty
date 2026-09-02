@@ -11,6 +11,7 @@ import { latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../
 import { useLeague } from "../lib/context";
 import { ktcOf } from "../lib/values";
 import PosBadge from "../components/PosBadge";
+import Portrait from "../components/Portrait";
 import TScroll from "../components/TScroll";
 import WeekGrid from "../components/WeekGrid";
 import QuickJump from "../components/QuickJump";
@@ -362,6 +363,7 @@ export default function Player({ pid }: { pid: string }) {
         <div className={`split pos-mark-${pos}`}>
           <div className="rail">
             <span className="rail-back" onClick={() => nav(-1)}>← Back</span>
+            <Portrait pid={pid} />
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
               <PosBadge pos={pos} />
               {nfl && <span style={{ font: "600 13px/1 var(--cond)", letterSpacing: ".12em", color: "var(--dim)" }}>{nfl}</span>}

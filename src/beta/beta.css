@@ -51,7 +51,11 @@
   --sans: "Public Sans", Archivo, system-ui, -apple-system, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --navh: 54px;
+  /* 62px, up from 54: at 54 the bar sat flush on the phone's home-indicator
+     strip and read as part of the hardware edge rather than as a control row
+     (Max, 2026-09-02). Everything else — the shell's bottom padding, the
+     scroll-spy threshold — derives from this one value. */
+  --navh: 62px;
   /* The masthead's height, declared rather than emergent: a sticky table header
      has to be offset by exactly this, and a header sized by its own font
      metrics left a 2px slot for rows to show through as they scrolled under. */
