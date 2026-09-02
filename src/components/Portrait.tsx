@@ -37,7 +37,11 @@ export default function Portrait({ pid, size = 112, className = "" }: {
       src={src}
       alt=""
       width={size} height={size}
-      loading="lazy" decoding="async"
+      // NOT loading="lazy": the image is display:none until it has loaded
+      // (style.css .portrait), and a lazy image with no box is never fetched —
+      // it sat hidden forever on the first try. One image per page is not a
+      // bandwidth problem.
+      decoding="async"
       onLoad={() => setOk(true)}
       onError={() => { setOk(false); setI(n => n + 1); }}
     />
