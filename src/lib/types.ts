@@ -511,6 +511,9 @@ export interface TradeAsset {
    *  slot off its original owner's projected finish (trade_analysis.py
    *  pick_tier). Absent on rows written before 2026-09-02, which read Mid. */
   orig?: number;
+  /** drafted picks only: the slot within the round the pick was made at
+   *  (1..n), so the site can print "1.04" rather than a tier */
+  slot?: number;
   tier?: "Early" | "Mid" | "Late";
   /** picks only: the tier the pick priced at ON THE DAY OF THE TRADE — where
    *  it looked like landing then (the actual slot if already drafted, else

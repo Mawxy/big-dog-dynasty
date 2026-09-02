@@ -1217,11 +1217,15 @@ function Sides({ t, at, vals, nameOf }: {
                     // like landing on the day of the deal and where it lands
                     // today; when those differ the line says so, because
                     // that drift is part of the KTC delta beneath it.
-                    const tier = a.kind === "pick" && a.tier
-                      ? (a.tierThen && a.tierThen !== a.tier
-                        ? `${a.tierThen.toLowerCase()} → ${a.tier.toLowerCase()}`
-                        : a.tier.toLowerCase())
-                      : null;
+                    // A DRAFTED PICK IS A NUMBER, not a tier (Max, 2026-09-02):
+                    // "1.04" is the fact, Early was only ever its estimate.
+                    const tier = a.kind === "pick" && a.slot != null && a.rnd != null
+                      ? `${a.rnd}.${String(a.slot).padStart(2, "0")}`
+                      : a.kind === "pick" && a.tier
+                        ? (a.tierThen && a.tierThen !== a.tier
+                          ? `${a.tierThen.toLowerCase()} → ${a.tier.toLowerCase()}`
+                          : a.tier.toLowerCase())
+                        : null;
                     return (
                       <div className={`it${a.kind !== "player" ? " pick" : ""}`} key={i}>
                         {a.kind !== "player" && tail ? `${name} → ` : null}
@@ -1279,9 +1283,8 @@ function Sides({ t, at, vals, nameOf }: {
  *    tier is a drafted pick's actual slot or an undrafted one's projected
  *    slot off its original owner's projected finish; the asset carries it as
  *    `tier`, and rows written before that date carry none and read Mid. A
- *    CONVERTED pick keeps the pick key too, even though it carries the
- *    drafted player's id: the writer branches on `kind == "pick"`, not on
- *    whether a pid is present.
+ *    CONVERTED pick is the PLAYER (Max, 2026-09-02): once made it prices by
+ *    the drafted player's pid, here and in the writer from draft day on.
  *  - FAAB IS SKIPPED, not declined — same as the writer's `continue`.
  *  - THE BASE KTC LADDER, not `lib/values.ktcOf`. This is the one deliberate
  *    exception to the site-wide TE-premium rule. The writer's `price_now` reads
@@ -1299,11 +1302,13 @@ function marketNow(s: TradeSide, vals: Values | null): number | null {
   for (const a of s.got) {
     if (a.kind === "faab") continue;
     let v: number | undefined;
-    if (a.kind === "pick" && a.ps != null && a.rnd != null) {
-      // the writer's `pick_key`, glyph for glyph: the pick AT ITS TIER, the
-      // same tier the frozen "then" priced it at, so the delta is a delta
+    if (a.kind === "pick" && !a.pid && a.ps != null && a.rnd != null) {
+      // an UNMADE pick: the writer's `pick_key`, glyph for glyph — the pick at
+      // its tier, so the delta against the frozen "then" is a delta
       v = pickKtc.get(`${a.ps} ${a.tier ?? "Mid"} ${ROUND_ORD[a.rnd - 1] ?? `${a.rnd}th`}`);
     } else if (a.pid) {
+      // a player — including a pick that has been MADE, which is the player
+      // now (Max, 2026-09-02): "what the slot cost -> what he is worth"
       v = vals.players[a.pid]?.ktc;
     }
     if (!v) return null;

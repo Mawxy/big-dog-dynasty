@@ -293,7 +293,8 @@ def main():
                     rid, ps, rnd = pk.get("owner_id"), int(pk.get("season")), pk.get("round")
                     orig = pk.get("roster_id")
                     label = f"{ps} {ORD.get(rnd, str(rnd)+'th')}"
-                    sel = sel_at.get((ps, rnd, slot_of.get(ps, {}).get(orig)))
+                    slot = slot_of.get(ps, {}).get(orig)
+                    sel = sel_at.get((ps, rnd, slot))
                     if sel and sel.get("player_id"):
                         md = sel.get("metadata") or {}
                         nm = f"{md.get('first_name','')} {md.get('last_name','')}".strip()
@@ -301,6 +302,10 @@ def main():
                         side(rid)["got"].append({"kind": "pick", "pid": str(sel["player_id"]),
                                                  "label": f"{label} → {nm}", "war": w,
                                                  "ps": ps, "rnd": rnd, "orig": orig,
+                                                 # the pick that was actually made: the site
+                                                 # shows "1.04" for a drafted pick, the tier
+                                                 # only for one still to come
+                                                 "slot": slot,
                                                  "tier": pick_tier(ps, orig),
                                                  "future": future_player(rid, str(sel["player_id"]))})
                     else:   # not drafted yet (future pick) or the slot went unused
@@ -388,18 +393,26 @@ def main():
         cur, mid = cur_pick.get(key, {}).get(src), cur_pick.get(mid_key(key), {}).get(src)
         return (cur / mid) if cur and mid else None
 
-    def mkt_side(side, price, tier_for=None):
-        """Market sums of a side {ktc, fc}. Players price by pid, picks by
-        their pick key at a tier (settled with Max, 2026-08-21: a pick IS a
-        market asset until draft night) — `tier_for(asset)` chooses it, the
-        asset's own `tier` (today's) when None. Each SOURCE goes None
-        independently when it can't price every asset on the side."""
+    def mkt_side(side, price, tier_for=None, day=None):
+        """Market sums of a side {ktc, fc}, as of `day` (None = today).
+        Players price by pid. A pick is a market asset UNTIL DRAFT NIGHT
+        (settled with Max, 2026-08-21) and prices by its pick key at a tier —
+        `tier_for(asset)` chooses it, the asset's own `tier` when None. ONCE
+        MADE, a pick IS the player (Max, 2026-09-02): on any day from that
+        season's draft on, a converted pick prices by the drafted player's
+        pid, so "then -> now" on a 2024 1st reads "what the slot cost -> what
+        Marvin Harrison is worth". Each SOURCE goes None independently when
+        it can't price every asset on the side."""
         tots = {"ktc": 0, "fc": 0}
         for a in side["got"]:
             if a["kind"] == "faab":
                 continue
-            key = (pick_key(a, tier_for(a) if tier_for else None)
-                   if a["kind"] == "pick" and "ps" in a else str(a["pid"] or ""))
+            if a["kind"] == "pick" and "ps" in a:
+                dd = draft_day.get(a["ps"]) if a.get("pid") else None
+                made = bool(dd) and (day is None or day >= dd)
+                key = str(a["pid"]) if made else pick_key(a, tier_for(a) if tier_for else None)
+            else:
+                key = str(a["pid"] or "")
             row = (price(key) if key else None) or {}
             for src in ("ktc", "fc"):
                 if tots[src] is None:
@@ -515,7 +528,7 @@ def main():
                 rec = sn["sides"].get(str(s["rid"]))
                 if rec is None:
                     continue
-                m = mkt_side(s, price_at(day), tier_chooser(tiers, s))
+                m = mkt_side(s, price_at(day), tier_chooser(tiers, s), day)
                 # NEVER TRADE A NUMBER FOR A NONE. A figure frozen when the
                 # history reached further (the deep backfill is not in every
                 # checkout) is kept on its old basis rather than blanked; a
@@ -537,7 +550,7 @@ def main():
             elif hist_start and day >= hist_start:
                 sides = {}
                 for s in t["sides"]:
-                    m = mkt_side(s, price_at(day), tier_chooser(tiers, s))
+                    m = mkt_side(s, price_at(day), tier_chooser(tiers, s), day)
                     sides[str(s["rid"])] = {"exp": None,
                                             "mkt": m["ktc"], "fc": m["fc"]}
                 if any(v["mkt"] is not None or v["fc"] is not None
@@ -566,7 +579,7 @@ def main():
                 rec = sn["sides"].get(str(s["rid"]))
                 if rec is None:
                     continue
-                m = mkt_side(s, price_at(day), tier_chooser(tiers, s))
+                m = mkt_side(s, price_at(day), tier_chooser(tiers, s), day)
                 for field, src in (("mkt", "ktc"), ("fc", "fc")):
                     if rec.get(field) is None and m[src] is not None:
                         rec[field] = m[src]
