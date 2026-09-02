@@ -51,11 +51,12 @@
   --sans: "Public Sans", Archivo, system-ui, -apple-system, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  /* 62px, up from 54: at 54 the bar sat flush on the phone's home-indicator
-     strip and read as part of the hardware edge rather than as a control row
-     (Max, 2026-09-02). Everything else — the shell's bottom padding, the
-     scroll-spy threshold — derives from this one value. */
-  --navh: 62px;
+  /* 72px, up from 54 in two steps (Max, 2026-09-02): at 54 the bar sat flush
+     on the phone's home-indicator strip and read as part of the hardware edge,
+     and at 62 the corner tabs — My Team and More, the two a thumb reaches
+     worst — were still misses. Everything else — the shell's bottom padding,
+     the scroll-spy threshold — derives from this one value. */
+  --navh: 72px;
   /* The masthead's height, declared rather than emergent: a sticky table header
      has to be offset by exactly this, and a header sized by its own font
      metrics left a 2px slot for rows to show through as they scrolled under. */
@@ -257,8 +258,11 @@
      ~38px set here, so it clears both — but it is also the only TWO-WORD label,
      so it is told not to wrap: a tab that breaks into two lines is a tab that
      no longer matches the height of the four beside it. The tracking is a
-     notch tighter than the .1em elsewhere for the same budget. */
-  font: 600 10.5px/1 var(--cond); letter-spacing: .07em; text-transform: uppercase;
+     notch tighter than the .1em elsewhere for the same budget.
+     12px, up from 10.5, with the 72px bar: a taller bar holding the same
+     small word reads as padding, not as a bigger button. MY TEAM at ~44px
+     still clears the 62.5px six-tab slot. */
+  font: 600 12px/1 var(--cond); letter-spacing: .07em; text-transform: uppercase;
   white-space: nowrap;
   border-top: 2px solid transparent;
 }
