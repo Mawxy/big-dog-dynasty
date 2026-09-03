@@ -15,6 +15,10 @@ import League from "./screens/League";
 import Team from "./screens/Team";
 import Claim from "./screens/Claim";
 import Players from "./screens/Players";
+/* Eager, like Players and for the same reason: it is the same board and it
+   shares that screen's stylesheet, so lazy-loading it would split one design
+   across two chunks and flash an unstyled table on the first visit. */
+import Teams from "./screens/Teams";
 import Trade from "./screens/Trade";
 import More from "./screens/More";
 import "./beta.css";
@@ -54,7 +58,7 @@ const TABS = [
  *  destination but a scope of Trade, and its route redirects there. */
 const HUB_OF: Record<string, string> = {
   player: "players", claim: "team", drafts: "more", seasons: "more",
-  history: "more", insights: "more",
+  history: "more", insights: "more", teams: "more",
 };
 
 /**
@@ -256,6 +260,11 @@ function BetaBoard() {
                 <Route path="team/:rid" element={<TeamRoute />} />
                 <Route path="claim" element={<Claim />} />
                 <Route path="players" element={<Players />} />
+                {/* THE SAME BOARD, ONE GRAIN UP. It sits under More rather
+                    than beside Players in the tab bar: the bar holds five and
+                    a franchise leaderboard is a thing a reader opens weekly,
+                    not daily. HUB_OF lights More while it is open. */}
+                <Route path="teams" element={<Teams />} />
                 {/* the leaderboard's old address, and the lens segment it
                     carried. Players is one board with its own controls now, so
                     the scope has nowhere to land and is dropped rather than

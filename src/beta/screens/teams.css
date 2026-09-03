@@ -1,0 +1,42 @@
+/* ==========================================================================
+   TEAMS (screens/Teams.tsx) — the Players board with a franchise on each row.
+
+   This file is deliberately TINY. Teams.tsx imports `players.css` first and
+   uses that screen's classes as they stand — `.plx-tbl`, `.plx-sort`,
+   `.plx-lead`, `.plx-micro`, `.plx-draw`, `.plx-figs`, `.plx-edge` — because
+   the two screens are one board at two grains, and a second stylesheet
+   describing the same object is how they drift into looking like two kinds of
+   thing. The group dividers land correctly with no new rule: `plx-cur`'s
+   `nth-child(3)` and `nth-child(6)` are DVI and KTC here too, and its third
+   selector (`nth-child(8)`, the Players board's ECR edge) matches nothing on a
+   five-column table.
+
+   Everything here is prefixed `tmx-` and defines NO tokens.
+   ========================================================================== */
+
+/* ---- the second chip group ----------------------------------------------
+   Two filters in one row — the roster slice, then the position — and the rule
+   between them is the whole reason this file exists. Without it the row reads
+   as one eight-chip control with two lit segments, which is a control that
+   claims the two choices are alternatives to each other. They are not: a chip
+   from each group is always in force.
+
+   A 1px rule rather than a gap, and rather than a label per group: at 375px a
+   gap wide enough to read as a break is a gap wide enough to push QB off the
+   scroll, and two condensed labels cost a whole row this screen does not have
+   above a sticky sort strip. */
+.tmx-filters .tmx-sep {
+  flex: 0 0 auto;
+  align-self: stretch;
+  width: 1px;
+  margin: 0 3px;
+  background: var(--rule);
+}
+
+/* The chips scroll sideways as a group on a phone, so the separator must not
+   be the thing that collapses when the row is squeezed. */
+.tmx-filters { flex-wrap: nowrap; }
+@media (min-width: 900px) {
+  .tmx-filters { flex-wrap: wrap; }
+  .tmx-filters .tmx-sep { margin: 0 7px; }
+}

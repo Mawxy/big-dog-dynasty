@@ -198,6 +198,17 @@ export default function More() {
         <Row to={betaPath("/drafts")} name="Drafts"
           sub="Every rookie board, scored against what the pick returned"
           state={draftState} />
+        {/* THE PLAYERS BOARD, ONE GRAIN UP — same five currencies, same
+            controls, a franchise on each row. It lives here rather than in the
+            tab bar because the bar holds five and this is a weekly read, not a
+            daily one; it lives in THIS band rather than the long view because
+            it reprices every night with the market, which is the same cadence
+            the two rows above it move on. The figure is the population, which
+            is the one fact about it that never changes and therefore the one
+            that tells a reader what they are opening. */}
+        <Row to={betaPath("/teams")} name="Teams"
+          sub="Every roster ranked on DVI, CVI, projected WAR and both market prices"
+          state={teams ? `${teams.length} franchises` : NUL} />
       </div>
 
       <Band label="The long view" note="What the board has already settled" />
