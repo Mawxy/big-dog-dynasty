@@ -537,7 +537,7 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
                   <td className="n">
                     <span className="f hd lgx-phone">{r.rec}</span>
                     <span className="f lgx-desk">{r.played ? fmt(r.ppg, 1) : NUL}</span>
-                    <div className="idc-s r lgx-phone">{r.played ? `${fmt(r.ppg, 1)} ppg` : "not yet played"}</div>
+                    <div className="idc-s r lgx-phone">{r.played ? `${fmt(r.ppg, 1)} ppg` : "no games"}</div>
                   </td>
                   <td className="n">
                     <span className="f">{o ? capMl(lines(o.playoff, vig, 5)[0]) : NUL}</span>
@@ -836,7 +836,10 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                 <td className="n">
                   <span className="f lgx-phone">{r.rec ?? NUL}</span>
                   <span className="f lgx-desk">{r.ppg != null ? fmt(r.ppg, 1) : NUL}</span>
-                  <div className="idc-s r lgx-phone">{r.ppg != null ? `${fmt(r.ppg, 1)} proj ppg` : ""}</div>
+                  {/* "ppg", not "proj ppg": the phone's 18% column is ~60px
+                      of text and "152.8 proj ppg" ellipsised at "pr…". The
+                      header above it says Proj, so the sub-line needn't. */}
+                  <div className="idc-s r lgx-phone">{r.ppg != null ? `${fmt(r.ppg, 1)} ppg` : ""}</div>
                 </td>
                 <td className="n">
                   {/* NO METER (Max, 2026-09-02): the WAR bar that filled with

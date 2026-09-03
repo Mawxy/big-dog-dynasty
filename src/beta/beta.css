@@ -455,7 +455,13 @@
    column phone table has no width to give away. `.q` is the quiet ramp (a
    record, a count) and is mono for the same reason — it is still a figure. */
 .v3tbl td .f { font: 600 13.5px/1.15 var(--mono); font-variant-numeric: tabular-nums; }
-.v3tbl td .f.hd { font-size: 15.5px; color: var(--txt); }
+/* `.hd` marks the column a table is sorted by. It used to do it with a size
+   step as well as ink, which broke the one thing a row of figures is for: with
+   Proj W-L, Proj PPG and Market at 13.5px and Starters WAR at 15.5px, the four
+   values on a row sat on four different cap heights and the column stopped
+   scanning as one line (Max, 2026-09-03). Emphasis is INK ONLY now — every
+   figure in a table body is one size. */
+.v3tbl td .f.hd { color: var(--txt); }
 .v3tbl td .f.q { font: 400 12px/1.3 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
 /* THE METERED FIGURE is style.css's, borrowed: the one metered column a table
    is allowed composes the classic board's `.meter-row`, so its figure arrives
@@ -805,7 +811,6 @@
   /* the figure ramp steps up with the rows, one step under the condensed sizes
      this held before --mono, because a mono digit is the wider glyph */
   .v3tbl td .f { font-size: 15px; }
-  .v3tbl td .f.hd { font-size: 17px; }
   .v3strip .cell { min-width: 120px; padding: 13px 22px 14px; }
   .v3strip .v { font-size: 23px; }
   .v3-lens button { flex: 0 0 auto; padding: 9px 22px; }
