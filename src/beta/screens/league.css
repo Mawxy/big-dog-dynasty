@@ -73,6 +73,26 @@
    dashboard gauge filling up, not as a statistic. The sort column carries
    `.f.hd` and the ordinal spine carries the order. */
 
+/* ONE COLUMN GRID, EVERY TABLE (Max, 2026-09-02). Fixed layout so the header
+   percentages are authoritative (SKILL §3 rule 2) and the identity column
+   takes the remainder: every League table declares its figure columns as
+   18 / 18 / 20 from the left of the figures, so a three-figure table and a
+   two-figure table put their last two values in the same place and the eye
+   reads down the screen as one board. Fixed layout is also what stopped the
+   split tables spilling — under the auto algorithm the group row's colspan
+   sentence set the table's width and the identity cell's 100% squeezed the
+   figures to their minimum. */
+.v3tbl.lgx-grid { table-layout: fixed; }
+/* a fourth figure column that only the desktop has room for, and the phone's
+   stand-in for it. Hiding the header cell removes the column from the fixed
+   layout, so the remaining percentages still hold. */
+.lgx-desk { display: none; }
+@media (min-width: 900px) {
+  th.lgx-desk, td.lgx-desk { display: table-cell; }
+  span.lgx-desk { display: inline; }
+  .lgx-phone { display: none; }
+}
+
 /* ---- the group header row -----------------------------------------------
    One row that is both the group's band and the column header (Max,
    2026-09-02): the label sits in the identity column's header cell, the

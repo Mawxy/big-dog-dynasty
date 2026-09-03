@@ -648,14 +648,28 @@ def main():
 
     # --- future draft-pick ownership (trade calculator's team postures) ------
     # Every roster owns its own pick for the next drafts unless traded_picks
-    # says otherwise. Rounds 1-4, two seasons out (the calculator's horizon).
+    # says otherwise. THE HORIZON IS SLEEPER'S, not ours (Max, 2026-09-02):
+    # Sleeper's API publishes no "owned picks" and no horizon setting — only
+    # the picks that have changed hands, with untraded ones implicit — so the
+    # farthest season it tracks cannot be read off the feed while nobody has
+    # traded that year. Sleeper's own rule is that picks trade three drafts
+    # ahead (a platform constant, not a league setting), so that is the floor;
+    # any season traded_picks names beyond it extends the horizon, so the data
+    # leads wherever it goes further. The market ladder may not price the
+    # farthest year yet; those rows carry the pick and read — until it does.
     if seasons:
         newest = max(seasons)
         tp = load(root / newest / "traded_picks.json") or []
         rosters = load(root / newest / "rosters.json") or []
         rids = [r["roster_id"] for r in rosters]
-        fut = [int(newest) + 1, int(newest) + 2]
-        owner = {(int(s), rnd, rid): rid for s in fut for rnd in (1, 2, 3, 4) for rid in rids}
+        # rookie-draft rounds from the league's own settings, not a constant
+        lg_now = load(root / newest / "league.json") or {}
+        rounds = int((lg_now.get("settings") or {}).get("draft_rounds") or 4)
+        SLEEPER_PICK_HORIZON = 3
+        farthest = max([int(newest) + SLEEPER_PICK_HORIZON]
+                       + [int(t["season"]) for t in tp if int(t["season"]) > int(newest)])
+        fut = list(range(int(newest) + 1, farthest + 1))
+        owner = {(int(s), rnd, rid): rid for s in fut for rnd in range(1, rounds + 1) for rid in rids}
         for t in tp:
             k = (int(t["season"]), t["round"], t["roster_id"])
             if k in owner:

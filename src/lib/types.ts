@@ -105,6 +105,14 @@ export interface WeekOdds {
   weeks: Record<string, Record<string, {
     mu: number; sd: number; opp: number | null; wp?: number; proj?: boolean;
   }>>;
+  /** the season simulation (week_odds.season_sim): Monte Carlo over the
+   *  remaining schedule on the same lines, seeded wins-then-points, Sleeper
+   *  bracket with reseeding. Absent once the regular season is over — the
+   *  bracket owns that story — and in data built before 2026-09-02. */
+  season?: {
+    sims: number; model: string;
+    teams: Record<string, { playoff: number; bye: number; final: number; title: number }>;
+  };
 }
 
 /** [season, week, text] */

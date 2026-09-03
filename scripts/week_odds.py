@@ -68,7 +68,7 @@ Output: data/<season>/odds.json
 
 `proj` marks a line built from projections rather than from played form.
 """
-import argparse, json, math, statistics, sys
+import argparse, json, math, random, statistics, sys
 from collections import defaultdict
 from pathlib import Path
 
@@ -363,6 +363,120 @@ def season_odds(season, ld, raw_root, sproj):
                      "played": played_weeks, "projected": sched_weeks}, "weeks": out}
 
 
+# ---------------------------------------------------------------------------
+# SEASON SIMULATION — playoff and title odds per franchise (Max, 2026-09-02)
+# ---------------------------------------------------------------------------
+
+SIMS = 10000
+
+
+def season_sim(mw, odds_weeks, league, seed=1):
+    """Monte-Carlo the rest of the season off the same per-week lines.
+
+    The standings as played so far are taken as given; every remaining
+    regular-season matchup is drawn from the two sides' (mu, sd) in the odds
+    table — the projected lineups, priced with no lookahead — and the final
+    table is seeded the way the league seeds (wins, then points). The top
+    `playoff_teams` play a Sleeper bracket: with six, seeds 1-2 rest in the
+    first round and the second round RESEEDS (1 plays the lowest survivor),
+    which is what this league's brackets have actually done; with four or
+    eight it is the straight 1-v-last ladder. Playoff strength is a team's
+    mean projected week over the remaining schedule, since no lineup exists
+    for a week that far out.
+
+    Returns {rid: {"playoff": p, "bye": p, "title": p, "final": p}}, or None
+    when the regular season is over (the bracket page owns that story).
+    """
+    ps = mw.get("playoff_start", 15)
+    n_po = int((league.get("settings") or {}).get("playoff_teams") or 6)
+    # every franchise: the scored table before the season has no rows, so the
+    # schedule's pairings name the field until week 1 is in
+    rids = sorted({int(r) for r in mw["teams"]}
+                  | {r for pairs in (mw.get("schedule") or {}).values() for pr in pairs for r in pr})
+    if not rids:
+        return None
+    wins = {r: 0.0 for r in rids}
+    pts = {r: 0.0 for r in rids}
+    played = set()
+    for r, lst in mw["teams"].items():
+        for e in lst:
+            if e[0] >= ps:
+                continue
+            played.add(e[0])
+            pts[int(r)] += e[1]
+            if e[3] is not None:
+                wins[int(r)] += 1.0 if e[1] > e[3] else 0.5 if e[1] == e[3] else 0.0
+    remaining = []
+    for wk_s, pairs in (mw.get("schedule") or {}).items():
+        wk = int(wk_s)
+        if wk >= ps or wk in played:
+            continue
+        line = odds_weeks.get(str(wk)) or {}
+        for a, b in pairs:
+            la, lb = line.get(str(a)), line.get(str(b))
+            if la and lb:
+                remaining.append((a, b, la["mu"], la["sd"], lb["mu"], lb["sd"]))
+    if not remaining and len(played) >= ps - 1:
+        return None                                  # season over; bracket owns it
+    # playoff-week strength: the mean of each team's remaining projected weeks,
+    # falling back to its played average, then to the league mean
+    strength = {}
+    for r in rids:
+        mus = [l[str(r)]["mu"] for l in odds_weeks.values() if str(r) in l and l[str(r)].get("proj")]
+        sds = [l[str(r)]["sd"] for l in odds_weeks.values() if str(r) in l and l[str(r)].get("proj")]
+        if mus:
+            strength[r] = (statistics.mean(mus), statistics.mean(sds))
+        elif played:
+            strength[r] = (pts[r] / len(played), 24.0)
+    if not strength:
+        return None
+    lm = statistics.mean(m for m, _ in strength.values())
+    for r in rids:
+        strength.setdefault(r, (lm, 24.0))
+
+    rng = random.Random(seed)
+    made = {r: 0 for r in rids}; bye = {r: 0 for r in rids}
+    final = {r: 0 for r in rids}; title = {r: 0 for r in rids}
+
+    def game(a, b):
+        sa, sb = strength[a], strength[b]
+        return a if rng.gauss(*sa) >= rng.gauss(*sb) else b
+
+    for _ in range(SIMS):
+        w = dict(wins); p = dict(pts)
+        for a, b, ma, sa, mb, sb in remaining:
+            xa, xb = rng.gauss(ma, sa), rng.gauss(mb, sb)
+            p[a] += xa; p[b] += xb
+            if xa > xb: w[a] += 1
+            elif xb > xa: w[b] += 1
+            else: w[a] += 0.5; w[b] += 0.5
+        order = sorted(rids, key=lambda r: (w[r], p[r]), reverse=True)
+        field = order[:n_po]
+        for r in field:
+            made[r] += 1
+        seed_of = {r: i + 1 for i, r in enumerate(field)}
+        if n_po == 6:
+            bye[field[0]] += 1; bye[field[1]] += 1
+            s3, s4, s5, s6 = field[2], field[3], field[4], field[5]
+            w1, w2 = game(s3, s6), game(s4, s5)
+            lo, hi = (w1, w2) if seed_of[w1] > seed_of[w2] else (w2, w1)
+            f1, f2 = game(field[0], lo), game(field[1], hi)
+        elif n_po == 4:
+            f1, f2 = game(field[0], field[3]), game(field[1], field[2])
+        elif n_po >= 8:
+            q = [game(field[i], field[n_po - 1 - i]) for i in range(n_po // 2)]
+            while len(q) > 2:
+                q = [game(q[i], q[len(q) - 1 - i]) for i in range(len(q) // 2)]
+            f1, f2 = q
+        else:                                        # 2: straight final
+            f1, f2 = field[0], field[1]
+        final[f1] += 1; final[f2] += 1
+        title[game(f1, f2)] += 1
+    return {str(r): {"playoff": round(made[r] / SIMS, 4), "bye": round(bye[r] / SIMS, 4),
+                     "final": round(final[r] / SIMS, 4), "title": round(title[r] / SIMS, 4)}
+            for r in rids}
+
+
 def main():
     ap = argparse.ArgumentParser(description="pregame win probability per matchup")
     ap.add_argument("--season")
@@ -407,6 +521,18 @@ def main():
         wks = got["weeks"]
         npro = sum(1 for v in wks.values() if any(r.get("proj") for r in v.values()))
         print(f"  {s}: {len(wks)} weeks ({len(wks) - npro} played, {npro} projected)")
+        # the season simulation rides the same lines; only while the regular
+        # season is still open — a finished one is the bracket's to tell
+        sim = season_sim(load(ld / s / "matchups.json"), wks,
+                         load(raw_root / s / "league.json") or {})
+        if sim:
+            got["season"] = {"sims": SIMS, "teams": sim,
+                             "model": "Monte Carlo over the remaining schedule on the same "
+                                      "per-week lines; seeded wins then points; Sleeper "
+                                      "bracket with reseeding"}
+            top = max(sim.items(), key=lambda kv: kv[1]["title"])
+            print(f"      season sim: {SIMS} runs, title favourite rid {top[0]} at "
+                  f"{top[1]['title'] * 100:.1f}%")
         if args.probe:
             continue
         atomic_write(ld / s / "odds.json", json.dumps(got, separators=(",", ":")))

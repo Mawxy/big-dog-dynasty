@@ -14,7 +14,7 @@ import {
 import { ktcOf } from "../../lib/values";
 import { readTrades, tradeWhen } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
-import { useActivity, useSeasonPhase, useStandings, type ActMove } from "../model";
+import { useActivity, useSeasonPhase, useStandings, useTeamValues, type ActMove } from "../model";
 import {
   Band, DataError, fmtWar, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure,
 } from "../ui";
@@ -416,6 +416,132 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   );
 }
 
+/* ========================================================================
+   STANDINGS — who is winning, with the odds of what comes next
+   ======================================================================== */
+
+/**
+ * The roster season's actual table (Max, 2026-09-02) — the screen had power
+ * rankings, which say who is BEST, and nowhere that said who is WINNING. The
+ * league's own order (wins, then points), each row's record with points per
+ * game under it, and two odds from the season simulation week_odds.py runs
+ * on the same per-week lines: the chance of making the playoffs and of
+ * winning the title. Before week 1 every record is 0-0 and the odds are the
+ * whole story; as weeks land the record takes over and the odds narrow.
+ *
+ * The odds are a Monte Carlo over the remaining schedule, seeded the way the
+ * league seeds, through a Sleeper bracket that reseeds — not a guess, but a
+ * model, and the caption says which. They vanish once the regular season is
+ * over because the bracket page then knows more than any simulation.
+ */
+/** A FUTURES BOOK'S OVERROUND. A title market is one price per team, twelve
+ *  of them, and books run the twelve implied probabilities to roughly 125%
+ *  rather than the ~102–105% of a two-way line. The same power method as the
+ *  matchup fallback spreads it: one exponent k < 1 across every team's fair
+ *  probability until the sum hits the target, so the favourite is shaded
+ *  less than a flat multiplier would and no long shot goes to zero. */
+const FUTURES_BOOK = 1.25;
+function futuresLines(fair: Record<string, number>): Record<string, string> {
+  const ps = Object.values(fair).filter(p => p > 0);
+  if (!ps.length) return {};
+  let lo = 0.2, hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const k = (lo + hi) / 2;
+    if (ps.reduce((a, p) => a + Math.pow(p, k), 0) > FUTURES_BOOK) lo = k; else hi = k;
+  }
+  const k = (lo + hi) / 2;
+  return Object.fromEntries(Object.entries(fair).map(([rid, p]) => [rid, toMl(Math.pow(p, k))]));
+}
+
+function Standings({ rosterSeason }: { rosterSeason: string }) {
+  const betaPath = useBetaPath();
+  const rows = useStandings(rosterSeason);
+  const oddsQ = useJson<WeekOdds>(`${rosterSeason}/odds.json`);
+  const sim = oddsQ.data?.season?.teams ?? null;
+  const vig = useJson<VigModel>("data/vig_model.json").data;
+  /* AMERICAN ODDS AS WELL AS THE PERCENTAGE (Max, 2026-09-02). Playoffs is a
+     yes/no market per team, so "yes" takes the same measured two-way vig the
+     matchup lines use; Title is a futures board, juiced as one. The fair
+     percentage sits under the price so the model's own number is never
+     hidden behind the book's. */
+  const titleLines = useMemo(() => sim
+    ? futuresLines(Object.fromEntries(Object.entries(sim).map(([rid, o]) => [rid, o.title])))
+    : {}, [sim]);
+  /* BEFORE WEEK 1 every row is 0-0 with 0 points and the league's order is
+     no order at all — roster id, which says nothing. Until a game has been
+     played the table sits in projected-finish order (playoff odds, then title
+     odds) and the ordinal is that projection; from week 1 the league's own
+     tiebreak takes over and never looks back. */
+  const ordered = useMemo(() => {
+    if (!rows) return null;
+    if (rows.some(r => r.played > 0) || !sim) return rows;
+    return rows.slice()
+      .sort((a, b) => (sim[String(b.rid)]?.playoff ?? 0) - (sim[String(a.rid)]?.playoff ?? 0)
+        || (sim[String(b.rid)]?.title ?? 0) - (sim[String(a.rid)]?.title ?? 0))
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+  }, [rows, sim]);
+  const preseason = !!rows && !rows.some(r => r.played > 0);
+  const pct = (v: number | undefined) =>
+    v == null ? NUL : v >= 0.995 ? ">99%" : v < 0.005 && v > 0 ? "<1%" : `${Math.round(v * 100)}%`;
+  return (
+    <>
+      <Band label={`Standings · ${rosterSeason}`}
+        note={preseason && sim ? "Nothing played yet · in projected-finish order · odds from the season simulation"
+          : sim ? "Wins, then points · odds from the season simulation" : "Wins, then points"} />
+      {!ordered ? <div className="empty">Loading…</div> : (
+        <table className="v3tbl lgx-grid">
+          <thead>
+            <tr>
+              <th className="c sp">#</th>
+              <th className="t">Franchise</th>
+              {/* ONE GRID WITH THE POWER RANKINGS BELOW (Max, 2026-09-02): the
+                  last three figure columns sit at 18 / 18 / 20 on every League
+                  table, so this table's W-L, Playoff and Title fall exactly
+                  under that one's Proj W-L, Starters WAR and Market. PPG is a
+                  fourth column on desktop, where there is room for it, and
+                  stays on the record's sub-line on a phone. */}
+              <th className="n lgx-desk" style={{ width: "14%" }}>W-L</th>
+              <th className="n" style={{ width: "18%" }}><span className="lgx-desk">PPG</span><span className="lgx-phone">W-L</span></th>
+              <th className="n" style={{ width: "18%" }}>Playoff</th>
+              <th className="n" style={{ width: "20%" }}>Title</th>
+            </tr>
+          </thead>
+          <tbody>
+            {ordered.map((r, i) => {
+              const o = sim?.[String(r.rid)];
+              return (
+                <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
+                  {/* the accent marks the title favourite, the one claim this
+                      table makes beyond the order itself */}
+                  <Spine rank={r.rank}
+                    top={!!sim && !!o && o.title === Math.max(...Object.values(sim).map(x => x.title)) && o.title > 0} />
+                  <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
+                  <td className="n lgx-desk"><span className="f hd">{r.rec}</span></td>
+                  <td className="n">
+                    <span className="f hd lgx-phone">{r.rec}</span>
+                    <span className="f lgx-desk">{r.played ? fmt(r.ppg, 1) : NUL}</span>
+                    <div className="idc-s r lgx-phone">{r.played ? `${fmt(r.ppg, 1)} ppg` : "not yet played"}</div>
+                  </td>
+                  <td className="n">
+                    <span className="f">{o ? (o.playoff >= 0.9995 || o.playoff < 0.0005 ? "—" : lines(o.playoff, vig)[0]) : NUL}</span>
+                    <div className="idc-s r">{o ? pct(o.playoff) : ""}</div>
+                  </td>
+                  <td className="n">
+                    {/* a chance the simulation could barely find (under one
+                        run in two thousand) has no price a book would post */}
+                    <span className="f">{o ? (o.title >= 0.0005 ? titleLines[String(r.rid)] ?? NUL : "—") : NUL}</span>
+                    <div className="idc-s r">{o ? pct(o.title) : ""}</div>
+                  </td>
+                </TapRow>
+              );
+            })}
+          </tbody>
+        </table>
+      )}
+    </>
+  );
+}
+
 /** One power-rankings row. Everything on it prices the roster season: the
  *  lineup is year-one composite WAR, the record is that lineup run through the
  *  published schedule. Nothing here is a figure from a settled year. */
@@ -428,6 +554,10 @@ interface PowerRow {
   /** schedule-aware projected wins, and the record they read as. Null — never
    *  a heuristic 7-7 — when no schedule is published. */
   wins: number | null; rec: string | null;
+  /** projected points per game: the mean of the team's projected weekly
+   *  totals in odds.json (the same lines the matchup cards and the season
+   *  simulation price). Null before the odds file has a projected week. */
+  ppg: number | null;
 }
 
 /** one win-now-vs-dynasty row: the two indices and the gap between them */
@@ -455,6 +585,8 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const projQ = useJson<ProjectionsFile>("projections.json");
   const proj = projQ.data;
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
+  // the per-week lines, for projected points per game on the power table
+  const oddsW = useJson<WeekOdds>(`${rosterSeason}/odds.json`).data;
   const tradesFile = useJson<TradesPayload>("trades.json").data;
   // the market prices a FORMAT, not a league — global files, global scope
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
@@ -467,6 +599,9 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const acts = useActivity(400);
 
   const lineup = lineupOf(meta);
+  // whole-roster market, players plus picks, for the power table's last column
+  const tvals = useTeamValues(rosterSeason);
+  const mktOf = useMemo(() => new Map((tvals ?? []).map(t => [t.rid, t.market])), [tvals]);
 
   /**
    * Per-franchise projected strength and record for the roster season.
@@ -503,17 +638,24 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       if (+wk >= ps) continue;
       for (const [a, b] of pairs) { (games[a] ??= []).push(b); (games[b] ??= []).push(a); }
     }
+    // projected ppg: mean projected weekly total across the projected weeks
+    const ppgOf = (rid: number): number | null => {
+      const mus = Object.values(oddsW?.weeks ?? {})
+        .map(w => w[String(rid)]).filter(x => x?.proj && x.mu != null).map(x => x.mu);
+      return mus.length ? mean(mus) : null;
+    };
     return built.map(b => {
       const opps = games[b.rid] ?? [];
       // NO SCHEDULE, NO RECORD. Home.tsx falls back to a strength-only estimate
       // here; on this screen the projected record is a column of its own, and a
       // fabricated figure in a column is indistinguishable from a real one. So
       // it reads —.
-      if (!opps.length) return { ...b, wins: null, rec: null };
+      const ppg = ppgOf(b.rid);
+      if (!opps.length) return { ...b, wins: null, rec: null, ppg };
       const wins = opps.reduce((a, o) => a + normCdf(z(b.war) - z(warOf.get(o) ?? meanWar)), 0);
-      return { ...b, wins, rec: `${fmt(wins, 1)}-${fmt(opps.length - wins, 1)}` };
+      return { ...b, wins, rec: `${fmt(wins, 1)}-${fmt(opps.length - wins, 1)}`, ppg };
     }).sort((a, b) => b.war - a.war);
-  }, [teams, proj, mw, lineup]);
+  }, [teams, proj, mw, lineup, oddsW]);
 
   const leader = power?.[0] ?? null;
 
@@ -630,6 +772,9 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {/* ---- 1. this week / last week ------------------------------------ */}
       <WeekBands rosterSeason={rosterSeason} />
 
+      {/* ---- 1b. standings ----------------------------------------------- */}
+      <Standings rosterSeason={rosterSeason} />
+
       {/* ---- 2. power rankings ------------------------------------------- */}
       <Band label={`Power rankings · ${rosterSeason}`}
         note="Projected starter WAR — the best legal lineup, not the lineup as set" />
@@ -653,9 +798,13 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   two values in the same place and the eye reads down the
                   screen as one board. Declared on the header cells, the fixed
                   layout's authority. */}
-              <th className="n" style={{ width: "18%" }}>Move</th>
-              <th className="n" style={{ width: "18%" }}>Proj rec</th>
-              <th className="n" style={{ width: "20%" }}>Starters WAR</th>
+              {/* the same grid as Standings above: a desktop-only fourth
+                  column, then 18 / 18 / 20. On a phone the projected ppg
+                  folds under the projected record, as ppg does under W-L. */}
+              <th className="n lgx-desk" style={{ width: "14%" }}>Proj W-L</th>
+              <th className="n" style={{ width: "18%" }}><span className="lgx-desk">Proj PPG</span><span className="lgx-phone">Proj W-L</span></th>
+              <th className="n" style={{ width: "18%" }}>Starters WAR</th>
+              <th className="n" style={{ width: "20%" }}>Market</th>
             </tr>
           </thead>
           <tbody>
@@ -668,21 +817,28 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                     inactive rule. */}
                 <Spine rank={i + 1} top={i === 0} />
                 <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
-                {/* MOVE IS UNKNOWN, NOT ZERO, and not an invented arrow. The
-                    pipeline publishes no prior ranking to difference against:
-                    dvi.json, cvi.json and index_models.json each hold one
-                    night's figures with no history, values_history.json is
-                    per-player market price and nothing else, and no script in
-                    scripts/ writes a franchise ordinal over time. So every row
-                    reads —, and the caption under the table says why. */}
-                <td className="n">{NUL}</td>
-                <td className="n"><span className="f">{r.rec ?? NUL}</span></td>
+                <td className="n lgx-desk"><span className="f">{r.rec ?? NUL}</span></td>
+                <td className="n">
+                  <span className="f lgx-phone">{r.rec ?? NUL}</span>
+                  <span className="f lgx-desk">{r.ppg != null ? fmt(r.ppg, 1) : NUL}</span>
+                  <div className="idc-s r lgx-phone">{r.ppg != null ? `${fmt(r.ppg, 1)} proj ppg` : ""}</div>
+                </td>
                 <td className="n">
                   {/* NO METER (Max, 2026-09-02): the WAR bar that filled with
                       the figure read as a dashboard gauge on this board, not a
                       statistic. The sort column is the headline weight and
                       the ordinal spine carries the order. */}
                   <span className="f hd">{fmtWar(r.war)}</span>
+                </td>
+                {/* MARKET, last (Max, 2026-09-02), in place of a Move column
+                    the pipeline could never fill: the whole roster's KTC,
+                    players plus the picks it holds at their inferred tiers —
+                    the same figure the Team screen's strip carries, from the
+                    same hook, so the two cannot disagree. */}
+                <td className="n">
+                  <span className="f">
+                    {tvals ? (mktOf.get(r.rid) != null ? Math.round(mktOf.get(r.rid)!).toLocaleString() : NUL) : NUL}
+                  </span>
                 </td>
               </TapRow>
             ))}
