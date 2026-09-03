@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
   BracketFile, DynastyMovers, Franchises, Matchups, ProjectionsFile,
-  SummaryRow, Team, Trade, TradesPayload, Values, WeekOdds, Weekly,
+  SleeperProjFile, SummaryRow, Team, Trade, TradesPayload, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useCvi, useDvi } from "../../lib/useIndices";
@@ -132,6 +132,87 @@ export default function League() {
  * files the nightly refresh rewrites, so they cannot go stale the way a
  * written verdict did.
  */
+/**
+ * THE BOOK'S OWN JUICE, measured (Max, 2026-09-02). data/vig_model.json —
+ * scripts/vig_model.py, off every NFL closing moneyline nflverse carries —
+ * tabulates, by the favourite's FAIR probability, what books actually posted
+ * on the favourite and on the dog, hold included. A fair 63% favourite is
+ * not quoted at −170/+170; it is quoted at whatever the table says books
+ * quote 63% favourites at, which is what makes our line read like a line.
+ */
+interface VigModel {
+  meta: { hold_median: number | null; min_n?: number };
+  bins: { p: number; n: number; fav: number | null; dog: number | null; hold: number | null }[];
+}
+
+/** implied probability -> American moneyline, whole numbers as books quote.
+ *  No cap (Max, 2026-09-02): a 99% side prints −9900, which is the line. Only
+ *  the degenerate ends are guarded, since 0 and 1 have no moneyline at all. */
+const toMl = (q: number): string => {
+  const c = Math.min(0.9999, Math.max(0.0001, q));
+  const ml = c >= 0.5 ? -100 * c / (1 - c) : 100 * (1 - c) / c;
+  const r = Math.round(ml);
+  return r > 0 ? `+${r}` : String(r);
+};
+
+/** the flat fallback hold when no measured table has loaded: the value that
+ *  makes a coin flip exactly −110/−110 */
+const HOLD = 110 / 210 / 0.5 - 1;
+
+/**
+ * THE POWER METHOD: raise both fair probabilities to one power k < 1 until
+ * they sum to 1 + hold. Unlike a multiplier it never pushes a favourite past
+ * 100% — it loads the dog, which is what a real board does to a heavy line.
+ * k is monotone in the sum, so bisection finds it.
+ */
+function juice(fair: number, hold: number): [number, number] {
+  const total = 1 + hold;
+  let lo = 0.3, hi = 1;
+  for (let i = 0; i < 40; i++) {
+    const k = (lo + hi) / 2;
+    if (Math.pow(fair, k) + Math.pow(1 - fair, k) > total) lo = k; else hi = k;
+  }
+  const k = (lo + hi) / 2;
+  return [Math.pow(fair, k), Math.pow(1 - fair, k)];
+}
+
+/**
+ * Both sides' moneylines for a matchup, from the model's win probability for
+ * side A. With the measured table: the favourite's fair probability is looked
+ * up among the bins that have real games behind them (interpolating between
+ * 1% bins) and each side takes the POSTED probability books assign at that
+ * strength. Past the last populated bin — NFL books never see a 95% favourite,
+ * a fantasy league does every week — the line is extended with the power
+ * method at the book's own hold for its heaviest favourites, rather than
+ * flattening at the last row. Without the table: the power method at −110.
+ */
+function lines(pA: number, vig: VigModel | null): [string, string] {
+  const aFav = pA >= 0.5;
+  const fair = aFav ? pA : 1 - pA;
+  const minN = vig?.meta.min_n ?? 25;
+  const bins = vig?.bins.filter(b => b.fav != null && b.dog != null && b.n >= minN) ?? [];
+  let fav: number, dog: number;
+  if (bins.length >= 2 && fair <= bins[bins.length - 1].p) {
+    const x = Math.max(bins[0].p, fair);
+    let i = bins.findIndex(b => b.p >= x);
+    if (i <= 0) i = 1;
+    const lo = bins[i - 1], hi = bins[i];
+    const w = hi.p === lo.p ? 0 : (x - lo.p) / (hi.p - lo.p);
+    fav = lo.fav! + (hi.fav! - lo.fav!) * w;
+    dog = lo.dog! + (hi.dog! - lo.dog!) * w;
+  } else {
+    const hold = bins.length ? (bins[bins.length - 1].hold ?? vig?.meta.hold_median ?? HOLD) : HOLD;
+    [fav, dog] = juice(fair, hold);
+  }
+  return aFav ? [toMl(fav), toMl(dog)] : [toMl(dog), toMl(fav)];
+}
+
+/** a point spread to the half, signed for the side it is quoted on */
+const spread = (mine: number, theirs: number): string => {
+  const d = Math.round((theirs - mine) * 2) / 2;
+  return d === 0 ? "PK" : d > 0 ? `+${d}` : String(d);
+};
+
 function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const { players } = useLeague();
   const betaPath = useBetaPath();
@@ -147,6 +228,12 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const oddsR = useJson<WeekOdds>(`${resultSeason}/odds.json`).data;
   const weeklyR = useJson<Weekly>(`${resultSeason}/weekly.json`).data;
   const teamsR = useJson<Team[]>(`${resultSeason}/teams.json`).data;
+  // the measured vig: a global file, one fit for every league
+  const vig = useJson<VigModel>("data/vig_model.json").data;
+  // STARS TO WATCH: each side's highest-projected starter this week, off
+  // Sleeper's per-week lines; once the week is scored, its top scorer instead
+  const sproj = useJson<SleeperProjFile>("proj_sleeper.json").data;
+  const weeklyNow = useJson<Weekly>(`${rosterSeason}/weekly.json`).data;
 
   const nameOf = (list: Team[] | null | undefined, rid: number) =>
     list?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
@@ -177,14 +264,36 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     }
     const line = oddsQ.data?.weeks[String(wk)] ?? {};
     const played = pairs.length > 0 && pairs.every(([a, b]) => scored.has(a) && scored.has(b));
+
+    /* THE STAR TO WATCH on each side. Before kickoff: the highest-projected
+       player among the starters the manager has set (matchups.set, the live
+       lineup), or the roster's best projected player when no lineup is set
+       yet. Once scored: the starter who actually scored most. One name per
+       side, so the card stays a card. */
+    const startersOf = (rid: number): string[] => {
+      const e = mw.teams[String(rid)]?.find(x => x[0] === wk);
+      if (e?.[4]?.length) return e[4].filter(p => p && p !== "0");
+      if (mw.set?.week === wk) return (mw.set.starters[String(rid)] ?? []).filter(p => p && p !== "0");
+      return teams?.find(t => t.roster_id === rid)?.players ?? [];
+    };
+    const star = (rid: number): { pid: string; v: number; actual: boolean } | null => {
+      const pool = startersOf(rid);
+      let best: { pid: string; v: number; actual: boolean } | null = null;
+      for (const pid of pool) {
+        const act = scored.has(rid) ? weeklyNow?.[pid]?.find(x => x[0] === wk)?.[1] : undefined;
+        const v = act ?? sproj?.players[pid]?.wk?.[String(wk)] ?? (scored.has(rid) ? undefined : sproj?.players[pid]?.ppg);
+        if (v != null && (!best || v > best.v)) best = { pid, v, actual: act != null };
+      }
+      return best;
+    };
     return {
       wk, played,
       games: pairs.map(([a, b]) => ({
-        a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, pts: scored.get(a)?.pts ?? null },
-        b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, pts: scored.get(b)?.pts ?? null },
+        a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, pts: scored.get(a)?.pts ?? null, star: star(a) },
+        b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, pts: scored.get(b)?.pts ?? null, star: star(b) },
       })),
     };
-  }, [mwQ.data, oddsQ.data, phase.week]);
+  }, [mwQ.data, oddsQ.data, phase.week, teams, sproj, weeklyNow]);
 
   /* ---- last week -------------------------------------------------------- */
   const lastWeek = useMemo(() => {
@@ -231,31 +340,50 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   return (
     <>
       <Band label={thisWeek ? `This week · ${twSeason} wk ${thisWeek.wk}` : "This week"}
-        note={thisWeek?.played ? "Final" : "Pregame line · projected total"} />
+        note={thisWeek?.played ? "Final · top scorer under each side" : "Pregame line · star to watch under each side"} />
       {mwQ.error ? <DataError what="Schedule didn't load" />
         : !thisWeek ? <div className="empty">{mwQ.loading ? "Loading…" : "No week scheduled."}</div> : (
         <div className="lgx-games">
           {thisWeek.games.map(g => {
             const aWon = g.a.pts != null && g.b.pts != null && g.a.pts > g.b.pts;
             const bWon = g.a.pts != null && g.b.pts != null && g.b.pts > g.a.pts;
-            const side = (x: typeof g.a, won: boolean, right: boolean) => (
+            /* THE LINE, THE WAY A BOOK WOULD QUOTE IT (Max, 2026-09-02): each
+               side's moneyline is its figure; the spread and the total sit in
+               the middle block between them, the way a scoreboard card posts
+               them, with the spread quoted from the favourite's side and an
+               arrow pointing at it. Under each name: the star to watch. After
+               kickoff the figures are the points and the middle reads Final. */
+            const total = g.a.mu != null && g.b.mu != null ? fmt(g.a.mu + g.b.mu, 1) : null;
+            const aFav = (g.a.wp ?? 0) >= (g.b.wp ?? 0);
+            const favSide = aFav ? g.a : g.b, dogSide = aFav ? g.b : g.a;
+            const sp = favSide.mu != null && dogSide.mu != null ? spread(favSide.mu, dogSide.mu) : null;
+            const [mlA, mlB] = g.a.wp != null ? lines(g.a.wp, vig) : [null, null];
+            const side = (x: typeof g.a, ml: string | null, won: boolean, right: boolean) => (
               <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
                 <div className="nm">{nameOf(teams, x.rid)}</div>
-                <div className="fig">
-                  {x.pts != null ? fmt(x.pts, 1)
-                    : x.wp != null ? `${Math.round(x.wp * 100)}%` : DASH}
-                </div>
+                <div className="fig">{x.pts != null ? fmt(x.pts, 1) : ml ?? DASH}</div>
                 <div className="sub">
-                  {x.pts != null ? (won ? "won" : "") : x.mu != null ? `proj ${fmt(x.mu, 1)}` : ""}
+                  {x.star
+                    ? `${pInfo(players, x.star.pid)[0]} · ${fmt(x.star.v, 1)}`
+                    : ""}
                 </div>
               </div>
             );
             return (
               <RouteLink key={`${g.a.rid}-${g.b.rid}`} className="lgx-game"
                 to={seasonsRoute(twSeason, thisWeek.wk)}>
-                {side(g.a, aWon, false)}
-                <div className="vs">{thisWeek.played ? "" : "vs"}</div>
-                {side(g.b, bWon, true)}
+                {side(g.a, mlA, aWon, false)}
+                <div className="mid">
+                  {thisWeek.played ? <span className="k">Final</span> : (
+                    <>
+                      <span className="k">Spread</span>
+                      <span className="v">{sp ? (aFav ? `◂ ${sp}` : `${sp} ▸`) : DASH}</span>
+                      <span className="k">Total</span>
+                      <span className="v">{total ?? DASH}</span>
+                    </>
+                  )}
+                </div>
+                {side(g.b, mlB, bWon, true)}
               </RouteLink>
             );
           })}
