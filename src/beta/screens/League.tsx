@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
-  BracketFile, DynastyMovers, Franchises, Insights, Matchups, ProjectionsFile,
-  SummaryRow, Team, Trade, TradesPayload, Values,
+  BracketFile, DynastyMovers, Franchises, Matchups, ProjectionsFile,
+  SummaryRow, Team, Trade, TradesPayload, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useCvi, useDvi } from "../../lib/useIndices";
 import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
 import { fmt, mean, normCdf, normInv, ord, sgn } from "../../lib/stats";
@@ -15,7 +16,7 @@ import { readTrades, tradeWhen } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
 import { useActivity, useSeasonPhase, useStandings, type ActMove } from "../model";
 import {
-  Band, DataError, fmtWar, IdCell, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath, type Figure,
+  Band, DataError, fmtWar, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure,
 } from "../ui";
 import ScopeControl, { ALL_SEASONS, useScope, type ScopeSeason } from "../Scope";
 import "./league.css";
@@ -25,9 +26,9 @@ import "./league.css";
  *
  * ONE TENSE PER VIEW, and the scope control is the only thing that changes it.
  *
- *   Current  the roster season and nothing else: the written verdict on the
- *            league's best team, the power rankings that price it, the last
- *            seven days, then the three reads that price the market.
+ *   Current  the roster season and nothing else: this week's matchups and
+ *            last week's figures, the power rankings, the last seven days,
+ *            then win-now vs dynasty and the two market reads.
  *   History  one settled season and nothing else: its champion, its final
  *            standings by seed, its WAR leaders.
  *
@@ -52,17 +53,7 @@ const MODULE_ROWS = 5;
  *  window never does. */
 const WINDOW_DAYS = 7;
 
-/**
- * The market price below which a model-vs-market gap is noise.
- *
- * The value bridge is a monotone fit from market points to WAR, and at the foot
- * of the board it extrapolates off a handful of observations — it will happily
- * claim a 467-point veteran is worth four wins more than the market says. 2000
- * is not a number invented here: it is `dynasty_movers.py`'s own `min_value`,
- * so the two market bands on this screen qualify their populations the same way
- * instead of each picking a floor.
- */
-const MARKET_FLOOR = 2000;
+
 
 /** An em dash OUTSIDE a table. ui.tsx's NUL rides `.nul`, which beta.css scopes
  *  to `.v3tbl td`; a basket figure and a champion block are not table cells. */
@@ -117,6 +108,186 @@ export default function League() {
    CURRENT — the roster season
    ======================================================================== */
 
+/* ========================================================================
+   THIS WEEK / LAST WEEK — the top of the League screen
+   ======================================================================== */
+
+/**
+ * THE TWO WEEKS A READER ACTUALLY ASKS ABOUT (Max, 2026-09-02), in place of
+ * the dated outlook paragraph that used to lead the screen.
+ *
+ * THIS WEEK is the week in progress — or, before the season, week 1 — as six
+ * matchup cards: each side's name and its pregame win probability and
+ * projected total from odds.json (week_odds.py's own line, no lookahead).
+ * Once the week is scored the card shows the points instead and the winner
+ * takes the accent. Every card taps through to that week on Seasons.
+ *
+ * LAST WEEK is the most recent scored regular-season week — of the roster
+ * season once one has been played, of the last finished season before that,
+ * which is why the band names its season — as a four-figure strip: top score,
+ * low score, the upset (the winner the line liked least), and the week's WAR
+ * leader among players who were actually started.
+ *
+ * Nothing here is prose and nothing is authored: both bands are read off the
+ * files the nightly refresh rewrites, so they cannot go stale the way a
+ * written verdict did.
+ */
+function WeekBands({ rosterSeason }: { rosterSeason: string }) {
+  const { players } = useLeague();
+  const betaPath = useBetaPath();
+  const phase = useSeasonPhase();
+  const resultSeason = phase.resultSeason;
+
+  const mwQ = useJson<Matchups>(`${rosterSeason}/matchups.json`);
+  const oddsQ = useJson<WeekOdds>(`${rosterSeason}/odds.json`);
+  const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
+  // the result season's files: the same files when a week of the roster
+  // season has been played, the previous season's before that
+  const mwR = useJson<Matchups>(`${resultSeason}/matchups.json`).data;
+  const oddsR = useJson<WeekOdds>(`${resultSeason}/odds.json`).data;
+  const weeklyR = useJson<Weekly>(`${resultSeason}/weekly.json`).data;
+  const teamsR = useJson<Team[]>(`${resultSeason}/teams.json`).data;
+
+  const nameOf = (list: Team[] | null | undefined, rid: number) =>
+    list?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
+
+  /* ---- this week -------------------------------------------------------- */
+  const thisWeek = useMemo(() => {
+    const mw = mwQ.data;
+    if (!mw) return null;
+    const ps = mw.playoff_start || 15;
+    // the week in progress, else the first week anyone is scheduled for
+    const scheduled = Object.keys(mw.schedule ?? {}).map(Number).filter(w => w < ps).sort((a, b) => a - b);
+    const wk = phase.week ?? scheduled[0] ?? null;
+    if (wk == null) return null;
+    // scored entries for the week, by roster
+    const scored = new Map<number, { pts: number; opp: number | null; oppPts: number | null }>();
+    for (const [rid, list] of Object.entries(mw.teams)) {
+      const e = list.find(x => x[0] === wk);
+      if (e) scored.set(Number(rid), { pts: e[1], opp: e[2], oppPts: e[3] });
+    }
+    // pairings: the schedule's, else derived from the scored entries
+    let pairs: [number, number][] = mw.schedule?.[String(wk)] ?? [];
+    if (!pairs.length) {
+      const seen = new Set<number>();
+      for (const [rid, e] of scored) {
+        if (seen.has(rid) || e.opp == null) continue;
+        seen.add(rid); seen.add(e.opp); pairs.push([rid, e.opp]);
+      }
+    }
+    const line = oddsQ.data?.weeks[String(wk)] ?? {};
+    const played = pairs.length > 0 && pairs.every(([a, b]) => scored.has(a) && scored.has(b));
+    return {
+      wk, played,
+      games: pairs.map(([a, b]) => ({
+        a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, pts: scored.get(a)?.pts ?? null },
+        b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, pts: scored.get(b)?.pts ?? null },
+      })),
+    };
+  }, [mwQ.data, oddsQ.data, phase.week]);
+
+  /* ---- last week -------------------------------------------------------- */
+  const lastWeek = useMemo(() => {
+    if (!mwR) return null;
+    const ps = mwR.playoff_start || 15;
+    let wk = 0;
+    for (const list of Object.values(mwR.teams))
+      for (const e of list) if (e[0] < ps && e[0] > wk) wk = e[0];
+    if (!wk) return null;
+    const rows: { rid: number; pts: number; opp: number | null; oppPts: number | null; starters: string[] }[] = [];
+    for (const [rid, list] of Object.entries(mwR.teams)) {
+      const e = list.find(x => x[0] === wk);
+      if (e) rows.push({ rid: Number(rid), pts: e[1], opp: e[2], oppPts: e[3], starters: e[4] ?? [] });
+    }
+    if (!rows.length) return null;
+    const top = rows.reduce((m, r) => (r.pts > m.pts ? r : m));
+    const low = rows.reduce((m, r) => (r.pts < m.pts ? r : m));
+    // THE UPSET: the winner the pregame line liked least. Ties are not upsets.
+    const line = oddsR?.weeks[String(wk)] ?? {};
+    const winners = rows.filter(r => r.oppPts != null && r.pts > r.oppPts && line[String(r.rid)]?.wp != null);
+    const upset = winners.length
+      ? winners.reduce((m, r) => (line[String(r.rid)].wp! < line[String(m.rid)].wp! ? r : m))
+      : null;
+    // THE WEEK'S WAR LEADER, among players who were STARTED — a bench 40 is
+    // a fact about a bench, not about the week
+    const startedBy = new Map<string, number>();
+    for (const r of rows) for (const pid of r.starters) if (pid && pid !== "0") startedBy.set(pid, r.rid);
+    let best: { pid: string; war: number; rid: number } | null = null;
+    if (weeklyR) {
+      for (const [pid, wrows] of Object.entries(weeklyR)) {
+        const rid = startedBy.get(pid);
+        if (rid == null) continue;
+        const w = wrows.find(x => x[0] === wk);
+        if (w && (!best || w[5] > best.war)) best = { pid, war: w[5], rid };
+      }
+    }
+    return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, best };
+  }, [mwR, oddsR, weeklyR]);
+
+  const seasonsRoute = (season: string, wk: number) => betaPath(`/seasons/${season}/${wk}`);
+  const twSeason = rosterSeason;
+  const lwSeason = resultSeason;
+
+  return (
+    <>
+      <Band label={thisWeek ? `This week · ${twSeason} wk ${thisWeek.wk}` : "This week"}
+        note={thisWeek?.played ? "Final" : "Pregame line · projected total"} />
+      {mwQ.error ? <DataError what="Schedule didn't load" />
+        : !thisWeek ? <div className="empty">{mwQ.loading ? "Loading…" : "No week scheduled."}</div> : (
+        <div className="lgx-games">
+          {thisWeek.games.map(g => {
+            const aWon = g.a.pts != null && g.b.pts != null && g.a.pts > g.b.pts;
+            const bWon = g.a.pts != null && g.b.pts != null && g.b.pts > g.a.pts;
+            const side = (x: typeof g.a, won: boolean, right: boolean) => (
+              <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
+                <div className="nm">{nameOf(teams, x.rid)}</div>
+                <div className="fig">
+                  {x.pts != null ? fmt(x.pts, 1)
+                    : x.wp != null ? `${Math.round(x.wp * 100)}%` : DASH}
+                </div>
+                <div className="sub">
+                  {x.pts != null ? (won ? "won" : "") : x.mu != null ? `proj ${fmt(x.mu, 1)}` : ""}
+                </div>
+              </div>
+            );
+            return (
+              <RouteLink key={`${g.a.rid}-${g.b.rid}`} className="lgx-game"
+                to={seasonsRoute(twSeason, thisWeek.wk)}>
+                {side(g.a, aWon, false)}
+                <div className="vs">{thisWeek.played ? "" : "vs"}</div>
+                {side(g.b, bWon, true)}
+              </RouteLink>
+            );
+          })}
+        </div>
+      )}
+
+      <Band label={lastWeek ? `Last week · ${lwSeason} wk ${lastWeek.wk}` : "Last week"}
+        note="Regular season" />
+      {!lastWeek ? <div className="empty">{mwR ? "No week played yet." : "Loading…"}</div> : (
+        <Strip figures={[
+          { key: "top", label: "Top score", value: fmt(lastWeek.top.pts, 1),
+            sub: nameOf(teamsR, lastWeek.top.rid), to: seasonsRoute(lwSeason, lastWeek.wk) },
+          { key: "low", label: "Low score", value: fmt(lastWeek.low.pts, 1),
+            sub: nameOf(teamsR, lastWeek.low.rid), to: seasonsRoute(lwSeason, lastWeek.wk) },
+          { key: "upset", label: "Upset",
+            value: lastWeek.upset && lastWeek.upsetWp != null ? `${Math.round(lastWeek.upsetWp * 100)}%` : DASH,
+            sub: lastWeek.upset
+              ? `${nameOf(teamsR, lastWeek.upset.rid)} beat ${lastWeek.upset.opp != null ? nameOf(teamsR, lastWeek.upset.opp) : "—"}`
+              : "no winner beat the line",
+            to: seasonsRoute(lwSeason, lastWeek.wk) },
+          { key: "war", label: "WAR leader",
+            value: lastWeek.best ? fmtWar(lastWeek.best.war) : DASH, acc: !!lastWeek.best,
+            sub: lastWeek.best
+              ? `${pInfo(players, lastWeek.best.pid)[0]} · ${nameOf(teamsR, lastWeek.best.rid)}`
+              : (weeklyR ? "no starter scored" : "loading…"),
+            to: lastWeek.best ? betaPath(`/player/${lastWeek.best.pid}`) : undefined },
+        ]} />
+      )}
+    </>
+  );
+}
+
 /** One power-rankings row. Everything on it prices the roster season: the
  *  lineup is year-one composite WAR, the record is that lineup run through the
  *  published schedule. Nothing here is a figure from a settled year. */
@@ -131,11 +302,15 @@ interface PowerRow {
   wins: number | null; rec: string | null;
 }
 
-/** one model-vs-market row */
+/** one win-now-vs-dynasty row: the two indices and the gap between them */
 interface GapRow {
   pid: string; name: string; pos: string; nfl: string;
-  price: number; model: number; imp: number; gap: number;
+  dvi: number; cvi: number; gap: number;
 }
+
+/** how deep into the startable universe a value play may sit — the classic
+ *  board's VALUE_PLAY_DEPTH, restated so the two shells qualify the same way */
+const VALUE_PLAY_DEPTH = 100;
 
 /** one market-mover row */
 interface MoverRow {
@@ -152,7 +327,6 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const projQ = useJson<ProjectionsFile>("projections.json");
   const proj = projQ.data;
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
-  const ins = useJson<Insights>("insights.json").data;
   const tradesFile = useJson<TradesPayload>("trades.json").data;
   // the market prices a FORMAT, not a league — global files, global scope
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
@@ -215,13 +389,6 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
   const leader = power?.[0] ?? null;
 
-  /* THE WRITTEN CLAIM belongs to whoever the board actually puts first, which
-     is why it is read off `power` rather than off a rank parsed out of the
-     file. insights.json's `head` string carries its own ordering ("#1 now",
-     written 2026-07-20) and this league has traded since; rendering that line
-     verbatim above a live table would put two different rankings on one screen.
-     So the prose is quoted and dated, and every figure beside it is this run's. */
-  const verdict = leader && ins ? ins.teams[String(leader.rid)] ?? null : null;
 
   /* ---- the last seven days -------------------------------------------- */
 
@@ -263,43 +430,46 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
   const [openMoves, setOpenMoves] = useState(false);
 
-  /* ---- model vs market -------------------------------------------------- */
+  /* ---- win now vs dynasty ------------------------------------------------ */
 
   /**
-   * The model's three-year WAR against the WAR the market's price implies.
+   * WHO IS A WIN-NOW PLAYER AND WHO IS A DYNASTY PLAYER (Max, 2026-09-02): the
+   * largest disagreements between our two indices, among rostered players.
+   * CVI prices the coming season and DVI the dynasty horizon, so a player far
+   * above his DVI on CVI is worth more to a contender than a rebuilder, and
+   * the reverse is a stash. This band used to compare the model's WAR to the
+   * market's implied WAR — a fact about the market, not about the roster —
+   * which was the wrong question for the League screen.
    *
-   * This is the value-plays module's question asked of the right two numbers.
-   * views/Home.tsx still ranks by the raw DVI-minus-CVI gap, which compares two
-   * of our own indices to each other and never consults a price at all — the
-   * known gap SKILL §8 names. Both figures here ship precomputed in values.json
-   * (`modelWar`, `impWar.ktc`, written by value_bridge.py), so the whole band
-   * costs one fetch the screen was making anyway.
-   *
-   * SIGN CONVENTION, stated in the group bands so it cannot be misread: a
-   * NEGATIVE gap means the market pays more than the model does, which is the
-   * sell-high side.
+   * The classic board's value-plays rules, restated so the two shells qualify
+   * the same population: a WIN-NOW row needs a CVI rank inside the startable
+   * top 100 (or the gap is only age); a DYNASTY row needs a DVI rank inside
+   * it and a redraft ECR rank, so a player known to give nothing this year
+   * does not read as a stash. Gap is CVI minus DVI, signed, in index points.
    */
+  const dvi = useDvi();
+  const cvi = useCvi();
   const mvm = useMemo(() => {
-    if (!vals) return null;
-    const rows: GapRow[] = [];
-    for (const [pid, v] of Object.entries(vals.players)) {
+    if (!dvi || !cvi || !teams) return null;
+    const owned = new Set(teams.flatMap(t => t.players));
+    const rows: (GapRow & { dRank: number; cRank: number; ecr?: number })[] = [];
+    for (const [pid, dr] of Object.entries(dvi.players)) {
+      const cr = cvi.players[pid];
       const info = players[pid];
-      const price = ktcOf(v, meta.tep);
-      const model = v.modelWar, imp = v.impWar?.ktc;
-      // no players_min entry means nothing on this board can name him or link
-      // to him; a row reading "#13291" is worse than one fewer row
-      if (!info || model == null || imp == null || price == null || price < MARKET_FLOOR) continue;
+      if (!cr || !info || !owned.has(pid)) continue;
       rows.push({
-        pid, name: info[0], pos: info[1], nfl: info[2],
-        price, model, imp, gap: model - imp,
+        pid, name: info[0], pos: dr.pos, nfl: info[2],
+        dvi: dr.dvi, cvi: cr.cvi, gap: cr.cvi - dr.dvi,
+        dRank: dr.rank, cRank: cr.rank, ecr: cr.ecr,
       });
     }
     rows.sort((a, b) => b.gap - a.gap);
     return {
-      sell: rows.filter(r => r.gap < 0).slice(-MODULE_ROWS).reverse(),
-      buy: rows.filter(r => r.gap > 0).slice(0, MODULE_ROWS),
+      now: rows.filter(r => r.gap > 0 && r.cRank <= VALUE_PLAY_DEPTH).slice(0, MODULE_ROWS),
+      later: rows.filter(r => r.gap < 0 && r.ecr != null && r.dRank <= VALUE_PLAY_DEPTH)
+        .slice(-MODULE_ROWS).reverse(),
     };
-  }, [vals, players, meta.tep]);
+  }, [dvi, cvi, teams, players]);
 
   /* ---- market movers ---------------------------------------------------- */
 
@@ -329,17 +499,8 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
   return (
     <>
-      {/* ---- 1. the verdict ---------------------------------------------- */}
-      {verdict && leader && ins && (
-        <div className="verdict lgx-verdict">
-          <div className="k">{ins.meta.season} outlook · {leader.team}</div>
-          <div className="meta">
-            Top of the board · proj {leader.rec ?? "—"} · starters {fmtWar(leader.war)} WAR
-            {" · "}written {ins.meta.generated}
-          </div>
-          <div className="body">{verdict.text}</div>
-        </div>
-      )}
+      {/* ---- 1. this week / last week ------------------------------------ */}
+      <WeekBands rosterSeason={rosterSeason} />
 
       {/* ---- 2. power rankings ------------------------------------------- */}
       <Band label={`Power rankings · ${rosterSeason}`}
@@ -350,7 +511,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {teamsQ.error || projQ.error
         ? <DataError what="Power rankings didn't load" />
         : !power ? <div className="empty">Loading projections…</div> : (
-        <table className="v3tbl">
+        <table className="v3tbl lgx-grid">
           <thead>
             <tr>
               {/* No header on this table is a control. The band above claims one
@@ -358,9 +519,15 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   power table makes. Re-ranking lives on the rankings board. */}
               <th className="c sp">#</th>
               <th className="t">Franchise</th>
-              <th className="n" style={{ width: "12%" }}>Move</th>
-              <th className="n" style={{ width: "17%" }}>Proj rec</th>
-              <th className="n" style={{ width: "27%" }}>Starters WAR</th>
+              {/* ONE COLUMN GRID for every table on this screen (Max, 2026-09-02):
+                  figure columns are 18 / 18 / 20 from the left of the figures,
+                  so a three-figure table and a two-figure table put their last
+                  two values in the same place and the eye reads down the
+                  screen as one board. Declared on the header cells, the fixed
+                  layout's authority. */}
+              <th className="n" style={{ width: "18%" }}>Move</th>
+              <th className="n" style={{ width: "18%" }}>Proj rec</th>
+              <th className="n" style={{ width: "20%" }}>Starters WAR</th>
             </tr>
           </thead>
           <tbody>
@@ -394,15 +561,6 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
           </tbody>
         </table>
       )}
-      <div className="tnote screen">
-        Ranked by the projected WAR of each roster's best legal lineup in {rosterSeason}, on
-        year-one composite projections. The record folds in the published schedule, so a team
-        can out-rank a better record or the reverse — that difference is the schedule and
-        nothing else. Move would be the change since the last nightly refresh, and the
-        pipeline ships no prior ranking to difference against, so it reads —. Playoff and
-        title odds are not shown at all: nothing published carries a per-team season
-        simulation, and odds.json holds pregame lines for single matchups only.
-      </div>
 
       {/* ---- 3. what moved ----------------------------------------------- */}
       <Band label={phase.offseason ? `Last ${WINDOW_DAYS} days` : "Since Sunday"}
@@ -463,44 +621,32 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         </div>
       )}
 
-      {/* ---- the turn: everything below prices the market, not this league */}
-      <div className="lgx-turn">
-        <b>The market</b>
-        The three bands below price the whole dynasty market — every player the feeds cover,
-        not the twelve rosters above. They would read the same on any superflex board, which
-        is what makes them worth reading before a trade: they are the outside opinion this
-        league's own figures are not.
-      </div>
-
-      {/* ---- 4. model vs market ------------------------------------------ */}
-      <Band label="Model vs market"
-        note={`Three-year WAR, ours against the price · ${MARKET_FLOOR.toLocaleString()}+ market value`} />
-      {/* "Waiting on the nightly pull" is a claim about a fetch that is still
-          coming. Once values.json has failed it is the wrong sentence — the
-          reader is waiting on nothing. */}
-      {valsQ.error
-        ? <DataError what="Market didn't load" />
-        : !mvm ? <div className="empty">Waiting on the nightly market pull…</div> : (
-        <table className="v3tbl">
-          <thead>
-            <tr>
-              <th className="c sp">#</th>
-              <th className="t">Player</th>
-              <th className="n" style={{ width: "18%" }}>Model</th>
-              <th className="n" style={{ width: "18%" }}>Market</th>
-              <th className="n" style={{ width: "20%" }}>Gap</th>
-            </tr>
-          </thead>
-          <tbody>
+      {/* ---- 4. win now vs dynasty --------------------------------------- */}
+      <Band label="Win now vs dynasty" note="CVI prices this season, DVI the horizon" />
+      {teamsQ.error
+        ? <DataError what="Rosters didn't load" />
+        : !mvm ? <div className="empty">Loading…</div> : (
+        <table className="v3tbl lgx-grid">
+          {/* THE GROUP LABEL IS THE HEADER ROW (Max, 2026-09-02). A column header
+              row above a group band above the rows put a strip of nothing
+              between "Value" and the first value. Each group now opens with
+              one row that is both: the label and its note sit in the identity
+              column's header cell, the figure headers repeat beside it, and
+              the values start on the next line. The first group's row is the
+              table's first row, which is what the fixed layout takes its
+              column widths from — so it carries the width hints, and it holds
+              no colspan. */}
             {([
-              ["Sell high", "The market pays more than the model does", mvm.sell],
-              ["Buy low", "The model pays more than the market does", mvm.buy],
-            ] as const).map(([label, note, list]) => (
-              <Fragment key={label}>
-                <tr className="lgx-grp">
-                  <td colSpan={5}>
-                    <span className="k">{label}</span><span className="n">{note}</span>
-                  </td>
+              ["Win now", mvm.now],
+              ["Dynasty", mvm.later],
+            ] as const).map(([label, list]) => (
+              <tbody key={label}>
+                <tr className="lgx-cols">
+                  <th className="c sp">#</th>
+                  <th className="t"><span className="k">{label}</span></th>
+                  <th className="n" style={{ width: "18%" }}>DVI</th>
+                  <th className="n" style={{ width: "18%" }}>CVI</th>
+                  <th className="n" style={{ width: "20%" }}>Gap</th>
                 </tr>
                 {list.map((r, i) => (
                   <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)}
@@ -509,49 +655,49 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                     <IdCell name={r.name}
                       sub={[r.nfl || null, r.pos].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
-                    <td className="n"><span className="f">{fmtWar(r.model)}</span></td>
-                    <td className="n"><span className="f q">{fmtWar(r.imp)}</span></td>
-                    {/* the sign is the whole claim, and `.f.pos` / `.f.neg` are
+                    <td className="n"><span className="f">{fmt(r.dvi, 1)}</span></td>
+                    <td className="n"><span className="f">{fmt(r.cvi, 1)}</span></td>
+                    {/* the sign is the whole claim, and `.f.up` / `.f.down` are
                         the tokens the board already spends on a signed figure.
                         Legal here and nowhere near a trade ledger: a gap is a
                         direction of travel, not a verdict about who won. */}
                     <td className="n">
-                      <span className={`f hd ${r.gap > 0 ? "pos" : "neg"}`}>{sgnWar(r.gap)}</span>
+                      <span className={`f hd ${r.gap > 0 ? "up" : "down"}`}>{sgn(r.gap, 1)}</span>
                     </td>
                   </TapRow>
                 ))}
-              </Fragment>
+              </tbody>
             ))}
-          </tbody>
         </table>
       )}
 
       {/* ---- 5. dynasty movers ------------------------------------------- */}
       <Band label="Dynasty movers"
         note={dyn
-          ? `What packages actually changed hands for · last ${dyn.meta.window_days} days, ${dyn.meta.leagues?.toLocaleString() ?? "—"} leagues`
-          : "What packages actually changed hands for"} />
+          ? `Last ${dyn.meta.window_days} days, ${dyn.meta.leagues?.toLocaleString() ?? "—"} leagues`
+          : undefined} />
       {!dyn ? <div className="empty">Waiting on the trade-corpus refresh…</div> : (
-        <table className="v3tbl">
-          <thead>
-            <tr>
-              <th className="c sp">#</th>
-              <th className="t">Player</th>
-              <th className="n" style={{ width: "18%" }}>Value</th>
-              <th className="n" style={{ width: "18%" }}>Paid</th>
-              <th className="n" style={{ width: "16%" }}>Δ</th>
-            </tr>
-          </thead>
-          <tbody>
+        <table className="v3tbl lgx-grid">
+          {/* THE GROUP LABEL IS THE HEADER ROW (Max, 2026-09-02). A column header
+              row above a group band above the rows put a strip of nothing
+              between "Value" and the first value. Each group now opens with
+              one row that is both: the label and its note sit in the identity
+              column's header cell, the figure headers repeat beside it, and
+              the values start on the next line. The first group's row is the
+              table's first row, which is what the fixed layout takes its
+              column widths from — so it carries the width hints, and it holds
+              no colspan. */}
             {([
-              ["Going over value", "Packages beat the price", dyn.overpaid],
-              ["Going under value", "Packages fell short of it", dyn.underpaid],
-            ] as const).map(([label, note, list]) => (
-              <Fragment key={label}>
-                <tr className="lgx-grp">
-                  <td colSpan={5}>
-                    <span className="k">{label}</span><span className="n">{note}</span>
-                  </td>
+              ["Going over value", dyn.overpaid],
+              ["Going under value", dyn.underpaid],
+            ] as const).map(([label, list]) => (
+              <tbody key={label}>
+                <tr className="lgx-cols">
+                  <th className="c sp">#</th>
+                  <th className="t"><span className="k">{label}</span></th>
+                  <th className="n" style={{ width: "18%" }}>Value</th>
+                  <th className="n" style={{ width: "18%" }}>Paid</th>
+                  <th className="n" style={{ width: "20%" }}>Δ</th>
                 </tr>
                 {list.slice(0, MODULE_ROWS).map((r, i) => (
                   <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
@@ -560,18 +706,21 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                     <IdCell name={r.name}
                       sub={[r.team, r.pos, `${r.n} trades`].filter(Boolean).join(" · ")}
                       to={betaPath(`/player/${r.pid}`)} />
-                    <td className="n"><span className="f q">{r.value.toLocaleString()}</span></td>
+                    {/* Value and Paid on the same ramp (Max, 2026-09-02): the
+                        KTC value was on the quiet ramp to let Paid lead, and it
+                        read as a smaller number rather than a quieter one. The
+                        Δ column is the headline; these two are its inputs. */}
+                    <td className="n"><span className="f">{r.value.toLocaleString()}</span></td>
                     <td className="n"><span className="f">{r.avg_paid.toLocaleString()}</span></td>
                     <td className="n">
-                      <span className={`f hd ${r.avg_delta > 0 ? "pos" : "neg"}`}>
+                      <span className={`f hd ${r.avg_delta > 0 ? "up" : "down"}`}>
                         {r.avg_pct == null ? NUL : `${sgn(r.avg_pct, 0)}%`}
                       </span>
                     </td>
                   </TapRow>
                 ))}
-              </Fragment>
+              </tbody>
             ))}
-          </tbody>
         </table>
       )}
 
@@ -580,25 +729,26 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {valsQ.error
         ? <DataError what="Market didn't load" />
         : !movers ? <div className="empty">Waiting on the nightly market pull…</div> : (
-        <table className="v3tbl">
-          <thead>
-            <tr>
-              <th className="c sp">#</th>
-              <th className="t">Player</th>
-              <th className="n" style={{ width: "24%" }}>Value</th>
-              <th className="n" style={{ width: "22%" }}>7d</th>
-            </tr>
-          </thead>
-          <tbody>
+        <table className="v3tbl lgx-grid">
+          {/* THE GROUP LABEL IS THE HEADER ROW (Max, 2026-09-02). A column header
+              row above a group band above the rows put a strip of nothing
+              between "Value" and the first value. Each group now opens with
+              one row that is both: the label and its note sit in the identity
+              column's header cell, the figure headers repeat beside it, and
+              the values start on the next line. The first group's row is the
+              table's first row, which is what the fixed layout takes its
+              column widths from — so it carries the width hints, and it holds
+              no colspan. */}
             {([
-              ["Rising", "Bid up over the week", movers.up],
-              ["Falling", "Bid down over the week", movers.down],
-            ] as const).map(([label, note, list]) => (
-              <Fragment key={label}>
-                <tr className="lgx-grp">
-                  <td colSpan={4}>
-                    <span className="k">{label}</span><span className="n">{note}</span>
-                  </td>
+              ["Rising", movers.up],
+              ["Falling", movers.down],
+            ] as const).map(([label, list]) => (
+              <tbody key={label}>
+                <tr className="lgx-cols">
+                  <th className="c sp">#</th>
+                  <th className="t"><span className="k">{label}</span></th>
+                  <th className="n" style={{ width: "18%" }}>Value</th>
+                  <th className="n" style={{ width: "20%" }}>7d</th>
                 </tr>
                 {list.map((r, i) => (
                   <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
@@ -609,25 +759,20 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                       to={betaPath(`/player/${r.pid}`)} />
                     <td className="n"><span className="f">{r.price.toLocaleString()}</span></td>
                     <td className="n">
-                      <span className={`f hd ${r.d > 0 ? "pos" : "neg"}`}>{sgn(r.d, 0)}</span>
+                      <span className={`f hd ${r.d > 0 ? "up" : "down"}`}>{sgn(r.d, 0)}</span>
                     </td>
                   </TapRow>
                 ))}
-              </Fragment>
+              </tbody>
             ))}
-          </tbody>
         </table>
       )}
 
+      {/* the freshness line, kept when the paragraph around it went (Max,
+          2026-09-02): when the market was fetched and when the board was
+          built are the two dates a reader needs to trust a figure */}
       <div className="tnote screen">
-        Model is the projection model's three-year WAR; Market is the WAR the KeepTradeCut
-        price implies through the value bridge — so the gap is one currency, not two, and it
-        is WAR rather than points. Dynasty movers is a crawl of real trades in other superflex
-        leagues, priced in face market points with the trade model's consolidation adjustment
-        on everything but the centerpiece: it says what packages changed hands for, not what a
-        player is worth. Nothing on this screen is a figure from a settled season — the
-        history scope above is where those live. Market fetched{" "}
-        {vals?.fetched ?? meta.updated} · board built {meta.updated}.
+        Market fetched {vals?.fetched ?? meta.updated} · board built {meta.updated}.
       </div>
     </>
   );
@@ -801,14 +946,14 @@ function AllTimeView({ played }: { played: string[] }) {
         note={`${span} · regular season · ordered by win percentage, then points`} />
       {frQ.error ? <DataError what="Franchise history didn't load" />
         : !rows ? <div className="empty">Loading…</div> : (
-        <table className="v3tbl">
+        <table className="v3tbl lgx-grid">
           <thead>
             <tr>
               <th className="c sp">#</th>
               <th className="t">Franchise</th>
-              <th className="n" style={{ width: "17%" }}>W-L</th>
-              <th className="n" style={{ width: "17%" }}>Points</th>
-              <th className="n" style={{ width: "16%" }}>Avg finish</th>
+              <th className="n" style={{ width: "18%" }}>W-L</th>
+              <th className="n" style={{ width: "18%" }}>Points</th>
+              <th className="n" style={{ width: "20%" }}>Avg finish</th>
             </tr>
           </thead>
           <tbody>
@@ -839,13 +984,13 @@ function AllTimeView({ played }: { played: string[] }) {
         note="Regular-season WAR on this league's own scoring, summed over every season" />
       {sums === "error" ? <DataError what="Career WAR didn't load" />
         : !leaders ? <div className="empty">Loading…</div> : (
-        <table className="v3tbl">
+        <table className="v3tbl lgx-grid">
           <thead>
             <tr>
               <th className="c sp">#</th>
               <th className="t">Player</th>
-              <th className="n" style={{ width: "14%" }}>GP</th>
-              <th className="n" style={{ width: "30%" }}>WAR</th>
+              <th className="n" style={{ width: "18%" }}>GP</th>
+              <th className="n" style={{ width: "20%" }}>WAR</th>
             </tr>
           </thead>
           <tbody>
@@ -992,14 +1137,14 @@ function HistoryView({ season }: { season: string }) {
         note="# is the playoff seed — regular-season record, then points" />
       {teamsQ.error ? <DataError what={`${season} standings didn't load`} />
         : !rows ? <div className="empty">Loading {season}…</div> : (
-        <table className="v3tbl">
+        <table className="v3tbl lgx-grid">
           <thead>
             <tr>
               <th className="c sp">#</th>
               <th className="t">Franchise</th>
-              <th className="n" style={{ width: "16%" }}>W-L</th>
-              <th className="n" style={{ width: "16%" }}>PPG</th>
-              <th className="n" style={{ width: "18%" }}>Finish</th>
+              <th className="n" style={{ width: "18%" }}>W-L</th>
+              <th className="n" style={{ width: "18%" }}>PPG</th>
+              <th className="n" style={{ width: "20%" }}>Finish</th>
             </tr>
           </thead>
           <tbody>
@@ -1033,13 +1178,13 @@ function HistoryView({ season }: { season: string }) {
         note="Wins above replacement on this league's own scoring · regular season" />
       {sumQ.error ? <DataError what={`${season} WAR leaders didn't load`} />
         : !leaders ? <div className="empty">Loading {season}…</div> : (
-        <table className="v3tbl">
+        <table className="v3tbl lgx-grid">
           <thead>
             <tr>
               <th className="c sp">#</th>
               <th className="t">Player</th>
-              <th className="n" style={{ width: "14%" }}>GP</th>
-              <th className="n" style={{ width: "34%" }}>WAR</th>
+              <th className="n" style={{ width: "18%" }}>GP</th>
+              <th className="n" style={{ width: "20%" }}>WAR</th>
             </tr>
           </thead>
           <tbody>

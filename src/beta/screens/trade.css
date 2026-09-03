@@ -245,7 +245,7 @@
 .trx-drgot a { color: var(--txt2); }
 .trx-drgot a:hover { color: var(--acc); }
 
-/* A k / v / delta line. THE DELTA IS NEVER INKED. `.f.pos` / `.f.neg` are
+/* A k / v / delta line. THE DELTA IS NEVER INKED. `.f.up` / `.f.down` are
    spent on signed figures elsewhere on the board and are deliberately absent
    here: this drawer prints the same row for both sides of one trade, so a
    green figure on one and a red on the other declares a winner in CSS. The

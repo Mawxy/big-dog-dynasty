@@ -362,6 +362,12 @@
   border-bottom: 1px solid var(--hair);
   white-space: nowrap;
 }
+/* THE RIGHT GUTTER matches the band's (Max, 2026-09-02): the last column's
+   figure used to end 10px from the window edge, which is exactly where an
+   overlay scrollbar (Firefox on Windows, iOS) sits — the Gap figure on League
+   read as cropped while the layout said it fit. --v3pad on the last cell
+   clears the scrollbar and lines the figures up with the band note above. */
+.v3tbl thead th:last-child, .v3tbl tbody th:last-child, .v3tbl tbody td:last-child { padding-right: var(--v3pad); }
 .v3tbl tbody tr.zebra { background: var(--zebra); }
 /* THE TOUCH TARGET. 44px is the whole reason identity is stacked rather than
    inline: two lines of type at this size is what fills the height honestly,
@@ -457,8 +463,15 @@
    Re-pointed here, under `.v3`, rather than in style.css: the classic board's
    meters keep Saira, and this is the beta scope's copy of the rule. */
 .v3 .meter-row .fig { font: 600 14px/1 var(--mono); font-variant-numeric: tabular-nums; }
-.v3tbl td .f.pos { color: var(--good); }
-.v3tbl td .f.neg { color: var(--bad); }
+/* SIGNED FIGURES are `.up` / `.down`, NOT `.pos` / `.neg` (Max, 2026-09-02).
+   `.pos` is the classic board's POSITION BADGE in style.css — inline-block,
+   42px wide, centred — and a beta figure carrying the class was forced into
+   that box: "+2.69" at 17px is wider than 42px, so every positive Gap on the
+   League screen overflowed its cell to the right while the negatives beside
+   it sat where they should. The two stylesheets share one page; a class name
+   the classic board owns is not available here. */
+.v3tbl td .f.up { color: var(--good); }
+.v3tbl td .f.down { color: var(--bad); }
 /* an ACTION WORD in a figure cell ("You", "Claim") is a label, not a figure —
    condensed and tracked, never mono, or the word reads as data */
 .v3tbl td .mark {
@@ -649,7 +662,7 @@
    above it rather than as a fourth peer line */
 .v3-ledger tr.net td { border-top: 1px solid var(--rule); padding-top: 7px; }
 
-/* NO WINNER COLOURING. `.f.pos` / `.f.neg` exist for figures elsewhere on the
+/* NO WINNER COLOURING. `.f.up` / `.f.down` exist for figures elsewhere on the
    board and are deliberately NOT wired up in here: colouring "net to Side A"
    green declares a winner in CSS, which is exactly what decision #14 refuses.
    The sign carries the direction and that is the whole claim. Do not add them.
@@ -822,7 +835,7 @@
    `style={{ textAlign: "right" }}` for this. */
 .v3tbl td .idc-s.r { text-align: right; }
 
-/* Δ30's sign colour comes from `.f.pos` / `.f.neg`, the tokens already spent
+/* Δ30's sign colour comes from `.f.up` / `.f.down`, the tokens already spent
    on a signed figure elsewhere on the board — legal here and nowhere near the
    ledger, because a raw market delta is a direction of travel and not a
    verdict. A sub-line is not the figure ramp, though, so only the SIZE steps
