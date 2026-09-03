@@ -147,14 +147,16 @@ interface VigModel {
 
 /** implied probability -> American moneyline, as books quote them (Max,
  *  2026-09-03): whole numbers on the working range, the nearest ten once a
- *  line is big (past ±550 the last digit is noise nobody prices), and
- *  futures (`step` 5) to the nearest five throughout, which is how a futures
- *  board reads. No cap: a 99% side prints −9900, which is the line. Only the
+ *  line is big (past ±550 the last digit is noise nobody prices), the
+ *  nearest hundred past ±1000, the nearest thousand past ±10000, and futures (`step` 5) to the nearest five
+ *  throughout, which is how a futures board reads. No cap: a 99% side prints −9900, which is the line. Only the
  *  degenerate ends are guarded, since 0 and 1 have no moneyline at all. */
 const toMl = (q: number, step = 1): string => {
   const c = Math.min(0.9999, Math.max(0.0001, q));
   const ml = c >= 0.5 ? -100 * c / (1 - c) : 100 * (1 - c) / c;
-  const unit = Math.abs(ml) > 550 ? 10 : step;
+  // rounding coarsens with the price: tens past ±550, hundreds past ±1000,
+  // thousands past ±10000
+  const unit = Math.abs(ml) > 10000 ? 1000 : Math.abs(ml) > 1000 ? 100 : Math.abs(ml) > 550 ? 10 : step;
   const r = Math.round(ml / unit) * unit;
   return r > 0 ? `+${r}` : String(r);
 };
@@ -445,16 +447,27 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
  *  probability until the sum hits the target, so the favourite is shaded
  *  less than a flat multiplier would and no long shot goes to zero. */
 const FUTURES_BOOK = 1.25;
+/** THE LONGEST PRICE A BOARD POSTS (Max, 2026-09-03): +50000, which is what
+ *  the books have the Dolphins at to win Super Bowl LXI this season. Every
+ *  team gets a price — a side the simulation never saw win is the Dolphins,
+ *  not a blank — and a near-certainty is capped at the same figure the other
+ *  way. */
+const FUTURES_CAP = 50000;
+const capMl = (ml: string): string => {
+  const n = Number(ml);
+  return n > FUTURES_CAP ? `+${FUTURES_CAP}` : n < -FUTURES_CAP ? `-${FUTURES_CAP}` : ml;
+};
 function futuresLines(fair: Record<string, number>): Record<string, string> {
   const ps = Object.values(fair).filter(p => p > 0);
-  if (!ps.length) return {};
+  if (!ps.length) return Object.fromEntries(Object.keys(fair).map(rid => [rid, `+${FUTURES_CAP}`]));
   let lo = 0.2, hi = 1;
   for (let i = 0; i < 40; i++) {
     const k = (lo + hi) / 2;
     if (ps.reduce((a, p) => a + Math.pow(p, k), 0) > FUTURES_BOOK) lo = k; else hi = k;
   }
   const k = (lo + hi) / 2;
-  return Object.fromEntries(Object.entries(fair).map(([rid, p]) => [rid, toMl(Math.pow(p, k), 5)]));
+  return Object.fromEntries(Object.entries(fair).map(([rid, p]) =>
+    [rid, p > 0 ? capMl(toMl(Math.pow(p, k), 5)) : `+${FUTURES_CAP}`]));
 }
 
 function Standings({ rosterSeason }: { rosterSeason: string }) {
@@ -527,13 +540,11 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
                     <div className="idc-s r lgx-phone">{r.played ? `${fmt(r.ppg, 1)} ppg` : "not yet played"}</div>
                   </td>
                   <td className="n">
-                    <span className="f">{o ? (o.playoff >= 0.9995 || o.playoff < 0.0005 ? "—" : lines(o.playoff, vig, 5)[0]) : NUL}</span>
+                    <span className="f">{o ? capMl(lines(o.playoff, vig, 5)[0]) : NUL}</span>
                     <div className="idc-s r">{o ? pct(o.playoff) : ""}</div>
                   </td>
                   <td className="n">
-                    {/* a chance the simulation could barely find (under one
-                        run in two thousand) has no price a book would post */}
-                    <span className="f">{o ? (o.title >= 0.0005 ? titleLines[String(r.rid)] ?? NUL : "—") : NUL}</span>
+                    <span className="f">{o ? titleLines[String(r.rid)] ?? NUL : NUL}</span>
                     <div className="idc-s r">{o ? pct(o.title) : ""}</div>
                   </td>
                 </TapRow>
