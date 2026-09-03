@@ -145,13 +145,17 @@ interface VigModel {
   bins: { p: number; n: number; fav: number | null; dog: number | null; hold: number | null }[];
 }
 
-/** implied probability -> American moneyline, whole numbers as books quote.
- *  No cap (Max, 2026-09-02): a 99% side prints −9900, which is the line. Only
- *  the degenerate ends are guarded, since 0 and 1 have no moneyline at all. */
-const toMl = (q: number): string => {
+/** implied probability -> American moneyline, as books quote them (Max,
+ *  2026-09-03): whole numbers on the working range, the nearest ten once a
+ *  line is big (past ±550 the last digit is noise nobody prices), and
+ *  futures (`step` 5) to the nearest five throughout, which is how a futures
+ *  board reads. No cap: a 99% side prints −9900, which is the line. Only the
+ *  degenerate ends are guarded, since 0 and 1 have no moneyline at all. */
+const toMl = (q: number, step = 1): string => {
   const c = Math.min(0.9999, Math.max(0.0001, q));
   const ml = c >= 0.5 ? -100 * c / (1 - c) : 100 * (1 - c) / c;
-  const r = Math.round(ml);
+  const unit = Math.abs(ml) > 550 ? 10 : step;
+  const r = Math.round(ml / unit) * unit;
   return r > 0 ? `+${r}` : String(r);
 };
 
@@ -186,7 +190,7 @@ function juice(fair: number, hold: number): [number, number] {
  * method at the book's own hold for its heaviest favourites, rather than
  * flattening at the last row. Without the table: the power method at −110.
  */
-function lines(pA: number, vig: VigModel | null): [string, string] {
+function lines(pA: number, vig: VigModel | null, step = 1): [string, string] {
   const aFav = pA >= 0.5;
   const fair = aFav ? pA : 1 - pA;
   const minN = vig?.meta.min_n ?? 25;
@@ -204,7 +208,7 @@ function lines(pA: number, vig: VigModel | null): [string, string] {
     const hold = bins.length ? (bins[bins.length - 1].hold ?? vig?.meta.hold_median ?? HOLD) : HOLD;
     [fav, dog] = juice(fair, hold);
   }
-  return aFav ? [toMl(fav), toMl(dog)] : [toMl(dog), toMl(fav)];
+  return aFav ? [toMl(fav, step), toMl(dog, step)] : [toMl(dog, step), toMl(fav, step)];
 }
 
 /** a point spread to the half, signed for the side it is quoted on */
@@ -450,7 +454,7 @@ function futuresLines(fair: Record<string, number>): Record<string, string> {
     if (ps.reduce((a, p) => a + Math.pow(p, k), 0) > FUTURES_BOOK) lo = k; else hi = k;
   }
   const k = (lo + hi) / 2;
-  return Object.fromEntries(Object.entries(fair).map(([rid, p]) => [rid, toMl(Math.pow(p, k))]));
+  return Object.fromEntries(Object.entries(fair).map(([rid, p]) => [rid, toMl(Math.pow(p, k), 5)]));
 }
 
 function Standings({ rosterSeason }: { rosterSeason: string }) {
@@ -523,7 +527,7 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
                     <div className="idc-s r lgx-phone">{r.played ? `${fmt(r.ppg, 1)} ppg` : "not yet played"}</div>
                   </td>
                   <td className="n">
-                    <span className="f">{o ? (o.playoff >= 0.9995 || o.playoff < 0.0005 ? "—" : lines(o.playoff, vig)[0]) : NUL}</span>
+                    <span className="f">{o ? (o.playoff >= 0.9995 || o.playoff < 0.0005 ? "—" : lines(o.playoff, vig, 5)[0]) : NUL}</span>
                     <div className="idc-s r">{o ? pct(o.playoff) : ""}</div>
                   </td>
                   <td className="n">
