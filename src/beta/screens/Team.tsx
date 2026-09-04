@@ -8,7 +8,9 @@ import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useProjWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { fmt, ord } from "../../lib/stats";
-import { POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf } from "../../lib/league";
+import {
+  POS_CHIPS, POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf,
+} from "../../lib/league";
 import { ktcOf } from "../../lib/values";
 import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
 import { nearestPick, rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
@@ -185,6 +187,15 @@ export default function Team() {
 
     const taxi = new Set(team.taxi), ir = new Set(team.reserve);
 
+    /* QB, RB, WR, TE — the lineup's own order, off POS_CHIPS so there is one
+       list of positions on the site rather than two that could disagree.
+       Anything the index has no position for sorts last rather than first,
+       which is where an unknown belongs on a board about depth. */
+    const posOrder = (p: string) => {
+      const i = POS_CHIPS.indexOf(p);
+      return i < 0 ? POS_CHIPS.length : i;
+    };
+
     const rowOf = (pid: string, o?: { taxi?: boolean; ir?: boolean }): RosterRow => {
       const info = players[pid];
       const pr = posRankOf(pid);
@@ -245,10 +256,23 @@ export default function Team() {
        band. An IR body sits here with its tag: it occupies a reserve slot
        rather than a bench slot, so it is named separately in the note and left
        out of the bench count. */
+    /* BY POSITION, THEN BY VALUE (Max, 2026-09-03). A flat value order answers
+       "who is the best player sitting here", which the lineup above has already
+       settled — the interesting question about a bench is DEPTH, and depth is a
+       question about one position at a time. Grouped, the four runs read as
+       four answers: how many quarterbacks are behind the starter and what the
+       drop is, then the same for the backs. Ungrouped, a reader has to
+       reconstruct that by scanning the position on every row.
+
+       The value inside a group is the LENS in force, not DVI specifically — the
+       column beside it is that lens, and ordering by the other one would put
+       the rows in an order the visible figure does not explain. DVI is the
+       default, so the default board is exactly the ask. */
     const benchRows = team.players
       .filter(pid => !starters.has(pid) && !taxi.has(pid))
       .map(pid => rowOf(pid, { ir: ir.has(pid) }))
-      .sort((a, b) => (b.idx ?? -1) - (a.idx ?? -1));
+      .sort((a, b) =>
+        posOrder(a.pos) - posOrder(b.pos) || (b.idx ?? -1) - (a.idx ?? -1));
 
     /* ---- TAXI ------------------------------------------------------------ */
     const taxiRows = team.players
