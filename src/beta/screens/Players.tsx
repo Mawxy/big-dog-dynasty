@@ -14,7 +14,7 @@ import {
   latestSeasonOf, ownerOf, pInfo, POS_CHIPS, POS_COLOR, rosterSeasonOf,
 } from "../../lib/league";
 import {
-  honorTotals, loadCareer, loadHonors, playerHonors,
+  HONOR_LABEL, honorTotals, loadCareer, loadHonors, playerHonors,
   type CareerSeason, type HonorIndex, type HonorKey,
 } from "../../lib/honors";
 import {
@@ -804,17 +804,19 @@ export default function Players() {
 
   /* ---- the phone row's demoted keys ------------------------------------ */
 
-  /* The strip keys the reader did NOT pick, capped at three. A sort set from a
-     desktop header (ECR, FantasyCalc) is not on the strip at all, which is the
-     case the cap exists for: nothing is displaced, so the first three keys ride
-     the micro line and the lead figure is still the column the board is ordered
-     by. GP fills the last slot when there is one — it is the sample size behind
+  /* The strip keys the reader did NOT pick, CAPPED AT TWO (Max, 2026-09-03).
+     Three of them — "WS 5.20 PPG 23.52 W-L S 25-27" — ran to half the row's
+     width, and everything that line takes comes out of the name beside it. Two
+     pairs leave the identity cell enough to render a full name, which is the
+     thing a reader is actually looking for; the third value is one tap away in
+     the drawer and is a column on the desktop board.
+
+     GP fills the last slot when there is one — it is the sample size behind
      every other figure on the Stats row and is never a phone sort key, so it
-     can never compete with the picked one. With four strip keys in that tense
-     there usually isn't a slot, and GP is in the drawer. */
+     can never compete with the picked one. */
   const micro = useMemo(() => {
-    const other = strip.filter(k => k !== s.sort).slice(0, 3);
-    if (hist && s.sort !== "gp" && other.length < 3) other.push("gp");
+    const other = strip.filter(k => k !== s.sort).slice(0, 2);
+    if (hist && s.sort !== "gp" && other.length < 2) other.push("gp");
     return other;
   }, [strip, s.sort, hist]);
 
@@ -1031,25 +1033,39 @@ export default function Players() {
                       click at the anchor so a name tap never also toggles the
                       drawer. The earlier "no second exit under the thumb"
                       rule lost to a reader who knows which he wants. */}
-                  {/* THE HONOR MARKS, beside the name (Max, 2026-09-03). On a
-                      season they are what he earned THAT season; on all-time
-                      they are the career totals, one mark per tier with a ×N.
-                      Not on the price board: an honor is a settled fact about a
-                      played season and has nothing to say about a price.
+                  {/* THE HONOR MARKS ARE A DESKTOP AFFORDANCE (Max,
+                      2026-09-03). They sat beside the name until a phone showed
+                      what that costs — four tiers and three ×N counts rendered
+                      Christian McCaffrey as "C." — then moved to the sub-line,
+                      capped at two, which was better and still bought a
+                      decoration with width the affiliation wanted.
 
-                      `--pos-mark` is what tints the crown and the gem to the
-                      player's position — the same variable the classic player
-                      rail sets — and it is set per row here because a table has
-                      no per-position container to hang it on. */}
+                      On a phone they are in the DRAWER instead, whole and
+                      labelled. A tap is already how a reader asks a row for
+                      more, the drawer has room for all five tiers with their
+                      counts, and the row gets its identity cell back. On
+                      desktop they stay on the sub-line, where the column is
+                      wide enough that they cost nothing.
+
+                      Never on the price board in either place: an honor is a
+                      settled fact about a played season and has nothing to say
+                      about a price.
+
+                      `--pos-mark` tints the crown and the gem to the player's
+                      position — the same variable the classic player rail sets,
+                      set per row because a table has no per-position container
+                      to hang it on. */}
                   <IdCell name={r.name} to={betaPath(`/player/${r.pid}`)}
-                    sub={[r.affil, `${r.pos}${ordered!.posRank.get(r.pid)}`]
-                      .filter(Boolean).join(" · ")}
-                    after={r.marks?.length ? (
-                      <span className="plx-marks"
-                        style={{ "--pos-mark": POS_COLOR[r.pos] } as CSSProperties}>
-                        <HonorMarks marks={r.marks} size={13} showCounts={allTime} />
-                      </span>
-                    ) : undefined} />
+                    sub={<>
+                      {[r.affil, `${r.pos}${ordered!.posRank.get(r.pid)}`]
+                        .filter(Boolean).join(" · ")}
+                      {!mobile && r.marks?.length ? (
+                        <span className="plx-marks"
+                          style={{ "--pos-mark": POS_COLOR[r.pos] } as CSSProperties}>
+                          <HonorMarks marks={r.marks} size={12} showCounts={allTime} />
+                        </span>
+                      ) : null}
+                    </>} />
                   {mobile ? (
                     <td className="n plx-lead">
                       {/* THE PICKED KEY IS THE LEAD FIGURE. No meter beside it
@@ -1194,6 +1210,32 @@ function Fig({ k, v, sub, word }: {
   );
 }
 
+/**
+ * THE HONORS BLOCK — every mark the row's scope earned, with its counts.
+ *
+ * On a phone this is the ONLY place they appear: the row's identity cell has
+ * no width to spare and the drawer is already where a reader goes for the rest
+ * of a row. On desktop it repeats what the sub-line shows, deliberately — the
+ * sub-line's glyphs are unlabelled, and this is where the reader finds out that
+ * the crown means positional king.
+ *
+ * Renders nothing when there are none: an empty honors block on 600 of 684
+ * rows would say "this player has no honors" in a space the drawer needs for
+ * figures, and the absence already says it.
+ */
+function Honors({ marks, pos }: { marks?: [HonorKey, number][]; pos: string }) {
+  if (!marks?.length) return null;
+  return (
+    <div className="plx-honors" style={{ "--pos-mark": POS_COLOR[pos] } as CSSProperties}>
+      <span className="k">Honors</span>
+      <HonorMarks marks={marks} size={17} />
+      <span className="lb">
+        {marks.map(([k, n]) => `${HONOR_LABEL[k]}${n > 1 ? ` ×${n}` : ""}`).join(" · ")}
+      </span>
+    </div>
+  );
+}
+
 function DrawerGo({ to }: { to: string }) {
   const nav = useNavigate();
   return (
@@ -1283,6 +1325,7 @@ function PostDrawer({ r, season, to }: { r: PostRow; season: string | null; to: 
           sub={gp ? `over ${gp} game${gp === 1 ? "" : "s"}` : "no scored game"} />
         <Fig k="Postseasons" v={r.seasons} sub={season ? "this one" : "with a bracket game"} />
       </div>
+      <Honors marks={r.marks} pos={r.pos} />
       <div className="plx-note">
         Winners bracket, elimination games only — the championship counts, the third- and
         fifth-place games do not, and neither does the consolation bracket. That is the same
@@ -1318,11 +1361,12 @@ function AllDrawer({ r, to }: { r: AllRow; to: string }) {
         <Fig k="Rostered" v={wlText(r.wl.roster) ?? NUL}
           sub={`${wlGames(r.wl.roster)} week${wlGames(r.wl.roster) === 1 ? "" : "s"} owned`} />
       </div>
-      <div className="plx-note">
-        A record is the roster's, not the player's: it counts how the team he was on did in
-        the weeks he was there. The gap between the two lines is how often he was owned and
-        left out.
-      </div>
+      <Honors marks={r.marks} pos={r.pos} />
+      {/* NO NOTE HERE (Max, 2026-09-03). It read "a record is the roster's, not
+          the player's" — a definition, and definitions are the Key's job now.
+          A drawer is opened to see MORE OF THIS ROW; a paragraph that says the
+          same thing under every row is not more of the row, and at this width
+          it was the largest thing in the drawer. */}
       <DrawerGo to={to} />
     </div>
   );
@@ -1373,6 +1417,7 @@ function HistDrawer({ r, season, to, weekly, loading, playoffStart }: {
         <Fig k="Started for" v={r.started?.team ?? NUL} word
           sub={r.started ? `${r.started.starts} start${r.started.starts === 1 ? "" : "s"}` : "never started"} />
       </div>
+      <Honors marks={r.marks} pos={r.pos} />
       {/* No market price in here, in any tense. What he cost in 2026 says
           nothing about what he returned in this season, and a row that carried
           both would leave the reader unable to say which one it was ordered by. */}

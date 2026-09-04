@@ -32,6 +32,21 @@
   color: var(--txt);
 }
 
+/* THE SEARCH BOX GETS ITS OWN LINE ON A PHONE (Max, 2026-09-03).
+   `.v3-filters` is a horizontal scroller and the input grows inside it, so the
+   box was sized past the right edge of the screen and "Search players" was cut
+   off inside a box you had to scroll sideways to see the end of. A search field
+   you cannot read the prompt of is not a search field.
+
+   Wrapping rather than shrinking: five position chips fit one line at 375px
+   with room to spare, so the input takes the second line whole and the row
+   stops scrolling altogether — which also puts the chips, the control every
+   reader uses, back on screen without a swipe. */
+@media (max-width: 899px) {
+  .plx-filters { flex-wrap: wrap; overflow-x: visible; row-gap: 8px; }
+  .plx-filters input[type="search"] { flex: 1 1 100%; min-width: 0; }
+}
+
 /* ---- the key ------------------------------------------------------------
    A header is an abbreviation; this is where it is spelled out. "WS" has no
    room to be "Win share" in a 10% column, and widening one column to hold a
@@ -110,20 +125,59 @@
 }
 
 /* ---- honor marks on the row --------------------------------------------
-   The five career marks, rendered beside the name in the Stats tense at 13px
-   against the player-rail's 20. They are a SECOND identity, not a figure: they
-   say what kind of season this was before the reader has read a single number,
-   which is the one thing a leaderboard row cannot say with a number.
+   The career marks, on the identity SUB-LINE in the Stats tense at 12px
+   against the player-rail's 20 — two of them on a phone, five on the desktop.
+   They are a SECOND identity, not a figure: they say what kind of season this
+   was before the reader has read a single number, which is the one thing a
+   leaderboard row cannot say with a number. What they are not allowed to do is
+   cost the name any width, which is why they are down here.
 
    `--pos-mark` is set per row from the markup (POS_COLOR), because the crown
    and the gem take the position's tint and a table has no per-position
    container for the variable to live on. The champion and the franchise bar
    keep their own tokens and ignore it. */
-.plx-marks { display: flex; align-items: center; }
+.plx-marks { display: inline-flex; align-items: center; margin-left: 6px; }
 .plx-marks .hmark-x {
   font: 600 9px/1 var(--mono);
   font-variant-numeric: tabular-nums;
   color: var(--dim2);
+}
+
+/* THE DRAWER'S HONORS BLOCK — the marks at drawer size with the words beside
+   them. On a phone it is the only place they appear; on desktop it is where the
+   sub-line's unlabelled glyphs get their names, which is the thing a legend is
+   for and the reason this carries text where the row does not.
+
+   Its own rule above it rather than a seventh cell in the figure grid: it is
+   not a figure, and dropping it into a 2-column grid would leave a hole on
+   every row that has no honors. */
+.plx-honors {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  padding-top: 11px;
+  border-top: 1px solid var(--hair);
+}
+.plx-honors .k {
+  flex: 0 0 auto;
+  font: 600 10px/1 var(--cond);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.plx-honors .hmark-row { flex: 0 0 auto; gap: 7px; }
+.plx-honors .hmark-x {
+  font: 600 10px/1 var(--mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--dim2);
+}
+.plx-honors .lb {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: 400 11.5px/1.4 var(--sans);
+  color: var(--dim3);
 }
 
 /* ---- the sort strip (phone) --------------------------------------------- */

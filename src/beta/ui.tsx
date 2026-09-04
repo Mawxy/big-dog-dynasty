@@ -175,16 +175,16 @@ export function PosSpine({ color }: { color?: string }) {
  * Always two lines, even when the sub-line is thin, so a column of these has
  * one height and the eye tracks straight down the names.
  */
-export function IdCell({ name, sub, tags, to, after }: {
+/* LINE 1 IS THE NAME AND NOTHING ELSE (Max, 2026-09-03).
+ *
+ * The honor marks were briefly rendered here beside it, sharing the line under a
+ * flex that let the name shrink and never the marks. On a 390px phone that ate
+ * the column: Christian McCaffrey with four tiers and three ×N counts rendered
+ * as "C.". A name is the row's handle — it is how a reader finds the row they
+ * came for — and nothing gets to take width from it. The marks moved to the
+ * sub-line, which is short by construction and has the slack. */
+export function IdCell({ name, sub, tags, to }: {
   name: ReactNode; sub?: ReactNode;
-  /** MARKS THAT BELONG TO THE NAME, rendered on line 1 beside it and OUTSIDE
-   *  the anchor — honor badges on the Stats board are the case this exists for.
-   *  Outside, because a badge inside the link would be part of the tap target
-   *  that navigates, and these are not a way to anywhere; and on line 1 rather
-   *  than as a `tag`, because a tag is text on the sub-line and these are
-   *  glyphs. The caller passes an already-composed node: this owns the layout,
-   *  not the vocabulary of marks. */
-  after?: ReactNode;
   /** SLOT TAGS — FLX, SFLX, TAXI, IR — on the sub-line, after `sub`.
    *
    *  Passed structurally rather than joined into `sub` by the caller, because a
@@ -202,7 +202,7 @@ export function IdCell({ name, sub, tags, to, after }: {
   const nav = useNavigate();
   return (
     <td className="idc t">
-      <div className={`idc-n${after ? " idc-marked" : ""}`}>
+      <div className="idc-n">
         {to
           ? <a href={`#${to}`} onClick={e => {
             e.stopPropagation();
@@ -210,7 +210,6 @@ export function IdCell({ name, sub, tags, to, after }: {
             e.preventDefault(); nav(to);
           }}>{name}</a>
           : name}
-        {after}
       </div>
       <div className="idc-s">{subLine(sub, tags)}</div>
     </td>

@@ -419,17 +419,15 @@
 }
 .idc-n a { color: var(--txt); }
 .idc-n a:hover { color: var(--acc); }
-/* THE NAME LINE WITH MARKS BESIDE IT (IdCell's `after`). Flex rather than
-   inline, because the plain line above owns its ellipsis and an inline glyph
-   after it would be the thing that got clipped: the marks are the shortest and
-   most identifying element on the row, so the NAME truncates and they never do.
-   The row is still one line — `min-width: 0` on the name is what lets the flex
-   child shrink far enough for its own ellipsis to fire. */
-.idc-n.idc-marked { display: flex; align-items: center; gap: 6px; }
-.idc-n.idc-marked > :first-child {
-  min-width: 0; overflow: hidden; text-overflow: ellipsis;
+/* MARKS ON THE SUB-LINE, INLINE. The sub-line is a nowrap block that ellipsises,
+   so a mark row has to be inline-flex to sit in it rather than breaking onto a
+   line of its own — and being last means the ellipsis eats the marks before it
+   eats the affiliation, which is the right order: the marks are decoration on a
+   row whose sub-line is already a fact. */
+.idc-s .hmark-row {
+  display: inline-flex; vertical-align: -2px;
+  gap: 3px; flex-wrap: nowrap;
 }
-.idc-n.idc-marked .hmark-row { flex: 0 0 auto; gap: 3px; flex-wrap: nowrap; }
 .idc-s {
   margin-top: 1px;
   font: 400 11px/1.3 var(--sans); color: var(--dim);
