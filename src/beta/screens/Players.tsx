@@ -1,4 +1,6 @@
-import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode,
+} from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   EcrFile, Matchups, MatrixFile, MatrixRow, SummaryRow, Team, Values, Weekly, WeeklyRow,
@@ -11,8 +13,21 @@ import { ktcOf } from "../../lib/values";
 import {
   latestSeasonOf, ownerOf, pInfo, POS_CHIPS, POS_COLOR, rosterSeasonOf,
 } from "../../lib/league";
+import {
+  honorTotals, loadCareer, loadHonors, playerHonors,
+  type CareerSeason, type HonorIndex, type HonorKey,
+} from "../../lib/honors";
+import {
+  loadRecords, recordsOf, wlByLosses, wlByWins, wlGames, wlText,
+  type RecordIndex, type WL,
+} from "../../lib/records";
+import {
+  loadPostseason, postseasonOf, type PostSeasonIndex,
+} from "../../lib/postseason";
+import { loadWinShare, winShareOf, type WinShareIndex } from "../../lib/winshare";
+import HonorMarks, { HonorSprite } from "../../components/HonorMarks";
 import { useMobile } from "../../lib/useWidth";
-import ScopeControl, { useScope } from "../Scope";
+import ScopeControl, { ALL_SEASONS, useScope } from "../Scope";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
   useBetaPath, useSort,
@@ -30,10 +45,18 @@ import "./players.css";
  * a control and not a screen:
  *
  *   CURRENT  a price — DVI, CVI, Proj WAR, KTC, FantasyCalc, ECR
- *   HISTORY  one settled season's production — GP, Points, PPG, WAR
+ *   STATS    production — GP, Points, PPG, the two won-lost records, WAR,
+ *            scoped to one settled season or to every season at once
+ *
+ * THE RIGHT SEGMENT IS "STATS", NOT "HISTORY" (Max, 2026-09-03). The two words
+ * describe different things and the control was named for the wrong one: the
+ * segment does not select a PERIOD, it selects a KIND OF FIGURE — what a player
+ * produced rather than what he costs — and All-time is one of the things that
+ * kind can be scoped to. Under the old name "All-time history" was the phrase
+ * the picker was reaching for, which is a period inside a period.
  *
  * ONE TENSE PER VIEW, all the way down. There is no market price anywhere in
- * the History board and no per-season production anywhere in the Current one,
+ * the Stats board and no per-season production anywhere in the Current one,
  * including in the drawer: a 2023 season priced against a 2026 market is two
  * claims stapled together, and the reader would have no way to tell which half
  * the row was ordered by.
@@ -51,7 +74,16 @@ import "./players.css";
 
 /** every figure either tense measures. One union so the sort state, the column
  *  descriptors and the strip all speak the same key. */
-type Key = "dvi" | "cvi" | "war" | "ktc" | "fc" | "ecr" | "gp" | "pts" | "ppg";
+type Key =
+  | "dvi" | "cvi" | "war" | "ktc" | "fc" | "ecr"
+  | "gp" | "pts" | "ppg" | "ws"
+  /** the two won-lost records — see lib/records. They print as "12-2", which is
+   *  why every figure on this board reaches the cell through `cellOf` rather
+   *  than FMT alone, and they sort two ways: by wins, then by losses. */
+  | "wls" | "wlr";
+
+/** the keys whose header cycles WINS -> LOSSES rather than flipping direction */
+const RECORD_KEYS = new Set<Key>(["wls", "wlr"]);
 
 interface Col {
   id: Key;
@@ -86,15 +118,34 @@ const CUR_GRPS = [
   { label: "Redraft", span: 1 },
 ];
 
+/* THE RECORD COLUMNS SIT BETWEEN PRODUCTION AND WAR, and the order is the
+   argument: what he scored, then what happened in the weeks he was there, then
+   what he was worth. The two records are their own group because neither of
+   them is production — a record is a fact about the roster around him, and
+   grouping them under "Production" would have claimed otherwise. */
 const HIST_COLS: Col[] = [
-  { id: "gp", label: "GP", width: "7%", edge: true },
-  { id: "pts", label: "Points", short: "PTS", width: "10%" },
-  { id: "ppg", label: "PPG", width: "9%" },
-  { id: "war", label: "WAR", width: "16%", edge: true },
+  { id: "gp", label: "GP", width: "6%", edge: true },
+  { id: "pts", label: "Points", short: "PTS", width: "9%" },
+  { id: "ppg", label: "PPG", width: "8%" },
+  { id: "wls", label: "Started", short: "W-L S", width: "10%", edge: true },
+  { id: "wlr", label: "Rostered", short: "W-L R", width: "10%" },
+  { id: "war", label: "WAR", width: "10%", edge: true },
+  // "WS", not "Win share" (Max, 2026-09-03). The long form does not fit a 10%
+  // column at any weight the rest of the header row uses, and shrinking one
+  // label to fit makes the header row two sizes. The Key above the table is
+  // where the word lives.
+  { id: "ws", label: "WS", width: "10%" },
 ];
+/* MAXALYTICS (Max, 2026-09-03) — the group that was "Wins added", now holding
+   both of this board's own inventions. They are a pair by construction: WAR
+   asks what a player was worth against a replacement-level body, win share asks
+   how much of the winning was actually his, and neither is a number any other
+   fantasy site would give you. Everything to the left of them is arithmetic on
+   a box score. */
 const HIST_GRPS = [
   { label: "Production", span: 3 },
-  { label: "Wins added", span: 1 },
+  { label: "Won-lost", span: 2 },
+  { label: "Maxalytics", span: 2 },
 ];
 
 /**
@@ -107,7 +158,7 @@ const HIST_GRPS = [
  * drawer and on the desktop header, where there is room to sort by them.
  */
 const CUR_STRIP: Key[] = ["dvi", "cvi", "war", "ktc"];
-const HIST_STRIP: Key[] = ["war", "ppg", "pts"];
+const HIST_STRIP: Key[] = ["war", "ws", "ppg", "wls"];
 
 /** One formatter per key, so a figure carries the same precision in a column,
  *  on the micro line and in the drawer. WAR is 2dp everywhere on the beta
@@ -121,11 +172,96 @@ const FMT: Record<Key, (v: number) => string> = {
   gp: v => String(v),
   pts: v => fmt(v, 1),
   ppg: v => fmt(v, 2),
+  // in WINS, at WAR's precision, because the two sit in the same group and a
+  // reader compares them down the row
+  ws: v => fmt(v, 2),
+  // never reached — a record always arrives through `text`, and its numeric
+  // value is a sort key, not a figure — but the map is total over Key so that
+  // adding a column cannot silently skip a formatter
+  wls: v => String(v), wlr: v => String(v),
+};
+
+/* ========================================================================
+   THE KEY
+
+   Every column, defined, behind one press above the table.
+
+   A HEADER IS AN ABBREVIATION AND THE KEY IS WHERE IT IS SPELLED OUT (Max,
+   2026-09-03). "WS" cannot fit its own name in a 10% column and neither can
+   DVI, CVI, ECR or PPG; widening one to hold a word would set the whole header
+   row to the width of its longest label. So the labels stay short and the
+   definitions live in one place a reader can open — and, because it is one
+   place, the two tenses and the two phases can each define the same header
+   differently without a footnote arguing with a header.
+
+   It replaces nothing: the closing note under the table still carries the
+   argument — what the figures are FOR, where they disagree — while this
+   answers "what does that column say".
+   ======================================================================== */
+
+const DEF: Record<Key, string> = {
+  dvi: "Dynasty Value Index, 0–100. What a player is worth in a dynasty trade: "
+    + "half market, half projected WAR, roster share and start share.",
+  cvi: "Contender Value Index, 0–100. What he is worth for this season alone. No "
+    + "age channel — that is DVI's job.",
+  war: "Wins above replacement, on this league's own scoring. His margin over the "
+    + "best unrostered player at his position, each week, converted to a "
+    + "win-probability shift at that week's spread of team scores.",
+  ktc: "KeepTradeCut's dynasty superflex value, on this league's TE-premium ladder.",
+  fc: "FantasyCalc's dynasty superflex value. A second market in its own currency, "
+    + "never blended with the first.",
+  ecr: "FantasyPros redraft expert consensus rank, where 1 is best — so a rookie "
+    + "sits below his dynasty price by design.",
+  gp: "Games played.",
+  pts: "Fantasy points scored.",
+  ppg: "Points per game. The one figure a short sample flatters — read it beside GP.",
+  ws: "Win share, in wins. Every game a team wins hands out exactly 1.0 among the "
+    + "nine who started it, half by each starter's Shapley win-probability "
+    + "contribution and half by his points over positional replacement. The "
+    + "league's shares sum to the games it actually won, so a total reads "
+    + "literally: 3.2 of his team's 9 wins. WAR is what he was worth; this is how "
+    + "much of the winning was his.",
+  wls: "Won-lost as a STARTER — the weeks a manager put him in the lineup, and how "
+    + "that lineup finished. Sorts by wins on the first press and by losses on the "
+    + "second, both most-first.",
+  wlr: "Won-lost as a ROSTERED player — every week he was owned, started or "
+    + "benched. The gap between this and Started is how often he was owned and "
+    + "left out.",
+};
+
+/** where the postseason means something different by the same name */
+const DEF_POST: Partial<Record<Key, string>> = {
+  war: "Playoff WAR. Points above the week's positional replacement, converted to "
+    + "wins and credited win or lose — the one figure here that does not depend on "
+    + "the result.",
+  gp: "Elimination games started, plus a first-round bye where one was carried.",
+  pts: "Fantasy points in those games. A bye week carries his own playoff average "
+    + "rather than a real score — only the team total for it is on the site.",
+  ws: "Win share, in wins. Each elimination game hands out exactly 1.0 among its "
+    + "nine starters, half by Shapley win-probability contribution and half by "
+    + "points over positional replacement, so a champion's lineup sums to 3.0. The "
+    + "same figure, from the same code, as the regular-season column.",
+  wls: "Won-lost as a STARTER in the bracket. A FIRST-ROUND BYE IS A WIN: the top "
+    + "two seeds advance without playing, and a record that ignored that would rank "
+    + "finishing first below finishing third.",
+  wlr: "Won-lost as a ROSTERED player in the bracket, started or benched — byes "
+    + "included.",
 };
 
 /** a figure, or the em dash. NEVER a zero: a player the market has never priced
  *  and a player priced at nothing are different facts. */
 const figOf = (id: Key, v: number | null): ReactNode => v == null ? NUL : FMT[id](v);
+
+/**
+ * The cell, for a key that may print as something other than its sort value.
+ *
+ * A won-lost record sorts on WINS — a count, biggest first, the way every other
+ * column on the board behaves — and prints as "12-2". Sorting on win PERCENTAGE
+ * instead would put a one-week 1-0 waiver stash above a 12-2 season, which is
+ * the same mistake the games floor exists downstream to prevent.
+ */
+const cellOf = (r: Row, id: Key): ReactNode =>
+  r.text?.[id] ?? figOf(id, r.f[id] ?? null);
 
 /* ========================================================================
    ROWS
@@ -148,6 +284,14 @@ interface RowBase {
    *  fact the drawer states, derived once. */
   affil: string | null;
   f: Partial<Record<Key, number | null>>;
+  /** what a key PRINTS, where that is not its sort value — the two records */
+  text?: Partial<Record<Key, string>>;
+  /** a key's SECOND sort value, for a column that sorts two ways. The record
+   *  columns' `f` is their by-wins key and this is their by-losses one. */
+  alt?: Partial<Record<Key, number | null>>;
+  /** the honor marks this row's scope earned, in rarity order with counts. One
+   *  season's marks in a season scope; the career's totals in all-time. */
+  marks?: [HonorKey, number][];
 }
 interface CurRow extends RowBase {
   kind: "cur";
@@ -170,7 +314,28 @@ interface HistRow extends RowBase {
   finish: number;
   started: { team: string; starts: number } | null;
 }
-type Row = CurRow | HistRow;
+/** the postseason, one year or pooled — the Playoffs phase's row */
+interface PostRow extends RowBase {
+  kind: "post";
+  /** seasons that contributed, so a pooled row states its sample */
+  seasons: number;
+  /** first-round byes he was on the roster for, each of which is a win */
+  byes: number;
+  wl: { start: WL; roster: WL };
+}
+/** every settled season at once — the all-time scope's row */
+interface AllRow extends RowBase {
+  kind: "all";
+  /** seasons with a scored game, which is the sample behind every total */
+  seasons: number;
+  /** the best single season by WAR, and which one it was */
+  best: { season: string; war: number } | null;
+  /** the best rank within position he ever finished, by that season's WAR */
+  peak: number | null;
+  /** the two records, kept whole for the drawer */
+  wl: { start: WL; roster: WL };
+}
+type Row = CurRow | HistRow | AllRow | PostRow;
 
 /**
  * Which franchise STARTED a player, and how often, in a settled season.
@@ -223,16 +388,34 @@ export default function Players() {
   const rosterSeason = rosterSeasonOf(league);
   const latest = latestSeasonOf(meta);
 
-  /** SETTLED seasons, newest first. `latest` is the newest season with games
-   *  played, so the roster season is never offered as a history year — it is a
-   *  tense the data cannot fill, and an empty 2026 column would read as a
-   *  league that scored nothing. */
+  /**
+   * EVERY SEASON, NEWEST FIRST — INCLUDING THE ONE BEING PLAYED (Max,
+   * 2026-09-03).
+   *
+   * The roster season used to be withheld here, on the argument that an empty
+   * column reads as a league that scored nothing. It does in the offseason and
+   * it stops the moment week one is settled: the nightly build writes
+   * summary.json, weekly.json and matchups.json for the current year as the
+   * games happen, so the scope fills in behind the reader. Withholding it means
+   * the board has nothing to say about the season everyone is actually
+   * watching, all the way to January.
+   *
+   * `latest` still marks the newest SETTLED season and is what the sub-line and
+   * the empty state read; the picker offers the whole list.
+   */
   const played = useMemo(
-    () => meta.seasons.filter(y => y <= latest).slice().reverse(),
-    [meta.seasons, latest]);
-  const [scope, setScope] = useScope(played);
+    () => meta.seasons.slice().reverse(), [meta.seasons]);
+  /* `allowAll` puts an All-time row at the top of the season picker without
+     making it the default: the segment still opens on the newest settled
+     season, which is what a reader almost always wants, and all-time is one tap
+     further rather than a tense of its own. */
+  const [scope, setScope] = useScope(played, { allowAll: true });
   const hist = scope.scope === "history";
   const season = hist ? scope.season : null;
+  /** every settled season pooled into one row per player */
+  const allTime = season === ALL_SEASONS;
+  /** the single season a per-season query should read, or null in all-time */
+  const oneSeason = hist && !allTime ? season : null;
   /* No champion/record note on the picker rows. It would be the right thing to
      show there and it costs a 217 KB franchises.json fetch this screen makes
      for nothing else; the League screen already holds that file and is where
@@ -242,6 +425,14 @@ export default function Players() {
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
   const [open, setOpen] = useState<string | null>(null);
+
+  /* WHICH HALF OF THE SEASON. A filter rather than a scope segment: the tense
+     control already says WHICH YEARS, and stacking "when in the year" onto it
+     would give one control two jobs and four segments. Regular season is the
+     default because it is fourteen weeks against three and because it is the
+     only phase in which the board's own WAR is defined league-wide. */
+  const [phase, setPhase] = useState<"reg" | "post">("reg");
+  const [keyOpen, setKeyOpen] = useState(false);
 
   /* 900px, not style.css's 640px: the beta shell's own desktop breakpoint is
      where the nav bar becomes a rail and the tables gain their padding, and a
@@ -261,8 +452,65 @@ export default function Players() {
   // would be answering the previous question. Sorting and filtering deliberately
   // do NOT close it: those re-order and narrow the same rows, and a drawer that
   // shut on every keystroke would make the search box unusable next to it.
-  const tense = hist ? `h:${season}` : "c";
+  const tense = hist ? `h:${season}:${phase}` : "c";
   useEffect(() => { setOpen(null); }, [tense]);
+
+  /* ---- the three whole-league indexes the Stats board needs ---------------
+
+     These are promise loaders rather than `useJson` hooks because each one
+     reads EVERY season's files and folds them together — a shape `useJson`,
+     which fetches one path, has no way to express. All three cache at module
+     level, so a reader switching between 2023, 2025 and All-time pays for them
+     once per page load.
+
+     They are fetched only in the Stats tense. On the price board they would be
+     four season-files of pure cost. */
+  const [honors, setHonors] = useState<HonorIndex | null>(null);
+  const [recs, setRecs] = useState<RecordIndex | null>(null);
+  const [career, setCareer] = useState<Record<string, CareerSeason[]> | null>(null);
+  /* THE ALL-TIME BOARD HAS NO `useJson` TO REPORT A DROPPED FETCH, so the
+     loader's own rejection is the only signal that the population is never
+     coming. Without this the screen says Loading… for the life of the page. The
+     two indexes the season board also uses are NOT fatal: a season still has
+     its summary.json, and a missing record index costs two columns, not a
+     board. */
+  const [careerErr, setCareerErr] = useState(false);
+  const [post, setPost] = useState<PostSeasonIndex | null>(null);
+  const [postErr, setPostErr] = useState(false);
+
+  const [wins, setWins] = useState<WinShareIndex | null>(null);
+
+  useEffect(() => {
+    if (!hist || !played.length) return;
+    let live = true;
+    loadHonors(played).then(h => { if (live) setHonors(h); }).catch(() => {});
+    loadRecords(played).then(r => { if (live) setRecs(r); }).catch(() => {});
+    /* NOT FATAL IF IT DROPS. winshare.json is newer than the seasons around it
+       and a deploy can be missing one; the column reads the em dash for that
+       season and the rest of the board stands. */
+    loadWinShare(played).then(w => { if (live) setWins(w); }).catch(() => {});
+    return () => { live = false; };
+  }, [hist, played]);
+
+  useEffect(() => {
+    if (phase !== "post" || !hist || !played.length) return;
+    let live = true;
+    setPostErr(false);
+    loadPostseason(played)
+      .then(p => { if (live) setPost(p); })
+      .catch(() => { if (live) setPostErr(true); });
+    return () => { live = false; };
+  }, [phase, hist, played]);
+
+  useEffect(() => {
+    if (!allTime || !played.length) return;
+    let live = true;
+    setCareerErr(false);
+    loadCareer(played)
+      .then(c => { if (live) setCareer(c); })
+      .catch(() => { if (live) setCareerErr(true); });
+    return () => { live = false; };
+  }, [allTime, played]);
 
   /* ---- CURRENT: the price board's sources ------------------------------- */
 
@@ -322,19 +570,23 @@ export default function Players() {
   }, [hist, dviQ.data, cviQ.data, ecrQ.data, valsQ.data, rosQ.data, mxQ.data,
     projWar, players, meta.tep]);
 
-  /* ---- HISTORY: one settled season ------------------------------------- */
+  /* ---- STATS: one settled season ---------------------------------------- */
 
-  const sumQ = useJson<SummaryRow[]>(season ? `${season}/summary.json` : null);
-  const hTeamQ = useJson<Team[]>(season ? `${season}/teams.json` : null);
-  const mwQ = useJson<Matchups>(season ? `${season}/matchups.json` : null);
+  const sumQ = useJson<SummaryRow[]>(oneSeason ? `${oneSeason}/summary.json` : null);
+  const hTeamQ = useJson<Team[]>(oneSeason ? `${oneSeason}/teams.json` : null);
+  const mwQ = useJson<Matchups>(oneSeason ? `${oneSeason}/matchups.json` : null);
   /* weekly.json is 140 KB and answers exactly one figure in the drawer, so it
      is fetched when a drawer is open and not before. Opening a second row keeps
      the same path, so the file is fetched once per season, not once per tap. */
-  const wkQ = useJson<Weekly>(season && open ? `${season}/weekly.json` : null);
+  const wkQ = useJson<Weekly>(oneSeason && open ? `${oneSeason}/weekly.json` : null);
 
   const histPop = useMemo<Row[] | null>(() => {
     const sum = sumQ.data;
-    if (!sum || !hTeamQ.data || !mwQ.data) return null;
+    // `oneSeason` in the guard, not just the files: on the tap that switches to
+    // all-time the season queries still hold the previous season's data for a
+    // render, and building rows against a null season would key the record and
+    // honor lookups on nothing.
+    if (!sum || !oneSeason || !hTeamQ.data || !mwQ.data) return null;
     /* POSITION FINISH — rank within position by that season's POINTS, over
        every row in the file. Computed before the games floor below, because a
        finish is a fact about the season and not about this board's inclusion
@@ -354,6 +606,11 @@ export default function Players() {
     const all = sum.filter(r => typeof r[6] === "number").map((r): Row => {
       const [pid, p, gp, pts, ppg, , war, sdv] = r;
       const st = started.get(pid) ?? null;
+      /* The two records for THIS season. `recs` is still null on the first
+         render after a scope change, which is why both columns are nullable
+         figures rather than a zeroed record: "not read yet" and "never won a
+         week" must not print the same thing. */
+      const wl = recordsOf(recs, pid, [oneSeason!]);
       return {
         kind: "hist",
         pid, name: pInfo(players, pid)[0], pos: p,
@@ -362,21 +619,146 @@ export default function Players() {
         warG: gp ? war / gp : null,
         finish: finish.get(pid) ?? 0,
         started: st,
-        f: { gp, pts, ppg, war },
+        f: {
+          gp, pts, ppg, war,
+          ws: winShareOf(wins, pid, [oneSeason]),
+          wls: wlByWins(wl.start),
+          wlr: wlByWins(wl.roster),
+        },
+        alt: { wls: wlByLosses(wl.start), wlr: wlByLosses(wl.roster) },
+        text: {
+          wls: wlText(wl.start) ?? undefined,
+          wlr: wlText(wl.roster) ?? undefined,
+        },
+        marks: honors?.byPlayer[pid]?.[oneSeason!]?.length
+          ? honorTotals([{ season: oneSeason!, keys: honors.byPlayer[pid][oneSeason!] }])
+          : undefined,
       };
     });
-    /* Floor the tiny samples out of the leaderboard: a two-game cameo at 22 PPG
-       is not a season, and left in it outranks everyone who played one. The
-       same 45% rule the classic Stats board applies, said out loud in the band
-       note rather than silently shortening the list. */
-    const gpMax = all.reduce((m, r) => Math.max(m, r.f.gp ?? 0), 0);
-    const floor = Math.round(gpMax * 0.45);
-    return all.filter(r => (r.f.gp ?? 0) >= floor);
-  }, [sumQ.data, hTeamQ.data, mwQ.data, players]);
+    /* NO GAMES FLOOR (Max, 2026-09-03). The classic board drops anyone under
+       45% of the season's maximum games, on the argument that a two-game cameo
+       at 22 PPG outranks everyone who played a full year. That is true of PPG
+       and of nothing else on this board — GP is a column, the records state
+       their own sample, and WAR and win share are totals that a short season
+       cannot inflate. Every player the season scored is listed; the reader can
+       see the sample and decide. */
+    return all;
+  }, [sumQ.data, hTeamQ.data, mwQ.data, players, recs, honors, wins, oneSeason]);
+
+  /* ---- STATS: every settled season at once ------------------------------
+     One row per player, totals rather than a season. `loadCareer` has already
+     folded every summary.json into per-player season rows with the position
+     rank and the honors attached, so this is arithmetic over that rather than
+     a second pass at the files. */
+
+  const allPop = useMemo<Row[] | null>(() => {
+    if (!allTime || !career) return null;
+    /* NO GAMES FLOOR here either — same call as the season board above. GP is
+       a column and the records carry their own samples, so a one-week career
+       is visible as one rather than hidden. */
+    const out: Row[] = [];
+    for (const [pid, rows] of Object.entries(career)) {
+      if (!rows.length) continue;
+      const gp = rows.reduce((a, r) => a + r.gp, 0);
+      const pts = rows.reduce((a, r) => a + r.pts, 0);
+      const war = rows.reduce((a, r) => a + r.war, 0);
+      const wl = recordsOf(recs, pid, played);
+      /* THE MOST RECENT SEASON'S POSITION. `career` rows are newest first, and
+         a player who moved (a tight end lined up at wide receiver, a Sleeper
+         reclassification) is listed where the league last had him — the same
+         answer the Current board gives. */
+      const pos = rows[0].pos;
+      const best = rows.reduce<{ season: string; war: number } | null>(
+        (b, r) => (b == null || r.war > b.war ? { season: r.season, war: r.war } : b), null);
+      const peak = rows.reduce<number | null>(
+        (b, r) => (r.posRank != null && (b == null || r.posRank < b) ? r.posRank : b), null);
+      const marks = honorTotals(playerHonors(honors, pid));
+      out.push({
+        kind: "all",
+        pid, name: pInfo(players, pid)[0], pos,
+        // A career has no one franchise, and naming the last one would read as
+        // "his team". The seasons count goes here instead.
+        affil: `${rows.length} season${rows.length === 1 ? "" : "s"}`,
+        seasons: rows.length,
+        best, peak, wl,
+        f: {
+          gp, pts, ppg: gp ? pts / gp : null, war,
+          ws: winShareOf(wins, pid, played),
+          wls: wlByWins(wl.start),
+          wlr: wlByWins(wl.roster),
+        },
+        alt: { wls: wlByLosses(wl.start), wlr: wlByLosses(wl.roster) },
+        text: {
+          wls: wlText(wl.start) ?? undefined,
+          wlr: wlText(wl.roster) ?? undefined,
+        },
+        marks: marks.length ? marks : undefined,
+      });
+    }
+    return out;
+  }, [allTime, career, recs, honors, wins, players, played]);
+
+  /* ---- STATS · PLAYOFFS -------------------------------------------------
+     One row per player who took the field in the winners bracket, over one
+     season or every one. The population is far smaller than the regular
+     season's by construction — six rosters, three weeks — so there is no games
+     floor here: a one-game sample IS the postseason, and filtering it out
+     would leave nothing. The reader's floor is the start filter instead. */
+
+  const postSeasons = useMemo(
+    () => (allTime ? played : oneSeason ? [oneSeason] : []),
+    [allTime, played, oneSeason]);
+
+  const postPop = useMemo<Row[] | null>(() => {
+    if (phase !== "post" || !hist || !post) return null;
+    const out: Row[] = [];
+    for (const pid of Object.keys(post.byPlayer)) {
+      const p = postseasonOf(post, pid, postSeasons);
+      if (!p) continue;
+      const seasons = postSeasons.filter(s => post.byPlayer[pid]?.[s]).length;
+      out.push({
+        kind: "post",
+        pid, name: pInfo(players, pid)[0],
+        pos: dviQ.data?.players[pid]?.pos ?? players[pid]?.[1] ?? "?",
+        // one season names the franchise he played it for; a pooled row cannot,
+        // so it states how many postseasons it is summing
+        affil: allTime
+          ? `${seasons} postseason${seasons === 1 ? "" : "s"}`
+          : p.team,
+        seasons, byes: p.byes,
+        wl: { start: p.start, roster: p.roster },
+        f: {
+          // a player who only ever sat a bye has a record and no game — never
+          // a zero, which would read as "played and scored nothing"
+          gp: p.gp || null,
+          pts: p.gp ? p.pts : null,
+          ppg: p.gp ? p.pts / p.gp : null,
+          war: p.war,
+          ws: p.ws,
+          wls: wlByWins(p.start),
+          wlr: wlByWins(p.roster),
+        },
+        alt: { wls: wlByLosses(p.start), wlr: wlByLosses(p.roster) },
+        text: {
+          wls: wlText(p.start) ?? undefined,
+          wlr: wlText(p.roster) ?? undefined,
+        },
+        marks: allTime
+          ? (honorTotals(playerHonors(honors, pid)).length
+            ? honorTotals(playerHonors(honors, pid)) : undefined)
+          : (oneSeason && honors?.byPlayer[pid]?.[oneSeason]?.length
+            ? honorTotals([{ season: oneSeason, keys: honors.byPlayer[pid][oneSeason] }])
+            : undefined),
+      });
+    }
+    return out;
+  }, [phase, hist, post, postSeasons, allTime, oneSeason, honors, players, dviQ.data]);
 
   /* ---- order, rank, filter --------------------------------------------- */
 
-  const population = hist ? histPop : curPop;
+  const population = hist
+    ? (phase === "post" ? postPop : allTime ? allPop : histPop)
+    : curPop;
   const cols = hist ? HIST_COLS : CUR_COLS;
   const grps = hist ? HIST_GRPS : CUR_GRPS;
   const strip = hist ? HIST_STRIP : CUR_STRIP;
@@ -385,9 +767,18 @@ export default function Players() {
      filter — so RB4 is still RB4 inside the RB-only view. The ranks live in a
      map rather than on the row objects: a memo that mutates its input is a memo
      whose output depends on how many times it ran. */
+  /* A RECORD COLUMN'S SECOND CLICK CHANGES THE KEY, NOT THE DIRECTION. `useSort`
+     only knows about a direction, so this is where the flag on it is read as
+     "the other quantity": both record keys are read descending, and `dir === 1`
+     picks the by-losses one out of `alt`. Every other column keeps the ordinary
+     flip. */
+  const byLosses = RECORD_KEYS.has(s.sort) && s.dir === 1;
+
   const ordered = useMemo(() => {
     if (!population) return null;
-    const sorted = sortBy(population, r => r.f[s.sort] ?? null, s.dir);
+    const sorted = byLosses
+      ? sortBy(population, r => r.alt?.[s.sort] ?? null, -1)
+      : sortBy(population, r => r.f[s.sort] ?? null, s.dir);
     const seen: Record<string, number> = {};
     const posRank = new Map<string, number>();
     for (const r of sorted) {
@@ -395,8 +786,14 @@ export default function Players() {
       posRank.set(r.pid, seen[r.pos]);
     }
     return { sorted, posRank };
-  }, [population, s.sort, s.dir]);
+  }, [population, s.sort, s.dir, byLosses]);
 
+  /* NO MINIMUM-STARTS FILTER (Max, 2026-09-03). The question one would have
+     answered — who starts a lot and still loses — is the record columns' second
+     sort key: click Started twice and the board orders by losses, most first,
+     so 21-16 leads 30-15 and nobody has to pick a threshold. A filter would
+     have needed a scope-aware set of steps and a rule for resetting them, to do
+     worse. */
   const rows = useMemo(() => {
     if (!ordered) return null;
     const needle = q.trim().toLowerCase();
@@ -411,9 +808,10 @@ export default function Players() {
      desktop header (ECR, FantasyCalc) is not on the strip at all, which is the
      case the cap exists for: nothing is displaced, so the first three keys ride
      the micro line and the lead figure is still the column the board is ordered
-     by. GP joins the History line because it is the sample size behind every
-     other figure on that row and is never a phone sort key, so it can never
-     compete with the picked one. */
+     by. GP fills the last slot when there is one — it is the sample size behind
+     every other figure on the Stats row and is never a phone sort key, so it
+     can never compete with the picked one. With four strip keys in that tense
+     there usually isn't a slot, and GP is in the drawer. */
   const micro = useMemo(() => {
     const other = strip.filter(k => k !== s.sort).slice(0, 3);
     if (hist && s.sort !== "gp" && other.length < 3) other.push("gp");
@@ -433,10 +831,12 @@ export default function Players() {
      dvi.json fallback, and that fallback usually lands. The population is the
      honest test of whether the board can be drawn. */
   const queries = hist
-    ? [sumQ, hTeamQ, mwQ]
+    ? (allTime || phase === "post" ? [] : [sumQ, hTeamQ, mwQ])
     : [dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ];
   const failed = rows == null
-    && !queries.some(x => x.loading) && queries.some(x => x.error);
+    && ((phase === "post" && postErr)
+      || (allTime && phase !== "post" && careerErr)
+      || (!queries.some(x => x.loading) && queries.some(x => x.error)));
 
   /* Two identity columns plus the figure columns on desktop; spine, identity
      and the one figure cell on a phone. The drawer spans whatever that is. */
@@ -445,15 +845,40 @@ export default function Players() {
 
   return (
     <>
+      {/* THE MARK SPRITE, mounted once. Every <HonorMark> on the board is a
+          <use> against these symbols, so the shapes exist a single time on the
+          page however many rows carry them. */}
+      <HonorSprite />
+
       <div className="v3-head">
         <h1>Players</h1>
         <span className="sub">
-          {hist ? `what they did in ${season}` : "what they're worth now"}
+          {hist
+            ? (allTime ? "what they did, every season" : `what they did in ${season}`)
+            : "what they're worth now"}
           {rows ? ` · ${rows.length} shown` : ""}
         </span>
       </div>
 
-      <ScopeControl value={scope} onChange={setScope} seasons={seasons} />
+      <ScopeControl value={scope} onChange={setScope} seasons={seasons}
+        historyLabel="Stats" allTime />
+
+      {/* WHICH HALF OF THE SEASON, on its own row and only in the Stats tense.
+          It narrows the POPULATION the way the position chips do — it does not
+          re-order anything — so it reads as chips and takes the same `--sel`
+          fill, and the accent stays where it has always been, on the sort. Its
+          own row rather than two more chips appended to the one below: on a
+          375px scroller the position filter is the one every reader uses, and
+          it should not start off-screen. */}
+      {hist && (
+        <div className="v3-filters plx-filters plx-filters2">
+          <span className="plx-fk">Phase</span>
+          {([["reg", "Regular season"], ["post", "Playoffs"]] as const).map(([id, label]) => (
+            <button key={id} type="button" className={`chip${phase === id ? " on" : ""}`}
+              onClick={() => setPhase(id)}>{label}</button>
+          ))}
+        </div>
+      )}
 
       <div className="v3-filters plx-filters">
         {POS_CHIPS.map(p => (
@@ -473,22 +898,92 @@ export default function Players() {
               silently reversing the whole board is not a control anyone can
               read. Re-tapping the lit segment is a no-op. */}
           <LensStrip label="Sort" value={s.sort}
-            onChange={k => { if (k !== s.sort) s.onSort(k, colOf(k).asc); }}
+            onChange={k => {
+              if (k !== s.sort) s.onSort(k, colOf(k).asc);
+              /* THE ONE RE-TAP THAT DOES SOMETHING. Re-tapping the lit segment
+                 is a no-op everywhere else on this strip, deliberately — a
+                 mis-tap silently reversing the whole board is not a control
+                 anyone can read. A record column is the exception because its
+                 second key has no other way in on a phone: there is no header
+                 row here to click twice. */
+              else if (RECORD_KEYS.has(k)) s.onSort(k);
+            }}
             options={strip.map(k => {
               const c = colOf(k);
-              return { id: k, label: c.short ?? c.label };
+              const lbl = c.short ?? c.label;
+              return {
+                id: k,
+                label: k === s.sort && byLosses ? `${lbl} · L` : lbl,
+              };
             })} />
         </div>
       )}
 
       <Band
-        label={hist ? `Regular season · ${season}` : `Price · ${rosterSeason} rosters`}
-        note={hist
-          ? "WAR vs the best player left out of the league's 108 startable slots · under 45% of the season's max games filtered out"
-          : "Three horizons side by side, never blended — where they disagree is the point"} />
+        label={hist
+          ? `${phase === "post" ? "Playoffs" : "Regular season"} · ${
+            allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}`
+          : `Price · ${rosterSeason} rosters`}
+        right={
+          /* THE BAND CARRIES BOTH, and the note comes first: it is the thing a
+             reader needs without asking, and the Key is the thing they go
+             looking for. `Band` renders `right` INSTEAD of `note`, so the note
+             is composed in here rather than passed alongside — the prop above
+             is left in place because it is what the band means, and this is
+             only how it is laid out next to a control. */
+          /* NO METHODOLOGY BLURB ON THE STATS BAND (Max, 2026-09-03). Three
+             of them lived here — what WAR is measured against, what a career
+             total pools, what the bracket counts — and every one is now a
+             definition in the Key, where it has room to be a sentence instead
+             of a clause and where a reader goes when they want it. A band note
+             that repeats the Key is a second copy to keep in step. The price
+             board keeps its note: it has no Key habit yet and the one line it
+             carries is an argument about the columns, not a definition of
+             them. */
+          <span className="plx-bandr">
+            {!hist && (
+              <span className="band-note">
+                Three horizons side by side, never blended — where they disagree is the point
+              </span>
+            )}
+            <button type="button" className={`plx-keybtn${keyOpen ? " on" : ""}`}
+              aria-expanded={keyOpen} onClick={() => setKeyOpen(v => !v)}>
+              {keyOpen ? "Close" : "Key"}
+            </button>
+          </span>
+        } />
+
+      {/* EVERY COLUMN, DEFINED — in the order the columns appear, so a reader
+          who is looking at one can count across to it. The phase changes what
+          some of them mean, so the list is built from the tense in force
+          rather than written out twice. */}
+      {keyOpen && (
+        <dl className="plx-keylist">
+          {cols.map(c => (
+            <Fragment key={c.id}>
+              <dt>{c.label}{c.short ? ` · ${c.short}` : ""}</dt>
+              <dd>{(hist && phase === "post" ? DEF_POST[c.id] : undefined) ?? DEF[c.id]}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
 
       {failed ? <DataError what="The board didn't load" />
-        : !ready || !rows ? <div className="empty">Loading…</div> : (
+        : !ready || !rows ? <div className="empty">Loading…</div>
+        /* A SEASON WITH NOTHING IN IT YET is not a broken board. The picker now
+           offers the season being played, so an empty scope is the normal state
+           of it until week one settles — and it has to say which of the two
+           things it is, because "no rows" also happens when the chips and the
+           search box have narrowed the list to nothing. */
+        : rows.length === 0 ? (
+          <div className="empty">
+            {hist && oneSeason && oneSeason > latest
+              ? `No scored games in ${oneSeason} yet — this fills in as the season is played.`
+              : hist && phase === "post" && oneSeason && oneSeason > latest
+                ? `${oneSeason} has no bracket yet.`
+                : "Nothing matches those filters."}
+          </div>
+        ) : (
         <table className={`v3tbl plx-tbl ${hist ? "plx-hist" : "plx-cur"}`}>
           {!mobile && (
             <thead>
@@ -502,6 +997,12 @@ export default function Players() {
               <tr className="plx-cols">
                 <th className="c sp">#</th>
                 <th className="t">Player</th>
+                {/* NO MARKER ON THE SECOND KEY (Max, 2026-09-03). A record
+                    header could carry a "by L" to say which of its two
+                    orderings is in force, and it did briefly; the board is
+                    legible without it, because the reader who clicked twice can
+                    see what the column did. A qualifier every reader has to
+                    parse to serve the one who forgot is the wrong trade. */}
                 {cols.map(c => (
                   <Th key={c.id} id={c.id} label={c.label} align="n" width={c.width}
                     asc={c.asc} sort={s.sort} onSort={s.onSort} />
@@ -530,22 +1031,38 @@ export default function Players() {
                       click at the anchor so a name tap never also toggles the
                       drawer. The earlier "no second exit under the thumb"
                       rule lost to a reader who knows which he wants. */}
+                  {/* THE HONOR MARKS, beside the name (Max, 2026-09-03). On a
+                      season they are what he earned THAT season; on all-time
+                      they are the career totals, one mark per tier with a ×N.
+                      Not on the price board: an honor is a settled fact about a
+                      played season and has nothing to say about a price.
+
+                      `--pos-mark` is what tints the crown and the gem to the
+                      player's position — the same variable the classic player
+                      rail sets — and it is set per row here because a table has
+                      no per-position container to hang it on. */}
                   <IdCell name={r.name} to={betaPath(`/player/${r.pid}`)}
                     sub={[r.affil, `${r.pos}${ordered!.posRank.get(r.pid)}`]
-                      .filter(Boolean).join(" · ")} />
+                      .filter(Boolean).join(" · ")}
+                    after={r.marks?.length ? (
+                      <span className="plx-marks"
+                        style={{ "--pos-mark": POS_COLOR[r.pos] } as CSSProperties}>
+                        <HonorMarks marks={r.marks} size={13} showCounts={allTime} />
+                      </span>
+                    ) : undefined} />
                   {mobile ? (
                     <td className="n plx-lead">
                       {/* THE PICKED KEY IS THE LEAD FIGURE. No meter beside it
                           (Max, 2026-09-02): the WAR bar read as a gauge, not a
                           statistic, and the headline weight already says which
                           column the board is sorted by. */}
-                      <span className="f hd">{figOf(s.sort, r.f[s.sort] ?? null)}</span>
+                      <span className="f hd">{cellOf(r, s.sort)}</span>
                       {micro.length > 0 && (
                         <div className="plx-micro">
                           {micro.map(k => (
                             <span key={k} className="o">
                               {(colOf(k).short ?? colOf(k).label).toUpperCase()}
-                              <b>{figOf(k, r.f[k] ?? null)}</b>
+                              <b>{cellOf(r, k)}</b>
                             </span>
                           ))}
                         </div>
@@ -554,7 +1071,7 @@ export default function Players() {
                   ) : cols.map(c => (
                     <td key={c.id} className={`n${c.edge ? " plx-edge" : ""}`}>
                       <span className={`f${c.id === s.sort ? " hd" : ""}`}>
-                        {figOf(c.id, r.f[c.id] ?? null)}
+                        {cellOf(r, c.id)}
                       </span>
                     </td>
                   ))}
@@ -564,9 +1081,14 @@ export default function Players() {
                     <td colSpan={span}>
                       {r.kind === "cur"
                         ? <CurDrawer r={r} season={rosterSeason} to={betaPath(`/player/${r.pid}`)} />
-                        : <HistDrawer r={r} season={season!} to={betaPath(`/player/${r.pid}`)}
-                          weekly={wkQ.data?.[r.pid] ?? null} loading={wkQ.loading}
-                          playoffStart={mwQ.data?.playoff_start ?? 15} />}
+                        : r.kind === "post"
+                        ? <PostDrawer r={r} season={allTime ? null : oneSeason}
+                          to={betaPath(`/player/${r.pid}`)} />
+                        : r.kind === "all"
+                          ? <AllDrawer r={r} to={betaPath(`/player/${r.pid}`)} />
+                          : <HistDrawer r={r} season={oneSeason!} to={betaPath(`/player/${r.pid}`)}
+                            weekly={wkQ.data?.[r.pid] ?? null} loading={wkQ.loading}
+                            playoffStart={mwQ.data?.playoff_start ?? 15} />}
                     </td>
                   </tr>
                 )}
@@ -584,13 +1106,50 @@ export default function Players() {
       )}
 
       <div className="tnote screen">
-        {hist ? (
+        {hist && phase === "post" ? (
+          <>
+            The winners bracket, elimination games only — the championship counts, the
+            third- and fifth-place games do not, and the consolation bracket does not at all.
+            Playoff WAR is points above the week's positional replacement converted to wins,
+            credited win or lose. Win share divides each won game's 1.0 among its nine
+            starters, half by Shapley win-probability contribution and half by points over
+            replacement, so a champion's lineup sums to 3.0 and a total reads as "he
+            accounted for 1.4 of his team's 3 playoff wins". A FIRST-ROUND BYE IS A WIN: the top two seeds advance
+            without playing, and a record that ignored that would rank finishing first below
+            finishing third. The bye's points are the player's own playoff average rather
+            than a real score — the lineup did score that week, but only the team total for
+            it is on the site, so the week is carried at his average, which moves games and
+            points and leaves PPG where it was. A player with no elimination game has no
+            average to carry and takes the win alone. Everything else on this board is
+            measured.
+          </>
+        ) : hist ? (
           <>
             WAR = wins over the best player left out of the league's 108 startable slots,
-            regular season only. Volatility is the weekly σ of fantasy points, so lower is
-            steadier. The franchise on each row is who STARTED him most that season, which is
-            not always who was holding him in January. Nothing on this board is a price:
-            what a player is worth today is under Current.
+            regular season only. Win share is the other half of Maxalytics and answers the
+            other question: every game a team wins hands out exactly 1.0 among the nine who
+            started it, half by Shapley win-probability contribution and half by points over
+            replacement, so the league's shares sum to the 84 games it actually won and a
+            total reads as "he accounted for 3.2 of his team's 9 wins". WAR is what he was
+            worth; win share is how much of the winning was his. The two records are the
+            weeks he was there, not what he did:
+            STARTED counts the weeks a manager put him in the lineup and how that lineup
+            finished; ROSTERED counts every week he was owned, started or benched. Both are
+            partly a fact about the roster around him — a back on the best team in the league
+            wins games he had nothing to do with — which is why they sit beside WAR rather
+            than instead of it. A record column sorts twice: the first click orders it by
+            WINS, the second by LOSSES — both most-first. Two keys rather than two
+            directions, because reversing "most wins" is
+            "fewest wins", which floats a player who barely started above the one who
+            started all year and lost. The marks beside a name are that
+            {allTime ? " career's" : " season's"} honors.{" "}
+            {allTime
+              ? "Career totals over every settled season."
+              : "Volatility is the weekly σ of fantasy points, so lower is steadier. The franchise on each row is who STARTED him most that season, which is not always who was holding him in January."}
+            {" "}There is no games floor: every player the scope scored is listed, GP is a
+            column and each record states its own sample, so a short season is visible as a
+            short season rather than hidden. Only PPG rewards a tiny one — read it next to GP.
+            {" "}Nothing on this board is a price: what a player is worth today is under Current.
           </>
         ) : (
           <>
@@ -599,7 +1158,7 @@ export default function Players() {
             currencies; ECR is the FantasyPros redraft consensus, where 1 is best, so a rookie
             sits below his dynasty price by design. None of them are blended. The position
             badge carries rank within position for the active sort. What a player actually did
-            in a given year is under History.
+            — in a given year or across every season — is under Stats.
           </>
         )}
       </div>
@@ -674,6 +1233,95 @@ function CurDrawer({ r, season, to }: { r: CurRow; season: string; to: string })
         Analog is the comparables arm's own three-year curve from the projection matrix,
         not the raw cohort median the classic Value board prints — the same model, one
         step further down it.
+      </div>
+      <DrawerGo to={to} />
+    </div>
+  );
+}
+
+/**
+ * THE CAREER DRAWER.
+ *
+ * Six cells like the other two, and every one of them answers something a row
+ * of totals cannot: totals reward longevity, so the questions worth asking of
+ * them are how long, how high, and how good at his best.
+ *
+ * No week grid and no volatility. A fourteen-cell grid is a fact about one
+ * season; across four it would need a season axis, which is the player page.
+ */
+/**
+ * THE POSTSEASON DRAWER.
+ *
+ * The one drawer whose job is to qualify its own row: three weeks is a sample
+ * small enough that every figure above it needs its denominator said out loud,
+ * and the bye — the one figure on this board that is imputed rather than
+ * measured — has to be visible from the row that carries it.
+ */
+function PostDrawer({ r, season, to }: { r: PostRow; season: string | null; to: string }) {
+  const gp = r.f.gp ?? 0;
+  return (
+    <div className="plx-draw">
+      <div className="hd">
+        <span className="nm">{r.name}</span>
+        <span className="mt">
+          {r.pos} · {season ? `${season} playoffs` : "playoffs, all-time"}
+        </span>
+      </div>
+      <div className="plx-figs">
+        <Fig k="Games" v={gp || NUL}
+          sub={gp ? "elimination games started" : "never started one"} />
+        <Fig k="Started" v={wlText(r.wl.start) ?? NUL}
+          sub={`${wlGames(r.wl.start)} week${wlGames(r.wl.start) === 1 ? "" : "s"} in a lineup`} />
+        <Fig k="Rostered" v={wlText(r.wl.roster) ?? NUL}
+          sub={`${wlGames(r.wl.roster)} week${wlGames(r.wl.roster) === 1 ? "" : "s"} owned`} />
+        {/* THE IMPUTED WEEK, NAMED. Every other figure on this board is
+            measured; this is the one that is carried, and a reader is entitled
+            to know how much of the row it is. */}
+        <Fig k="Byes" v={r.byes || NUL}
+          sub={r.byes ? "counted as wins, at his own average" : "no first-round bye"} />
+        <Fig k="Points" v={r.f.pts == null ? NUL : fmt(r.f.pts, 1)}
+          sub={gp ? `over ${gp} game${gp === 1 ? "" : "s"}` : "no scored game"} />
+        <Fig k="Postseasons" v={r.seasons} sub={season ? "this one" : "with a bracket game"} />
+      </div>
+      <div className="plx-note">
+        Winners bracket, elimination games only — the championship counts, the third- and
+        fifth-place games do not, and neither does the consolation bracket. That is the same
+        scope the playoff WAR column is built on, so the two never count different games.
+      </div>
+      <DrawerGo to={to} />
+    </div>
+  );
+}
+
+function AllDrawer({ r, to }: { r: AllRow; to: string }) {
+  const gp = r.f.gp ?? 0;
+  return (
+    <div className="plx-draw">
+      <div className="hd">
+        <span className="nm">{r.name}</span>
+        <span className="mt">{r.pos} · career, regular season</span>
+      </div>
+      <div className="plx-figs">
+        <Fig k="Seasons" v={r.seasons} sub={`${gp} game${gp === 1 ? "" : "s"}`} />
+        {/* The best year, which is what a career total hides: four steady
+            seasons and one enormous one add to the same number. */}
+        <Fig k="Best season" v={r.best?.season ?? NUL} word
+          sub={r.best ? `${fmtWar(r.best.war)} WAR` : "no scored season"} />
+        <Fig k="Peak finish" v={r.peak == null ? NUL : `${r.pos}${r.peak}`}
+          sub="best rank at the position, by WAR" />
+        <Fig k="WAR per season" v={r.seasons ? fmtWar((r.f.war ?? 0) / r.seasons) : NUL}
+          sub="the total, spread evenly" />
+        {/* The two records again, whole — the columns print them, and this is
+            where the sample behind each one is stated. */}
+        <Fig k="Started" v={wlText(r.wl.start) ?? NUL}
+          sub={`${wlGames(r.wl.start)} week${wlGames(r.wl.start) === 1 ? "" : "s"} in a lineup`} />
+        <Fig k="Rostered" v={wlText(r.wl.roster) ?? NUL}
+          sub={`${wlGames(r.wl.roster)} week${wlGames(r.wl.roster) === 1 ? "" : "s"} owned`} />
+      </div>
+      <div className="plx-note">
+        A record is the roster's, not the player's: it counts how the team he was on did in
+        the weeks he was there. The gap between the two lines is how often he was owned and
+        left out.
       </div>
       <DrawerGo to={to} />
     </div>

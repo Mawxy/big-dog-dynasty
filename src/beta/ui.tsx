@@ -175,8 +175,16 @@ export function PosSpine({ color }: { color?: string }) {
  * Always two lines, even when the sub-line is thin, so a column of these has
  * one height and the eye tracks straight down the names.
  */
-export function IdCell({ name, sub, tags, to }: {
+export function IdCell({ name, sub, tags, to, after }: {
   name: ReactNode; sub?: ReactNode;
+  /** MARKS THAT BELONG TO THE NAME, rendered on line 1 beside it and OUTSIDE
+   *  the anchor — honor badges on the Stats board are the case this exists for.
+   *  Outside, because a badge inside the link would be part of the tap target
+   *  that navigates, and these are not a way to anywhere; and on line 1 rather
+   *  than as a `tag`, because a tag is text on the sub-line and these are
+   *  glyphs. The caller passes an already-composed node: this owns the layout,
+   *  not the vocabulary of marks. */
+  after?: ReactNode;
   /** SLOT TAGS — FLX, SFLX, TAXI, IR — on the sub-line, after `sub`.
    *
    *  Passed structurally rather than joined into `sub` by the caller, because a
@@ -194,7 +202,7 @@ export function IdCell({ name, sub, tags, to }: {
   const nav = useNavigate();
   return (
     <td className="idc t">
-      <div className="idc-n">
+      <div className={`idc-n${after ? " idc-marked" : ""}`}>
         {to
           ? <a href={`#${to}`} onClick={e => {
             e.stopPropagation();
@@ -202,6 +210,7 @@ export function IdCell({ name, sub, tags, to }: {
             e.preventDefault(); nav(to);
           }}>{name}</a>
           : name}
+        {after}
       </div>
       <div className="idc-s">{subLine(sub, tags)}</div>
     </td>

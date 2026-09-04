@@ -81,11 +81,20 @@ export function useScope(seasons: string[], opts?: {
  * with more than one it opens the picker sheet, and tapping the History
  * segment while already in history reopens the picker.
  */
-export default function ScopeControl({ value, onChange, seasons, currentLabel = "Current", all, allTime }: {
+export default function ScopeControl({
+  value, onChange, seasons, currentLabel = "Current", historyLabel = "History",
+  all, allTime,
+}: {
   value: ScopeSel;
   onChange: (s: ScopeSel) => void;
   seasons: ScopeSeason[];
   currentLabel?: string;
+  /** the RIGHT segment's resting label — what the tense is called before a
+   *  season is picked. "History" everywhere it means the past as a whole;
+   *  Players reads "Stats", because on that board the segment is not a period
+   *  but a KIND OF FIGURE — production rather than price — and All-time is one
+   *  of the things it can be scoped to rather than the thing it means. */
+  historyLabel?: string;
   /** all-history mode: History is one tap to every season, no picker here —
    *  the screen filters by season itself. Pair with `useScope(…, { all })`. */
   all?: boolean;
@@ -103,7 +112,7 @@ export default function ScopeControl({ value, onChange, seasons, currentLabel = 
           onClick={() => onChange({ scope: "current" })}>{currentLabel}</button>
         {all ? (
           <button className={onHistory ? "on" : ""}
-            onClick={() => onChange({ scope: "history", season: ALL_SEASONS })}>History</button>
+            onClick={() => onChange({ scope: "history", season: ALL_SEASONS })}>{historyLabel}</button>
         ) : (
           <button className={onHistory ? "on" : ""}
             aria-haspopup={seasons.length > 1 ? "dialog" : undefined}
@@ -111,7 +120,7 @@ export default function ScopeControl({ value, onChange, seasons, currentLabel = 
               if (seasons.length === 1) onChange({ scope: "history", season: seasons[0].id });
               else setPicking(true);
             }}>
-            {onHistory ? (value.season === ALL_SEASONS ? "All-time" : value.season) : "History"}
+            {onHistory ? (value.season === ALL_SEASONS ? "All-time" : value.season) : historyLabel}
             {seasons.length > 1 && <span className="caret">▾</span>}
           </button>
         )}

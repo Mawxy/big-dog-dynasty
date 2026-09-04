@@ -64,6 +64,15 @@ const GLOSSARY: { term: string; body: string }[] = [
       + "shift at that week's spread of team scores. Regular season only.",
   },
   {
+    term: "Win share",
+    body: "How much of the winning was his. Every game a team wins hands out exactly "
+      + "1.0 among the nine who started it, split half by each starter's Shapley "
+      + "win-probability contribution and half by his points over positional "
+      + "replacement, positive parts only. The league's shares therefore sum to the "
+      + "games it actually won, and a total reads literally: 3.2 of his team's 9 wins. "
+      + "Computed the same way for the regular season and the playoffs, so the two add.",
+  },
+  {
     term: "Projected WAR",
     body: "Three seasons ahead, under the projection model set below. Year 1 is what "
       + "the two indices weigh; the three-year total is what a roster totals.",
