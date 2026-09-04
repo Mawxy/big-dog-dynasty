@@ -143,6 +143,20 @@
   color: var(--dim2);
 }
 
+/* ---- the fourteen-cell season strip -------------------------------------
+   components/WeekGrid, borrowed whole. It brings its own `.weekgrid` /
+   `.weekcell` rules from style.css and is already responsive — seven columns
+   at a 40px minimum on a phone, which is 280px of the drawer's 347. All this
+   adds is the label above it and the room around it. */
+.plx-weeks { margin-top: 13px; }
+.plx-weeks .k {
+  font: 600 10px/1 var(--cond);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 7px;
+}
+
 /* ---- the weekly spread --------------------------------------------------
    A box and whisker of the season's weekly scores, under the figures that
    total it. Scales with the drawer through a viewBox and stops at 380px: past

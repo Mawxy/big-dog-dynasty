@@ -3,7 +3,8 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  EcrFile, Matchups, MatrixFile, MatrixRow, SummaryRow, Team, Values, Weekly, WeeklyRow,
+  Absences, EcrFile, Matchups, MatrixFile, MatrixRow, SummaryRow, Team, Values,
+  Weekly, WeeklyRow,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
@@ -25,10 +26,16 @@ import {
   loadPostseason, postseasonOf, type PostSeasonIndex,
 } from "../../lib/postseason";
 import { loadWinShare, winShareOf, type WinShareIndex } from "../../lib/winshare";
+import {
+  loadWeekPoints, weekPointsOf, type WeekPointsIndex,
+} from "../../lib/weekpoints";
 import HonorMarks, { HonorSprite } from "../../components/HonorMarks";
 // the five-number summary only — the marks are drawn in this shell's own ink,
 // see Spread
 import { boxStats } from "../../components/BoxMarks";
+// the fourteen-cell season strip, the classic board's — same component, so the
+// two shells cannot disagree about what a bye looks like
+import WeekGrid from "../../components/WeekGrid";
 import { useMobile } from "../../lib/useWidth";
 import ScopeControl, { ALL_SEASONS, useScope } from "../Scope";
 import {
@@ -581,6 +588,19 @@ export default function Players() {
   const [postErr, setPostErr] = useState(false);
 
   const [wins, setWins] = useState<WinShareIndex | null>(null);
+  const [wkPts, setWkPts] = useState<WeekPointsIndex | null>(null);
+
+  /* THE POOLED WEEK SCORES, ON DRAWER OPEN. Half a megabyte across four
+     seasons, so it is not fetched with the board and not fetched at all in the
+     single-season scope, which already pulls the one file it needs. `open`
+     rather than the row id in the deps: the second drawer costs nothing. */
+  useEffect(() => {
+    if (!hist || !open || !played.length) return;
+    if (!allTime && phase !== "both") return;
+    let live = true;
+    loadWeekPoints(played).then(w => { if (live) setWkPts(w); }).catch(() => {});
+    return () => { live = false; };
+  }, [hist, open, allTime, phase, played]);
 
   useEffect(() => {
     if (!hist || !played.length) return;
@@ -681,6 +701,10 @@ export default function Players() {
      is fetched when a drawer is open and not before. Opening a second row keeps
      the same path, so the file is fetched once per season, not once per tap. */
   const wkQ = useJson<Weekly>(oneSeason && open ? `${oneSeason}/weekly.json` : null);
+  /* THE BYE FLAGS, on the same trigger. A few KB beside weekly.json's 140, and
+     without it every bye in the season strip reads as a missing week — which is
+     a different fact and the one thing that grid exists to keep apart. */
+  const absQ = useJson<Absences>(oneSeason && open ? `${oneSeason}/absence.json` : null);
 
   const histPop = useMemo<Row[] | null>(() => {
     const sum = sumQ.data;
@@ -1261,14 +1285,20 @@ export default function Players() {
                         ? <CurDrawer r={r} season={rosterSeason} to={betaPath(`/player/${r.pid}`)} />
                         : r.kind === "both"
                         ? <BothDrawer r={r} season={allTime ? null : oneSeason}
-                          to={betaPath(`/player/${r.pid}`)} />
+                          to={betaPath(`/player/${r.pid}`)}
+                          scores={weekPointsOf(wkPts, r.pid, postSeasons,
+                            { reg: true, post: true })}
+                          loading={wkPts == null} />
                         : r.kind === "post"
                         ? <PostDrawer r={r} season={allTime ? null : oneSeason}
                           to={betaPath(`/player/${r.pid}`)} />
                         : r.kind === "all"
-                          ? <AllDrawer r={r} to={betaPath(`/player/${r.pid}`)} />
+                          ? <AllDrawer r={r} to={betaPath(`/player/${r.pid}`)}
+                            scores={weekPointsOf(wkPts, r.pid, played)}
+                            loading={wkPts == null} />
                           : <HistDrawer r={r} season={oneSeason!} to={betaPath(`/player/${r.pid}`)}
                             weekly={wkQ.data?.[r.pid] ?? null} loading={wkQ.loading}
+                            absent={absQ.data?.[r.pid]}
                             playoffStart={mwQ.data?.playoff_start ?? 15} />}
                     </td>
                   </tr>
@@ -1523,7 +1553,9 @@ function CurDrawer({ r, season, to }: { r: CurRow; season: string; to: string })
  * The playoff half reads the em dash for a player who never got there — not a
  * zero, which would look like a swept series.
  */
-function BothDrawer({ r, season, to }: { r: BothRow; season: string | null; to: string }) {
+function BothDrawer({ r, season, to, scores, loading }: {
+  r: BothRow; season: string | null; to: string; scores: number[]; loading: boolean;
+}) {
   const p = r.post;
   const gp = (n: number) => `${n} game${n === 1 ? "" : "s"}`;
   return (
@@ -1547,6 +1579,13 @@ function BothDrawer({ r, season, to }: { r: BothRow; season: string | null; to: 
         <Fig k="Playoff WS" v={p?.ws == null ? NUL : fmt(p.ws, 2)}
           sub={p ? "of his team's wins" : "no bracket game"} />
       </div>
+      {/* BOTH ARMS IN ONE DISTRIBUTION, which is what this phase is for. The
+          bye week is not in it: the postseason index carries it at his own
+          average so the totals count the week, and an imputed number has no
+          business inside a picture of how his weeks actually landed. */}
+      <Spread values={scores}
+        note={loading ? "reading the week scores"
+          : `${scores.length} scored week${scores.length === 1 ? "" : "s"}, both halves`} />
       <Honors marks={r.marks} pos={r.pos} />
       <DrawerGo to={to} />
     </div>
@@ -1590,7 +1629,9 @@ function PostDrawer({ r, season, to }: { r: PostRow; season: string | null; to: 
   );
 }
 
-function AllDrawer({ r, to }: { r: AllRow; to: string }) {
+function AllDrawer({ r, to, scores, loading }: {
+  r: AllRow; to: string; scores: number[]; loading: boolean;
+}) {
   const gp = r.f.gp ?? 0;
   return (
     <div className="plx-draw">
@@ -1615,6 +1656,12 @@ function AllDrawer({ r, to }: { r: AllRow; to: string }) {
         <Fig k="Rostered" v={wlText(r.wl.roster) ?? NUL}
           sub={`${wlGames(r.wl.roster)} week${wlGames(r.wl.roster) === 1 ? "" : "s"} owned`} />
       </div>
+      {/* THE CAREER'S SHAPE. Every regular-season week he ever scored, pooled —
+          which is the one thing a column of career totals cannot show, because
+          longevity and dominance add to the same number. */}
+      <Spread values={scores}
+        note={loading ? "reading the week scores"
+          : `${scores.length} scored week${scores.length === 1 ? "" : "s"}, all seasons`} />
       <Honors marks={r.marks} pos={r.pos} />
       {/* NO NOTE HERE (Max, 2026-09-03). It read "a record is the roster's, not
           the player's" — a definition, and definitions are the Key's job now.
@@ -1626,10 +1673,12 @@ function AllDrawer({ r, to }: { r: AllRow; to: string }) {
   );
 }
 
-function HistDrawer({ r, season, to, weekly, loading, playoffStart }: {
+function HistDrawer({ r, season, to, weekly, loading, absent, playoffStart }: {
   r: HistRow; season: string; to: string;
   weekly: WeeklyRow[] | null;
   loading: boolean;
+  /** week -> "BYE" / "DNP" for this player, from the season's absence.json */
+  absent?: Record<string, string>;
   playoffStart: number;
 }) {
   // best REGULAR-SEASON week: the board's whole tense is the regular season, and
@@ -1677,9 +1726,25 @@ function HistDrawer({ r, season, to, weekly, loading, playoffStart }: {
         <Fig k="Started for" v={r.started?.team ?? NUL} word
           sub={r.started ? `${r.started.starts} start${r.started.starts === 1 ? "" : "s"}` : "never started"} />
       </div>
-      {/* THE SHAPE OF THE SEASON, under the figures that total it. It reads the
-          same weekly.json the best-week figure above it does, so it costs no
-          second fetch and appears at the same moment. */}
+      {/* THE SEASON, WEEK BY WEEK — the fourteen-cell strip (SKILL §5), back in
+          the drawer (Max, 2026-09-03). It was left to the player page on the
+          argument that a drawer answers "is there anything else about him"
+          rather than "everything"; but when a season was good and WHEN it
+          happened is the first thing anyone asks of a settled year, and a
+          six-figure grid cannot say it. Fourteen fixed cells, so any two
+          players' seasons compare cell for cell.
+
+          The classic board's own component, not a copy: a bye reads BYE at 75%
+          and a genuinely missing week reads an em dash at 40%, and those two
+          must not drift apart between the shells. */}
+      {weekly?.length ? (
+        <div className="plx-weeks">
+          <div className="k">Week by week</div>
+          <WeekGrid weeks={weekly.filter(w => w[0] < playoffStart)} absent={absent} />
+        </div>
+      ) : null}
+      {/* THE SHAPE OF THOSE WEEKS, under the strip that lists them: the grid
+          says when, the box says how far apart. Same weekly.json, one fetch. */}
       <Spread values={scores}
         note={loading ? "reading the week scores"
           : `${scores.length} scored week${scores.length === 1 ? "" : "s"}`} />
