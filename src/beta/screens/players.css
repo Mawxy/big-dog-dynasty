@@ -143,6 +143,42 @@
   color: var(--dim2);
 }
 
+/* ---- the weekly spread --------------------------------------------------
+   A box and whisker of the season's weekly scores, under the figures that
+   total it. Scales with the drawer through a viewBox and stops at 380px: past
+   that the labels grow with the box and a five-number summary starts looking
+   like a chart with something to prove.
+
+   ACHROMATIC, with the median in the accent. The classic board's BoxMarks
+   fills its box #1e6fd9, which on this shell is the WR position colour — and
+   position colour is the badge and the spine and nothing else. Same statistics,
+   this shell's ink. */
+.plx-spread { margin-top: 13px; }
+.plx-spread .k {
+  font: 600 10px/1 var(--cond);
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.plx-spread svg {
+  display: block;
+  width: 100%;
+  max-width: 380px;
+  height: auto;
+  margin-top: 7px;
+  overflow: visible;
+}
+.plx-spread .wh { stroke: var(--dim3); stroke-width: 1; }
+.plx-spread .iqr { fill: var(--sel); stroke: var(--rule-2); stroke-width: 1; }
+.plx-spread .md { stroke: var(--acc); stroke-width: 2; }
+.plx-spread .v {
+  font: 600 9px var(--mono);
+  font-variant-numeric: tabular-nums;
+  fill: var(--dim2);
+}
+.plx-spread .v.acc { fill: var(--acc); font-size: 10px; }
+.plx-spread .v.dim { fill: var(--dim3); }
+
 /* THE DRAWER'S HONORS BLOCK — the marks at drawer size with the words beside
    them. On a phone it is the only place they appear; on desktop it is where the
    sub-line's unlabelled glyphs get their names, which is the thing a legend is

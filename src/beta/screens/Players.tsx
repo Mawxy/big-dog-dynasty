@@ -26,6 +26,9 @@ import {
 } from "../../lib/postseason";
 import { loadWinShare, winShareOf, type WinShareIndex } from "../../lib/winshare";
 import HonorMarks, { HonorSprite } from "../../components/HonorMarks";
+// the five-number summary only — the marks are drawn in this shell's own ink,
+// see Spread
+import { boxStats } from "../../components/BoxMarks";
 import { useMobile } from "../../lib/useWidth";
 import ScopeControl, { ALL_SEASONS, useScope } from "../Scope";
 import {
@@ -1398,6 +1401,56 @@ function Honors({ marks, pos }: { marks?: [HonorKey, number][]; pos: string }) {
   );
 }
 
+/**
+ * THE SEASON'S SPREAD — a box and whisker over his weekly scores.
+ *
+ * The five figures beside it say what a season TOTALLED; this says what its
+ * weeks LOOKED LIKE, which no total can. Two players at 18.2 PPG are the same
+ * row until you see that one of them lived between 14 and 22 and the other
+ * alternated 4 and 33 — and the second is the one who lost you a week you were
+ * favoured in.
+ *
+ * `boxStats` is the classic board's, imported: the five-number summary is
+ * arithmetic and there should be exactly one of it. The MARKS are drawn here
+ * rather than reusing `BoxMarks`, which hardcodes a blue box — on this shell
+ * that blue is the WR position colour, and position colour is the badge and the
+ * spine and nothing else. Achromatic box, accent median, which is the one
+ * figure on it worth pointing at.
+ *
+ * Under four scored weeks there is no distribution to draw and it renders
+ * nothing — quartiles of three numbers are three numbers with a box round them.
+ */
+function Spread({ values, note }: { values: number[]; note: string }) {
+  if (values.length < 4) return null;
+  const s = boxStats(values);
+  const L = 26, R = 304, y = 16, h = 16;
+  const span = (s.mx - s.mn) || 1;
+  const x = (t: number) => L + (t - s.mn) / span * (R - L);
+  const lab = (t: number, py: number, cls: string) => (
+    <text className={cls} x={x(t)} y={py} textAnchor="middle">{fmt(t, 1)}</text>
+  );
+  return (
+    <div className="plx-spread">
+      <div className="k">Weekly points · {note}</div>
+      <svg viewBox="0 0 330 54" role="img"
+        aria-label={`Weekly points: median ${fmt(s.md, 1)}, middle half ${fmt(s.q1, 1)} to ${fmt(s.q3, 1)}, range ${fmt(s.mn, 1)} to ${fmt(s.mx, 1)}`}>
+        <line className="wh" x1={x(s.mn)} x2={x(s.q1)} y1={y + h / 2} y2={y + h / 2} />
+        <line className="wh" x1={x(s.q3)} x2={x(s.mx)} y1={y + h / 2} y2={y + h / 2} />
+        <line className="wh" x1={x(s.mn)} x2={x(s.mn)} y1={y + 3} y2={y + h - 3} />
+        <line className="wh" x1={x(s.mx)} x2={x(s.mx)} y1={y + 3} y2={y + h - 3} />
+        <rect className="iqr" x={x(s.q1)} y={y}
+          width={Math.max(1, x(s.q3) - x(s.q1))} height={h} />
+        <line className="md" x1={x(s.md)} x2={x(s.md)} y1={y - 3} y2={y + h + 3} />
+        {lab(s.md, y - 6, "v acc")}
+        {lab(s.q1, y + h + 13, "v")}
+        {lab(s.q3, y + h + 13, "v")}
+        {lab(s.mn, y + h + 25, "v dim")}
+        {lab(s.mx, y + h + 25, "v dim")}
+      </svg>
+    </div>
+  );
+}
+
 function DrawerGo({ to }: { to: string }) {
   const nav = useNavigate();
   return (
@@ -1433,11 +1486,9 @@ function CurDrawer({ r, season, to }: { r: CurRow; season: string; to: string })
             figure, so it is a word rather than the null glyph. */}
         <Fig k="Roster" v={r.owner ?? "Free agent"} word sub={`${season} rosters`} />
       </div>
-      <div className="plx-note">
-        Analog is the comparables arm's own three-year curve from the projection matrix,
-        not the raw cohort median the classic Value board prints — the same model, one
-        step further down it.
-      </div>
+      {/* The Analog note that stood here is gone (Max, 2026-09-03) — a
+          definition under one drawer, repeated under every row, when the Key
+          above the table is where definitions live now. */}
       <DrawerGo to={to} />
     </div>
   );
@@ -1593,6 +1644,12 @@ function HistDrawer({ r, season, to, weekly, loading, playoffStart }: {
     return bw ? { week: bw, pts: bp } : null;
   }, [weekly, playoffStart]);
 
+  /* The same weeks the best-week figure reads, kept whole for the spread. One
+     fetch, two answers: weekly.json is already in flight for this drawer. */
+  const scores = useMemo(
+    () => (weekly ?? []).filter(w => w[0] < playoffStart).map(w => w[1]),
+    [weekly, playoffStart]);
+
   return (
     <div className="plx-draw">
       <div className="hd">
@@ -1620,6 +1677,12 @@ function HistDrawer({ r, season, to, weekly, loading, playoffStart }: {
         <Fig k="Started for" v={r.started?.team ?? NUL} word
           sub={r.started ? `${r.started.starts} start${r.started.starts === 1 ? "" : "s"}` : "never started"} />
       </div>
+      {/* THE SHAPE OF THE SEASON, under the figures that total it. It reads the
+          same weekly.json the best-week figure above it does, so it costs no
+          second fetch and appears at the same moment. */}
+      <Spread values={scores}
+        note={loading ? "reading the week scores"
+          : `${scores.length} scored week${scores.length === 1 ? "" : "s"}`} />
       <Honors marks={r.marks} pos={r.pos} />
       {/* No market price in here, in any tense. What he cost in 2026 says
           nothing about what he returned in this season, and a row that carried
