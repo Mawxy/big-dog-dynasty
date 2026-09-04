@@ -8,13 +8,60 @@ const cache = new Map<string, Promise<unknown>>();
 let ver = "";
 export function setVersion(v: string) { ver = v; }
 
+/**
+ * THE HARD-REFRESH NONCE.
+ *
+ * `?v=` busts a JSON URL when the DATA VERSION changes, which is exactly right
+ * for the normal case and no help at all in the case the More screen's refresh
+ * exists for: meta.json itself carries no `?v=` — it is what supplies the
+ * version — so it rides GitHub Pages' short max-age, and a reader whose browser
+ * is holding a ten-minute-old meta.json sees the whole board pinned to the
+ * version inside it. Reloading the page does not fix that; the browser serves
+ * the same cached copy to the new page.
+ *
+ * So the button reloads with a nonce in the page URL and this appends it to
+ * EVERY fetch, meta.json included. One nonce for the life of that page load, so
+ * the board is internally consistent — a second nonce mid-session would let two
+ * files come from two different deploys.
+ */
+let bust = "";
+export function setBust(b: string) { bust = b; }
+
+/** the nonce a hard refresh puts in the URL, and where the boot reads it from */
+export const BUST_PARAM = "r";
+
+/** Reload with a fresh nonce, having dropped anything the browser is storing.
+ *  `replace`, not `assign`: a refresh is not a place in the reader's history. */
+export async function hardRefresh() {
+  // No service worker ships today, but a stale one from an older deploy would
+  // outlive every other measure here — it answers fetches before the network
+  // does. Cheap to clear, and fatal to miss.
+  try {
+    const regs = await navigator.serviceWorker?.getRegistrations?.() ?? [];
+    await Promise.all(regs.map(r => r.unregister()));
+  } catch { /* unsupported, or blocked in a private window */ }
+  try {
+    const keys = await caches.keys();
+    await Promise.all(keys.map(k => caches.delete(k)));
+  } catch { /* same */ }
+  const u = new URL(window.location.href);
+  u.searchParams.set(BUST_PARAM, Date.now().toString(36));
+  window.location.replace(u.toString());
+}
+
 /** fetch JSON once per path per page load (cache-busted by data version).
  *  A failed fetch is evicted so the next caller retries rather than inheriting
  *  the cached rejection for the life of the page. */
 export function j<T>(path: string): Promise<T> {
   if (!cache.has(path)) {
+    const q = new URLSearchParams();
+    if (ver) q.set("v", ver);
+    // the nonce goes on EVERY file, including the ones fetched before the
+    // version is known — those are the stale ones a hard refresh is for
+    if (bust) q.set(BUST_PARAM, bust);
+    const qs = q.toString();
     const sep = path.includes("?") ? "&" : "?";
-    const p = fetch(ver ? `${path}${sep}v=${encodeURIComponent(ver)}` : path).then(r => {
+    const p = fetch(qs ? `${path}${sep}${qs}` : path).then(r => {
       if (!r.ok) throw new Error(`failed to load ${path}`);
       return r.json();
     });

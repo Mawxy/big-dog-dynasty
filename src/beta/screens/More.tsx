@@ -2,6 +2,7 @@ import { Fragment, useMemo, useState, type ReactNode } from "react";
 import type { Drafts, Insights, Team, TradesPayload } from "../../lib/types";
 import { MATRIX_CURVES, type MatrixCurve } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { hardRefresh } from "../../lib/data";
 import { CLASSIC_SEG, leagueSeg, useLeague } from "../../lib/context";
 import { rosterSeasonOf } from "../../lib/league";
 import { useIdentity } from "../../lib/identity";
@@ -332,10 +333,22 @@ export default function More() {
         <Row to={betaPath("/league")} name="League"
           sub="Hold the League tab, or tap the name in the header, to switch"
           state={`${leagues.leagues.length} loaded`} />
-        {/* Display only: the build stamp is a fact about the data, and there is
-            nothing on this device that could change it. */}
-        <Row name="Data freshness"
-          sub="Rebuilt nightly, 06:00 UTC, from Sleeper and the market feeds"
+        {/* THE BUILD STAMP AND THE WAY TO GO GET A NEWER ONE, on one row.
+            They belong together: the figure is the reader's evidence that the
+            board is stale and the tap is what fixes it, and splitting them
+            would make the row a fact with no verb next to a verb with no
+            reason.
+
+            It is a real need on a phone. The board's JSON is busted by the data
+            version, and the version lives in meta.json — which carries no bust
+            key of its own, because it is what supplies one. So a browser
+            holding a ten-minute-old meta.json pins every other file to the
+            version inside it, and an ordinary reload does not help: the new
+            page is served the same cached copy. iOS home-screen web clips are
+            worse again, holding pages across days. `hardRefresh` reloads with a
+            one-shot nonce that goes on every fetch, meta.json included. */}
+        <Row onTap={() => { void hardRefresh(); }} name="Data freshness"
+          sub="Rebuilt nightly, 06:00 UTC — tap to force a fresh copy, bypassing this device's cache"
           state={meta.updated} />
         {/* THE WAY BACK. A plain row, deliberately: this is how a beta reader
             returns to the normal site, and the one destination on the screen

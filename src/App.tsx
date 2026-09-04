@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams } from "react-router-dom";
 import type { IndexModelsFile, LeagueEntry, Leagues, MatrixCurve, Meta, PlayersMin } from "./lib/types";
-import { j, jl, retry, setLeagueBase, setVersion } from "./lib/data";
+import { BUST_PARAM, j, jl, retry, setBust, setLeagueBase, setVersion } from "./lib/data";
 import { pageview } from "./lib/analytics";
 import { useJson } from "./lib/useJson";
 import { DEFAULT_CURVE, ModelContext, isCurve } from "./lib/model";
@@ -149,6 +149,14 @@ export default function App() {
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     (async () => {
+      /* THE HARD-REFRESH NONCE, read before the first fetch. More's refresh row
+         reloads the page with `?r=<nonce>`; picking it up here is what makes
+         that reload bypass the browser's copy of meta.json, which is the file
+         every other bust key is derived from and therefore the one that keeps a
+         stale board stale. It rides `location.search`, which is free — this app
+         routes on the hash. */
+      const q = new URLSearchParams(window.location.search).get(BUST_PARAM);
+      if (q) setBust(q);
       // The registry comes FIRST and is global — it is what tells us where the
       // rest of this league's data lives. Everything after it is league-scoped
       // and goes through jl().
