@@ -197,16 +197,8 @@
   top: calc(var(--masth) - 1px);
   z-index: 20;
 }
-.plx-sort .k {
-  flex: 0 0 auto;
-  display: flex;
-  align-items: center;
-  padding: 0 10px 0 var(--v3pad);
-  font: 600 10px/1 var(--cond);
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  color: var(--dim2);
-}
+/* No "Sort" label — the strip IS the header row here and a header row does not
+   introduce itself. The word cost ~55px, which is a whole segment. */
 /* the strip itself is ui.tsx's LensStrip — same control, so the sort reads as
    the same kind of choice a lens is. It gives up its own background and bottom
    rule to the wrapper so the label and the segments are one object. */

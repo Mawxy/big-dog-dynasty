@@ -18,7 +18,7 @@ import {
   type CareerSeason, type HonorIndex, type HonorKey,
 } from "../../lib/honors";
 import {
-  loadRecords, recordsOf, wlByLosses, wlByWins, wlGames, wlText,
+  emptyWL, loadRecords, recordsOf, wlByLosses, wlByWins, wlGames, wlSum, wlText,
   type RecordIndex, type WL,
 } from "../../lib/records";
 import {
@@ -158,7 +158,7 @@ const HIST_GRPS = [
  * drawer and on the desktop header, where there is room to sort by them.
  */
 const CUR_STRIP: Key[] = ["dvi", "cvi", "war", "ktc"];
-const HIST_STRIP: Key[] = ["war", "ws", "ppg", "wls"];
+const HIST_STRIP: Key[] = ["war", "ws", "ppg", "wls", "wlr"];
 
 /** One formatter per key, so a figure carries the same precision in a column,
  *  on the micro line and in the drawer. WAR is 2dp everywhere on the beta
@@ -248,6 +248,23 @@ const DEF_POST: Partial<Record<Key, string>> = {
     + "included.",
 };
 
+/** the seventeen weeks added together */
+const DEF_BOTH: Partial<Record<Key, string>> = {
+  gp: "Games played, regular season and bracket together.",
+  pts: "Fantasy points across both. A playoff bye carries his own playoff average "
+    + "rather than a real score.",
+  ppg: "Points per game over both halves — recomputed from the totals, not the "
+    + "average of two averages.",
+  war: "Regular-season WAR plus playoff WAR. Both are in wins against that phase's "
+    + "own replacement level, so they add.",
+  ws: "Win share over the whole year, in wins. The regular season and the bracket "
+    + "are computed by the same code under the same rule — each won game hands out "
+    + "exactly 1.0 — which is what makes adding them legitimate rather than a "
+    + "coincidence of units.",
+  wls: "Won-lost as a STARTER across both, playoff byes counted as wins.",
+  wlr: "Won-lost as a ROSTERED player across both, playoff byes counted as wins.",
+};
+
 /** a figure, or the em dash. NEVER a zero: a player the market has never priced
  *  and a player priced at nothing are different facts. */
 const figOf = (id: Key, v: number | null): ReactNode => v == null ? NUL : FMT[id](v);
@@ -303,8 +320,39 @@ interface CurRow extends RowBase {
    *  it would show agreement that was never measured. */
   analog: number | null;
 }
+/** one phase's contribution to a Both row, in the units the columns print */
+interface Half {
+  gp: number; pts: number;
+  war: number | null; ws: number | null;
+  start: WL; roster: WL;
+}
+
+/**
+ * REGULAR SEASON AND PLAYOFFS, ADDED (Max, 2026-09-03).
+ *
+ * Every column on this board survives the addition, which is the only reason
+ * the phase can exist: GP, points and the two records are counts; WAR is in
+ * wins in both halves; and win share is in wins BY CONSTRUCTION — season_wpa.py
+ * imports playoff_wpa's own allocation, so the seventeen weeks hand out one
+ * unit per game won under one rule. PPG is the one figure that is not a sum and
+ * is recomputed from the combined totals rather than averaged.
+ *
+ * A player who never reached the bracket keeps his regular season unchanged;
+ * `post` is null for him rather than a row of zeroes, so the drawer can say
+ * "no bracket game" instead of printing a 0-0 that reads like a swept series.
+ */
+interface BothRow extends RowBase {
+  kind: "both";
+  reg: Half;
+  post: Half | null;
+  /** seasons the regular-season half pooled, for the all-time scope */
+  seasons: number;
+  wl: { start: WL; roster: WL };
+}
 interface HistRow extends RowBase {
   kind: "hist";
+  /** the season's two records, kept whole so the Both phase can add them */
+  wl: { start: WL; roster: WL };
   /** weekly σ of fantasy points; absent in seasons pulled before the full-NFL
    *  stats feed existed, and absent is not zero */
   sdv: number | null;
@@ -335,7 +383,15 @@ interface AllRow extends RowBase {
   /** the two records, kept whole for the drawer */
   wl: { start: WL; roster: WL };
 }
-type Row = CurRow | HistRow | AllRow | PostRow;
+type Row = CurRow | HistRow | AllRow | PostRow | BothRow;
+
+/** the phase filter's three states — see BothRow for why the third can exist */
+type Phase = "reg" | "post" | "both";
+const PHASES: { id: Phase; label: string }[] = [
+  { id: "reg", label: "Regular season" },
+  { id: "post", label: "Playoffs" },
+  { id: "both", label: "Both" },
+];
 
 /**
  * Which franchise STARTED a player, and how often, in a settled season.
@@ -352,6 +408,49 @@ type Row = CurRow | HistRow | AllRow | PostRow;
  * franchise with zero starts — the row's sub-line and the drawer both render
  * the em dash for him, and they render the same one because they read this.
  */
+/**
+ * One Both row from its two halves.
+ *
+ * A null half contributes nothing and, where BOTH halves are null on a figure,
+ * the total is null rather than zero — a player the bracket never priced for
+ * WAR and a player worth zero WAR are different facts, and this board's whole
+ * grammar is that the em dash says so.
+ */
+function combine(
+  pid: string, name: string, pos: string, affil: string | null,
+  marks: [HonorKey, number][] | undefined,
+  reg: Half, post: Half | null, seasons: number,
+): BothRow {
+  const gp = reg.gp + (post?.gp ?? 0);
+  const pts = reg.pts + (post?.pts ?? 0);
+  const add = (a: number | null, b: number | null | undefined) =>
+    a == null && b == null ? null : (a ?? 0) + (b ?? 0);
+  const start = wlSum([reg.start, post?.start]);
+  const roster = wlSum([reg.roster, post?.roster]);
+  return {
+    kind: "both",
+    pid, name, pos, affil, marks, seasons,
+    reg, post,
+    wl: { start, roster },
+    f: {
+      gp: gp || null,
+      pts: gp ? pts : null,
+      // RECOMPUTED, never averaged: the two halves have different game counts,
+      // so the mean of two PPGs is not the PPG of the whole
+      ppg: gp ? pts / gp : null,
+      war: add(reg.war, post?.war),
+      ws: add(reg.ws, post?.ws),
+      wls: wlByWins(start),
+      wlr: wlByWins(roster),
+    },
+    alt: { wls: wlByLosses(start), wlr: wlByLosses(roster) },
+    text: {
+      wls: wlText(start) ?? undefined,
+      wlr: wlText(roster) ?? undefined,
+    },
+  };
+}
+
 function startsBy(mw: Matchups, teams: Team[]) {
   const ps = mw.playoff_start || 15;
   const name = new Map<number, string>(teams.map(t => [t.roster_id, t.team]));
@@ -431,7 +530,7 @@ export default function Players() {
      would give one control two jobs and four segments. Regular season is the
      default because it is fourteen weeks against three and because it is the
      only phase in which the board's own WAR is defined league-wide. */
-  const [phase, setPhase] = useState<"reg" | "post">("reg");
+  const [phase, setPhase] = useState<Phase>("reg");
   const [keyOpen, setKeyOpen] = useState(false);
 
   /* 900px, not style.css's 640px: the beta shell's own desktop breakpoint is
@@ -493,7 +592,7 @@ export default function Players() {
   }, [hist, played]);
 
   useEffect(() => {
-    if (phase !== "post" || !hist || !played.length) return;
+    if (phase === "reg" || !hist || !played.length) return;
     let live = true;
     setPostErr(false);
     loadPostseason(played)
@@ -619,6 +718,7 @@ export default function Players() {
         warG: gp ? war / gp : null,
         finish: finish.get(pid) ?? 0,
         started: st,
+        wl,
         f: {
           gp, pts, ppg, war,
           ws: winShareOf(wins, pid, [oneSeason]),
@@ -754,10 +854,61 @@ export default function Players() {
     return out;
   }, [phase, hist, post, postSeasons, allTime, oneSeason, honors, players, dviQ.data]);
 
+  /* ---- STATS · BOTH ------------------------------------------------------
+     The regular-season board with the bracket added to it, row by row. Built
+     ON TOP of whichever regular-season population is in force rather than as a
+     third builder: the season and all-time halves already know how to pool
+     summaries, honors and records, and a second copy of that would be a second
+     place for the Both board to disagree with the Regular one. */
+
+  const bothPop = useMemo<Row[] | null>(() => {
+    if (phase !== "both" || !hist) return null;
+    const base = allTime ? allPop : histPop;
+    if (!base || !post) return null;
+
+    const half = (gp: number, pts: number, war: number | null, ws: number | null,
+      start: WL, roster: WL): Half => ({ gp, pts, war, ws, start, roster });
+
+    const out: Row[] = [];
+    const seen = new Set<string>();
+    for (const b of base) {
+      if (b.kind !== "hist" && b.kind !== "all") continue;
+      seen.add(b.pid);
+      const p = postseasonOf(post, b.pid, postSeasons);
+      const reg = half(b.f.gp ?? 0, b.f.pts ?? 0, b.f.war ?? null, b.f.ws ?? null,
+        b.wl.start, b.wl.roster);
+      const ps = p ? half(p.gp, p.pts, p.war, p.ws, p.start, p.roster) : null;
+      out.push(combine(b.pid, b.name, b.pos, b.affil, b.marks, reg, ps,
+        b.kind === "all" ? b.seasons : 1));
+    }
+    /* A PLAYOFF-ONLY ROW. summary.json lists who SCORED in the regular season,
+       so a body added in week 15 and started in the bracket is in the postseason
+       index and nowhere in `base`. His regular half is genuinely empty, which is
+       a different fact from zero and is what the null `reg` totals print. */
+    for (const pid of Object.keys(post.byPlayer)) {
+      if (seen.has(pid)) continue;
+      const p = postseasonOf(post, pid, postSeasons);
+      if (!p) continue;
+      out.push(combine(pid, pInfo(players, pid)[0],
+        dviQ.data?.players[pid]?.pos ?? players[pid]?.[1] ?? "?",
+        allTime ? "0 seasons" : p.team,
+        allTime
+          ? (honorTotals(playerHonors(honors, pid)).length
+            ? honorTotals(playerHonors(honors, pid)) : undefined)
+          : undefined,
+        half(0, 0, null, null, emptyWL(), emptyWL()),
+        half(p.gp, p.pts, p.war, p.ws, p.start, p.roster), 0));
+    }
+    return out;
+  }, [phase, hist, allTime, allPop, histPop, post, postSeasons, honors, players,
+    dviQ.data]);
+
   /* ---- order, rank, filter --------------------------------------------- */
 
   const population = hist
-    ? (phase === "post" ? postPop : allTime ? allPop : histPop)
+    ? (phase === "both" ? bothPop
+      : phase === "post" ? postPop
+        : allTime ? allPop : histPop)
     : curPop;
   const cols = hist ? HIST_COLS : CUR_COLS;
   const grps = hist ? HIST_GRPS : CUR_GRPS;
@@ -832,11 +983,13 @@ export default function Players() {
      `useDviQuery` reports the missing index_models.json that sent it to the
      dvi.json fallback, and that fallback usually lands. The population is the
      honest test of whether the board can be drawn. */
+  /* The Both board reads the season files too — its regular half is the same
+     population — so only the Playoffs board is free of them. */
   const queries = hist
     ? (allTime || phase === "post" ? [] : [sumQ, hTeamQ, mwQ])
     : [dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ];
   const failed = rows == null
-    && ((phase === "post" && postErr)
+    && ((phase !== "reg" && postErr)
       || (allTime && phase !== "post" && careerErr)
       || (!queries.some(x => x.loading) && queries.some(x => x.error)));
 
@@ -875,9 +1028,9 @@ export default function Players() {
       {hist && (
         <div className="v3-filters plx-filters plx-filters2">
           <span className="plx-fk">Phase</span>
-          {([["reg", "Regular season"], ["post", "Playoffs"]] as const).map(([id, label]) => (
-            <button key={id} type="button" className={`chip${phase === id ? " on" : ""}`}
-              onClick={() => setPhase(id)}>{label}</button>
+          {PHASES.map(p => (
+            <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
+              onClick={() => setPhase(p.id)}>{p.label}</button>
           ))}
         </div>
       )}
@@ -891,9 +1044,14 @@ export default function Players() {
           onChange={e => setQ(e.target.value)} />
       </div>
 
+      {/* NO "SORT" LABEL (Max, 2026-09-03). The strip is the header row on a
+          phone and a header row does not introduce itself — the lit segment and
+          the figure it puts in every row say what it is. Dropping the word buys
+          ~55px, which is the difference between four segments and five, and the
+          fifth is Rostered: without it the phone board could not be ordered by
+          the one record a reader is most likely to want. */}
       {mobile && (
         <div className="plx-sort">
-          <span className="k">Sort</span>
           {/* Picking a key sets the direction from the column's own default
               (descending, except a rank) rather than toggling: the strip is a
               key picker, and a mis-tap on the segment that is already lit
@@ -923,7 +1081,7 @@ export default function Players() {
 
       <Band
         label={hist
-          ? `${phase === "post" ? "Playoffs" : "Regular season"} · ${
+          ? `${PHASES.find(p => p.id === phase)!.label} · ${
             allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}`
           : `Price · ${rosterSeason} rosters`}
         right={
@@ -964,7 +1122,8 @@ export default function Players() {
           {cols.map(c => (
             <Fragment key={c.id}>
               <dt>{c.label}{c.short ? ` · ${c.short}` : ""}</dt>
-              <dd>{(hist && phase === "post" ? DEF_POST[c.id] : undefined) ?? DEF[c.id]}</dd>
+              <dd>{(hist && phase === "post" ? DEF_POST[c.id]
+                : hist && phase === "both" ? DEF_BOTH[c.id] : undefined) ?? DEF[c.id]}</dd>
             </Fragment>
           ))}
         </dl>
@@ -1097,6 +1256,9 @@ export default function Players() {
                     <td colSpan={span}>
                       {r.kind === "cur"
                         ? <CurDrawer r={r} season={rosterSeason} to={betaPath(`/player/${r.pid}`)} />
+                        : r.kind === "both"
+                        ? <BothDrawer r={r} season={allTime ? null : oneSeason}
+                          to={betaPath(`/player/${r.pid}`)} />
                         : r.kind === "post"
                         ? <PostDrawer r={r} season={allTime ? null : oneSeason}
                           to={betaPath(`/player/${r.pid}`)} />
@@ -1299,6 +1461,47 @@ function CurDrawer({ r, season, to }: { r: CurRow; season: string; to: string })
  * and the bye — the one figure on this board that is imputed rather than
  * measured — has to be visible from the row that carries it.
  */
+/**
+ * THE BOTH DRAWER — where each total came from.
+ *
+ * Six cells, three quantities, twice: the row states one number per column and
+ * the only question it leaves is which half of the year it came from. A 2-12
+ * regular season with a 3-0 bracket run is a different player from 5-9 and
+ * 0-1, and the row they share cannot say so.
+ *
+ * The playoff half reads the em dash for a player who never got there — not a
+ * zero, which would look like a swept series.
+ */
+function BothDrawer({ r, season, to }: { r: BothRow; season: string | null; to: string }) {
+  const p = r.post;
+  const gp = (n: number) => `${n} game${n === 1 ? "" : "s"}`;
+  return (
+    <div className="plx-draw">
+      <div className="hd">
+        <span className="nm">{r.name}</span>
+        <span className="mt">
+          {r.pos} · {season ? `${season}, both halves` : "career, both halves"}
+        </span>
+      </div>
+      <div className="plx-figs">
+        <Fig k="Regular W-L" v={wlText(r.reg.start) ?? NUL} sub={gp(r.reg.gp)} />
+        <Fig k="Regular WAR" v={r.reg.war == null ? NUL : fmtWar(r.reg.war)}
+          sub="vs replacement" />
+        <Fig k="Regular WS" v={r.reg.ws == null ? NUL : fmt(r.reg.ws, 2)}
+          sub="of his team's wins" />
+        <Fig k="Playoff W-L" v={p ? wlText(p.start) ?? NUL : NUL}
+          sub={p ? gp(p.gp) : "no bracket game"} />
+        <Fig k="Playoff WAR" v={p?.war == null ? NUL : fmtWar(p.war)}
+          sub={p ? "vs replacement" : "no bracket game"} />
+        <Fig k="Playoff WS" v={p?.ws == null ? NUL : fmt(p.ws, 2)}
+          sub={p ? "of his team's wins" : "no bracket game"} />
+      </div>
+      <Honors marks={r.marks} pos={r.pos} />
+      <DrawerGo to={to} />
+    </div>
+  );
+}
+
 function PostDrawer({ r, season, to }: { r: PostRow; season: string | null; to: string }) {
   const gp = r.f.gp ?? 0;
   return (
