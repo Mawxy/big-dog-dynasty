@@ -10,6 +10,7 @@ import { fmt, fmtWar, sgnWar, mean } from "../lib/stats";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { ktcOf } from "../lib/values";
+import { useMobile } from "../lib/useWidth";
 import PosBadge from "../components/PosBadge";
 import Portrait from "../components/Portrait";
 import TScroll from "../components/TScroll";
@@ -85,6 +86,19 @@ export default function Player({ pid }: { pid: string }) {
   const [splits, setSplits] = useState<OwnerSplit[]>([]);
   /** which model the six-curve comparison table accents */
   const [model, setModel] = useState<MatrixModel>("blend");
+  /**
+   * THE PHONE SHAPE (≤640px, the same breakpoint `.hm` hides columns at).
+   *
+   * The split rail is a desktop shell: 232px of identity and ladder beside the
+   * content. Stacked on a phone it put the whole rail — portrait, name, honors,
+   * a ten-row ladder and four nav buttons — above the first figure, so the
+   * reader scrolled a screen and a half before the page said anything. On a
+   * phone the rail becomes a compact identity header with a jump strip, the
+   * ladder moves into its own band under the figure strip, and each table
+   * keeps only the columns that earn their width. Same elements, same order of
+   * importance, one column.
+   */
+  const mobile = useMobile();
 
   // Everything the page reads whole and picks this player out of. Each is one
   // cached download shared with every other view that wants the same file.
@@ -349,6 +363,84 @@ export default function Player({ pid }: { pid: string }) {
     ? Math.max(0.001, ...((mx ? band.hi : stHi) ?? proj.comp_high))
     : 1;
 
+  /* ---- the rail's parts, built once and placed by shape ------------------
+     Desktop puts all of them in the 232px rail; the phone puts identity and
+     the jump strip in a header and the ladder in a band under the figures.
+     One definition each, so the two shapes cannot drift. */
+
+  /** badge, club, name, and the age / seasons / bye / owner line */
+  const identity = (
+    <>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <PosBadge pos={pos} />
+        {/* the club in full — the rail has the width, and "GB" beside
+            a badge was a code where a name fits. No club is a fact too:
+            "NFL Free Agent", not a blank (Max, 2026-09-02). */}
+        <span style={{ font: "600 13px/1.2 var(--cond)", letterSpacing: ".12em", color: "var(--dim)", textTransform: "uppercase" }}>
+          {clubName(nfl)}
+        </span>
+      </div>
+      <div className="rail-name">{nm}</div>
+      <div className="rail-sub">
+        {/* "— seasons", never "0 seasons": an unknown career length is
+            not a rookie's */}
+        {proj && <>age {proj.age} · {proj.exp ?? "—"} seasons · bye {proj.bye ?? "—"} · </>}
+        {owner ?? "free agent"}
+      </div>
+    </>
+  );
+
+  /** the section jumps. Buttons, not anchors: the targets are refs, and a
+   *  hash link would fight the router for the URL. */
+  const jumps = (
+    <>
+      {proj && <button onClick={() => goto("projection")}>Projection</button>}
+      <button onClick={() => goto("career")}>Career</button>
+      {events.length > 0 && <button onClick={() => goto("ownership")}>Ownership</button>}
+      {market.length > 0 && <button onClick={() => goto("market")}>Market value</button>}
+    </>
+  );
+
+  /** the career WAR ladder, newest first — the rows only; the caller frames it */
+  const ladderRows = ladder.length > 0 && (
+    <div className="rail-ladder">
+      {ladder.map(([y, w]) => {
+        const isProj = projected.some(([py]) => py === y);
+        // Three kinds of row, and only one of them is pickable.
+        // A projected year has no weeks. A season before the league
+        // existed has no career row to open and no honors to earn —
+        // it is career context, not league history, and it says so by
+        // sitting back. Leaving it clickable pointed at a row that
+        // was never rendered.
+        const inLeague = meta.seasons.includes(String(y));
+        const pick = !isProj && inLeague;
+        const on = pick && String(y) === wkSeason;
+        return (
+          <div key={y} role={pick ? "button" : undefined}
+            tabIndex={pick ? 0 : undefined}
+            title={pick ? `Open ${y} in the career table`
+              : isProj ? undefined : `${y} — before the league began`}
+            className={`rail-war${isProj ? " proj" : pick ? " pick" : " pre"}${on ? " mark" : ""}`}
+            onClick={pick ? () => openSeason(String(y), true) : undefined}
+            onKeyDown={pick ? e => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault(); openSeason(String(y), true);
+              }
+            } : undefined}>
+            <span className="yr">{y}</span>
+            <span className="bar">
+              <i style={{
+                width: `${Math.round(Math.max(0, w) / ladderMax * 100)}%`,
+                background: isProj ? "var(--dim)" : barColor(w),
+              }} />
+            </span>
+            <span className="v">{fmtWar(w)}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+
   return (
     <>
       <div className="screen-head">
@@ -360,26 +452,31 @@ export default function Player({ pid }: { pid: string }) {
         {/* the position tint is declared once here, not on the rail: the career
             table needs it too, and scoping it to the rail left every crown and
             gem in the table falling back to gray */}
-        <div className={`split pos-mark-${pos}`}>
+        <div className={`split pos-mark-${pos}${mobile ? " phone" : ""}`}>
+          {mobile ? (
+            /* THE PHONE HEADER. Portrait beside the identity, not above it;
+               honors on their own line under the sub-line; the section jumps
+               as one scrolling strip. Everything the rail says, at a fifth of
+               the height. */
+            <div className="pid-head">
+              <span className="rail-back" onClick={() => nav(-1)}>← Back</span>
+              <div className="pid-row">
+                <Portrait pid={pid} size={76} />
+                <div className="pid-id">{identity}</div>
+              </div>
+              {honorCareer.length > 0 && (
+                <div className="pid-honors">
+                  <span className="k">Honors · in league</span>
+                  <HonorMarks marks={honorCareer} />
+                </div>
+              )}
+              <div className="pid-jump" role="navigation" aria-label="On this page">{jumps}</div>
+            </div>
+          ) : (
           <div className="rail">
             <span className="rail-back" onClick={() => nav(-1)}>← Back</span>
             <Portrait pid={pid} />
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-              <PosBadge pos={pos} />
-              {/* the club in full — the rail has the width, and "GB" beside
-                  a badge was a code where a name fits. No club is a fact too:
-                  "NFL Free Agent", not a blank (Max, 2026-09-02). */}
-              <span style={{ font: "600 13px/1.2 var(--cond)", letterSpacing: ".12em", color: "var(--dim)", textTransform: "uppercase" }}>
-                {clubName(nfl)}
-              </span>
-            </div>
-            <div className="rail-name">{nm}</div>
-            <div className="rail-sub">
-              {/* "— seasons", never "0 seasons": an unknown career length is
-                  not a rookie's */}
-              {proj && <>age {proj.age} · {proj.exp ?? "—"} seasons · bye {proj.bye ?? "—"} · </>}
-              {owner ?? "free agent"}
-            </div>
+            {identity}
 
             {honorCareer.length > 0 && (
               <>
@@ -392,54 +489,15 @@ export default function Player({ pid }: { pid: string }) {
               </>
             )}
 
-            {ladder.length > 0 && <>
+            {ladderRows && <>
               <div className="rail-h">Career WAR</div>
-              <div className="rail-ladder">
-                {ladder.map(([y, w]) => {
-                  const isProj = projected.some(([py]) => py === y);
-                  // Three kinds of row, and only one of them is pickable.
-                  // A projected year has no weeks. A season before the league
-                  // existed has no career row to open and no honors to earn —
-                  // it is career context, not league history, and it says so by
-                  // sitting back. Leaving it clickable pointed at a row that
-                  // was never rendered.
-                  const inLeague = meta.seasons.includes(String(y));
-                  const pick = !isProj && inLeague;
-                  const on = pick && String(y) === wkSeason;
-                  return (
-                    <div key={y} role={pick ? "button" : undefined}
-                      tabIndex={pick ? 0 : undefined}
-                      title={pick ? `Open ${y} in the career table`
-                        : isProj ? undefined : `${y} — before the league began`}
-                      className={`rail-war${isProj ? " proj" : pick ? " pick" : " pre"}${on ? " mark" : ""}`}
-                      onClick={pick ? () => openSeason(String(y), true) : undefined}
-                      onKeyDown={pick ? e => {
-                        if (e.key === "Enter" || e.key === " ") {
-                          e.preventDefault(); openSeason(String(y), true);
-                        }
-                      } : undefined}>
-                      <span className="yr">{y}</span>
-                      <span className="bar">
-                        <i style={{
-                          width: `${Math.round(Math.max(0, w) / ladderMax * 100)}%`,
-                          background: isProj ? "var(--dim)" : barColor(w),
-                        }} />
-                      </span>
-                      <span className="v">{fmtWar(w)}</span>
-                    </div>
-                  );
-                })}
-              </div>
+              {ladderRows}
             </>}
 
             <div className="rail-h">On this page</div>
-            <div className="rail-nav">
-              {proj && <button onClick={() => goto("projection")}>Projection</button>}
-              <button onClick={() => goto("career")}>Career</button>
-              {events.length > 0 && <button onClick={() => goto("ownership")}>Ownership</button>}
-              {market.length > 0 && <button onClick={() => goto("market")}>Market value</button>}
-            </div>
+            <div className="rail-nav">{jumps}</div>
           </div>
+          )}
 
           <div className="main">
             <div className="figstrip">
@@ -471,6 +529,21 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="figsub">composite WAR</div>
               </div>
             </div>
+
+            {mobile && ladderRows && (
+              /* THE LADDER AS A BAND. On the desktop it sits in the rail and
+                 stays in view while the page scrolls; a phone has no rail, so
+                 it takes the band grammar every other section uses and sits
+                 directly under the figures it explains. Same rows, same
+                 tap-to-open. */
+              <div className="pid-ladder">
+                <div className="band">
+                  <span className="band-label">Career WAR</span>
+                  <span className="band-note">Projected years above played · tap a season to open it</span>
+                </div>
+                {ladderRows}
+              </div>
+            )}
 
             {verdict && (
               <div className="verdict">
@@ -519,11 +592,18 @@ export default function Player({ pid }: { pid: string }) {
                 <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
+                    {/* ON A PHONE, ONE MODEL AT A TIME (Max, 2026-09-05). Six
+                        curves across a 375px screen is a scroll with the
+                        subject off-screen; the lens above already picks a
+                        model, so on a phone it picks which pair of columns
+                        is on the table rather than which pair is inked. The
+                        other two stay one tap away. Desktop keeps all six,
+                        because there the disagreement is readable at a glance. */}
                     <tr className="grp">
                       <th colSpan={2}></th>
                       {MODELS.map(m => (
                         <th key={m.key} scope="colgroup" colSpan={2}
-                          className={`edge${m.key === modelOn ? " value" : ""}`}>
+                          className={`edge${m.key === modelOn ? " value" : " hm"}`}>
                           {m.label}
                         </th>
                       ))}
@@ -534,12 +614,15 @@ export default function Player({ pid }: { pid: string }) {
                     <tr>
                       <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
                       <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
-                      {MODELS.map(m => (
-                        <Fragment key={m.key}>
-                          <th scope="col" className="n edge" style={{ width: "10%" }}>Natural</th>
-                          <th scope="col" className="n" style={{ width: "10%" }}>Composite</th>
-                        </Fragment>
-                      ))}
+                      {MODELS.map(m => {
+                        const hm = m.key === modelOn ? "" : " hm";
+                        return (
+                          <Fragment key={m.key}>
+                            <th scope="col" className={`n edge${hm}`} style={{ width: "10%" }}>Natural</th>
+                            <th scope="col" className={`n${hm}`} style={{ width: "10%" }}>Composite</th>
+                          </Fragment>
+                        );
+                      })}
                       <th scope="col" className="t key edge" style={{ width: "27%" }}>Range</th>
                       <th scope="col" className="n" style={{ width: "8%" }}>Position finish</th>
                     </tr>
@@ -567,7 +650,7 @@ export default function Player({ pid }: { pid: string }) {
                                    opinion */
                                 const echo = s === "composite" && !mx.has_sleeper;
                                 return (
-                                  <td key={s} className={`n${k === 0 ? " edge" : ""}${on && !echo ? "" : " fig quiet"}`}>
+                                  <td key={s} className={`n${k === 0 ? " edge" : ""}${on && !echo ? "" : " fig quiet"}${m.key === modelOn ? "" : " hm"}`}>
                                     {off ? <span className="fig quiet">—</span>
                                       : on && !echo
                                         ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(v)}</span>
@@ -624,17 +707,21 @@ export default function Player({ pid }: { pid: string }) {
                   <thead>
                     <tr className="grp">
                       <th colSpan={2}></th>
-                      <th scope="colgroup" className="edge" colSpan={3}>Paths</th>
+                      {/* one path on a phone (the lens picks it), three on a desktop */}
+                      <th scope="colgroup" className="edge" colSpan={mobile ? 1 : 3}>Paths</th>
                       <th scope="colgroup" className="edge value" colSpan={2}>{st.label} view</th>
                     </tr>
                     <tr>
                       <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
                       <th scope="col" className="n" style={{ width: "7%" }}>Age</th>
                       {/* every path is named for what it is; the lens only
-                          decides which one carries the accent */}
-                      <th scope="col" className="n edge" style={{ width: "11%" }}>Composite</th>
-                      <th scope="col" className="n" style={{ width: "11%" }}>Age curve</th>
-                      <th scope="col" className="n" style={{ width: "11%" }}>Adjusted</th>
+                          decides which one carries the accent — and, on a
+                          phone, which one is on the table at all */}
+                      {STREAMS.map((s, k) => (
+                        <th key={s.key} scope="col"
+                          className={`n${k === 0 ? " edge" : ""}${s.key === stream ? "" : " hm"}`}
+                          style={{ width: "11%" }}>{s.label}</th>
+                      ))}
                       <th scope="col" className="t key edge" style={{ width: "37%" }}>Range</th>
                       <th scope="col" className="n" style={{ width: "14%" }}>Position finish</th>
                     </tr>
@@ -648,7 +735,7 @@ export default function Player({ pid }: { pid: string }) {
                           const v = (proj[s.line] as number[])[i];
                           const on = s.key === stream;
                           return (
-                            <td key={s.key} className={`n${k === 0 ? " edge" : ""}${on ? "" : " fig quiet"}`}>
+                            <td key={s.key} className={`n${k === 0 ? " edge" : ""}${on ? "" : " fig quiet hm"}`}>
                               {v == null ? <span className="fig quiet">—</span>
                                 : on ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(v)}</span>
                                   : fmtWar(v)}
@@ -696,7 +783,10 @@ export default function Player({ pid }: { pid: string }) {
                     <tr>
                       <th scope="col" className="t" style={{ width: "27%" }}>Comparable</th>
                       <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
-                      <th scope="col" className="t edge" style={{ width: "24%" }}>Points going in</th>
+                      {/* the three inputs the match was made on — the desktop's
+                          evidence column, and the one a phone can spare: the
+                          Match score beside it is the same fact summarised */}
+                      <th scope="col" className="t edge hm" style={{ width: "24%" }}>Points going in</th>
                       {[0, 1, 2].map(i => (
                         <th key={i} scope="col" className={`n${i === 0 ? " edge" : ""}`}
                           style={{ width: "11%" }}>Year {i + 1}</th>
@@ -714,7 +804,7 @@ export default function Player({ pid }: { pid: string }) {
                         {/* the same three numbers the match was made on, most
                             recent first. A slot he has no season for reads as a
                             dash: it is not a season in which he scored nothing. */}
-                        <td className="t fig quiet edge">
+                        <td className="t fig quiet edge hm">
                           {m.seen.map(v => v == null ? "—" : Math.round(v * 100)).join(" · ")}
                         </td>
                         {m.then.map((v, k) => (
@@ -759,8 +849,12 @@ export default function Player({ pid }: { pid: string }) {
                         <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
                         <th scope="col" className="t" style={{ width: "30%" }}>Held by</th>
                         <th scope="col" className="n" style={{ width: "7%" }}>GP</th>
-                        <th scope="col" className="n" style={{ width: "10%" }}>Points</th>
-                        <th scope="col" className="n" style={{ width: "9%" }}>PPG</th>
+                        {/* Points and PPG sit out on a phone: WAR is the
+                            figure this table is sorted by and the one the
+                            page is about, and the week grid under an open
+                            season carries the points */}
+                        <th scope="col" className="n hm" style={{ width: "10%" }}>Points</th>
+                        <th scope="col" className="n hm" style={{ width: "9%" }}>PPG</th>
                         <th scope="col" className="n key edge" style={{ width: "11%" }}>WAR</th>
                         <th scope="col" className="n" style={{ width: "10%" }}>Finish</th>
                         <th scope="col" className="t edge" style={{ width: "14%" }}>Honors</th>
@@ -789,8 +883,8 @@ export default function Player({ pid }: { pid: string }) {
                                   : <span className="fig quiet">—</span>}
                               </td>
                               <td className="n fig quiet">{r.gp}</td>
-                              <td className="n fig">{num(Math.round(r.pts))}</td>
-                              <td className="n fig">{fmt(r.ppg, 1)}</td>
+                              <td className="n fig hm">{num(Math.round(r.pts))}</td>
+                              <td className="n fig hm">{fmt(r.ppg, 1)}</td>
                               <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(r.war)}</span></td>
                               <td className="n fig">
                                 {r.posRank
@@ -805,7 +899,7 @@ export default function Player({ pid }: { pid: string }) {
                             </tr>
                             {on && (
                               <tr className="drawer-row">
-                                <td colSpan={8}>
+                                <td colSpan={mobile ? 6 : 8}>
                                   <div style={{ padding: "14px 22px 18px" }}>
                                     {wks === null ? <div className="tnote">Loading {r.season}…</div>
                                       : reg.length ? <WeekGrid weeks={reg} absent={abs} />
@@ -828,8 +922,8 @@ export default function Player({ pid }: { pid: string }) {
                             Career<span className="tot-yrs">{tot.seasons} {tot.seasons === 1 ? "yr" : "yrs"}</span>
                           </td>
                           <td className="n fig">{tot.gp}</td>
-                          <td className="n fig">{num(Math.round(tot.pts))}</td>
-                          <td className="n fig">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
+                          <td className="n fig hm">{num(Math.round(tot.pts))}</td>
+                          <td className="n fig hm">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
                           <td className="n edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(tot.war)}</span></td>
                           {/* Finish is a per-season rank and does not add up.
                               Best-of is a different statistic wearing this
@@ -844,8 +938,8 @@ export default function Player({ pid }: { pid: string }) {
                         <tr className="tot sub">
                           <td className="t fig quiet" colSpan={2}>Average season</td>
                           <td className="n fig quiet">{fmt(tot.gp / tot.seasons, 1)}</td>
-                          <td className="n fig quiet">{num(Math.round(tot.pts / tot.seasons))}</td>
-                          <td className="n fig quiet">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
+                          <td className="n fig quiet hm">{num(Math.round(tot.pts / tot.seasons))}</td>
+                          <td className="n fig quiet hm">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
                           <td className="n fig quiet edge">{fmtWar(tot.war / tot.seasons)}</td>
                           {/* a MEAN finish, so a figure rather than the badge the
                               per-season rows use — those are placings, this is
@@ -871,8 +965,8 @@ export default function Player({ pid }: { pid: string }) {
                               <span className="tot-yrs">{yearSpan(s.years)}</span>
                             </td>
                             <td className="n fig quiet">{s.gp}</td>
-                            <td className="n fig quiet">{num(Math.round(s.pts))}</td>
-                            <td className="n fig quiet">{s.gp ? fmt(s.pts / s.gp, 1) : "—"}</td>
+                            <td className="n fig quiet hm">{num(Math.round(s.pts))}</td>
+                            <td className="n fig quiet hm">{s.gp ? fmt(s.pts / s.gp, 1) : "—"}</td>
                             <td className="n fig edge">{fmtWar(s.war)}</td>
                             <td className="n fig quiet">
                               {s.finish == null ? "—" : `${pos} ${fmt(s.finish, 1)}`}
@@ -911,7 +1005,9 @@ export default function Player({ pid }: { pid: string }) {
                   <thead>
                     <tr>
                       <th scope="col" className="t" style={{ width: "12%" }}>When</th>
-                      <th scope="col" className="t" style={{ width: "12%" }}>Event</th>
+                      {/* the kind is the detail's first word; on a phone the
+                          detail column needs the width more than a label does */}
+                      <th scope="col" className="t hm" style={{ width: "12%" }}>Event</th>
                       <th scope="col" className="t" style={{ width: "76%" }}>Detail</th>
                     </tr>
                   </thead>
@@ -925,7 +1021,7 @@ export default function Player({ pid }: { pid: string }) {
                           <td className="t fig" style={{ color: kind === "Trade" ? "var(--acc)" : undefined }}>
                             {e[0]}{e[1] ? ` W${e[1]}` : ""}
                           </td>
-                          <td className="t fig quiet">{kind}</td>
+                          <td className="t fig quiet hm">{kind}</td>
                           <td className="t last" style={{ whiteSpace: "normal", font: "400 13px/1.55 var(--sans)", color: "var(--txt2)" }}>
                             {e[2]}
                           </td>
@@ -949,19 +1045,22 @@ export default function Player({ pid }: { pid: string }) {
                   <thead>
                     <tr className="grp">
                       <th colSpan={2}></th>
-                      <th scope="colgroup" className="edge" colSpan={3}>Movement</th>
-                      <th scope="colgroup" className="edge" colSpan={3}>Standing</th>
+                      {/* a phone keeps 7 and 30 day (the ends of the window)
+                          and drops 14; keeps both ranks and drops the
+                          pick-equivalent, which the band note still defines */}
+                      <th scope="colgroup" className="edge" colSpan={mobile ? 2 : 3}>Movement</th>
+                      <th scope="colgroup" className="edge" colSpan={mobile ? 2 : 3}>Standing</th>
                       <th scope="colgroup" className="edge value" colSpan={1}>Implied</th>
                     </tr>
                     <tr>
                       <th scope="col" className="t" style={{ width: "16%" }}>Source</th>
                       <th scope="col" className="n" style={{ width: "10%" }}>Value</th>
                       <th scope="col" className="n edge" style={{ width: "9%" }}>7 day</th>
-                      <th scope="col" className="n" style={{ width: "9%" }}>14 day</th>
+                      <th scope="col" className="n hm" style={{ width: "9%" }}>14 day</th>
                       <th scope="col" className="n" style={{ width: "9%" }}>30 day</th>
                       <th scope="col" className="n edge" style={{ width: "9%" }}>Overall</th>
                       <th scope="col" className="n" style={{ width: "9%" }}>Position</th>
-                      <th scope="col" className="t" style={{ width: "19%" }}>Priced like</th>
+                      <th scope="col" className="t hm" style={{ width: "19%" }}>Priced like</th>
                       <th scope="col" className="n key edge" style={{ width: "10%" }}>WAR / 3yr</th>
                     </tr>
                   </thead>
@@ -973,7 +1072,7 @@ export default function Player({ pid }: { pid: string }) {
                         {WINDOWS.map((d, k) => {
                           const t = m.t?.[d];
                           return (
-                            <td key={d} className={`n fig${k === 0 ? " edge" : ""}`}
+                            <td key={d} className={`n fig${k === 0 ? " edge" : ""}${d === "14" ? " hm" : ""}`}
                               style={{ color: t == null ? "var(--dim3)" : t > 0 ? "var(--good)" : t < 0 ? "var(--bad)" : "var(--dim)" }}>
                               {t == null ? "—" : t === 0 ? "0" : `${t > 0 ? "▲" : "▼"} ${num(Math.abs(t))}`}
                             </td>
@@ -981,7 +1080,7 @@ export default function Player({ pid }: { pid: string }) {
                         })}
                         <td className="n fig edge">{m.ovr == null ? "—" : `#${m.ovr}`}</td>
                         <td className="n fig">{m.posRank == null ? "—" : `${pos}${m.posRank}`}</td>
-                        <td className="t sub">{m.pick ? `${m.pick[0]} (${num(m.pick[1])})` : "—"}</td>
+                        <td className="t sub hm">{m.pick ? `${m.pick[0]} (${num(m.pick[1])})` : "—"}</td>
                         <td className="n last edge"><span className="head-fig sm" style={{ color: "var(--acc)" }}>{m.imp == null ? "—" : fmtWar(m.imp)}</span></td>
                       </tr>
                     ))}

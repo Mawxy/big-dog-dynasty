@@ -2240,3 +2240,82 @@ table.feed td.who .line { align-items: center; }
 }
 .mast-beta:hover { color: var(--acc); text-decoration: none; }
 .mast-beta:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* ==========================================================================
+   Player page on a phone (views/Player.tsx, `.split.phone`, ≤640px).
+   The split rail is a desktop shell; stacked, it put a screen and a half of
+   rail above the first figure. On a phone the rail's parts are re-placed —
+   identity in a compact header, the section jumps in a strip, the career
+   ladder in a band under the figures — and nothing is removed. These classes
+   only render at the phone breakpoint (the component switches on the same
+   640px query `.hm` uses), so they need no media query of their own; the
+   figure-strip override below is the one rule that re-shapes a shared class,
+   and it is scoped to the phone shell.
+   ========================================================================== */
+.pid-head {
+  background: var(--deep); border-bottom: 1px solid var(--rule);
+  padding: 12px var(--pad) 0;
+}
+.pid-head .rail-back { margin-bottom: 10px; }
+/* portrait beside the identity, both top-aligned; the name wraps under its
+   own badge line rather than under the picture */
+.pid-row { display: flex; align-items: flex-start; gap: 14px; }
+.pid-row .portrait { flex: 0 0 auto; margin-bottom: 0; }
+.pid-id { flex: 1 1 auto; min-width: 0; }
+.pid-id .rail-name { font-size: 22px; }
+.pid-id .rail-sub { margin-top: 4px; }
+/* honors on one line: the scoped label, then the marks */
+.pid-honors { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+.pid-honors .k {
+  flex: 0 0 auto;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
+  color: var(--dim2);
+}
+/* THE JUMP STRIP. The rail's "On this page" column as one row that scrolls
+   sideways — a tab strip in shape, though it scrolls the page rather than
+   swapping it, so no segment is ever filled. */
+.pid-jump {
+  display: flex; gap: 0; margin: 12px 0 0 calc(-1 * var(--pad));
+  width: calc(100% + 2 * var(--pad));
+  border-top: 1px solid var(--rule);
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.pid-jump::-webkit-scrollbar { display: none; }
+.pid-jump button {
+  flex: 1 0 auto; padding: 11px 14px 10px;
+  background: none; border: 0; border-left: 1px solid var(--rule);
+  cursor: pointer; color: var(--dim); white-space: nowrap;
+  font: 600 11.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+}
+.pid-jump button:first-child { border-left: 0; }
+.pid-jump button:hover { color: var(--txt); }
+.pid-jump button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+
+/* the ladder as a band: same rows as the rail (`.rail-war`), full width, with
+   the page gutter the rail's own 8px padding was standing in for */
+.pid-ladder .rail-ladder { padding: 4px 0 6px; }
+.pid-ladder .rail-war { grid-template-columns: 44px 1fr 52px; padding: 5px var(--pad); }
+.pid-ladder .rail-war .bar { height: 8px; }
+.pid-ladder .rail-war .yr, .pid-ladder .rail-war .v { font-size: 13px; }
+/* the accent mark sits on the board's edge, where every other spine does */
+.pid-ladder .rail-war.mark::before { left: 0; }
+
+/* FIVE FIGURES IN ONE ROW. The site-wide phone rule makes a figure strip a
+   two-column grid, which leaves this strip's fifth figure alone on a third
+   row. One row that scrolls sideways instead — the v3 shell's strip — with
+   the two indices (the accented pair) first, so what is on screen without a
+   swipe is what the page is about. */
+.split.phone .figstrip {
+  display: flex; flex-wrap: nowrap; align-items: stretch;
+  padding: 12px 0 11px;
+  overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.split.phone .figstrip::-webkit-scrollbar { display: none; }
+.split.phone .figcell {
+  flex: 0 0 auto; min-width: 118px;
+  border-top: 0; border-left: 1px solid var(--rule);
+  padding: 2px 14px;
+}
+.split.phone .figcell:first-child { border-left: 0; padding-left: var(--pad); }
+.split.phone .figcell:last-child { padding-right: var(--pad); }
+.split.phone .figval { font-size: 22px; }
