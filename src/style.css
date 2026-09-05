@@ -2319,3 +2319,14 @@ table.feed td.who .line { align-items: center; }
 .split.phone .figcell:first-child { border-left: 0; padding-left: var(--pad); }
 .split.phone .figcell:last-child { padding-right: var(--pad); }
 .split.phone .figval { font-size: 22px; }
+
+/* second lines inside a phone table cell: the comparable's season under his
+   name, the season's Held by under the year. Body face, wrapping, --dim — a
+   qualifier, not a figure — so the first line keeps the row's handle to itself */
+.pid-sub { margin-top: 2px; font: 400 11.5px/1.35 var(--sans); }
+.pid-held {
+  margin-top: 3px;
+  font: 400 11.5px/1.35 var(--sans); color: var(--dim);
+  white-space: normal; overflow-wrap: break-word;
+}
+.pid-held .held-arrow { margin: 0 5px; }

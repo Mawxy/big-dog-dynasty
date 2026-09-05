@@ -6,7 +6,7 @@ import type {
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
-import { fmt, fmtWar, sgnWar, mean } from "../lib/stats";
+import { fmt, fmtWar, sgn, sgnWar, mean } from "../lib/stats";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { useLeague } from "../lib/context";
 import { ktcOf } from "../lib/values";
@@ -23,6 +23,17 @@ import {
 } from "../lib/honors";
 
 const num = (n: number) => n.toLocaleString("en-US");
+
+/** the franchises that held him in a season, in order, arrows between — the
+ *  career table's Held by cell, and on a phone the season's second line */
+const heldBy = (owners: CareerSeason["owners"]) => owners.length
+  ? owners.map((o, k) => (
+    <Fragment key={`${o.team}-${o.from}`}>
+      {k > 0 && <span className="held-arrow">→</span>}
+      {o.team}
+    </Fragment>
+  ))
+  : <span className="fig quiet">—</span>;
 const WINDOWS = ["7", "14", "30"] as const;
 /** stable empty stand-ins, so a not-yet-loaded file doesn't hand every memo a
  *  fresh object literal on each render */
@@ -99,6 +110,9 @@ export default function Player({ pid }: { pid: string }) {
    * importance, one column.
    */
   const mobile = useMobile();
+  /** the board gutter the inline paddings below use — the phone's 14px, the
+   *  desktop's 22px, matching what `.band` and the tables sit inside */
+  const gut = mobile ? 14 : 22;
 
   // Everything the page reads whole and picks this player out of. Each is one
   // cached download shared with every other view that wants the same file.
@@ -787,9 +801,11 @@ export default function Player({ pid }: { pid: string }) {
                           evidence column, and the one a phone can spare: the
                           Match score beside it is the same fact summarised */}
                       <th scope="col" className="t edge hm" style={{ width: "24%" }}>Points going in</th>
+                      {/* "Yr 1" on a phone: three "Year N" headers at 11% of
+                          375px wrapped onto two lines each (Max, 2026-09-05) */}
                       {[0, 1, 2].map(i => (
                         <th key={i} scope="col" className={`n${i === 0 ? " edge" : ""}`}
-                          style={{ width: "11%" }}>Year {i + 1}</th>
+                          style={{ width: "11%" }}>{mobile ? `Yr ${i + 1}` : `Year ${i + 1}`}</th>
                       ))}
                       <th scope="col" className="n edge" style={{ width: "10%" }}
                         title="0–100, higher is more alike: 100 is an identical profile, 0 is nothing in common. Comparable across players, and 50 is exactly the cutoff for joining a cohort — above it he was already in the neighbourhood, below it he was reached for.">
@@ -799,7 +815,13 @@ export default function Player({ pid }: { pid: string }) {
                   <tbody>
                     {knn.near.map((m, i) => (
                       <tr key={`${m.name}-${m.season}`} className={i % 2 ? "zebra" : ""}>
-                        <td className="t name">{m.name ?? "—"} <span className="fig quiet">{m.season}</span></td>
+                        {/* the season stacks under the name on a phone, so the
+                            name keeps the line to itself */}
+                        <td className="t name">
+                          {m.name ?? "—"}
+                          {mobile ? <div className="fig quiet pid-sub">{m.season}</div>
+                            : <> <span className="fig quiet">{m.season}</span></>}
+                        </td>
                         <td className="n fig quiet">{m.age ?? "—"}</td>
                         {/* the same three numbers the match was made on, most
                             recent first. A slot he has no season for reads as a
@@ -817,7 +839,7 @@ export default function Player({ pid }: { pid: string }) {
                               : <span className="fig" style={{
                                 color: v > 0.005 ? "var(--good)"
                                   : v < -0.005 ? "var(--bad)" : "var(--dim)",
-                              }}>{sgnWar(v)}</span>}
+                              }}>{mobile ? sgn(v, 2) : sgnWar(v)}</span>}
                           </td>
                         ))}
                         {/* a 0-100 score is an index: a bare figure, never a
@@ -838,8 +860,8 @@ export default function Player({ pid }: { pid: string }) {
                 <span className="band-label">Career · league seasons</span>
                 <span className="band-note">Open a season for its week grid · WAR vs the best player left out of the startable pool</span>
               </div>
-              {career === null ? <div className="tnote" style={{ padding: "14px 22px 18px" }}>Loading career…</div>
-                : career.length === 0 ? <div className="tnote" style={{ padding: "14px 22px 18px" }}>
+              {career === null ? <div className="tnote" style={{ padding: `14px ${gut}px 18px` }}>Loading career…</div>
+                : career.length === 0 ? <div className="tnote" style={{ padding: `14px ${gut}px 18px` }}>
                   No league seasons — this player has never been scored in the league.
                 </div> : <>
                   <TScroll>
@@ -847,7 +869,12 @@ export default function Player({ pid }: { pid: string }) {
                     <thead>
                       <tr>
                         <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
-                        <th scope="col" className="t" style={{ width: "30%" }}>Held by</th>
+                        {/* ON A PHONE, HELD BY FOLDS UNDER THE SEASON (Max,
+                            2026-09-05). A 30% column of franchise names at
+                            375px wrapped every row to three lines and left the
+                            figures unreadable; as the season cell's second
+                            line it has the whole row's width to wrap in. */}
+                        <th scope="col" className="t hm" style={{ width: "30%" }}>Held by</th>
                         <th scope="col" className="n" style={{ width: "7%" }}>GP</th>
                         {/* Points and PPG sit out on a phone: WAR is the
                             figure this table is sorted by and the one the
@@ -868,19 +895,15 @@ export default function Player({ pid }: { pid: string }) {
                             <tr className={`${i % 2 ? "zebra " : ""}click${on ? " open" : ""}`}
                               onClick={() => openSeason(r.season)}
                               title={`${on ? "Close" : "Open"} ${r.season} week by week`}>
-                              <td className="t fig strong">{r.season}</td>
-                              <td className="t name quiet"
+                              <td className="t fig strong">
+                                {r.season}
+                                {mobile && <div className="pid-held">{heldBy(r.owners)}</div>}
+                              </td>
+                              <td className="t name quiet hm"
                                 title={r.owners.map(o => o.from
                                   ? `${o.team} · W${o.from}${o.to > o.from ? `–${o.to}` : ""}`
                                   : o.team).join("  →  ")}>
-                                {r.owners.length
-                                  ? r.owners.map((o, k) => (
-                                    <Fragment key={`${o.team}-${o.from}`}>
-                                      {k > 0 && <span className="held-arrow">→</span>}
-                                      {o.team}
-                                    </Fragment>
-                                  ))
-                                  : <span className="fig quiet">—</span>}
+                                {heldBy(r.owners)}
                               </td>
                               <td className="n fig quiet">{r.gp}</td>
                               <td className="n fig hm">{num(Math.round(r.pts))}</td>
@@ -899,8 +922,8 @@ export default function Player({ pid }: { pid: string }) {
                             </tr>
                             {on && (
                               <tr className="drawer-row">
-                                <td colSpan={mobile ? 6 : 8}>
-                                  <div style={{ padding: "14px 22px 18px" }}>
+                                <td colSpan={mobile ? 5 : 8}>
+                                  <div style={{ padding: `14px ${gut}px 18px` }}>
                                     {wks === null ? <div className="tnote">Loading {r.season}…</div>
                                       : reg.length ? <WeekGrid weeks={reg} absent={abs} />
                                         : <div className="tnote">No scored weeks in {r.season}.</div>}
@@ -918,7 +941,7 @@ export default function Player({ pid }: { pid: string }) {
                             columns. Split across two, a franchise name had 30%
                             of the table and clipped to a single letter. */}
                         <tr className="tot">
-                          <td className="t fig strong" colSpan={2}>
+                          <td className="t fig strong" colSpan={mobile ? 1 : 2}>
                             Career<span className="tot-yrs">{tot.seasons} {tot.seasons === 1 ? "yr" : "yrs"}</span>
                           </td>
                           <td className="n fig">{tot.gp}</td>
@@ -936,7 +959,7 @@ export default function Player({ pid }: { pid: string }) {
                           </td>
                         </tr>
                         <tr className="tot sub">
-                          <td className="t fig quiet" colSpan={2}>Average season</td>
+                          <td className="t fig quiet" colSpan={mobile ? 1 : 2}>Average season</td>
                           <td className="n fig quiet">{fmt(tot.gp / tot.seasons, 1)}</td>
                           <td className="n fig quiet hm">{num(Math.round(tot.pts / tot.seasons))}</td>
                           <td className="n fig quiet hm">{tot.gp ? fmt(tot.pts / tot.gp, 1) : "—"}</td>
@@ -957,7 +980,7 @@ export default function Player({ pid }: { pid: string }) {
                             {/* the manager, not the team name — a franchise
                                 renames itself most years and the splits have
                                 to survive that */}
-                            <td className="t name quiet" colSpan={2}
+                            <td className="t name quiet" colSpan={mobile ? 1 : 2}
                               title={`${s.manager} — most recently ${s.team.trim()}`}>
                               {s.manager}
                               {/* the seasons themselves, not just how many:
@@ -986,7 +1009,7 @@ export default function Player({ pid }: { pid: string }) {
                   </table>
                   </TScroll>
                   <HonorLegend />
-                  <div className="tnote" style={{ padding: "12px 22px 16px" }}>
+                  <div className="tnote" style={{ padding: `12px ${gut}px 16px` }}>
                     The crown and the gem carry the position's color. Honors cover league seasons
                     only, and held by is the roster at season end — a player traded in November
                     shows his new team, with the moves themselves in the ownership table below.
@@ -1087,7 +1110,7 @@ export default function Player({ pid }: { pid: string }) {
                   </tbody>
                 </table>
                 </TScroll>
-                <div className="tnote" style={{ padding: "0 22px 16px" }}>
+                <div className="tnote" style={{ padding: `0 ${gut}px 16px` }}>
                   A dash in a movement column means the daily snapshot history doesn't reach back that far yet.
                   Deltas are raw value, not rank.
                 </div>
