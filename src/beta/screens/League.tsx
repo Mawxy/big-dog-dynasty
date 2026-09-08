@@ -1159,6 +1159,44 @@ function HistoryView({ season }: { season: string }) {
   const draftHist = useMemo(() => (drafts ? buildHistory(drafts, fr) : null), [drafts, fr]);
   const draftRows = draftHist?.rowsBy[season];
   const draftKind = draftHist?.kindOf[season];
+  // the season's week-by-week record — team scores from matchups, player
+  // scores from weekly (regular season; WAR is only scored there), and the
+  // bracket's own `stars` for the postseason player line
+  const mws = useJson<Matchups>(`${season}/matchups.json`).data;
+  const wkly = useJson<Weekly>(`${season}/weekly.json`).data;
+  const best = useMemo(() => {
+    const ps = mws?.playoff_start ?? 15;
+    let teamWeek: { rid: number; week: number; pts: number } | null = null;
+    for (const [rid, list] of Object.entries(mws?.teams ?? {})) {
+      for (const e of list) {
+        if (e[0] >= ps || e[1] == null) continue;
+        if (!teamWeek || e[1] > teamWeek.pts) teamWeek = { rid: Number(rid), week: e[0], pts: e[1] };
+      }
+    }
+    let playerWeek: { pid: string; week: number; pts: number } | null = null;
+    for (const [pid, list] of Object.entries(wkly ?? {})) {
+      for (const w of list) {
+        if (w[0] >= ps) continue;
+        if (!playerWeek || w[1] > playerWeek.pts) playerWeek = { pid, week: w[0], pts: w[1] };
+      }
+    }
+    // the bracket: winners' rounds only — a consolation game is not a playoff
+    // performance, and `stars` is already scoped to the winners' weeks
+    let playoffTeam: { rid: number; week: number; pts: number } | null = null;
+    for (const g of br?.winners ?? []) {
+      for (const [rid, pts] of [[g.t1, g.t1_pts], [g.t2, g.t2_pts]] as [number | null, number | null][]) {
+        if (rid == null || pts == null) continue;
+        if (!playoffTeam || pts > playoffTeam.pts) playoffTeam = { rid, week: g.week, pts };
+      }
+    }
+    let playoffPlayer: { pid: string; week: number; pts: number } | null = null;
+    for (const [pid, st] of Object.entries(br?.stars ?? {})) {
+      for (const [wk, pts] of Object.entries(st.wk)) {
+        if (!playoffPlayer || pts > playoffPlayer.pts) playoffPlayer = { pid, week: Number(wk), pts };
+      }
+    }
+    return { teamWeek, playerWeek, playoffTeam, playoffPlayer };
+  }, [mws, wkly, br]);
 
   /** the title game, and which of its two point totals belongs to the winner */
   const title = useMemo(() => {
@@ -1186,39 +1224,43 @@ function HistoryView({ season }: { season: string }) {
 
   const champRid = title?.rid ?? fallback?.rid ?? null;
   const champ = rows?.find(r => r.rid === champRid) ?? null;
-  const runnerUp = rows?.find(r => r.rid === title?.loser) ?? null;
   const champName = champ?.team
     ?? (champRid != null ? br?.names[String(champRid)] : null)
     ?? fallback?.name ?? null;
 
-  /** SEED, DERIVED — never a row's position in an array. useStandings orders on
-   *  wins then points, which is the tiebreak the league seeds on, and its
-   *  `rank` is that ordinal. bracket.json publishes the seeding independently
-   *  and the two agree in every season this league has played; the file is only
-   *  consulted when the standings cannot supply the champion's row at all. */
-  const seed = champ?.rank ?? (champRid != null ? br?.seeds[String(champRid)] ?? null : null);
-
   const finishOf = (rid: number) =>
     fr?.[String(rid)]?.seasons.find(s => s.season === season)?.finish ?? null;
 
-  /* DASH, NOT NUL. `Strip` renders `.v3strip .cell` divs and beta.css scopes
+  /* THE SEASON'S FOUR SUPERLATIVES (Max, 2026-09-08), in place of the
+     champion's own seed / record / median / title-game line — which repeated
+     the standings row two bands down. These are facts about the YEAR, not
+     the winner: the biggest week any team put up, the biggest single game any
+     player had, and the same two inside the bracket.
+
+     DASH, NOT NUL. `Strip` renders `.v3strip .cell` divs and beta.css scopes
      `.nul` to `.v3tbl td`, so a NUL in here is an unstyled em dash sitting at
      figure weight in primary ink — a missing figure shouting louder than the
      ones that exist. DASH is the same glyph in decorative ink, defined at the
      top of this file for exactly this. */
+  const teamName = (rid: number) =>
+    rows?.find(r => r.rid === rid)?.team ?? br?.names[String(rid)] ?? `Roster ${rid}`;
   const figures: Figure[] = [
-    { key: "seed", label: "Seed", value: seed != null ? ord(seed) : DASH,
-      sub: "regular-season finish" },
-    { key: "rec", label: "Record", value: champ?.rec ?? DASH,
-      sub: champ?.played ? `${fmt(champ.ppg, 1)} ppg` : undefined },
-    { key: "med", label: "Vs median", value: champ?.med ?? DASH,
-      sub: "against each week's league median" },
-    { key: "final", label: "Title game",
-      value: title && title.pts != null && title.oppPts != null
-        ? `${fmt(title.pts, 1)}–${fmt(title.oppPts, 1)}` : DASH,
-      sub: title
-        ? `beat ${runnerUp?.team ?? (title.loser != null ? br?.names[String(title.loser)] : null) ?? "—"} · wk ${title.week}`
-        : undefined },
+    { key: "bestwk", label: "Best week",
+      value: best.teamWeek ? fmt(best.teamWeek.pts, 1) : DASH,
+      sub: best.teamWeek ? `${teamName(best.teamWeek.rid)} · wk ${best.teamWeek.week}` : "regular season · team",
+      to: best.teamWeek ? betaPath(`/seasons/${season}/${best.teamWeek.week}`) : undefined },
+    { key: "bestgm", label: "Best game",
+      value: best.playerWeek ? fmt(best.playerWeek.pts, 1) : DASH,
+      sub: best.playerWeek ? `${pInfo(players, best.playerWeek.pid)[0]} · wk ${best.playerWeek.week}` : "regular season · player",
+      to: best.playerWeek ? betaPath(`/player/${best.playerWeek.pid}`) : undefined },
+    { key: "bestpo", label: "Best playoff game",
+      value: best.playoffPlayer ? fmt(best.playoffPlayer.pts, 1) : DASH,
+      sub: best.playoffPlayer ? `${pInfo(players, best.playoffPlayer.pid)[0]} · wk ${best.playoffPlayer.week}` : "bracket · player",
+      to: best.playoffPlayer ? betaPath(`/player/${best.playoffPlayer.pid}`) : undefined },
+    { key: "bestpot", label: "Best playoff week",
+      value: best.playoffTeam ? fmt(best.playoffTeam.pts, 1) : DASH,
+      sub: best.playoffTeam ? `${teamName(best.playoffTeam.rid)} · wk ${best.playoffTeam.week}` : "bracket · team",
+      to: best.playoffTeam ? betaPath(`/seasons/${season}/${best.playoffTeam.week}`) : undefined },
   ];
 
   /** the season's WAR leaders. Position and games come from that season's own

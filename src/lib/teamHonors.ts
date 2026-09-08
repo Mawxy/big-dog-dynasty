@@ -7,14 +7,14 @@ import { jl } from "./data";
  * 2026-09-08), the team-page counterpart of a player's career honors.
  *
  *   title    won the championship game                    trophy, gold
- *   top      most regular-season points in the league     crown, red
- *   seed     finished the regular season first (1 seed)   gem, turquoise
+ *   top      most regular-season points in the league     gem, turquoise
+ *   seed     finished the regular season first (1 seed)   crown, red
  *   playoff  made the playoff bracket                      star
  *
  * Every mark is computed from data already on the site — franchises.json for
  * finish, seed and points, each season's bracket for who actually played in
  * the winners' rounds — and nothing is hand-maintained. Rendered rarest first:
- * one title a year, one points crown, one top seed, then the bracket.
+ * one title a year, one top seed's crown, one points gem, then the bracket.
  *
  * The four SHAPES are the player sprite's (components/HonorMarks HonorSprite):
  * the same trophy, crown, gem and star, coloured for the franchise ladder. A
@@ -22,7 +22,7 @@ import { jl } from "./data";
  */
 export type TeamHonorKey = "title" | "top" | "seed" | "playoff";
 
-export const TEAM_HONOR_ORDER: TeamHonorKey[] = ["title", "top", "seed", "playoff"];
+export const TEAM_HONOR_ORDER: TeamHonorKey[] = ["title", "seed", "top", "playoff"];
 
 export const TEAM_HONOR_LABEL: Record<TeamHonorKey, string> = {
   title: "Champion",
@@ -40,7 +40,7 @@ export const TEAM_HONOR_NOTE: Record<TeamHonorKey, string> = {
 
 /** which sprite symbol draws each mark — `#hm-<symbol>` in HonorSprite */
 export const TEAM_HONOR_SYMBOL: Record<TeamHonorKey, string> = {
-  title: "champ", top: "king", seed: "elite", playoff: "bar",
+  title: "champ", top: "elite", seed: "king", playoff: "bar",
 };
 
 /** what a franchise earned in one season */
