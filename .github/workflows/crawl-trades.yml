@@ -6,7 +6,9 @@ name: Crawl - trades (4-way sharded corpus)
 #
 # A follow-up `movers` job then merges the shards and rebuilds
 # data/dynasty_movers.json — the cross-league over/underpay board on the league
-# page, and the ONLY file in this workflow the site reads. It runs on the same
+# page — and data/recent_trades/<0..31>.json, the per-player 7-day trade
+# shards behind every player page's Recent trades section. Those are the only
+# files in this workflow the site reads. It runs on the same
 # 4x-daily cadence because the corpus does: refreshing it more often would not
 # crawl more leagues (breadth is set by the crawls and Sleeper's per-IP rate
 # cap), it would just recompute the same corpus.
@@ -153,6 +155,17 @@ jobs:
               exit 0
             fi
             git add data/dynasty_movers.json
+            # the per-player window shards behind every player page's Recent
+            # trades section (dynasty_movers.py write_recent). 32 small files,
+            # rewritten whole with the board; all-or-nothing so a half-written
+            # set never ships — a bucket that fails to parse skips the lot.
+            if ls data/recent_trades/*.json > /dev/null 2>&1; then
+              ok=1
+              for f in data/recent_trades/*.json; do
+                python -m json.tool "$f" > /dev/null 2>&1 || { ok=0; echo "::warning title=Invalid JSON::$f did not parse — recent_trades not committed"; break; }
+              done
+              [ "$ok" = 1 ] && git add data/recent_trades/*.json
+            fi
             # the cache is optional (absent until the first live lookup) but
             # committing it is what keeps later runs fast — stage it whenever
             # it exists and parses

@@ -14,6 +14,7 @@ import {
 import { ktcOf } from "../../lib/values";
 import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
 import { nearestPick, rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
+import Moved from "../moved";
 import {
   Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath,
   type Figure, type IdTag,
@@ -511,6 +512,14 @@ export default function Team() {
         projected WAR, because he cannot be started until he is activated. Both read “—”
         rather than zero.
       </div>
+
+      {/* ---- what moved ----
+          The League screen's module, scoped to this franchise (Max,
+          2026-09-08): its trades and roster moves over the last seven days,
+          the biggest deal as a card, and the ledger link pre-filtered to it.
+          Between the roster and its strengths, because a roster read
+          yesterday is not the roster on screen. */}
+      <Moved rid={rid} teamName={team.team} />
 
       {/* ---- strengths ----
           The classic board's TeamStrengths, transposed: it draws one row per

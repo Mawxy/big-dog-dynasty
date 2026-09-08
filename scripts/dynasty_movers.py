@@ -55,6 +55,8 @@ Method (settled with Max, 2026-08-20):
 
 Inputs : data/trade_corpus.json, data/values.json, sleeper_data/players.json
 Output : data/dynasty_movers.json — {"meta", "overpaid", "underpaid"}
+         data/recent_trades/<0..31>.json — per-player window trades, bucketed
+         by pid (see write_recent); the player page's Recent trades section
 Usage  : python scripts/dynasty_movers.py [--window-days 7] [--min-n 0] [--min-value 2000]
 """
 import argparse, datetime, json, re, sys, time
@@ -99,6 +101,72 @@ def pkg_value(faces):
 
 def load(p):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+# asset kind codes in the per-player trade rows: p player (key = pid),
+# k pick (key = "2027 1st"), f FAAB (key = "$50 FAAB"). One letter each
+# because a window's rows are written once per player in the trade.
+KIND_CODE = {"player": "p", "pick": "k"}
+
+# data/recent_trades/<bucket>.json — how many files the per-player rows are
+# spread over. MIRRORED in src/views/Player.tsx (`recentBucket`): the page
+# computes the same bucket from the same pid, so the two must move together.
+RECENT_BUCKETS = 32
+
+
+def recent_bucket(pid):
+    """the shard a player's rows live in. Sleeper pids are numeric strings;
+    anything else (team defenses, oddities) lands in bucket 0."""
+    return int(pid) % RECENT_BUCKETS if str(pid).isdigit() else 0
+
+
+def write_recent(out_dir, recent, ledger, players_meta, meta, per_player):
+    """The player page's RECENT TRADES section (Max, 2026-09-08): for every
+    player in the window, how many trades he was in over the last 7 days, what
+    he went for, and the trades themselves.
+
+    One file per bucket rather than one per player (thousands of files
+    rewritten 12x a day) or one for everyone (a window is ~16k trades, and the
+    page wants one player's). A bucket carries a `names` map for every pid its
+    rows mention, so the client never needs a second file to label a trade —
+    players_min covers this league's rostered players, not every body traded
+    in 46k leagues.
+
+    `paid` / `value` are the movers' own figures — what he fetched as the
+    CENTERPIECE of his side, net of throw-ins, against his face KTC — averaged
+    over the trades where the movers maths defines them. `n` is every trade he
+    was in; `cp` is how many of those he was the centerpiece of, so the page
+    can say which figure the average is built on."""
+    out_dir.mkdir(parents=True, exist_ok=True)
+    buckets = {b: {"meta": meta, "names": {}, "players": {}}
+               for b in range(RECENT_BUCKETS)}
+
+    def name_of(pid):
+        m = players_meta.get(pid) or {}
+        nm = f"{m.get('first_name', '')} {m.get('last_name', '')}".strip()
+        return [nm or f"#{pid}", m.get("position"), m.get("team")]
+
+    for pid, rows in recent.items():
+        rows.sort(key=lambda r: -r["t"])          # newest first
+        rows = rows[:per_player]
+        recs = ledger.get(pid) or []
+        b = buckets[recent_bucket(pid)]
+        b["players"][pid] = {
+            "n": len(recent[pid]), "cp": len(recs),
+            "value": round(sum(r["face"] for r in recs) / len(recs)) if recs else None,
+            "paid": round(sum(r["paid"] for r in recs) / len(recs)) if recs else None,
+            "trades": rows,
+        }
+        # every player named on either side of any of his rows
+        for r in rows:
+            for side in (r["a"], r["b"]):
+                for kind, key, _ in side:
+                    if kind == "p" and key not in b["names"]:
+                        b["names"][key] = name_of(key)
+
+    for i, b in buckets.items():
+        write_json(out_dir / f"{i}.json", b, separators=(",", ":"))
+    return sum(len(b["players"]) for b in buckets.values())
 
 
 def trade_ts(tid):
@@ -177,6 +245,12 @@ def main():
                          "of one run blowing the CI job timeout — which is "
                          "exactly what a 10k-trade window did on 2026-08-20")
     ap.add_argument("--out", default=str(DATA / "dynasty_movers.json"))
+    ap.add_argument("--recent-dir", default=str(DATA / "recent_trades"),
+                    help="where the per-player trade shards go (the player "
+                         "page's Recent trades section); '' skips them")
+    ap.add_argument("--recent-max", type=int, default=100,
+                    help="most trades kept per player in the shards, newest "
+                         "first (default %(default)s)")
     args = ap.parse_args()
 
     corpus = load(DATA / "trade_corpus.json")
@@ -255,6 +329,10 @@ def main():
 
     # pid -> list of (delta, price_paid, face)
     ledger = defaultdict(list)
+    # pid -> every window trade he was part of, for the player page's
+    # "recent trades" section (see write_recent). Keyed by appearance, not by
+    # centerpiece: a throw-in is still a trade he was in.
+    recent = defaultdict(list)
     n_scored = 0
     for t in window:
         cls = tep_map.get(str(t.get("lid") or ""), "")
@@ -265,17 +343,43 @@ def main():
         if not a or not b or (va == 0 and vb == 0):
             continue
         scored = False
+        # what each side's centerpiece fetched, by pid — recorded on the
+        # per-player trade rows below so a row can say "paid" only where the
+        # movers maths defines it
+        paid_by = {}
         for mine, my_total, their_total in ((a, va, vb), (b, vb, va)):
             kind, key, v = max(mine, key=lambda x: x[2])   # centerpiece by face
             if kind != "player" or v <= 0:
                 continue                     # pick-centerpiece side: no mover
             # v is the package's best asset, so it sits in my_total at face —
             # paid nets out the (weighted) throw-ins that rode along with him
+            paid = their_total - (my_total - v)
             ledger[key].append({"delta": their_total - my_total,
-                                "paid": their_total - (my_total - v),
-                                "face": v})
+                                "paid": paid, "face": v})
+            paid_by[key] = paid
             scored = True
         n_scored += scored
+        # the trade, once per player in it, with his side marked. Compact on
+        # purpose — a window is ~16k trades and every player in one gets a
+        # copy — and FAAB rides along as a labelled zero so the row says
+        # everything that moved. Sides are indexed so the client can name the
+        # player's side without matching pids.
+        row_sides = [[[KIND_CODE[k], key, round(v)] for k, key, v in side] for side in (a, b)]
+        for fa, side in zip(row_sides, t["sides"]):
+            if side.get("faab"):
+                fa.append(["f", f"${side['faab']} FAAB", 0])
+        ts = round(trade_ts(t["tid"]))
+        for si, side in enumerate((a, b)):
+            for kind, key, v in side:
+                if kind != "player":
+                    continue
+                rec = {"t": ts, "s": si, "a": row_sides[0], "b": row_sides[1]}
+                if cls:
+                    rec["c"] = cls
+                if key in paid_by:
+                    rec["paid"] = round(paid_by[key])
+                    rec["face"] = round(v)
+                recent[key].append(rec)
 
     # the qualification bar scales with volume: on a thin window 3 trades is
     # all the signal there is, on 10k+ trades three appearances is noise
@@ -325,6 +429,16 @@ def main():
           f"{out['meta']['as_of'][:10]}, {n_window} trades, {n_scored} scored, "
           f"{len(rows)} players ≥{min_n} trades & ≥{args.min_value} value, "
           f"{len(over)} overpaid / {len(under)} underpaid listed")
+
+    if args.recent_dir:
+        n_players = write_recent(
+            Path(args.recent_dir), recent, ledger, players_meta,
+            {"generated": out["meta"]["generated"], "as_of": out["meta"]["as_of"],
+             "window_days": args.window_days, "unit": out["meta"]["unit"],
+             "buckets": RECENT_BUCKETS, "per_player_max": args.recent_max},
+            args.recent_max)
+        print(f"wrote {args.recent_dir}/<0..{RECENT_BUCKETS - 1}>.json — "
+              f"{n_players} players with a trade in the window")
 
 
 if __name__ == "__main__":

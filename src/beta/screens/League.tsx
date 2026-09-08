@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
   BracketFile, Franchises, Matchups, ProjectionsFile,
-  SleeperProjFile, SummaryRow, Team, Trade, TradesPayload, Values, WeekOdds, Weekly,
+  SleeperProjFile, SummaryRow, Team, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { jl } from "../../lib/data";
@@ -10,9 +10,9 @@ import { fmt, mean, normCdf, normInv, ord } from "../../lib/stats";
 import {
   POS_COLOR, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
-import { readTrades, tradeWhen } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
-import { useActivity, useSeasonPhase, useStandings, useTeamValues, type ActMove } from "../model";
+import { useSeasonPhase, useStandings, useTeamValues } from "../model";
+import Moved from "../moved";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
   useDynMovers, useGapRows, useMarketMovers,
@@ -56,13 +56,6 @@ const MODULE_ROWS = 5;
 function ViewAll({ to }: { to: string }) {
   return <RouteLink to={to} className="lgx-all">View all →</RouteLink>;
 }
-
-/** the "what moved" window, in days. A week, because that is the cadence a
- *  reader checks a league on. The band's LABEL changes with the season; the
- *  window never does. */
-const WINDOW_DAYS = 7;
-
-
 
 /** An em dash OUTSIDE a table. ui.tsx's NUL rides `.nul`, which beta.css scopes
  *  to `.v3tbl td`; a basket figure and a champion block are not table cells. */
@@ -599,16 +592,10 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
   // the per-week lines, for projected points per game on the power table
   const oddsW = useJson<WeekOdds>(`${rosterSeason}/odds.json`).data;
-  const tradesFile = useJson<TradesPayload>("trades.json").data;
   // the market prices a FORMAT, not a league — global files, global scope
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
   const vals = valsQ.data;
   const dyn = useDynMovers();
-  /* The window is a span of TIME and useActivity's argument is a row count, so
-     it is asked for far more rows than it will show and then filtered by
-     timestamp. 400 covers seven days with years of slack — this league's whole
-     transaction history is about 1,650 rows. */
-  const acts = useActivity(400);
 
   const lineup = lineupOf(meta);
   // whole-roster market, players plus picks, for the power table's last column
@@ -672,54 +659,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const leader = power?.[0] ?? null;
 
 
-  /* ---- the last seven days -------------------------------------------- */
-
-  /** the window's opening edge, fixed for the life of the mount so the memo
-   *  below is not recomputed on every render by a moving `Date.now()` */
-  const since = useMemo(() => Date.now() - WINDOW_DAYS * 86400000, []);
-
-  const trades = useMemo<Trade[]>(
-    () => (tradesFile ? readTrades(tradesFile).trades : []), [tradesFile]);
-
-  const recent = useMemo(() => {
-    const inWindow = trades.filter(t => t.ts >= since && t.sides.length >= 2);
-    /* BIGGEST BY WHAT. trades.json prices a side three ways and all three are
-       frozen at the trade: `expThen` (projected WAR), `mktThen` (KTC) and
-       `fcThen`. Market points are the only one most sides carry and the only
-       one whose magnitude compares across deals, so "biggest" is the largest
-       side's at-trade market price.
-
-       A MAX over sides rather than a sum, and the reason is no longer that a
-       pick-only side is unpriced — the snapshot has priced picks at their
-       mid-tier ladder key since 2026-08-21. It is that the two sides of a deal
-       are two readings of ONE size, not two halves of it: summing them would
-       rank a trade above an identical one where the picks went the other way,
-       and one priced side is enough to size a deal where the other still
-       carries an asset the history cannot reach. */
-    const size = (t: Trade) => Math.max(0, ...t.sides.map(s => s.mktThen ?? 0));
-    const biggest = inWindow.length
-      ? inWindow.slice().sort((a, b) => size(b) - size(a) || b.ts - a.ts)[0]
-      : null;
-    const moves = (acts ?? [])
-      .filter((a): a is ActMove => a.kind === "move" && a.ts >= since);
-    return {
-      trades: inWindow.length, biggest, moves,
-      // whether the "biggest" claim is actually sized by anything, or whether
-      // every side of every trade in the window is unpriced
-      sized: biggest ? size(biggest) > 0 : false,
-    };
-  }, [trades, acts, since]);
-
-  const [openMoves, setOpenMoves] = useState(false);
-
   /* ---- the three mover modules -------------------------------------------
      Computed in `../movers` and shared with the Movers screen, so the five
      rows here are the head of exactly the list "View all" opens. */
   const mvm = useGapRows(teams);
   const movers = useMarketMovers(vals);
-
-  const windowFrom = new Date(since)
-    .toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   return (
     <>
@@ -803,64 +747,10 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         </table>
       )}
 
-      {/* ---- 3. what moved ----------------------------------------------- */}
-      <Band label={phase.offseason ? `Last ${WINDOW_DAYS} days` : "Since Sunday"}
-        note={`Trades and roster moves since ${windowFrom}`} />
-      {recent.biggest ? <BigTrade trade={recent.biggest} sized={recent.sized} /> : (
-        /* A QUIET BAND, not an empty table. A week with no trades in it is a
-           fact about the league, and a header over twelve pixels of nothing is
-           the wrong way to state it. */
-        <div className="lgx-quiet">
-          No trades in the last {WINDOW_DAYS} days.{" "}
-          {recent.moves.length
-            ? `${recent.moves.length} roster move${recent.moves.length === 1 ? "" : "s"} went through — the count below opens them.`
-            : "Nothing went through at all, which is a fact about the league rather than a gap in the data."}
-        </div>
-      )}
-      <div className="lgx-counts">
-        <div className="lgx-count">
-          <span className="k">Trades</span>
-          <span className="v">{recent.trades}</span>
-          {/* the league ledger: every trade this league has ever made, scored */}
-          <RouteLink to={betaPath("/trade?scope=history")} className="go">All →</RouteLink>
-        </div>
-        <div className="lgx-count">
-          <span className="k">Roster moves</span>
-          <span className="v">{recent.moves.length}</span>
-          {/* Opens IN PLACE rather than linking out. Waivers and free agents
-              have no destination of their own in this shell — the League screen
-              is where they have always been shown — and a link to a page that
-              does not exist is worse than a disclosure that does. */}
-          {recent.moves.length > 0 && (
-            <button type="button" className="go" aria-expanded={openMoves}
-              onClick={() => setOpenMoves(v => !v)}>
-              {openMoves ? "Close ▴" : "All ▾"}
-            </button>
-          )}
-        </div>
-      </div>
-      {openMoves && (
-        <div className="v3-feed">
-          {recent.moves.map(a => (
-            /* the ACTIVITY'S OWN ID, not ts+team. Sleeper batch-processes
-               waivers, so a whole Wednesday's claims share one timestamp to the
-               millisecond and one franchise can hold several of them — the old
-               key collided and React silently dropped every row after the first
-               of each collision, which read as moves that never happened. */
-            <div className="v3-act" key={a.id}>
-              <div className="when">
-                <span>{tradeWhen(a.ts)}</span>
-                <span>{a.waiver ? "Waiver" : "Free agent"}</span>
-              </div>
-              <div className="v3-wv">
-                <span className="add"><span className="k">Add</span>{a.adds.join(", ") || "—"}</span>
-                <span className="drop"><span className="k">Drop</span>{a.drops.join(", ") || "—"}</span>
-              </div>
-              <div className="idc-s lgx-who">{a.team}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* ---- 3. what moved -----------------------------------------------
+          Shared with the Team screen (`../moved`), which renders the same
+          module filtered to one franchise (Max, 2026-09-08). */}
+      <Moved />
 
       {/* ---- 4. win now vs dynasty --------------------------------------- */}
       <Band label="Win now vs dynasty" note="CVI prices this season, DVI the horizon"
@@ -891,63 +781,6 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         Market fetched {vals?.fetched ?? meta.updated} · board built {meta.updated}.
       </div>
     </>
-  );
-}
-
-/* ---- the window's biggest trade ------------------------------------------ */
-
-/**
- * One trade, two neutral baskets.
- *
- * BOTH SIDES ARE NAMED and each lists what it GETS — the two-basket comparison
- * (SKILL §5) — and both take the same ink. Coloring one side would declare a
- * winner, which is exactly what the ledger refuses to declare.
- *
- * WHAT THE FIGURES ARE, AND WHY THEY ARE NOT INDICES. The plan asked for a
- * per-side DVI/CVI swing and the pipeline does not publish one: trades.json
- * carries `war`, `future`, `total`, plus the frozen-at-the-trade `expThen`
- * (projected WAR), `mktThen` (KTC) and `fcThen`, and no index at any level.
- * Summing today's DVI over a side would be worse than absent — a pick has a
- * price and a WAR stream but NO index, so a package containing one silently
- * values it at zero, and the side of the most recent trade here took two 2027
- * picks and would have read 0.0. So the card shows the two frozen figures the
- * file does publish, labeled "then" so they cannot be read as today's price.
- */
-function BigTrade({ trade, sized }: { trade: Trade; sized: boolean }) {
-  const betaPath = useBetaPath();
-  return (
-    <a className="v3-act lgx-trade" href={`#${betaPath(`/trade?load=${trade.ts}`)}`}>
-      <div className="when">
-        {/* the DATE, not "season · week": in the offseason every trade carries
-            week 1, and a card headed "2026 · WK 1" in August names a week that
-            has not happened */}
-        <span>{tradeWhen(trade.ts)}</span>
-        <span>{sized ? "Biggest trade" : "Latest trade"}</span>
-        {/* `?load=<ts>` opens this deal's own row in the ledger — the Trade
-            screen consumes the param, flips itself to the history scope and
-            drops it. It is NOT the builder any more: the builder draws from
-            current rosters, so the label says where the tap lands. */}
-        <span className="go">Ledger →</span>
-      </div>
-      <div className="v3-baskets">
-        {trade.sides.map(s => (
-          <div className="bk" key={s.rid}>
-            <div className="who">{s.team} gets</div>
-            {s.got.map((g, j) => (
-              <div className={`it${g.kind !== "player" ? " pick" : ""}`} key={j}>{g.label}</div>
-            ))}
-            <div className="lgx-bkfig">
-              <span className="k">Proj WAR then</span>
-              <span className="v">{s.expThen != null ? fmtWar(s.expThen) : DASH}</span>
-            </div>
-            <div className="lgx-bkfig">
-              <span className="k">KTC then</span>
-              <span className="v">{s.mktThen != null ? s.mktThen.toLocaleString() : DASH}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </a>
   );
 }
 

@@ -176,6 +176,49 @@ export interface DynastyMoverRow {
   avg_pct: number | null;
 }
 
+/**
+ * data/recent_trades/<bucket>.json — every player's trades across the crawled
+ * dynasty leagues over the movers' 7-day window, bucketed by pid
+ * (dynasty_movers.py write_recent). The player page's Recent trades section.
+ */
+export interface RecentTrades {
+  meta: {
+    generated: string; as_of: string; window_days: number; unit: string;
+    buckets: number; per_player_max: number;
+  };
+  /** every pid named on any side of any row in this bucket: [name, pos, team] */
+  names: Record<string, [string, string | null, string | null]>;
+  players: Record<string, RecentPlayer>;
+}
+export interface RecentPlayer {
+  /** trades he was part of in the window */
+  n: number;
+  /** of those, how many he was the centerpiece of — the ones `paid` is built on */
+  cp: number;
+  /** his face KTC, averaged over centerpiece trades (TE-premium-matched) */
+  value: number | null;
+  /** what the other side paid for him, net of his throw-ins, averaged */
+  paid: number | null;
+  /** newest first, capped at meta.per_player_max */
+  trades: RecentTrade[];
+}
+/** one asset on a side: kind (p player pid · k pick label · f FAAB label),
+ *  key, face KTC at the trade's TE-premium class (0 = unpriced / throw-in) */
+export type RecentAsset = ["p" | "k" | "f", string, number];
+export interface RecentTrade {
+  /** epoch seconds */
+  t: number;
+  /** which side he was on — 0 for `a`, 1 for `b` */
+  s: 0 | 1;
+  a: RecentAsset[];
+  b: RecentAsset[];
+  /** the league's TE-premium class; absent = none */
+  c?: string;
+  /** present only where he was his side's centerpiece */
+  paid?: number;
+  face?: number;
+}
+
 /** data/pick_values.json — Bridge A: rookie pick -> realized WAR streams */
 export interface PickBucket {
   bucket: string;
