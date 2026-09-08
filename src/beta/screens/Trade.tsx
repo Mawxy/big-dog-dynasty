@@ -43,8 +43,8 @@ import "./trade.css";
  * by, and the two panels are typographically identical.
  *
  * BOTH SIDES STAY NEUTRAL, IN BOTH TENSES (SKILL §5). No figure on this screen
- * is inked by who is ahead. Colouring one basket green and the other amber
- * implies a winner when the colour is really just whose column it is, and the
+ * is inked by who is ahead. Coloring one basket green and the other amber
+ * implies a winner when the color is really just whose column it is, and the
  * sign already carries the direction.
  *
  * DELTAS ARE DERIVED, NEVER AUTHORED. Every difference here is computed from
@@ -52,7 +52,7 @@ import "./trade.css";
  * per offer, because a stored delta drifts the instant an asset moves and there
  * is no way to notice that it has.
  *
- * THE MATHS IS IN `lib/tradeModel`. The consolidation curve, the pick index
+ * THE MATH IS IN `lib/tradeModel`. The consolidation curve, the pick index
  * estimate and the arithmetic that ties the ledger together live there,
  * dependency-free, under `tests/tradeModel.test.ts`. This file decides layout
  * and formatting and nothing else.
@@ -591,11 +591,58 @@ function Build() {
      "deltas are derived" rule exists to prevent.
 
      `Asset` is structurally a `LedgerAsset`, which is the point of that
-     interface: the trade maths takes what `useAssets()` already produces and
+     interface: the trade math takes what `useAssets()` already produces and
      never imports it. */
   const led = tradeLedger(
     viewA.rows.map(h => h.asset), viewB.rows.map(h => h.asset), indexer);
   const warA = sumWar(viewA.rows), warB = sumWar(viewB.rows);
+
+  /* ---- evening up -------------------------------------------------------
+     (Max, 2026-09-08.) One candidate per measure: the CHEAPEST single asset
+     that, added to the trailing side, lands that measure inside the even
+     window AFTER the star adjustment. Found by re-running the ledger with
+     each candidate in the basket — utilization makes additions non-linear
+     (a second RB at CVI 60 adds less than the first), so nothing short of
+     recomputing is honest. ~400 candidates × 4 measures × one ledger each is
+     a few milliseconds.
+
+     The pool is what the trailing side could actually be given: the leading
+     franchise's roster and picks when one is named, the open pool when not —
+     the same source the "+ Add" sheet draws from. */
+  const fixes = useMemo<Fix[]>(() => {
+    if (!viewA.rows.length && !viewB.rows.length) return [];
+    const A = viewA.rows.map(h => h.asset), B = viewB.rows.map(h => h.asset);
+    const taken = new Set([...offer.a, ...offer.b]);
+    const src = (to: Side) => {
+      // basket B receives off A's roster, and vice versa
+      const from = to === "a" ? st.b : st.a;
+      return (from == null ? pool ?? [] : holdings?.get(from) ?? []).filter(h => !taken.has(h.id));
+    };
+    const out: Fix[] = [];
+    for (const m of MEASURES) {
+      const { a, b } = measure(m, led, warA, warB);
+      const now = favor(a, b);
+      if (now.side === "even") { out.push({ m, side: "even", was: now, picks: [] }); continue; }
+      const to: Side = now.side === "a" ? "b" : "a";
+      const hits: Fix["picks"] = [];
+      for (const h of src(to)) {
+        const l = to === "a"
+          ? tradeLedger([...A, h.asset], B, indexer) : tradeLedger(A, [...B, h.asset], indexer);
+        const w = (h.asset.war ?? 0);
+        const r = measure(m, l, warA + (to === "a" ? w : 0), warB + (to === "b" ? w : 0));
+        const after = favor(r.a, r.b);
+        if (after.side !== "even") continue;
+        hits.push({ h, cost: h.asset.ktc ?? Infinity, after });
+      }
+      // cheapest first, and one line per label: a franchise holding two of
+      // the same band would otherwise list the same pick twice
+      hits.sort((x, y) => x.cost - y.cost);
+      const seen = new Set<string>();
+      const picks = hits.filter(x => !seen.has(x.h.label) && seen.add(x.h.label)).slice(0, FIX_N);
+      out.push({ m, side: to, was: now, picks });
+    }
+    return out;
+  }, [viewA, viewB, offer, st.a, st.b, pool, holdings, led, warA, warB, indexer]);
 
   const nameA = teams?.find(t => t.roster_id === st.a)?.team ?? null;
   const nameB = teams?.find(t => t.roster_id === st.b)?.team ?? null;
@@ -660,17 +707,19 @@ function Build() {
                says which side it favors and by how much. Inside ±10% the row
                says EVEN rather than crowning a side over noise.
 
-               The bar is a SHARE, not a meter: the marker sits at A ÷ (A + B),
-               so it never restates an index as a magnitude (SKILL §3). Every
-               verdict is computed at render from the two figures beside it —
-               nothing authored per asset or per offer. */
-            <FavorBoard nameA={sideA} nameB={sideB} rows={[
-              { k: "Adjusted KTC", a: led.a.effective.market, b: led.b.effective.market, f: mkt },
-              { k: "Adjusted DVI", a: led.a.effective.dvi, b: led.b.effective.dvi, f: idx,
+               The bar is a margin, not a meter: the marker moves toward the
+               favored side by the margin, so it never restates an index as a
+               magnitude (SKILL §3). Every verdict is computed at render from
+               the two figures beside it — nothing authored per asset or per
+               offer. */
+            <FavorBoard nameA={sideA} nameB={sideB} fixes={fixes}
+              onAdd={(side, id) => add(side, id)} rows={[
+              { m: "market", k: "Adjusted KTC", a: led.a.effective.market, b: led.b.effective.market, f: mkt },
+              { m: "dvi", k: "Adjusted DVI", a: led.a.effective.dvi, b: led.b.effective.dvi, f: idx,
                 estA: led.a.estimated > 0, estB: led.b.estimated > 0 },
-              { k: "Adjusted CVI", a: led.a.effective.cvi, b: led.b.effective.cvi, f: idx,
+              { m: "cvi", k: "Adjusted CVI", a: led.a.effective.cvi, b: led.b.effective.cvi, f: idx,
                 estA: led.a.estimated > 0, estB: led.b.estimated > 0 },
-              { k: "3yr WAR", a: warA, b: warB, f: fmtWar },
+              { m: "war", k: "3yr WAR", a: warA, b: warB, f: fmtWar },
             ]} />
           ) : (
             <div className="tnote screen">
@@ -796,7 +845,40 @@ function Panel({ gets, named, from, rows, lost, priced, led, war, onTeam, onAdd,
  *  4,603-vs-4,335 KTC gap (5.8%) is even and 56.6-vs-0.7 CVI (99%) is not. */
 const EVEN = 0.10;
 
+/** which side a pair favors, and by how much. The one definition the board,
+ *  the verdicts and the even-up search all read, so they cannot disagree. */
+function favor(a: number, b: number): { pct: number; side: Side | "even" } {
+  const pct = Math.max(a, b) > 0 ? (a - b) / Math.max(a, b) : 0;
+  return { pct, side: Math.abs(pct) <= EVEN ? "even" : pct > 0 ? "a" : "b" };
+}
+
+type Measure = "market" | "dvi" | "cvi" | "war";
+const MEASURES: readonly Measure[] = ["market", "dvi", "cvi", "war"];
+const MEASURE_LABEL: Record<Measure, string> = {
+  market: "Adjusted KTC", dvi: "Adjusted DVI", cvi: "Adjusted CVI", war: "3yr WAR",
+};
+/** the figure the favor board shows for a measure — star adjusted, or the
+ *  plain WAR sum */
+function measure(m: Measure, led: ReturnType<typeof tradeLedger>, warA: number, warB: number) {
+  return m === "war"
+    ? { a: warA, b: warB }
+    : { a: led.a.effective[m], b: led.b.effective[m] };
+}
+
+/** how many candidates a measure lists */
+const FIX_N = 3;
+
+interface Fix {
+  m: Measure;
+  /** the side an asset would be added to — the trailing one — or "even" */
+  side: Side | "even";
+  was: ReturnType<typeof favor>;
+  /** cheapest first; empty when no single asset gets there */
+  picks: { h: Holding; cost: number; after: ReturnType<typeof favor> }[];
+}
+
 interface FavorRow {
+  m: Measure;
   k: string;
   /** the STAR-ADJUSTED figure per side (WAR: the plain sum — it is not priced
    *  through the utilization curve, so it has no adjusted form) */
@@ -808,9 +890,9 @@ interface FavorRow {
 /**
  * One row per currency: A's figure, a favor bar, B's figure, a verdict.
  *
- * The bar is a DIVERGING bar, centre = even. The marker starts at the middle
+ * The bar is a DIVERGING bar, center = even. The marker starts at the middle
  * and moves TOWARD the favored side's figure by the margin — A ahead by 99%
- * puts it against A's column, not B's — and gold fills from the centre out to
+ * puts it against A's column, not B's — and gold fills from the center out to
  * it. The lit band across the middle is the even zone: a marker inside it is
  * an EVEN row. It never states a magnitude, only the margin between two
  * figures, so it does not restate an index as a meter (SKILL §3 on DVI/CVI).
@@ -819,10 +901,18 @@ interface FavorRow {
  * per currency on purpose: DVI and CVI routinely disagree, and four rows that
  * disagree are the honest picture. There is no roll-up line.
  */
-function FavorBoard({ nameA, nameB, rows }: {
+function FavorBoard({ nameA, nameB, rows, fixes, onAdd }: {
   nameA: string; nameB: string; rows: FavorRow[];
+  fixes: Fix[]; onAdd: (side: Side, id: string) => void;
 }) {
-  // the even zone: margin ±EVEN maps to centre ± EVEN/2 of the bar's width
+  /* THE VERDICT IS THE CONTROL. A row that is not even carries "Side A +73%"
+     as a button; pressing it opens a drawer under the row (inline, in the
+     same flow — SKILL: rows navigate, drawers are inline) listing the
+     cheapest single adds that would land that measure even, each with its
+     own + Add. EVEN has nothing to open and stays a label. */
+  const [open, setOpen] = useState<Measure | null>(null);
+  const name = (sd: Side) => (sd === "a" ? nameA : nameB);
+  // the even zone: margin ±EVEN maps to center ± EVEN/2 of the bar's width
   const lo = 0.5 - EVEN / 2, hi = 0.5 + EVEN / 2;
   return (
     <div className="trx-favor">
@@ -842,18 +932,18 @@ function FavorBoard({ nameA, nameB, rows }: {
           <span className="b" role="columnheader">{nameB}</span>
           <span className="v" role="columnheader">Verdict</span>
         </div>
-        {rows.map(r => {
-          const pct = Math.max(r.a, r.b) > 0 ? (r.a - r.b) / Math.max(r.a, r.b) : 0;
-          const side = Math.abs(pct) <= EVEN ? "even" : pct > 0 ? "a" : "b";
+        {rows.map((r, i) => {
+          const { pct, side } = favor(r.a, r.b);
           const verdict = side === "even" ? "Even"
             : `${side === "a" ? nameA : nameB} +${Math.round(Math.abs(pct) * 100)}%`;
-          // marker position: centre, pushed toward the favored side by the margin
+          // marker position: center, pushed toward the favored side by the margin
           const at = 0.5 - pct / 2;
           const fill = at < 0.5
             ? { left: `${at * 100}%`, width: `${(0.5 - at) * 100}%` }
             : { left: "50%", width: `${(at - 0.5) * 100}%` };
-          return (
-            <div key={r.k} className={`row ${side}`} role="row">
+          const fix = fixes.find(f => f.m === r.m) ?? null;
+          return [
+            <div key={r.k} className={`row ${side}${i % 2 ? " alt" : ""}`} role="row">
               <span className="t" role="cell">{r.k}</span>
               <span className={`f a${side === "a" ? " win" : ""}`} role="cell">
                 {r.estA && <span className="est">≈ </span>}{r.f(r.a)}
@@ -869,9 +959,42 @@ function FavorBoard({ nameA, nameB, rows }: {
               <span className={`f b${side === "b" ? " win" : ""}`} role="cell">
                 {r.estB && <span className="est">≈ </span>}{r.f(r.b)}
               </span>
-              <span className={`v ${side}`} role="cell">{verdict}</span>
-            </div>
-          );
+              <span className={`v ${side}`} role="cell">
+                {side === "even" ? verdict : (
+                  <button type="button" className={`vb${open === r.m ? " on" : ""}`}
+                    aria-expanded={open === r.m}
+                    onClick={() => setOpen(open === r.m ? null : r.m)}>
+                    {verdict}<span className="caret">{open === r.m ? " ▴" : " ▾"}</span>
+                  </button>
+                )}
+              </span>
+            </div>,
+            open === r.m && fix && fix.side !== "even" && (
+              <div key={`${r.k}-fix`} className="drawer" role="row">
+                <div className="dh">
+                  <span className="lk">To even up</span>
+                  <span className="r">Cheapest single adds to {name(fix.side)} · star adjusted</span>
+                </div>
+                {fix.picks.length ? (
+                  <ul className="opts">
+                    {fix.picks.map(p => (
+                      <li key={p.h.id}>
+                        <span className="who">
+                          <span className="nm">{p.h.label}</span>
+                          <span className="sb">{p.h.sub}</span>
+                        </span>
+                        <span className="to">{Math.round(Math.abs(p.after.pct) * 100)}% from center</span>
+                        <button type="button" className="go"
+                          onClick={() => { onAdd(fix.side as Side, p.h.id); setOpen(null); }}>+ Add</button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="none">No single add gets {name(fix.side)} inside ±{Math.round(EVEN * 100)}%.</div>
+                )}
+              </div>
+            ),
+          ];
         })}
       </div>
     </div>

@@ -334,7 +334,7 @@ export function yearSpan(years: string[]): string {
 /**
  * Career split by the franchise that held him — the "DET (6 Yrs)" rows.
  *
- * Grouped by roster_id and labelled with the manager, never by team name. A
+ * Grouped by roster_id and labeled with the manager, never by team name. A
  * franchise renames itself most years: roster 1 has been London Has Fallen,
  * The Drake Snake, Point Drake and Drake Mungo, so grouping on the name gave
  * Justin Jefferson three one-year owners where he has had one for four years.

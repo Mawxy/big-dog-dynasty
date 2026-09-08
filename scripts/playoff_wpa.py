@@ -66,7 +66,7 @@ That 1.0 is split half by LEVERAGE (Shapley WPA) and half by PRODUCTION
 because WPA alone can only hand out what was in doubt: a side that led a rout
 from the first snap has almost no win probability left to allocate, so a
 dominant line in a blowout earned close to nothing, even though that line is
-why it was a rout. Normalising every game to a fixed 1.0 fixes the size of the
+why it was a rout. Normalizing every game to a fixed 1.0 fixes the size of the
 pot; blending production into the split fixes who gets it.
 
 The two figures answer different questions and both are reported: WPA is "how
@@ -218,7 +218,7 @@ def mvp_score(wtot, anchor):
     season — so 100 means "as good as the best playoff run this league has
     seen", and a year whose best run was half that scores 50 rather than
     being renormalised up to 100. Comparing MVPs across years is the whole
-    point of the scale; a per-season normalisation would make every winner
+    point of the scale; a per-season normalization would make every winner
     look equally dominant by construction.
 
     Not clipped at zero: a run that cost its team win probability scores
@@ -479,7 +479,7 @@ def season_wpa(season, ld, raw_root):
         for k in ("tot", "wtot", "ws", "wsw"):
             rec[k] = round(rec[k], 4)
 
-    # efficiency: every side's values must sum to its realised swing
+    # efficiency: every side's values must sum to its realized swing
     bad = [c for c in checks if abs(c[3] - c[4]) > 1e-6]
     if bad:
         raise AssertionError(f"Shapley efficiency violated: {bad[:3]}")
@@ -531,9 +531,9 @@ def main():
             print(f"  {s}: no bracket/weekly, or no raw week dumps — skipped")
 
     # --- two scales, two anchors ---------------------------------------------
-    # MVP is normalised WITHIN its season: that year's best run is 100, so the
+    # MVP is normalized WITHIN its season: that year's best run is 100, so the
     # week columns are points out of a shared 100 and the race reads cleanly.
-    # MVP+ is normalised against the AVERAGE MVP-winning run across every
+    # MVP+ is normalized against the AVERAGE MVP-winning run across every
     # season, so 100 is a typical winner and the figure compares years. A thin
     # year's winner reads 100 on the season scale (he did win it) while his
     # MVP+ says 72 (it was a thin year) — neither figure has to lie.

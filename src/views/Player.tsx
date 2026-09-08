@@ -799,7 +799,7 @@ export default function Player({ pid }: { pid: string }) {
                       <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
                       {/* the three inputs the match was made on — the desktop's
                           evidence column, and the one a phone can spare: the
-                          Match score beside it is the same fact summarised */}
+                          Match score beside it is the same fact summarized */}
                       <th scope="col" className="t edge hm" style={{ width: "24%" }}>Points going in</th>
                       {/* "Yr 1" on a phone: three "Year N" headers at 11% of
                           375px wrapped onto two lines each (Max, 2026-09-05) */}

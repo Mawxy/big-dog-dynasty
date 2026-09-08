@@ -179,7 +179,7 @@ function BetaBoard() {
   // a screen change closes the field, for the same reason it un-hides the bar
   useEffect(() => { setFinding(false); }, [loc.pathname]);
   // Long-press the League tab opens the switcher from anywhere — the bonus path
-  // the redesign names. A pointer held for 500ms, cancelled by movement or
+  // the redesign names. A pointer held for 500ms, canceled by movement or
   // release, so it never fights an ordinary tap.
   const holdTimer = useRef<number | null>(null);
   // Set when the hold actually fired. A long press still ends in a `click`, so

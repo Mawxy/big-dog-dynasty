@@ -2,7 +2,7 @@
    MY TEAM — the franchise page, banded for a phone.
 
    Imported by screens/Team.tsx alone. It defines NO tokens and no new type
-   ramp: every colour, family and gutter here is beta.css's or style.css's, and
+   ramp: every color, family and gutter here is beta.css's or style.css's, and
    every class is prefixed `mtx-` so nothing in this file can reach a screen
    that did not ask for it.
 
@@ -74,12 +74,12 @@
 /* NOT A TABLE, on purpose. Every seat carries a meter in BOTH currencies, and
    "one metered column per table" is a rule about tables — two metered columns
    in one would say the table was sorted by both. As a list of seat rows the
-   meters are two labelled figures inside one row, which is the pattern the
+   meters are two labeled figures inside one row, which is the pattern the
    design system does allow, and it drops the header row a phone has no width
    for anyway.
 
    The meters are on the seat's LEAGUE RANK, never on DVI or CVI: those are
-   already normalised 0-100 and metering them restates the figure. */
+   already normalized 0-100 and metering them restates the figure. */
 .mtx-str { display: flex; flex-direction: column; }
 .mtx-str-row {
   position: relative;

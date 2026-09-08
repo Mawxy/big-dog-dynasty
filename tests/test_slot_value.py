@@ -5,7 +5,7 @@ starter bar are both decisions about what the published figure means, so they
 are pinned here rather than left to the reader of the script.
 
 WHAT ACTUALLY RUNS IN CI. `RealCorpusTest` at the bottom is gated on
-`scratch/sample_corpus_0.json`, a crawl artefact that is gitignored and
+`scratch/sample_corpus_0.json`, a crawl artifact that is gitignored and
 absent on every clone, CI included. It runs ONLY on a machine that has done a
 local crawl. Nothing in CI checks that champion medians beat the field.
 """

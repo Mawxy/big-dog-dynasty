@@ -17,10 +17,10 @@ a genuine starter at his position, three times.
 Tight end is the deliberate exception. Set at its rank-12 equivalent of 0.29 the
 bar admits fringe starters, and every threshold that yields a QB-comparable
 count reaches into a talent pool that does not exist — the position runs out of
-value by TE20 (0.034 mean) and is negative by TE22. 0.50 is a judgement: it is
+value by TE20 (0.034 mean) and is negative by TE22. 0.50 is a judgment: it is
 the level at which the players admitted are ones a manager would actually have
 wanted, and it still returns 14 against 23-25 elsewhere. That gap is the
-finding, not an artefact to be tuned away.
+finding, not an artifact to be tuned away.
 
 Input:  nfl_history/waa_war_<season>.csv  (per-season WAR, one row per player)
 Output: stdout tables, or --json for a machine-readable dump.

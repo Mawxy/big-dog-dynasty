@@ -232,8 +232,8 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
 10. **The trade machine shops one basket against many offers** (2026-08-13).
    Outgoing side pinned; each offer scored against it; deltas signed on both
    sides per currency, never combined into one verdict. A scoped exception to
-   "never colour a trade" (the Ledger records a fact; the machine evaluates a
-   hypothetical). Maths in `src/lib/tradeModel.ts`, shared with beta, locked
+   "never color a trade" (the Ledger records a fact; the machine evaluates a
+   hypothetical). Math in `src/lib/tradeModel.ts`, shared with beta, locked
    by `tests/tradeModel.test.ts` (2026-08-18): consolidation utilization
    `s(v)` per currency (`u_min 0.10`; market v50 3400 / τ 1200; DVI 34 / 24;
    CVI 72 / 9 — the 108-starting-jobs ruler), adjustment shown as its own
@@ -363,7 +363,7 @@ live only in beta.
 
 **UI conventions.** Dark "Broadcast" theme, zero border-radius, two type
 roles (Archivo / Saira Condensed; beta adds IBM Plex Mono for figures). Pos
-colours QB `#9333ea`, RB green, WR blue, TE orange; mark tints are separate
+colors QB `#9333ea`, RB green, WR blue, TE orange; mark tints are separate
 tokens. Name click navigates, row click opens a drawer (classic only). One
 metered column per table — the sorted one — and indices are never metered.
 Nulls are `—`, estimates `≈`. Every chart is hand-rolled SVG (no charting

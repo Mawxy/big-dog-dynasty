@@ -16,7 +16,7 @@
    sort is gold: the scope control and the chips both take the `--sel` fill the
    beta shell already uses for "this subset is selected". That is why
    `.chip.on`'s accent is overridden below rather than left alone — keeping the
-   chips' behaviour was the requirement, not their colour.
+   chips' behavior was the requirement, not their color.
    ========================================================================== */
 
 /* ---- filters ------------------------------------------------------------ */
@@ -164,8 +164,8 @@
    like a chart with something to prove.
 
    ACHROMATIC, with the median in the accent. The classic board's BoxMarks
-   fills its box #1e6fd9, which on this shell is the WR position colour — and
-   position colour is the badge and the spine and nothing else. Same statistics,
+   fills its box #1e6fd9, which on this shell is the WR position color — and
+   position color is the badge and the spine and nothing else. Same statistics,
    this shell's ink. */
 .plx-spread { margin-top: 13px; }
 .plx-spread .k {

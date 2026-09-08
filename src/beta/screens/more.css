@@ -77,7 +77,7 @@
    classic-board row: it is the most important destination on the screen and
    it is still a plain row, because the accent marks a figure, not a door. */
 .mox-st.mox-acc { color: var(--acc); }
-/* ui.tsx's NUL, outside a table — beta.css colours `.nul` only inside .v3tbl */
+/* ui.tsx's NUL, outside a table — beta.css colors `.nul` only inside .v3tbl */
 .mox-st .nul { color: var(--dim3); }
 
 /* ---- a row that opens in place ------------------------------------------

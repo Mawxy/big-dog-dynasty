@@ -1,5 +1,5 @@
 /**
- * THE TRADE MATHS — consolidation adjustment and pick index estimation.
+ * THE TRADE MATH — consolidation adjustment and pick index estimation.
  *
  * Companion to `scratch/TRADE_MACHINE_MODEL.md`. Two mechanisms live here and
  * nothing else does:
@@ -14,13 +14,13 @@
  *     and there is no player to project until the pick converts. See
  *     `makePickIndexer` for the approximation actually taken and why.
  *
- * SHARED BY BOTH SHELLS. It lives in `lib/` because the maths is not a property
+ * SHARED BY BOTH SHELLS. It lives in `lib/` because the math is not a property
  * of a skin: `components/TradeCalc.tsx` (classic) and `beta/screens/Trade.tsx`
  * both call these functions, so the two boards cannot print different numbers
  * for the same trade. Neither shell is allowed to re-implement a curve here.
  *
  * DELIBERATELY DEPENDENCY-FREE. Not one runtime import — no React, no
- * `./rosterModel`, no `./types`. Two reasons. The maths is the part that has
+ * `./rosterModel`, no `./types`. Two reasons. The math is the part that has
  * to be *provable*, and `tests/tradeModel.test.ts` imports this module directly
  * under `node --test`, which resolves specifiers the way Node does rather than
  * the way Vite does; a single extensionless relative import would drag in the
@@ -29,7 +29,7 @@
  * exactly that reason.
  *
  * The screen owns presentation. This owns figures: it formats nothing, decides
- * no colour, and has no opinion about who won.
+ * no color, and has no opinion about who won.
  */
 
 /* ========================================================================
@@ -84,7 +84,7 @@ export interface UtilCurve {
  *
  * Each lens is parameterised **in its own value space**: Market in KTC points
  * (427–9999 across the priced field), DVI and CVI in index points (0–100).
- * Mixing them would have needed a normalisation nobody could check.
+ * Mixing them would have needed a normalization nobody could check.
  *
  * The ruler used for all three is the league's own board: 12 teams × 9 starting
  * slots = **108 starting jobs**, so the marginal starter is the 108th-ranked
@@ -158,7 +158,7 @@ export interface Packaged { raw: number; effective: number; adj: number }
  * currently prices an asset below zero — market values and index points are
  * both non-negative — but a negative asset run through a utilization weight
  * would come back *less* negative, i.e. the curve would reward holding a
- * liability, which is the one behaviour a scale must not have.
+ * liability, which is the one behavior a scale must not have.
  */
 export function packageValue(values: number[], c: UtilCurve, at?: (number | null)[]): Packaged {
   let raw = 0, effective = 0;
@@ -401,7 +401,7 @@ export interface PickIndexerInput {
  *     the player field, evaluate at the pick's own market price. Defensible
  *     because market is 50% of DVI and 50% of CVI by construction, so the
  *     dominant channel is exact rather than approximated — and the emergent
- *     behaviour the doc wants falls out for free, since the players who trade
+ *     behavior the doc wants falls out for free, since the players who trade
  *     at a 1st-rounder's price are young and unproven, which IS the high-DVI /
  *     low-CVI cohort.
  *  2. **Timing shape.** The base answers "what is a player at this price

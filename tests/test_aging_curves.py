@@ -67,7 +67,7 @@ class TestFitWeighting(unittest.TestCase):
 class TestResidualBands(unittest.TestCase):
     """p20/p80 have to be weighted the way the LINE is.
 
-    They were not: the slope and intercept honoured --fit-weight and the bands
+    They were not: the slope and intercept honored --fit-weight and the bands
     came from an UNWEIGHTED residual quantile, so the same dressed-zero
     population the weighting exists to keep out of the fit still fully decided
     how wide the band around it was. Measured on the committed nfl_history CSVs

@@ -13,7 +13,7 @@ import TScroll from "./TScroll";
  *
  * It is also the one screen with NO 3px position spine. Everywhere else the
  * spine is how a row states its position against a neutral background; here the
- * cell is already that colour, so the spine said it twice and read as a bar
+ * cell is already that color, so the spine said it twice and read as a bar
  * that stops partway for no reason. Position stays literal on the pick row.
  */
 export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {

@@ -531,7 +531,7 @@ def main():
                                       "per-week lines; seeded wins then points; Sleeper "
                                       "bracket with reseeding"}
             top = max(sim.items(), key=lambda kv: kv[1]["title"])
-            print(f"      season sim: {SIMS} runs, title favourite rid {top[0]} at "
+            print(f"      season sim: {SIMS} runs, title favorite rid {top[0]} at "
                   f"{top[1]['title'] * 100:.1f}%")
         if args.probe:
             continue

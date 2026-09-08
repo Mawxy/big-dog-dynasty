@@ -51,10 +51,10 @@ cover every NFL player (~3100), but only ids the site can name are reachable, so
 shards are gated on it rather than committing thousands of files nothing links
 to. A player with no record in ANY source gets no shard; the site treats a 404
 as "no projection" and falls back to the plain WAR trend chart, which is the
-same behaviour as before sharding.
+same behavior as before sharding.
 
 CRASH SAFETY. This used to `shutil.rmtree(player/)` and then make ~800
-`write_text` calls: a crash, a cancelled run or a job timeout anywhere in that
+`write_text` calls: a crash, a canceled run or a job timeout anywhere in that
 loop left the COMMITTED shard directory gutted, and the next commit step
 published the hole. Each shard is now written atomically in place (ioutil), and
 files no longer wanted are pruned only after every write has landed. A rebuild

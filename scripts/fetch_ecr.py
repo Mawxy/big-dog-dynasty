@@ -40,7 +40,7 @@ CRAWL_DELAY = 5
 BASE = "https://www.fantasypros.com/nfl/rankings/"
 
 # FantasyPros uses the name people say; Sleeper uses the name on the birth
-# certificate. Keyed by normalised FP name -> normalised Sleeper name.
+# certificate. Keyed by normalized FP name -> normalized Sleeper name.
 ALIASES = {
     "hollywoodbrown": "marquisebrown",
     "bamknight": "zonovanknight",
@@ -221,7 +221,7 @@ def main():
             who = f"{r.get('player_name')} ({pos}, {tm or '--'})"
             prev = claimed.get(pid)
             if prev:
-                # Two RANKED players, one sleeper id. Not a normalisation bug:
+                # Two RANKED players, one sleeper id. Not a normalization bug:
                 # FantasyPros ranks everyone, players_min only holds ids this
                 # league references, so the twin genuinely isn't ours. Team is
                 # the only field that separates them — but FantasyPros carries

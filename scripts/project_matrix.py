@@ -90,7 +90,7 @@ W_MAX = 0.90         # ceiling, matching the scalar model's flat year-1 weight.
 # WHAT COUNTS AS A SLEEPER PROJECTION.
 #
 # `none` — every positive projection counts, at full weight. This is the
-# shipped behaviour of project_war.py and, after measuring it, the right one.
+# shipped behavior of project_war.py and, after measuring it, the right one.
 #
 # I previously gated this at 25 points, on the theory that the pts->WAR line was
 # being extrapolated past its support and that a backup's low projection encoded
@@ -111,7 +111,7 @@ W_MAX = 0.90         # ceiling, matching the scalar model's flat year-1 weight.
 # optionality — DVI and CVI's job, not this file's. The two disagreeing is the
 # two numbers doing different work.
 #
-# The remaining gate is arithmetic, not judgement: a forecast cannot be negative
+# The remaining gate is arithmetic, not judgment: a forecast cannot be negative
 # points, so pts13 <= 0 is not a forecast.
 #
 # `hard` and `taper` are kept because the measurement that rejected them is

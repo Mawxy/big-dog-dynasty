@@ -1206,8 +1206,8 @@ export default function Players() {
               <Fragment key={r.pid}>
                 <TapRow className={`${i % 2 ? "zebra" : ""}${open === r.pid ? " plx-on" : ""}`}
                   onTap={() => setOpen(open === r.pid ? null : r.pid)}>
-                  {/* Position colour on the spine, never on the name: a
-                      coloured name is a link affordance everywhere else on this
+                  {/* Position color on the spine, never on the name: a
+                      colored name is a link affordance everywhere else on this
                       board. No accent on the leaders' ordinals either — "top 3
                       by whatever you last sorted by" is not a threshold, and
                       this screen spends its accent on the sort. */}
@@ -1227,7 +1227,7 @@ export default function Players() {
                       decoration with width the affiliation wanted.
 
                       On a phone they are in the DRAWER instead, whole and
-                      labelled. A tap is already how a reader asks a row for
+                      labeled. A tap is already how a reader asks a row for
                       more, the drawer has room for all five tiers with their
                       counts, and the row gets its identity cell back. On
                       desktop they stay on the sub-line, where the column is
@@ -1438,12 +1438,12 @@ function Honors({ marks, pos }: { marks?: [HonorKey, number][]; pos: string }) {
  * weeks LOOKED LIKE, which no total can. Two players at 18.2 PPG are the same
  * row until you see that one of them lived between 14 and 22 and the other
  * alternated 4 and 33 — and the second is the one who lost you a week you were
- * favoured in.
+ * favored in.
  *
  * `boxStats` is the classic board's, imported: the five-number summary is
  * arithmetic and there should be exactly one of it. The MARKS are drawn here
  * rather than reusing `BoxMarks`, which hardcodes a blue box — on this shell
- * that blue is the WR position colour, and position colour is the badge and the
+ * that blue is the WR position color, and position color is the badge and the
  * spine and nothing else. Achromatic box, accent median, which is the one
  * figure on it worth pointing at.
  *

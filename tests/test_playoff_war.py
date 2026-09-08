@@ -321,7 +321,7 @@ class TestADressedZeroIsAPlayedZero(unittest.TestCase):
         self.assertIn("q1", war)                       # and the week did price
 
     def test_a_starter_the_feed_says_did_not_dress_is_still_excluded(self):
-        """The file is a played SET, not a licence to count everyone: q2 is
+        """The file is a played SET, not a license to count everyone: q2 is
         listed nowhere in it, so his 0.00 is a bye/inactive and accrues
         nothing."""
         war, _ = self.run_week([p for p in self.ALL_EIGHT if p != "q2"])

@@ -39,7 +39,7 @@ src/ (Vite + React 18 + TypeScript) reads data/**/*.json only ─► GitHub Page
   ids live in `data-refresh.yml` and must be updated by hand each September.
   Routes are league-first: `#/big-dog/stats/2025`.
 - **Two shells on one data set.** The classic board and a phone-first **beta**
-  shell (`#/<league>/beta/…`) share every number; the trade maths
+  shell (`#/<league>/beta/…`) share every number; the trade math
   (`src/lib/tradeModel.ts`) is one module under test for both.
 - **The front end never calls Sleeper.** Built by GitHub Actions; you never
   need Node locally.

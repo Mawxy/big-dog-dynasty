@@ -20,8 +20,8 @@ import { PlayerLink } from "./PlayerLink";
  * name a winner, whether it has a date, which figure belongs in a side's
  * header, and whether one asset deserves emphasis.
  *
- * Both baskets render in the same neutral ink deliberately — colouring one
- * green and one amber implies a winner when the colour is really just whose
+ * Both baskets render in the same neutral ink deliberately — coloring one
+ * green and one amber implies a winner when the color is really just whose
  * row it is (SKILL §5, two-basket comparison).
  */
 

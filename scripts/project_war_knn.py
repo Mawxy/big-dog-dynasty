@@ -86,7 +86,7 @@ SEASON_W = [1.0, 0.80, 0.60]
 # is now read as a record rather than as last season plus footnotes.
 # Every feature is Z-SCORED against the position's own distribution before these
 # weights apply, so a weight is a real statement of relative importance rather
-# than an artefact of units. It was not, and the result was indefensible: with
+# than an artifact of units. It was not, and the result was indefensible: with
 # points carried as pts/100, Josh Allen's 2025 matched Kirk Cousins 2018 — 73
 # points a season worse, a QB5-vs-QB20 gap — because that cost 0.96 in distance
 # while being two years older cost 0.56. Age was priced at roughly 40 points a
@@ -154,7 +154,7 @@ TOP_N = 3             # how many named comparables to publish per player
 
 
 def similarity(d):
-    """Distance -> a 0-100 match score, for reading rather than for maths.
+    """Distance -> a 0-100 match score, for reading rather than for math.
 
     Distance is in standard deviations of the position's own features: good for
     the model, meaningless to a reader, and unbounded above so it cannot be a
@@ -224,7 +224,7 @@ def feature(pid, yr, seasons, meta, space="rate"):
 
       points  raw seasonal fantasy points, scaled by 100 so the magnitudes sit
               near the rate scale. Role and availability are IN the number
-              rather than modelled around it: a backup scores few points
+              rather than modeled around it: a backup scores few points
               because he is a backup, and a hurt star scores few because he was
               hurt, which are both real outcomes a manager actually received.
               WAR is retrofitted at the end via the fitted pts->WAR line.
@@ -314,7 +314,7 @@ def distance(a, b, sc):
     # Every term above is squared, so `d` is squared distance; it used to be
     # returned that way and then fed to exp(-(d*d)/(2h*h)), which squares it
     # AGAIN. The kernel was therefore exp(-distance**4 / 2h**2) — very flat near
-    # the centre and a cliff further out, which is why a 99-match got only 1.6%
+    # the center and a cliff further out, which is why a 99-match got only 1.6%
     # of the weight where a flat average gives 1.0%. The bandwidth had the same
     # problem: h came from the median of squared distances while a gaussian's h
     # belongs in distance units.

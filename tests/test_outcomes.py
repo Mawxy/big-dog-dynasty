@@ -383,7 +383,7 @@ class TurnaroundTest(unittest.TestCase):
         self.assertEqual(sc.summarize_outcomes(rows, 0, 1)["counts"]["last_to_first"], 1)
 
     def test_rows_without_a_chain_fall_back_to_lid(self):
-        # corpus written before `chain` existed must still summarise
+        # corpus written before `chain` existed must still summarize
         rows = self.league("L", {2023: {1: 1, 2: 2}, 2024: {1: 2, 2: 1}})
         for r in rows:
             r["lid"] = "same"
@@ -519,7 +519,7 @@ class TurnaroundTest(unittest.TestCase):
 
     def test_a_league_never_splits_across_shards(self):
         """The turnaround sums are only correct because every season of a
-        franchise is summarised together — and that is NOT free. A Sleeper
+        franchise is summarized together — and that is NOT free. A Sleeper
         league_id is one season, and the ids of one chain are unrelated
         numbers. The crawler shards on the ENTRY league_id, walks back to the
         founding one, and tags every row it emits with that founding id, so

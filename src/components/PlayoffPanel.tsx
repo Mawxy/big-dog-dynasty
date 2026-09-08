@@ -393,7 +393,7 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
         MVP is the biggest round-weighted win-probability swing, not the most points: WAR
         doesn't extend to the postseason — it needs a replacement baseline and fungible wins,
         and weeks {weeks[0]}–{weeks[weeks.length - 1]} have neither once half the league stops
-        setting lineups — so each game is modelled on its own, every starter priced off his
+        setting lineups — so each game is modeled on its own, every starter priced off his
         regular-season form and credited by Shapley value · elimination games only, placement
         games excluded · upsets rank by the pregame win probability of the side that won, not
         by seed — a seed is a regular-season finish and says nothing about the two rosters that

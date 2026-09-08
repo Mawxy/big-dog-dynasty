@@ -7,7 +7,7 @@ not exist is not a season of zero.
 
 feature() already encodes that — a missing season is a 0.0 in `rates` with a
 false flag in `has`, and distance() skips those slots. The estimate did not
-honour it. project() built the local-linear regression's x-axis from
+honor it. project() built the local-linear regression's x-axis from
 `rates[0]` with no mask, and read the fit at the QUERY's `rates[0]` with no
 mask, so a player whose most recent season does not exist was evaluated at
 x = 0.0 — "did not play" priced as "produced nothing" — and cohort members with

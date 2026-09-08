@@ -4,7 +4,7 @@
 Two scripts had already worked this out independently (build_site_data's
 `atomic_write`, sleeper_crawl's `jdump`); eight others were still doing
 `path.write_text(...)`, which TRUNCATES FIRST. A crash, a job timeout or a
-cancelled workflow run mid-flush therefore leaves a half-written JSON file
+canceled workflow run mid-flush therefore leaves a half-written JSON file
 sitting exactly where a committed one belongs — and the commit step, which
 checks that files exist rather than that they parse, publishes it.
 

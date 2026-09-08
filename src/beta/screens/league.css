@@ -9,7 +9,7 @@
    that already had a class in beta.css or style.css — .band, .v3tbl, .v3strip,
    .v3-act, .v3-baskets, .v3-wv, .verdict, .tnote — is reused as it stands.
 
-   Defines NO tokens. Every colour, family and gutter comes from style.css's
+   Defines NO tokens. Every color, family and gutter comes from style.css's
    `:root` and from `.v3`'s own --v3pad.
    ========================================================================== */
 
@@ -44,7 +44,7 @@
   font: 400 11px/1.3 var(--sans); color: var(--dim3);
 }
 /* the middle block: spread and total stacked, the way a scoreboard card posts
-   them, on the --deep spine. The spread is quoted from the favourite's side
+   them, on the --deep spine. The spread is quoted from the favorite's side
    with a marker pointing at it; after kickoff the block reads Final. Wide
    enough for "◂ −12.5" in the figure face at 12px and no wider — the two
    sides need the room. */

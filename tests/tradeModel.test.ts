@@ -1,7 +1,7 @@
 /**
- * Locks the trade maths — `src/lib/tradeModel.ts`.
+ * Locks the trade math — `src/lib/tradeModel.ts`.
  *
- * Four behaviours the model doc asserts and the ledger would be wrong without,
+ * Four behaviors the model doc asserts and the ledger would be wrong without,
  * plus the invariant that makes the consolidation row honest:
  *
  *  1. MONOTONICITY — one 9000 beats two 4500s on the Market lens once the
@@ -144,7 +144,7 @@ test("through the ledger: the consolidation row carries the whole difference", (
     null,
   );
   assert.equal(Math.round(led.net.market), 0, "raw market net is zero by construction");
-  assert.ok(led.adj.market > 0, "the adjustment must favour the consolidated side");
+  assert.ok(led.adj.market > 0, "the adjustment must favor the consolidated side");
   assert.ok(led.adjNet.market > 0);
   // the invariant that makes the row honest: shown, never smuggled
   for (const lens of ["market", "dvi", "cvi"] as const)

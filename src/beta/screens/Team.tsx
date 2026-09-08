@@ -100,7 +100,7 @@ interface RosterRow {
    *  to a bench body. */
   tags: IdTag[];
   pid: string | null;
-  /** drives the spine's colour, and nothing else. Never the name's. */
+  /** drives the spine's color, and nothing else. Never the name's. */
   pos: string;
   idx: number | null;
   war: number | null;
@@ -504,7 +504,7 @@ export default function Team() {
 
       <div className="tnote screen">
         {lens === "dvi" ? "DVI prices the dynasty horizon" : "CVI prices the coming season"} —
-        a 0–100 index, bare by design: it is already normalised, so a bar beside it would
+        a 0–100 index, bare by design: it is already normalized, so a bar beside it would
         restate the figure. Market is the KTC dynasty price, shown last because it is the
         cross-check, not the claim. A pick carries a market price but no index — there is no
         player to project until it converts — and a taxi player carries an index but no
@@ -516,7 +516,7 @@ export default function Team() {
           The classic board's TeamStrengths, transposed: it draws one row per
           currency across nine seat columns, which is a grid that has to scroll
           sideways on a phone and loses the seat the moment it does. Here the
-          SEAT is the row and the currencies are two labelled meters inside it,
+          SEAT is the row and the currencies are two labeled meters inside it,
           so a thumb reads down the depth chart instead of across a scroll. The
           figures, the ranks and the meter scale are that component's, unchanged. */}
       {shape && (
@@ -568,7 +568,7 @@ function RosterTable({ band, lens, betaPath }: {
               <>
                 {/* THE POSITION LIVES HERE. This is the one screen where every
                     row has a position and none of them showed it — the spine
-                    carries the colour, never the name. What sits beside the bar
+                    carries the color, never the name. What sits beside the bar
                     is the row's place WITHIN ITS BAND: the LINEUP SEAT for a
                     starter, which is a league setting rather than a ranking,
                     and an ordinal everywhere else (index order on the bench and
@@ -615,10 +615,10 @@ function RosterTable({ band, lens, betaPath }: {
 
 /**
  * One row per lineup seat — QB1, QB2, RB1, RB2, WR1, WR2, WR3, TE1 — carrying
- * a labelled meter per currency and whoever holds that seat in it.
+ * a labeled meter per currency and whoever holds that seat in it.
  *
  * The meter is on the seat's LEAGUE RANK, never on the index value: DVI and CVI
- * are already normalised 0-100 and the system forbids metering them. Its scale
+ * are already normalized 0-100 and the system forbids metering them. Its scale
  * is rosterShapes' own — first of twelve fills the track, twelfth fills a
  * twelfth of it — so the bar reads as "how much of the league is behind this
  * seat" rather than as a value.

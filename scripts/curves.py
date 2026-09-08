@@ -20,7 +20,7 @@ before project_matrix.py imported composite_path instead of carrying its own.
 WHY YEAR ONE
 
 `[0]` is the seed year, not the three-year total, and that is inherited
-behaviour rather than a decision made here — both indices have always clamped
+behavior rather than a decision made here — both indices have always clamped
 on year-1 WAR. It is defensible for CVI, which is a win-now index by
 definition. It is arguable for DVI, whose whole subject is the years after
 this one. Changing it moves every published figure on the site and belongs in

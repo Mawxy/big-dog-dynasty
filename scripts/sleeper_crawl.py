@@ -170,7 +170,7 @@ def jdump(p, obj):
 
     Every file this writes is read back — state on the next run, outputs by
     benchmarks.py and the site — and this crawler is *routinely* killed
-    mid-write: the job timeout, a cancelled run and a rate-limit abort all land
+    mid-write: the job timeout, a canceled run and a rate-limit abort all land
     while a multi-megabyte flush is in flight. That is the case the shared
     writer exists for, and it is why every other producer now uses it too.
     """

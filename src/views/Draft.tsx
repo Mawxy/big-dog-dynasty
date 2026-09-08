@@ -314,7 +314,7 @@ export default function Draft() {
   const heatFg = (m: number | null) => m == null ? "#3d4650" : Math.abs(m) < 0.005 ? "#7b8794"
     : lum(heatBg(m)) > 0.173 ? "#08170e" : "#fdeee0";
   // The ramp's endpoints, and ONLY that — they label the two ends of the
-  // colour legend. They used to also ring the matching cells in the grid,
+  // color legend. They used to also ring the matching cells in the grid,
   // which marked 1.01 and 4.12 every time: the first and last pick of the
   // draft, already the darkest green and the darkest rose.
   const worstSlot = medAll.length ? Math.min(...medAll) : 0;

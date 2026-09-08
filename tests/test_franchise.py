@@ -179,9 +179,9 @@ class RealDataTest(unittest.TestCase):
         self.assertLessEqual(max(core) / min(core), 1.5)
 
     def test_tight_end_returns_materially_fewer_and_that_is_the_finding(self):
-        """TE's bar is a judgement (0.50 against a rank-12 equivalent of 0.29)
+        """TE's bar is a judgment (0.50 against a rank-12 equivalent of 0.29)
         and still returns roughly half what the others do. **That gap is the
-        finding, not an artefact to tune away** — the players do not exist."""
+        finding, not an artifact to tune away** — the players do not exist."""
         got = self.counts()
         self.assertLess(got["TE"], min(got["QB"], got["RB"], got["WR"]))
         self.assertLessEqual(got["TE"] / min(got["QB"], got["RB"], got["WR"]), 0.8)

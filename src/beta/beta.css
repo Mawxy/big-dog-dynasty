@@ -2,7 +2,7 @@
    WAR Board v3 — the phone-first shell.
 
    Imported by BetaShell.tsx, so it rides the lazy chunk and is absent from the
-   classic board's bundle entirely. Every COLOUR and gutter here comes from
+   classic board's bundle entirely. Every COLOR and gutter here comes from
    style.css's `:root`, which is what makes the two shells look like one
    product. If a value you need isn't a token, that is the design system telling
    you to solve the problem differently.
@@ -176,7 +176,7 @@
 .v3 .tnote.screen { padding-left: var(--v3pad); padding-right: var(--v3pad); }
 
 /* A FETCH THAT DIDN'T LAND (ui.tsx DataError). Style.css's `.errbox` at this
-   shell's scale and gutter: same anatomy — a labelled block on --band behind a
+   shell's scale and gutter: same anatomy — a labeled block on --band behind a
    3px --warn rule — because the boot screen and a band that lost its file are
    the same event told at two sizes, and the two shells should say it the same
    way. --warn rather than --acc: gold is the headline figure everywhere else on
@@ -397,7 +397,7 @@
   color: var(--dim);
 }
 .v3tbl td.sp .rank.top { color: var(--acc); }
-/* rank movement, beside the ordinal. Never coloured green/red: a team climbing
+/* rank movement, beside the ordinal. Never colored green/red: a team climbing
    the valuation board has not won anything, and the arrow already carries the
    direction. */
 .v3tbl td.sp .mv {
@@ -454,7 +454,7 @@
 .v3id .idc-n, .v3id .idc-s { display: block; }
 
 /* the 3px spine in a flex row rather than a table cell. Same width, same
-   colour source; it stretches instead of absolutely positioning, because a flex
+   color source; it stretches instead of absolutely positioning, because a flex
    row has no positioned cell to hang off. */
 .v3spine { flex: 0 0 3px; align-self: stretch; min-height: 100%; }
 
@@ -480,7 +480,7 @@
 .v3 .meter-row .fig { font: 600 14px/1 var(--mono); font-variant-numeric: tabular-nums; }
 /* SIGNED FIGURES are `.up` / `.down`, NOT `.pos` / `.neg` (Max, 2026-09-02).
    `.pos` is the classic board's POSITION BADGE in style.css — inline-block,
-   42px wide, centred — and a beta figure carrying the class was forced into
+   42px wide, centered — and a beta figure carrying the class was forced into
    that box: "+2.69" at 17px is wider than 42px, so every positive Gap on the
    League screen overflowed its cell to the right while the negatives beside
    it sat where they should. The two stylesheets share one page; a class name
@@ -576,7 +576,7 @@
   margin-left: auto;
   font: 600 10.5px/1 var(--cond); letter-spacing: .12em; color: var(--acc);
 }
-/* TWO NEUTRAL BASKETS. Both sides in the same ink, always — colouring one green
+/* TWO NEUTRAL BASKETS. Both sides in the same ink, always — coloring one green
    and one amber implies a winner, and a settled trade is a record, not a
    verdict. */
 .v3-baskets { display: flex; gap: 1px; margin-top: 8px; background: var(--rule); }
@@ -593,7 +593,7 @@
 }
 .v3-baskets .bk .it.pick { color: var(--dim); }
 /* a waiver line: add and drop on one row, the two moves the league's own
-   vocabulary already colours */
+   vocabulary already colors */
 .v3-wv { display: flex; gap: 10px; margin-top: 6px; font: 400 12.5px/1.4 var(--sans); }
 .v3-wv .add { color: var(--good); }
 .v3-wv .drop { color: var(--drop); }
@@ -677,8 +677,8 @@
    above it rather than as a fourth peer line */
 .v3-ledger tr.net td { border-top: 1px solid var(--rule); padding-top: 7px; }
 
-/* NO WINNER COLOURING. `.f.up` / `.f.down` exist for figures elsewhere on the
-   board and are deliberately NOT wired up in here: colouring "net to Side A"
+/* NO WINNER COLORING. `.f.up` / `.f.down` exist for figures elsewhere on the
+   board and are deliberately NOT wired up in here: coloring "net to Side A"
    green declares a winner in CSS, which is exactly what decision #14 refuses.
    The sign carries the direction and that is the whole claim. Do not add them.
 
@@ -797,8 +797,8 @@
   .v3-mast .classic { display: inline-block; }
 
   /* the sheet is a phone pattern; on desktop the rail already lists the
-     leagues, so the switcher opens centred rather than climbing from the edge.
-     Centred on the CONTENT column, not the viewport: the sheet is fixed, so
+     leagues, so the switcher opens centered rather than climbing from the edge.
+     Centered on the CONTENT column, not the viewport: the sheet is fixed, so
      50% is the viewport's middle and the 208px rail pushes the content's middle
      104px to the right of it — hence half the width back, then 104 forward. */
   .v3-sheet {
@@ -849,12 +849,12 @@
    `style={{ textAlign: "right" }}` for this. */
 .v3tbl td .idc-s.r { text-align: right; }
 
-/* Δ30's sign colour comes from `.f.up` / `.f.down`, the tokens already spent
+/* Δ30's sign color comes from `.f.up` / `.f.down`, the tokens already spent
    on a signed figure elsewhere on the board — legal here and nowhere near the
    ledger, because a raw market delta is a direction of travel and not a
    verdict. A sub-line is not the figure ramp, though, so only the SIZE steps
    down to the line it sits on; the face is still the figure face, and the
-   colour is deliberately not restated here, which is what keeps one rule
+   color is deliberately not restated here, which is what keeps one rule
    owning it. */
 .v3tbl td .idc-s .f {
   font: 600 10.5px/1.3 var(--mono); font-variant-numeric: tabular-nums;

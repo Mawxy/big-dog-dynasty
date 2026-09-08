@@ -17,7 +17,7 @@ import type { Team } from "./types";
  * is needed for the claim: `teams.json` already carries `manager`, which IS the
  * Sleeper display name. So a typed username resolves to a roster_id off a file
  * the site already fetches, with no network dependency, no CORS, and no
- * behaviour that breaks when Sleeper is down.
+ * behavior that breaks when Sleeper is down.
  *
  * `claims` is the manual override, per league. It exists because the derivation
  * can miss — a manager who renamed on Sleeper since the last data refresh, or a
@@ -120,7 +120,7 @@ export function useIdentityState(leagueKey: string, teams: Team[] | null): Ident
 
   return useMemo(() => {
     const manual = st.claims[leagueKey];
-    // A manual claim is only honoured while the roster it names still exists —
+    // A manual claim is only honored while the roster it names still exists —
     // a stale localStorage entry from another league (or from before a roster
     // was removed) would otherwise point the Team tab at nothing forever.
     const valid = manual != null && (!teams || teams.some(t => t.roster_id === manual));

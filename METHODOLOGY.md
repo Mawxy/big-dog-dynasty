@@ -21,7 +21,7 @@ unless they start with `data/`.
 |---|---|---|
 | [WAA / WAR](#waa-and-war) | How many wins was he worth over a season? | `sleeper_war.py` |
 | [VoWP](#vowp) | How much better than the waiver wire? | `sleeper_war.py` |
-| [Team win probability](#team-win-probability) | Who was favoured in this matchup? | `week_odds.py` |
+| [Team win probability](#team-win-probability) | Who was favored in this matchup? | `week_odds.py` |
 | [Projected records](#projected-records) | Where does this roster finish? | `week_odds.py` + `src/views/Franchises.tsx` |
 | [Playoff WPA](#playoff-wpa) | How much did he swing a playoff game? | `playoff_wpa.py` |
 | [Win share](#win-share) | How much of a playoff win was his? | `playoff_wpa.py` |
@@ -121,7 +121,7 @@ without it the unrostered pool cannot be seen at all.
 
 The pregame line for every matchup, played or upcoming.
 
-Each starter is modelled as a normal distribution. Team score is the sum of
+Each starter is modeled as a normal distribution. Team score is the sum of
 nine independent starters, so
 
 ```
@@ -153,7 +153,7 @@ unknown starter arrives with `DEFAULT_SD = 8.0` — deliberately wide.
 included. A team that went on to win week 9 does not get to have known that in
 week 9's line. This is what makes an upset legible after the fact.
 
-**Calibration**, 2022–25: favourites win 64.4%; predicted 30% came in at 29%,
+**Calibration**, 2022–25: favorites win 64.4%; predicted 30% came in at 29%,
 60% at 61%, 70% at 71%.
 
 **Where it breaks down.** Sleeper only serves *current* projections, so pricing
@@ -646,7 +646,7 @@ null before picks were priced. A guard refuses to write a ledger whose newest
 trade predates the committed one — a rebuild rode a feature push on 2026-08-21
 and clobbered three August trades.
 
-The Ledger view colours nothing: it records a settled fact. The trade machine
+The Ledger view colors nothing: it records a settled fact. The trade machine
 evaluates a hypothetical and is allowed to say who gains.
 
 ## Dynasty movers
@@ -721,12 +721,12 @@ inside them. Three of the four sit at their position's twelfth-rank season
 value, so "franchise" means the same thing at each: a genuine starter, three
 times over. `ELITE_BAR` is the same idea one tier up.
 
-**Tight end is a judgement, and is documented as one.** At its rank-12
+**Tight end is a judgment, and is documented as one.** At its rank-12
 equivalent of 0.29 the bar admits fringe starters, and no threshold produces a
 QB-comparable count — the position averages 0.034 WAR by TE20 and is negative
 by TE22, so the players simply do not exist. 0.50 is set where the admitted
 players are ones a manager would actually have wanted. It returns 14 against
-23–25 elsewhere. **That gap is the finding, not an artefact to tune away**:
+23–25 elsewhere. **That gap is the finding, not an artifact to tune away**:
 tight end produces roughly half as many franchise players as any other
 position, and one of them (Kelce, 11 qualifying seasons) accounts for more than
 the bottom five combined.
@@ -797,8 +797,8 @@ split sums back to the season's WAR.
 
 - **Nulls are em dashes, never zero.** A rookie class that has not played
   returns `—`; `0.00` would read as "returned nothing".
-- **Signed values** use `+` / `−` (U+2212), coloured, neutral within ±0.005.
-- **Indices (DVI, CVI, MVP) are never metered.** They are already normalised
+- **Signed values** use `+` / `−` (U+2212), colored, neutral within ±0.005.
+- **Indices (DVI, CVI, MVP) are never metered.** They are already normalized
   0–100; a bar restates the number.
 - **Estimates are marked.** A pick's index, or a basket total containing one,
   carries `≈`.

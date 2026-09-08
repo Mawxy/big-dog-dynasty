@@ -128,14 +128,14 @@ export function Strip({ figures }: { figures: Figure[] }) {
 export const NUL = <span className="nul">—</span>;
 
 /**
- * The rank spine cell: a 3px bar coloured by position or status, the ordinal,
+ * The rank spine cell: a 3px bar colored by position or status, the ordinal,
  * and optionally the movement since the comparison point.
  *
  * `top` marks the figure in the accent — a leader, or a team above the
  * playoff cutline.
  */
 export function Spine({ color, rank, top, move }: {
-  /** POSITION COLOUR GOES HERE, never on the name. A coloured name is a link
+  /** POSITION COLOR GOES HERE, never on the name. A colored name is a link
    *  affordance on every other row of the site, and four position hues fighting
    *  one accent is four accents. Optional: a board with no positional dimension
    *  (standings, franchises) takes the inactive rule and still gets the 3px
@@ -143,7 +143,7 @@ export function Spine({ color, rank, top, move }: {
   color?: string;
   rank: ReactNode; top?: boolean;
   /** signed rank movement; positive is upward. Rendered ▲2 / ▼1, never
-   *  coloured — direction is the claim, and green would make it a verdict. */
+   *  colored — direction is the claim, and green would make it a verdict. */
   move?: number | null;
 }) {
   return (
@@ -162,7 +162,7 @@ export function Spine({ color, rank, top, move }: {
  * The baskets on the Trade screen and the asset picker are flex rows, not table
  * rows, and both were carrying `style={{ flex: "0 0 3px", alignSelf: "stretch" }}`
  * written out by hand — three copies of a rule, none of which the design system
- * could change. The colour still arrives as a value (POS_COLOR is data, not a
+ * could change. The color still arrives as a value (POS_COLOR is data, not a
  * class), but the geometry is now the stylesheet's.
  */
 export function PosSpine({ color }: { color?: string }) {
@@ -450,7 +450,7 @@ export function Ledger({ title = "Ledger", columns, caption, children }: {
  *
  * There is deliberately no "positive/negative" tone. `.pos` / `.neg` exist in
  * the stylesheet for figures elsewhere on the board; a ledger figure keeps
- * neutral ink because colouring "net to Side A" green is declaring a winner in
+ * neutral ink because coloring "net to Side A" green is declaring a winner in
  * CSS. The sign already carries the direction.
  */
 export function LedgerRow({ label, sub, values, tone = "sub" }: {
@@ -484,7 +484,7 @@ export function LedgerRow({ label, sub, values, tone = "sub" }: {
  *
  * Extracted from BetaShell's LeagueSheet so a second sheet — the projection-model
  * picker on More is the obvious next one — is the same object rather than a
- * lookalike. What it owns beyond the markup is the three behaviours a sheet
+ * lookalike. What it owns beyond the markup is the three behaviors a sheet
  * gets wrong when it is hand-rolled: Escape closes it, the page behind it does
  * not scroll while it is up, and the scrim is a real button so a screen reader
  * is told there is a way out.

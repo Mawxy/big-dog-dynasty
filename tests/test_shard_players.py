@@ -211,7 +211,7 @@ class Rebuild(unittest.TestCase):
 
     def test_a_crash_mid_rebuild_leaves_the_committed_shards_standing(self):
         """The bug this replaced: rmtree, then ~800 write_text calls. A crash,
-        a job timeout or a cancelled run anywhere in that loop left the
+        a job timeout or a canceled run anywhere in that loop left the
         directory gutted and the commit step published the hole. Every shard is
         self-contained, so a half-finished rebuild is a directory of valid
         files — which is the property worth having, not atomicity across the

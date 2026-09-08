@@ -376,7 +376,7 @@ export default function Teams() {
                   onTap={() => setOpen(open === r.rid ? null : r.rid)}>
                   {/* No accent on the leader's ordinal. "Top by whatever you
                       last sorted by" is not a threshold, and this screen spends
-                      its accent on the sort. No position colour either — a
+                      its accent on the sort. No position color either — a
                       franchise has no position. */}
                   <Spine rank={i + 1} />
                   {/* THE NAME IS THE LINK, THE ROW IS THE DRAWER — the Players

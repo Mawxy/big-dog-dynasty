@@ -21,7 +21,7 @@ Usage: python scripts/blend_values.py [--curve blend_composite] [--out PATH]
 WHICH PROJECTION PRICES THE WAR SIGNAL. `--curve` picks one of the six curves
 in projections_matrix.json; see curves.py for the vocabulary and the default.
 It was `projections.json`'s `composite[0]` hardcoded, which is the same number
-as `scalar_composite[0]` — so the old behaviour is `--curve scalar_composite`,
+as `scalar_composite[0]` — so the old behavior is `--curve scalar_composite`,
 exactly, and that equivalence is locked by tests/test_curves.py.
 
 The signal is YEAR-1 WAR, not the three-year total, which is inherited and is

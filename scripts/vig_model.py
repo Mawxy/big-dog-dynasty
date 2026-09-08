@@ -4,18 +4,18 @@ can post our matchups the way a book would (Max, 2026-09-02).
 
 A fair line reads ±X on both sides. No book posts that: it scales both implied
 probabilities up so they sum past 100% and keeps the difference (the hold),
-and it does NOT spread that hold evenly — the favourite carries more of it at
+and it does NOT spread that hold evenly — the favorite carries more of it at
 some probabilities and the dog at others. Rather than assume a flat 4.5%, this
 reads every NFL game's closing moneylines from nflverse (`load_schedules`:
 `home_moneyline`, `away_moneyline`, closing lines) and tabulates, by the
-FAIR probability of the favourite, what the book actually posted on each side.
+FAIR probability of the favorite, what the book actually posted on each side.
 
     fair_fav  = p_fav / (p_fav + p_dog)      (vig removed, proportional)
     posted    = the implied probabilities as quoted, hold and all
 
-Output: data/vig_model.json — one row per 1% bin of fair favourite
+Output: data/vig_model.json — one row per 1% bin of fair favorite
 probability from 50% to 99%, with the median posted implied probability of the
-favourite and of the dog, and the game count behind each. Thin bins (fewer
+favorite and of the dog, and the game count behind each. Thin bins (fewer
 than MIN_N games) are filled by linear interpolation between their neighbours
 so the table is continuous. The site (beta/screens/League.tsx `moneyline`)
 interpolates in this table; when the file is absent it falls back to a flat
@@ -118,7 +118,7 @@ def main() -> int:
             "source": "nflverse load_schedules closing moneylines",
             "seasons": [args.start, args.end], "games": games, "min_n": MIN_N,
             "hold_median": median(holds) if holds else None,
-            "note": "p = fair favourite probability (vig removed proportionally); "
+            "note": "p = fair favorite probability (vig removed proportionally); "
                     "fav/dog = median POSTED implied probability, hold included; "
                     "spread = median |closing spread| in NFL points, for reference only",
         },

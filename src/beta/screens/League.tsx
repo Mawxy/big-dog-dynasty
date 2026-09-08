@@ -135,10 +135,10 @@ export default function League() {
 /**
  * THE BOOK'S OWN JUICE, measured (Max, 2026-09-02). data/vig_model.json —
  * scripts/vig_model.py, off every NFL closing moneyline nflverse carries —
- * tabulates, by the favourite's FAIR probability, what books actually posted
- * on the favourite and on the dog, hold included. A fair 63% favourite is
+ * tabulates, by the favorite's FAIR probability, what books actually posted
+ * on the favorite and on the dog, hold included. A fair 63% favorite is
  * not quoted at −170/+170; it is quoted at whatever the table says books
- * quote 63% favourites at, which is what makes our line read like a line.
+ * quote 63% favorites at, which is what makes our line read like a line.
  */
 interface VigModel {
   meta: { hold_median: number | null; min_n?: number };
@@ -167,7 +167,7 @@ const HOLD = 110 / 210 / 0.5 - 1;
 
 /**
  * THE POWER METHOD: raise both fair probabilities to one power k < 1 until
- * they sum to 1 + hold. Unlike a multiplier it never pushes a favourite past
+ * they sum to 1 + hold. Unlike a multiplier it never pushes a favorite past
  * 100% — it loads the dog, which is what a real board does to a heavy line.
  * k is monotone in the sum, so bisection finds it.
  */
@@ -184,12 +184,12 @@ function juice(fair: number, hold: number): [number, number] {
 
 /**
  * Both sides' moneylines for a matchup, from the model's win probability for
- * side A. With the measured table: the favourite's fair probability is looked
+ * side A. With the measured table: the favorite's fair probability is looked
  * up among the bins that have real games behind them (interpolating between
  * 1% bins) and each side takes the POSTED probability books assign at that
- * strength. Past the last populated bin — NFL books never see a 95% favourite,
+ * strength. Past the last populated bin — NFL books never see a 95% favorite,
  * a fantasy league does every week — the line is extended with the power
- * method at the book's own hold for its heaviest favourites, rather than
+ * method at the book's own hold for its heaviest favorites, rather than
  * flattening at the last row. Without the table: the power method at −110.
  */
 function lines(pA: number, vig: VigModel | null, step = 1): [string, string] {
@@ -356,7 +356,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
             /* THE LINE, THE WAY A BOOK WOULD QUOTE IT (Max, 2026-09-02): each
                side's moneyline is its figure; the spread and the total sit in
                the middle block between them, the way a scoreboard card posts
-               them, with the spread quoted from the favourite's side and an
+               them, with the spread quoted from the favorite's side and an
                arrow pointing at it. Under each name: the star to watch. After
                kickoff the figures are the points and the middle reads Final. */
             const total = g.a.mu != null && g.b.mu != null ? fmt(g.a.mu + g.b.mu, 1) : null;
@@ -444,7 +444,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
  *  of them, and books run the twelve implied probabilities to roughly 125%
  *  rather than the ~102–105% of a two-way line. The same power method as the
  *  matchup fallback spreads it: one exponent k < 1 across every team's fair
- *  probability until the sum hits the target, so the favourite is shaded
+ *  probability until the sum hits the target, so the favorite is shaded
  *  less than a flat multiplier would and no long shot goes to zero. */
 const FUTURES_BOOK = 1.25;
 /** THE LONGEST PRICE A BOARD POSTS (Max, 2026-09-03): +50000, which is what
@@ -528,7 +528,7 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
               const o = sim?.[String(r.rid)];
               return (
                 <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
-                  {/* the accent marks the title favourite, the one claim this
+                  {/* the accent marks the title favorite, the one claim this
                       table makes beyond the order itself */}
                   <Spine rank={r.rank}
                     top={!!sim && !!o && o.title === Math.max(...Object.values(sim).map(x => x.title)) && o.title > 0} />
@@ -828,7 +828,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                 className={i % 2 ? "zebra" : ""}>
                 {/* ONE ACCENT, and the verdict above already spent it on this
                     franchise. The gold ordinal is the same claim in the same
-                    colour, not a second one; every other spine takes the
+                    color, not a second one; every other spine takes the
                     inactive rule. */}
                 <Spine rank={i + 1} top={i === 0} />
                 <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
@@ -1086,7 +1086,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
  * One trade, two neutral baskets.
  *
  * BOTH SIDES ARE NAMED and each lists what it GETS — the two-basket comparison
- * (SKILL §5) — and both take the same ink. Colouring one side would declare a
+ * (SKILL §5) — and both take the same ink. Coloring one side would declare a
  * winner, which is exactly what the ledger refuses to declare.
  *
  * WHAT THE FIGURES ARE, AND WHY THEY ARE NOT INDICES. The plan asked for a
@@ -1097,7 +1097,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
  * price and a WAR stream but NO index, so a package containing one silently
  * values it at zero, and the side of the most recent trade here took two 2027
  * picks and would have read 0.0. So the card shows the two frozen figures the
- * file does publish, labelled "then" so they cannot be read as today's price.
+ * file does publish, labeled "then" so they cannot be read as today's price.
  */
 function BigTrade({ trade, sized }: { trade: Trade; sized: boolean }) {
   const betaPath = useBetaPath();
@@ -1327,7 +1327,7 @@ function HistoryView({ season }: { season: string }) {
      figure") and a fetch in flight is not entitled to make it, so the champion
      block waits on `loading` rather than on `data`. A 404 settles loading to
      false with `error` set — a season with results but no bracket file then
-     falls through to franchises.json below, which is the right behaviour. */
+     falls through to franchises.json below, which is the right behavior. */
   const brq = useJson<BracketFile>(`${season}/bracket.json`);
   const br = brq.data;
   const fr = useJson<Franchises>("franchises.json").data;
@@ -1460,7 +1460,7 @@ function HistoryView({ season }: { season: string }) {
                       one — which is also why this table carries no playoff
                       cutline rule: the Finish column already states who played
                       on, and a gold rule under 6th would be a second claim in
-                      the same colour. */}
+                      the same color. */}
                   <Spine rank={r.rank} top={r.rid === champRid} />
                   <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
                   <td className="n"><span className="f hd">{r.rec}</span></td>

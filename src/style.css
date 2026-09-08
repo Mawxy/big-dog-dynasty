@@ -773,7 +773,7 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
 }
 
 /* the render-error panel (components/ErrorBoundary). Same shape as .verdict —
-   a labelled block on --band behind a 3px left rule — but the rule is --warn,
+   a labeled block on --band behind a 3px left rule — but the rule is --warn,
    not --acc: gold is the headline figure everywhere else on the board and a
    crash is not a headline. */
 .errbox { background: var(--band); border-left: 3px solid var(--warn); padding: 14px 18px 16px; margin: 18px var(--pad) 26px; }
@@ -1323,7 +1323,7 @@ button.dband:hover .band-label { color: var(--txt2); }
 .rail-back:hover { color: var(--txt); text-decoration: none; }
 /* THE PORTRAIT (components/Portrait). NO FRAME (Max, 2026-09-02): ESPN's
    headshots are cutouts on a transparent ground, and a --band square with a
-   --rule border behind one read as a grey box with a head pasted on it. The
+   --rule border behind one read as a gray box with a head pasted on it. The
    cutout sits straight on the rail's --deep, and the only geometry is the
    square it occupies. That square is in the layout from the FIRST paint —
    sized by the img's width/height attributes — so the badge and name do not
@@ -1603,7 +1603,7 @@ tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
    "net, adj, adjusted" as one block per currency rather than as ten peers. The
    adjusted net is the only one of the two set in full ink: it is the figure the
    correction was for. Never inked pos/neg — both sides are subject to the same
-   correction, so there is no winner in it to colour. */
+   correction, so there is no winner in it to color. */
 .verdict-band table.deltas tr.adj td { padding-top: 2px; padding-bottom: 2px; }
 .verdict-band table.deltas tr.adj td.k {
   padding-left: 24px; font: 400 11.5px/1.4 var(--sans);

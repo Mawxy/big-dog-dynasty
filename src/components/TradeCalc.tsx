@@ -28,7 +28,7 @@ import { PlayerLink } from "./PlayerLink";
  * reader diffing rows whose outgoing halves also differ.
  *
  * SIGNED ON BOTH SIDES, PER CURRENCY, NEVER OVERALL. The design system calls
- * colouring the two halves of a trade an anti-pattern, and it is right about
+ * coloring the two halves of a trade an anti-pattern, and it is right about
  * the surface it was written for: a Ledger card records what happened, and
  * inking a winner there editorialises a settled fact. This screen is the other
  * case — it exists to evaluate a hypothetical, and refusing to say who gains is
@@ -40,7 +40,7 @@ import { PlayerLink } from "./PlayerLink";
  * carries its own signed pair, and when they disagree the reader sees the
  * disagreement rather than its mean.
  *
- * THE MATHS IS NOT HERE. `lib/tradeModel.ts` owns both mechanisms from
+ * THE MATH IS NOT HERE. `lib/tradeModel.ts` owns both mechanisms from
  * `scratch/TRADE_MACHINE_MODEL.md` and the beta shell's Trade screen calls the
  * same functions, so the two boards cannot print different numbers for the same
  * trade:
@@ -79,7 +79,7 @@ const TIERS = ["Early", "Mid", "Late"];
 
 /** A signed figure in a currency, inked pos/neg and neutral inside the dead
  *  band. Both halves of a trade get one, so neither side is the implied
- *  subject — the design system's objection to colouring a trade is about
+ *  subject — the design system's objection to coloring a trade is about
  *  implying a WINNER, and a pair of mirrored signs states a difference. */
 function Delta({ v, dp }: { v: number; dp: number }) {
   const dead = dp === WAR_DP ? 0.0005 : 0.05;

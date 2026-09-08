@@ -51,7 +51,7 @@ class TestShrink(unittest.TestCase):
 
 
 class TestShapleyEfficiency(unittest.TestCase):
-    """The property the whole method rests on: a game's realised swing is
+    """The property the whole method rests on: a game's realized swing is
     allocated in full to the players who caused it — nothing invented, nothing
     lost."""
 
