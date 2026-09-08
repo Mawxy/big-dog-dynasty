@@ -678,15 +678,6 @@ export default function Team() {
                 <RosterTable key={b.key} band={b} lens={lens} betaPath={betaPath} />
               ))}
 
-              <div className="tnote screen">
-                {lens === "dvi" ? "DVI prices the dynasty horizon" : "CVI prices the coming season"} —
-                a 0–100 index, bare by design: it is already normalized, so a bar beside it would
-                restate the figure. Market is the KTC dynasty price, shown last because it is the
-                cross-check, not the claim. A pick carries a market price but no index — there is no
-                player to project until it converts — and a taxi player carries an index but no
-                projected WAR, because he cannot be started until he is activated. Both read “—”
-                rather than zero.
-              </div>
             </div>
 
             {/* ---- what moved ----
@@ -715,17 +706,6 @@ export default function Team() {
                 <Band label="Second string"
                   note="The same seats again, refilled from everyone who missed the first cut" />
                 <Seats rows={shape.benchRanks} n={n} lens={lens} />
-                <div className="tnote screen">
-                  Each seat is ranked against the same seat league-wide, and the two currencies are
-                  optimized separately, so a seat can hold different players in the two lines. The
-                  rule at the left edge marks the top {TIER_N} and the bottom {TIER_N} at that seat,
-                  read in whichever index the lens at the top of the screen is set to — it is one
-                  rule per row and the two currencies disagree. Superflex reads as QB2; the flex
-                  seat is left out — it
-                  holds a different position on every roster, so a column of it would not mean the
-                  same thing twice. A seat no eligible player can fill reads empty and ranks last:
-                  owning a fourth quarterback is better than owning none.
-                </div>
               </div>
             )}
           </div>

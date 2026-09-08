@@ -599,6 +599,21 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
   // the per-week lines, for projected points per game on the power table
   const oddsW = useJson<WeekOdds>(`${rosterSeason}/odds.json`).data;
+  // this season's WAR so far, for the four position blocks. A 404 before the
+  // first scored week is a season that has not started, not a failure.
+  const sumNowQ = useJson<SummaryRow[]>(`${rosterSeason}/summary.json`);
+  const seasonPos = useMemo(() => {
+    const rows = sumNowQ.data;
+    if (!rows) return null;
+    return POSITIONS.map(pos => {
+      const best = rows.filter(r => r[1] === pos && typeof r[6] === "number")
+        .sort((a, b) => b[6] - a[6])[0];
+      return best && best[6] > 0
+        ? { pid: best[0], war: best[6], gp: best[2],
+          note: `${best[2]} game${best[2] === 1 ? "" : "s"} · ${rosterSeason} so far` }
+        : null;
+    });
+  }, [sumNowQ.data, rosterSeason]);
   // the market prices a FORMAT, not a league — global files, global scope
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
   const vals = valsQ.data;
@@ -679,6 +694,16 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
       {/* ---- 1b. standings ----------------------------------------------- */}
       <Standings rosterSeason={rosterSeason} />
+
+      {/* ---- 1c. the season's four positions (Max, 2026-09-08) --------------
+          Most WAR at each position THIS season, off the roster season's own
+          summary — the same blocks the all-time view shows for careers, so a
+          reader watches the year's leaders grow and change hands week to week.
+          Before week one the summary is empty and every block reads —. */}
+      <PosLeaders
+        leaders={seasonPos}
+        settled={sumNowQ.data != null || sumNowQ.error}
+        empty={pos => `no ${pos} scored yet`} />
 
       {/* ---- 2. power rankings ------------------------------------------- */}
       <Band label={`Power rankings · ${rosterSeason}`}
@@ -820,6 +845,47 @@ interface AllTimeRow {
 }
 
 /** one player's career in this league */
+/**
+ * THE FOUR POSITION LEADERS as a row of blocks — QB · RB · WR · TE in the
+ * lineup's order (Max, 2026-09-08). All-time feeds it career WAR; Current
+ * feeds it the roster season's WAR so far, so the same four blocks grow and
+ * change hands week by week. The spine carries the position colour, as it
+ * does on every row of the site; the name stays in primary ink.
+ *
+ * `leaders` is null until the source has loaded (blank blocks, not dashes —
+ * a dash is a claim); a null entry once it has is a position with nobody
+ * scored yet, and reads `empty(pos)`.
+ */
+function PosLeaders({ leaders, settled, empty }: {
+  leaders: ({ pid: string; war: number; gp: number; note: string } | null)[] | null;
+  settled: boolean;
+  empty: (pos: string) => string;
+}) {
+  const { players } = useLeague();
+  const betaPath = useBetaPath();
+  return (
+    <div className="lgx-pos4">
+      {POSITIONS.map((pos, i) => {
+        const row = leaders?.[i] ?? null;
+        return (
+          <div className="lgx-mvp" key={pos}>
+            <span className="lgx-posspine" style={{ background: POS_COLOR[pos] ?? "var(--rule-2)" }} />
+            <div className="k">Top {pos}</div>
+            {row
+              ? <RouteLink to={betaPath(`/player/${row.pid}`)} className="nm">
+                  {pInfo(players, row.pid)[0]}
+                </RouteLink>
+              : <span className="nm">{settled ? DASH : "\u00a0"}</span>}
+            <div className="sub">
+              {row ? `${fmtWar(row.war)} WAR · ${row.note}` : settled ? empty(pos) : "\u00a0"}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 interface CareerRow { pid: string; pos: string; gp: number; war: number; seasons: number }
 
 /**
@@ -986,27 +1052,11 @@ function AllTimeView({ played }: { played: string[] }) {
       </div>
 
       {/* ---- the four positions ------------------------------------------
-          Most career WAR at each, QB · RB · WR · TE in the lineup's order.
-          The spine carries the position colour, as it does on every row of
-          the site; the name stays in primary ink. */}
-      <div className="lgx-pos4">
-        {(posLeaders ?? POSITIONS.map(pos => ({ pos, row: null }))).map(({ pos, row }) => (
-          <div className="lgx-mvp" key={pos}>
-            <span className="lgx-posspine" style={{ background: POS_COLOR[pos] ?? "var(--rule-2)" }} />
-            <div className="k">Top {pos}</div>
-            {row
-              ? <RouteLink to={betaPath(`/player/${row.pid}`)} className="nm">
-                  {pInfo(players, row.pid)[0]}
-                </RouteLink>
-              : <span className="nm">{careers ? DASH : "\u00a0"}</span>}
-            <div className="sub">
-              {row
-                ? `${fmtWar(row.war)} WAR · ${row.seasons} season${row.seasons === 1 ? "" : "s"} · ${row.gp} games`
-                : careers ? `no ${pos} scored` : "\u00a0"}
-            </div>
-          </div>
-        ))}
-      </div>
+          Most career WAR at each, QB · RB · WR · TE in the lineup's order. */}
+      <PosLeaders
+        leaders={posLeaders?.map(x => x.row && ({ pid: x.row.pid, war: x.row.war, gp: x.row.gp,
+          note: `${x.row.seasons} season${x.row.seasons === 1 ? "" : "s"} · ${x.row.gp} games` })) ?? null}
+        settled={!!careers} empty={pos => `no ${pos} scored`} />
 
       <Band label="All-time standings"
         note={`${span} · regular season · ordered by win percentage, then points`} />
