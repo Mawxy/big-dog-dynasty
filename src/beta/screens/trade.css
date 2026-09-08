@@ -85,7 +85,14 @@
 /* ---- the raw tally under a panel ----------------------------------------
    The same `.trx-figs` pairs the offer cards use, parked at the foot of the
    panel on the band surface so it reads as a total of what is above it. */
-.trx-tally {
+.trx-build .v3-side { display: flex; flex-direction: column; }
+/* The add button and the tally are pinned to the panel's FOOT, so the two
+   panels' controls and totals sit on one line however many assets are above
+   them. The empty space goes between the last asset and the button. */
+.trx-build .v3-side .addbtn { margin-top: auto; }
+/* two classes, because `.trx-figs` below sets its own margin and would win on
+   file order otherwise */
+.trx-figs.trx-tally {
   margin: 0; padding: 8px 10px 9px;
   background: var(--band); border-top: 1px solid var(--rule);
 }
