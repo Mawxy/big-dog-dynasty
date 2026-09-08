@@ -898,26 +898,24 @@ function AllTimeView({ played }: { played: string[] }) {
    * side (playoff_wpa.py `ws`), so this is wins in the bracket, credited by
    * how much of each win was his. Raw shares rather than the round-weighted
    * or season-scaled scores, because a career total wants a unit that adds
-   * across years: a win in 2022 is a win in 2025. The franchise is the one he
-   * earned the most for.
+   * across years: a win in 2022 is a win in 2025.
    */
   const star = useMemo(() => {
     if (!brs) return null;
-    const acc = new Map<string, { pid: string; ws: number; runs: number; by: Map<string, number> }>();
+    const acc = new Map<string, { pid: string; ws: number; runs: number }>();
     for (const b of Object.values(brs)) {
       for (const [pid, w] of Object.entries(b?.wpa ?? {})) {
         if (w.ws == null) continue;
-        const c = acc.get(pid) ?? { pid, ws: 0, runs: 0, by: new Map() };
+        const c = acc.get(pid) ?? { pid, ws: 0, runs: 0 };
         c.ws += w.ws; c.runs += 1;
-        const team = b!.names[String(w.rid)] ?? `Roster ${w.rid}`;
-        c.by.set(team, (c.by.get(team) ?? 0) + w.ws);
         acc.set(pid, c);
       }
     }
-    const best = [...acc.values()].sort((a, b) => b.ws - a.ws)[0];
-    if (!best) return null;
-    const team = [...best.by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
-    return { pid: best.pid, ws: best.ws, runs: best.runs, team };
+    // NO FRANCHISE on a career mark (Max, 2026-09-08): the shares were earned
+    // across postseasons and often across rosters, and naming one of them
+    // credits it with the rest. The season view's MVP names his team because
+    // there it is one season, one roster.
+    return [...acc.values()].sort((a, b) => b.ws - a.ws)[0] ?? null;
   }, [brs]);
 
   /** every player's career line, WAR descending — the leaders table is its
@@ -981,7 +979,7 @@ function AllTimeView({ played }: { played: string[] }) {
             : <span className="nm">{brs ? DASH : "\u00a0"}</span>}
           <div className="sub">
             {star
-              ? `${fmt(star.ws, 1)} playoff win shares · ${star.runs} postseason${star.runs === 1 ? "" : "s"} · ${star.team ?? pInfo(players, star.pid)[1]}`
+              ? `${fmt(star.ws, 1)} playoff win shares · ${star.runs} postseason${star.runs === 1 ? "" : "s"} · ${pInfo(players, star.pid)[1]}`
               : brs ? "no scored brackets" : "\u00a0"}
           </div>
         </div>
