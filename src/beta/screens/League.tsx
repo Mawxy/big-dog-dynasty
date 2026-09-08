@@ -695,16 +695,6 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {/* ---- 1b. standings ----------------------------------------------- */}
       <Standings rosterSeason={rosterSeason} />
 
-      {/* ---- 1c. the season's four positions (Max, 2026-09-08) --------------
-          Most WAR at each position THIS season, off the roster season's own
-          summary — the same blocks the all-time view shows for careers, so a
-          reader watches the year's leaders grow and change hands week to week.
-          Before week one the summary is empty and every block reads —. */}
-      <PosLeaders
-        leaders={seasonPos}
-        settled={sumNowQ.data != null || sumNowQ.error}
-        empty={pos => `no ${pos} scored yet`} />
-
       {/* ---- 2. power rankings ------------------------------------------- */}
       <Band label={`Power rankings · ${rosterSeason}`}
         note="Projected starter WAR — the best legal lineup, not the lineup as set" />
@@ -778,6 +768,16 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
           </tbody>
         </table>
       )}
+
+      {/* ---- 2b. the season's four positions (Max, 2026-09-08) --------------
+          Most WAR at each position THIS season, off the roster season's own
+          summary — the same blocks the all-time view shows for careers, so a
+          reader watches the year's leaders grow and change hands week to week.
+          Before week one the summary is empty and every block reads —. */}
+      <PosLeaders
+        leaders={seasonPos}
+        settled={sumNowQ.data != null || sumNowQ.error}
+        empty={pos => `no ${pos} scored yet`} />
 
       {/* ---- 3. what moved -----------------------------------------------
           Shared with the Team screen (`../moved`), which renders the same

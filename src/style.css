@@ -1385,6 +1385,9 @@ button.dband:hover .band-label { color: var(--txt2); }
 .hmark { flex: none; display: block; color: var(--dim); }
 .hmark--champ { color: var(--honor-champ); }
 .hmark--mvp   { color: var(--honor-mvp); }
+/* the playoff MVP's dog is filled by the sprite's own gradient (HonorMarks
+   hm-irid), so `color` here is only the fallback for a browser that drops it */
+.hmark--pmvp  { color: var(--honor-mvp); }
 .hmark--king  { color: var(--pos-mark, var(--rule-2)); }
 .hmark--elite { color: var(--pos-mark, var(--rule-2)); }
 .hmark--bar   { color: var(--honor-bar); }

@@ -1,4 +1,4 @@
-import type { Franchises, Matchups, SummaryRow, Team, Weekly } from "./types";
+import type { BracketFile, Franchises, Matchups, SummaryRow, Team, Weekly } from "./types";
 import { jl } from "./data";
 import { REG_WEEKS } from "./league";
 
@@ -10,18 +10,24 @@ import { REG_WEEKS } from "./league";
  *
  * TWO KINDS, and they are not comparable. `champ` is a TEAM outcome: it says
  * the roster he was on won, and 28–33 players earn it every season regardless
- * of what any of them did. The other four are INDIVIDUAL, ordered by rarity.
+ * of what any of them did. The others are INDIVIDUAL, ordered by rarity.
  * Ranking a team result inside an individual ladder would read the trophy as
  * "rarer than an MVP season", which it is not — it is a different question.
  * The render order is team first, then the individual ladder, separated.
+ *
+ * `pmvp` — the PLAYOFF MVP (Max, 2026-09-08) — is the bracket's own award:
+ * the player playoff_wpa.py scores 100 for that season's postseason. One a
+ * year, like the regular-season MVP, and rendered as the same big dog in an
+ * iridescent coat so the two read as siblings.
  */
-export type HonorKey = "champ" | "mvp" | "king" | "elite" | "bar";
+export type HonorKey = "champ" | "pmvp" | "mvp" | "king" | "elite" | "bar";
 
 /** render order: the team result, then the individual marks rarest first */
-export const HONOR_ORDER: HonorKey[] = ["champ", "mvp", "king", "elite", "bar"];
+export const HONOR_ORDER: HonorKey[] = ["champ", "pmvp", "mvp", "king", "elite", "bar"];
 
 export const HONOR_LABEL: Record<HonorKey, string> = {
   champ: "Championship",
+  pmvp: "Playoff MVP",
   mvp: "MVP season",
   king: "Positional king",
   elite: "Elite season",
@@ -30,6 +36,7 @@ export const HONOR_LABEL: Record<HonorKey, string> = {
 
 export const HONOR_NOTE: Record<HonorKey, string> = {
   champ: "on the winner's roster in the title game",
+  pmvp: "the postseason's MVP — most win probability added across the bracket",
   mvp: "most WAR in the league that season",
   king: "most WAR at the position that season",
   elite: "top 2% of season WAR at the position, all seasons pooled",
@@ -149,7 +156,25 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
         if (!final) return;
         for (const pid of [...(final[4] ?? []), ...(final[5] ?? [])]) add(pid, season, "champ");
       });
-    } catch { /* no franchises.json — the other four tiers still stand */ }
+    } catch { /* no franchises.json — the other tiers still stand */ }
+
+    /* Playoff MVP — THE BRACKET'S OWN AWARD. Each season's bracket.json scores
+     * every postseason starter's win probability added (playoff_wpa.py) and
+     * scales it so the year's best run is 100; that player is the MVP. Read
+     * off the file rather than recomputed here, so the mark on his page and
+     * the name on League → History are the same fact. A season with no
+     * bracket, or one scored before `mvp` existed, awards nobody. */
+    const brs = await Promise.all(seasons.map(s =>
+      jl<BracketFile>(`${s}/bracket.json`).catch(() => null)));
+    seasons.forEach((season, i) => {
+      const wpa = brs[i]?.wpa;
+      if (!wpa) return;
+      let best: [string, number] | null = null;
+      for (const [pid, w] of Object.entries(wpa)) {
+        if (w.mvp != null && (!best || w.mvp > best[1])) best = [pid, w.mvp];
+      }
+      if (best) add(best[0], season, "pmvp");
+    });
 
     return { byPlayer, eliteBar };
   })();
