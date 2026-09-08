@@ -774,6 +774,8 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
           summary — the same blocks the all-time view shows for careers, so a
           reader watches the year's leaders grow and change hands week to week.
           Before week one the summary is empty and every block reads —. */}
+      <Band label={`Top performers · ${rosterSeason}`}
+        note="Most WAR at each position this season, regular season only · updates weekly" />
       <PosLeaders
         leaders={seasonPos}
         settled={sumNowQ.data != null || sumNowQ.error}
@@ -1053,6 +1055,8 @@ function AllTimeView({ played }: { played: string[] }) {
 
       {/* ---- the four positions ------------------------------------------
           Most career WAR at each, QB · RB · WR · TE in the lineup's order. */}
+      <Band label="Top performers · all-time"
+        note="Most career WAR at each position across every league season" />
       <PosLeaders
         leaders={posLeaders?.map(x => x.row && ({ pid: x.row.pid, war: x.row.war, gp: x.row.gp,
           note: `${x.row.seasons} season${x.row.seasons === 1 ? "" : "s"} · ${x.row.gp} games` })) ?? null}
