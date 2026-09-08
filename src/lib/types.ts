@@ -72,6 +72,10 @@ export interface Team {
    *  links must carry. roster_id as a string for dynasty, owner user_id for
    *  redraft/keeper. Absent in data built before it; fall back to roster_id. */
   fkey?: string;
+  /** the team's picture — Sleeper's custom team logo, else the owner's
+   *  avatar thumb (build_site_data.py). Absent in data built before it;
+   *  null when the owner has neither. */
+  avatar?: string | null;
   wins: number; losses: number; ties: number; fpts: number;
   players: string[]; starters: string[]; taxi: string[]; reserve: string[];
 }

@@ -1,8 +1,14 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { Navigate, useParams } from "react-router-dom";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
-  Franchises, PicksOwned, ProjectionsFile, Team as TeamT, Values,
+  Franchises, Insights, PicksOwned, ProjectionsFile, Team as TeamT, Values,
 } from "../../lib/types";
+import { useMobile } from "../../lib/useWidth";
+import QuickJump from "../../components/QuickJump";
+import TeamAvatar from "../../components/TeamAvatar";
+import { HonorSprite } from "../../components/HonorMarks";
+import TeamHonorMarks, { TeamHonorLegend } from "../../components/TeamHonorMarks";
+import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamHonors";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useProjWar1 } from "../../lib/useIndices";
@@ -16,8 +22,8 @@ import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../li
 import { nearestPick, rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
 import Moved from "../moved";
 import {
-  Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath,
-  type Figure, type IdTag,
+  Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, TapRow, useBetaPath,
+  type IdTag,
 } from "../ui";
 import { RouteLink } from "../../components/RouteLink";
 import "./team.css";
@@ -166,6 +172,30 @@ export default function Team() {
   const tiers = usePickTiers();
 
   const [lens, setLens] = useState<Lens>("dvi");
+
+  /**
+   * THE PLAYER PAGE'S SHELL (Max, 2026-09-08): one subject, so the split rail
+   * — identity and the season ladder on the left, the figure strip, the
+   * outlook and the banded sections on the right — and on a phone the same
+   * compact header, jump strip and ladder band the player page collapses to.
+   * The two screens are the two "one subject" surfaces on the site and now
+   * share one shape; the roster tables below keep the shell's own type ramp.
+   */
+  const mobile = useMobile();
+  const nav = useNavigate();
+  // the written outlook, where the pipeline has one for this league (a 404
+  // simply leaves the verdict panel out)
+  const insights = useJson<Insights>("insights.json").data;
+  // the franchise honor index — titles, points crowns, top seeds, playoff
+  // appearances — built once per page load from franchises.json + brackets
+  const honorIdx = useTeamHonors(meta.seasons);
+  const refs = {
+    roster: useRef<HTMLDivElement>(null),
+    moved: useRef<HTMLDivElement>(null),
+    strengths: useRef<HTMLDivElement>(null),
+  };
+  const goto = (k: keyof typeof refs) =>
+    refs[k].current?.scrollIntoView({ behavior: "smooth", block: "start" });
 
   // the route's franchise, or — on the bare /team address — yours. A bogus
   // segment is neither: it stays null and the screen says so below.
@@ -447,15 +477,18 @@ export default function Team() {
   const mine = tvals?.find(t => t.rid === rid);
   const marketRank = tvals ? rankMap(tvals, t => t.market, t => t.rid).get(rid) ?? null : null;
 
-  const figures: Figure[] = [
+  /** the figure strip — the player page's `.figstrip` anatomy: key, figure,
+   *  sub-label. Em dashes are plain text here, as they are on that page:
+   *  `.nul` is scoped to table cells. */
+  const figures: { key: string; label: string; value: ReactNode; sub?: string; acc?: boolean }[] = [
     {
       key: "rec", label: "Record",
-      value: season ? `${season.wins}-${season.losses}${season.ties ? `-${season.ties}` : ""}` : NUL,
+      value: season ? `${season.wins}-${season.losses}${season.ties ? `-${season.ties}` : ""}` : "—",
       sub: season ? `${season.season} · ${fmt(season.ppg, 1)} ppg` : "no season played",
     },
     {
       key: "rk", label: `${lens.toUpperCase()} rank`,
-      value: idxRank ?? NUL, acc: true,
+      value: idxRank ?? "—", acc: true,
       sub: mine
         ? `${Math.round(lens === "dvi" ? mine.dvi : mine.cvi)} index pts, starters`
         : undefined,
@@ -470,85 +503,234 @@ export default function Team() {
     },
     {
       key: "mkt", label: "Market",
-      value: mine ? Math.round(mine.market).toLocaleString() : NUL,
+      value: mine ? Math.round(mine.market).toLocaleString() : "—",
       sub: marketRank ? `${marketRank} of ${tvals?.length} · KTC, picks included` : undefined,
     },
   ];
 
   const n = teams.length;
+  const you = ident.rid === rid;
+  const insight = insights?.teams[String(rid)] ?? null;
+  /** the franchise's honors: totals for the identity block, per season for
+   *  the ladder. Keyed by franchise key — the roster id, in a dynasty league. */
+  const honorRows = franchiseHonors(honorIdx, String(team.fkey ?? rid));
+  const honorBySeason = new Map(honorRows.map(r => [r.season, r.keys]));
+  const honorCareer = teamHonorTotals(honorRows);
+
+  /* ---- the rail's parts, built once and placed by shape ------------------
+     The same split the player page makes: desktop puts them in the 232px
+     rail, the phone puts identity and the jumps in a header and the ladder in
+     a band under the figures. One definition each, so the shapes cannot drift. */
+
+  /** name, manager, and the identity escape hatch. On the screen where
+   *  picking wrong actually bites: looking at your own team it re-opens the
+   *  picker; looking at anyone else's it is the fastest possible correction —
+   *  the roster in front of you is the one you meant, so claim it in place. */
+  const identity = (
+    <>
+      <div className="rail-name">{team.team}</div>
+      <div className="rail-sub">{team.manager}{you ? " · you" : ""}</div>
+      {you
+        ? <RouteLink to={betaPath("/claim")} className="rail-claim">Not you?</RouteLink>
+        : <button type="button" className="rail-claim" onClick={() => ident.claim(rid)}>This is me</button>}
+    </>
+  );
+
+  /** the section jumps — buttons, not anchors: the targets are refs */
+  const jumps = (
+    <>
+      <button onClick={() => goto("roster")}>Roster</button>
+      <button onClick={() => goto("moved")}>Recent activity</button>
+      {shape && <button onClick={() => goto("strengths")}>Strengths</button>}
+    </>
+  );
+
+  /** THE SEASON LADDER, newest first — the franchise page's rail rows: year,
+   *  finish, record, and the name it played under. Each taps through to that
+   *  season on the League screen; the roster season reads "live". The accent
+   *  marks a title, the one honour a franchise ladder has to carry. */
+  const ladderRows = (() => {
+    const seasons = fr?.[String(rid)]?.seasons ?? [];
+    if (!seasons.length) return null;
+    return (
+      <div className="rail-ladder">
+        {seasons.slice().reverse().map(s => {
+          const live = s.season === rosterSeason && s.wins + s.losses + s.ties === 0;
+          return (
+            <RouteLink key={s.season} className="rail-season pick"
+              to={betaPath(live ? "/league" : `/league?scope=history&season=${s.season}`)}>
+              <div className="l1">
+                <span className="yr">{s.season}</span>
+                <span className="fin" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
+                  {s.finish === 1 ? "CHAMP" : s.finish != null ? ord(s.finish) : live ? "live" : "—"}
+                </span>
+                <span className="rec">{live ? "—" : `${s.wins}-${s.losses}${s.ties ? `-${s.ties}` : ""}`}</span>
+              </div>
+              {/* the name it played under, and what it won that year */}
+              <div className="l2">
+                <span className="tname">{s.name}</span>
+                {(honorBySeason.get(s.season)?.length ?? 0) > 0 && (
+                  <TeamHonorMarks marks={honorBySeason.get(s.season)!} size={14} showCounts={false} />
+                )}
+              </div>
+            </RouteLink>
+          );
+        })}
+      </div>
+    );
+  })();
 
   return (
     <>
-      <div className="v3-head">
-        <h1>{team.team}</h1>
-        <span className="sub">{team.manager}{ident.rid === rid ? " · you" : ""}</span>
-        {/* The escape hatch, on the screen where picking wrong actually bites.
-            Looking at your own team it re-opens the picker; looking at anyone
-            else's it is the fastest possible correction — the roster in front
-            of you is the one you meant, so claim it in place. */}
-        {ident.rid === rid
-          ? <RouteLink to={betaPath("/claim")} className="hact">Not you?</RouteLink>
-          : <button className="hact" onClick={() => ident.claim(rid)}>This is me</button>}
+      <HonorSprite />
+      <div className="screen-head">
+        <span className="screen-title">Franchise</span>
+        {/* the classic shapes rebased into this shell, so a jump stays here */}
+        <QuickJump path={p => betaPath(p.replace(/^\/franchise\//, "/team/"))} />
       </div>
-      <Strip figures={figures} />
+      <div className="board" style={{ marginTop: 0 }}>
+        <div className={`split${mobile ? " phone" : ""}`}>
+          {mobile ? (
+            /* THE PHONE HEADER — the player page's, the team's picture where
+               the headshot goes */
+            <div className="pid-head">
+              <span className="rail-back" onClick={() => nav(-1)}>← Back</span>
+              <div className="pid-row">
+                <TeamAvatar src={team.avatar} size={76} />
+                <div className="pid-id">{identity}</div>
+              </div>
+              {honorCareer.length > 0 && (
+                <div className="pid-honors">
+                  <span className="k">Honors</span>
+                  <TeamHonorMarks marks={honorCareer} />
+                </div>
+              )}
+              <div className="pid-jump" role="navigation" aria-label="On this page">{jumps}</div>
+            </div>
+          ) : (
+            <div className="rail">
+              <span className="rail-back" onClick={() => nav(-1)}>← Back</span>
+              <TeamAvatar src={team.avatar} />
+              {identity}
+              {honorCareer.length > 0 && (
+                <>
+                  <div className="rail-h">Honors</div>
+                  <div className="rail-honors">
+                    <TeamHonorMarks marks={honorCareer} />
+                  </div>
+                </>
+              )}
+              {ladderRows && <>
+                <div className="rail-h">Seasons</div>
+                {ladderRows}
+                <TeamHonorLegend />
+              </>}
+              <div className="rail-h">On this page</div>
+              <div className="rail-nav">{jumps}</div>
+            </div>
+          )}
 
-      {/* The lens toggle sits above the roster, not in the masthead: it scopes
-          THIS screen's featured column, the rank figure above it and the tier
-          rule down in Strengths — and nothing else on the site. Same control
-          object as the leaderboard's lens strip — two segments instead of four,
-          but provably one control rather than two lookalikes. */}
-      <LensStrip options={LENSES} value={lens} onChange={setLens} label="Index" />
+          <div className="main">
+            <div className="figstrip">
+              {figures.map(f => (
+                <div className="figcell" key={f.key}>
+                  <div className="figkey">{f.label}</div>
+                  <div className={`figval${f.acc ? " acc" : ""}`}>{f.value}</div>
+                  {f.sub && <div className="figsub">{f.sub}</div>}
+                </div>
+              ))}
+            </div>
 
-      {roster.bands.map(b => (
-        <RosterTable key={b.key} band={b} lens={lens} betaPath={betaPath} />
-      ))}
+            {mobile && ladderRows && (
+              /* the ladder as a band, under the figures it explains — the
+                 player page's career ladder, in the franchise's vocabulary */
+              <div className="pid-ladder">
+                <div className="band">
+                  <span className="band-label">Seasons</span>
+                  <span className="band-note">Finish and record by year · tap a season to open it</span>
+                </div>
+                {ladderRows}
+                <TeamHonorLegend />
+              </div>
+            )}
 
-      <div className="tnote screen">
-        {lens === "dvi" ? "DVI prices the dynasty horizon" : "CVI prices the coming season"} —
-        a 0–100 index, bare by design: it is already normalized, so a bar beside it would
-        restate the figure. Market is the KTC dynasty price, shown last because it is the
-        cross-check, not the claim. A pick carries a market price but no index — there is no
-        player to project until it converts — and a taxi player carries an index but no
-        projected WAR, because he cannot be started until he is activated. Both read “—”
-        rather than zero.
-      </div>
+            {insight && (
+              /* the verdict panel: prose that interprets the figures, on
+                 --panel behind the accent rule, the same object as the
+                 player page's Model read */
+              <div className="verdict">
+                <div className="k">{insights?.meta.season} outlook</div>
+                <div className="meta">{insight.head} · written {insights?.meta.generated}</div>
+                <div className="body">{insight.text}</div>
+              </div>
+            )}
 
-      {/* ---- what moved ----
-          The League screen's module, scoped to this franchise (Max,
-          2026-09-08): its trades and roster moves over the last seven days,
-          the biggest deal as a card, and the ledger link pre-filtered to it.
-          Between the roster and its strengths, because a roster read
-          yesterday is not the roster on screen. */}
-      <Moved rid={rid} teamName={team.team} />
+            {/* The lens toggle sits above the roster, not in the masthead: it
+                scopes THIS screen's featured column, the rank figure above it
+                and the tier rule down in Strengths — and nothing else on the
+                site. Same control object as the leaderboard's lens strip — two
+                segments instead of four, but provably one control rather than
+                two lookalikes. */}
+            <div ref={refs.roster}>
+              <LensStrip options={LENSES} value={lens} onChange={setLens} label="Index" />
 
-      {/* ---- strengths ----
-          The classic board's TeamStrengths, transposed: it draws one row per
-          currency across nine seat columns, which is a grid that has to scroll
-          sideways on a phone and loses the seat the moment it does. Here the
-          SEAT is the row and the currencies are two labeled meters inside it,
-          so a thumb reads down the depth chart instead of across a scroll. The
-          figures, the ranks and the meter scale are that component's, unchanged. */}
-      {shape && (
-        <>
-          <Band label="Strengths"
-            note={`Each seat against the same seat on the other ${n - 1} rosters · rank of ${n}`} />
-          <Seats rows={shape.ranks} n={n} lens={lens} />
-          <Band label="Second string"
-            note="The same seats again, refilled from everyone who missed the first cut" />
-          <Seats rows={shape.benchRanks} n={n} lens={lens} />
-          <div className="tnote screen">
-            Each seat is ranked against the same seat league-wide, and the two currencies are
-            optimized separately, so a seat can hold different players in the two lines. The
-            rule at the left edge marks the top {TIER_N} and the bottom {TIER_N} at that seat,
-            read in whichever index the lens at the top of the screen is set to — it is one
-            rule per row and the two currencies disagree. Superflex reads as QB2; the flex
-            seat is left out — it
-            holds a different position on every roster, so a column of it would not mean the
-            same thing twice. A seat no eligible player can fill reads empty and ranks last:
-            owning a fourth quarterback is better than owning none.
+              {roster.bands.map(b => (
+                <RosterTable key={b.key} band={b} lens={lens} betaPath={betaPath} />
+              ))}
+
+              <div className="tnote screen">
+                {lens === "dvi" ? "DVI prices the dynasty horizon" : "CVI prices the coming season"} —
+                a 0–100 index, bare by design: it is already normalized, so a bar beside it would
+                restate the figure. Market is the KTC dynasty price, shown last because it is the
+                cross-check, not the claim. A pick carries a market price but no index — there is no
+                player to project until it converts — and a taxi player carries an index but no
+                projected WAR, because he cannot be started until he is activated. Both read “—”
+                rather than zero.
+              </div>
+            </div>
+
+            {/* ---- what moved ----
+                The League screen's module, scoped to this franchise (Max,
+                2026-09-08): its trades and roster moves over the last seven
+                days, the biggest deal as a card, and the ledger link
+                pre-filtered to it. Between the roster and its strengths,
+                because a roster read yesterday is not the roster on screen. */}
+            <div ref={refs.moved}>
+              <Moved rid={rid} teamName={team.team} />
+            </div>
+
+            {/* ---- strengths ----
+                The classic board's TeamStrengths, transposed: it draws one row
+                per currency across nine seat columns, which is a grid that has
+                to scroll sideways on a phone and loses the seat the moment it
+                does. Here the SEAT is the row and the currencies are two
+                labeled meters inside it, so a thumb reads down the depth chart
+                instead of across a scroll. The figures, the ranks and the
+                meter scale are that component's, unchanged. */}
+            {shape && (
+              <div ref={refs.strengths}>
+                <Band label="Strengths"
+                  note={`Each seat against the same seat on the other ${n - 1} rosters · rank of ${n}`} />
+                <Seats rows={shape.ranks} n={n} lens={lens} />
+                <Band label="Second string"
+                  note="The same seats again, refilled from everyone who missed the first cut" />
+                <Seats rows={shape.benchRanks} n={n} lens={lens} />
+                <div className="tnote screen">
+                  Each seat is ranked against the same seat league-wide, and the two currencies are
+                  optimized separately, so a seat can hold different players in the two lines. The
+                  rule at the left edge marks the top {TIER_N} and the bottom {TIER_N} at that seat,
+                  read in whichever index the lens at the top of the screen is set to — it is one
+                  rule per row and the two currencies disagree. Superflex reads as QB2; the flex
+                  seat is left out — it
+                  holds a different position on every roster, so a column of it would not mean the
+                  same thing twice. A seat no eligible player can fill reads empty and ranks last:
+                  owning a fourth quarterback is better than owning none.
+                </div>
+              </div>
+            )}
           </div>
-        </>
-      )}
+        </div>
+      </div>
     </>
   );
 }

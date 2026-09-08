@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
-  BracketFile, Franchises, Matchups, ProjectionsFile,
+  BracketFile, Drafts, Franchises, Matchups, ProjectionsFile,
   SleeperProjFile, SummaryRow, Team, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
@@ -8,9 +8,12 @@ import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
 import { fmt, mean, normCdf, normInv, ord } from "../../lib/stats";
 import {
-  POS_COLOR, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
+  POS_CHIPS, POS_COLOR, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
 import { RouteLink } from "../../components/RouteLink";
+import PlayoffBracket from "../../components/PlayoffBracket";
+import DraftBoardGrid from "../../components/DraftBoardGrid";
+import { buildHistory } from "../../lib/draftHistory";
 import { useSeasonPhase, useStandings, useTeamValues } from "../model";
 import Moved from "../moved";
 import {
@@ -45,6 +48,10 @@ import "./league.css";
  * about, then what changed since the reader last looked, and only then the
  * three modules that would read identically on any board in the world.
  */
+
+/** the four lineup positions, in the lineup's order — POS_CHIPS less its
+ *  "ALL" filter chip, so there is one list of positions on the site */
+const POSITIONS = POS_CHIPS.filter(p => p !== "ALL");
 
 /** rows per half of a split module — five is what fits under a band without
  *  the second half starting off-screen */
@@ -873,7 +880,49 @@ function AllTimeView({ played }: { played: string[] }) {
     return () => { dead = true; };
   }, [played]);
 
-  const leaders = useMemo<CareerRow[] | null>(() => {
+  /* every played season's bracket, for the postseason ledger. Missing files
+     are a season without a scored bracket, not an error — the star is summed
+     over whatever exists. */
+  const [brs, setBrs] = useState<Record<string, BracketFile | null> | null>(null);
+  useEffect(() => {
+    let dead = false;
+    Promise.all(played.map(s =>
+      jl<BracketFile>(`${s}/bracket.json`).catch(() => null).then(b => [s, b] as const)))
+      .then(all => { if (!dead) setBrs(Object.fromEntries(all)); });
+    return () => { dead = true; };
+  }, [played]);
+
+  /**
+   * THE PLAYOFF STAR (Max, 2026-09-08): most postseason WIN SHARES across
+   * every bracket — each elimination game hands out exactly 1.0 to the winning
+   * side (playoff_wpa.py `ws`), so this is wins in the bracket, credited by
+   * how much of each win was his. Raw shares rather than the round-weighted
+   * or season-scaled scores, because a career total wants a unit that adds
+   * across years: a win in 2022 is a win in 2025. The franchise is the one he
+   * earned the most for.
+   */
+  const star = useMemo(() => {
+    if (!brs) return null;
+    const acc = new Map<string, { pid: string; ws: number; runs: number; by: Map<string, number> }>();
+    for (const b of Object.values(brs)) {
+      for (const [pid, w] of Object.entries(b?.wpa ?? {})) {
+        if (w.ws == null) continue;
+        const c = acc.get(pid) ?? { pid, ws: 0, runs: 0, by: new Map() };
+        c.ws += w.ws; c.runs += 1;
+        const team = b!.names[String(w.rid)] ?? `Roster ${w.rid}`;
+        c.by.set(team, (c.by.get(team) ?? 0) + w.ws);
+        acc.set(pid, c);
+      }
+    }
+    const best = [...acc.values()].sort((a, b) => b.ws - a.ws)[0];
+    if (!best) return null;
+    const team = [...best.by.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+    return { pid: best.pid, ws: best.ws, runs: best.runs, team };
+  }, [brs]);
+
+  /** every player's career line, WAR descending — the leaders table is its
+   *  head, the position blocks its per-position heads */
+  const careers = useMemo<CareerRow[] | null>(() => {
     if (!sums || sums === "error") return null;
     const acc = new Map<string, CareerRow>();
     // oldest first, so the position on the row is the most recent season's
@@ -884,13 +933,83 @@ function AllTimeView({ played }: { played: string[] }) {
         acc.set(r[0], c);
       }
     }
-    return [...acc.values()].sort((a, b) => b.war - a.war).slice(0, 15);
+    return [...acc.values()].sort((a, b) => b.war - a.war);
   }, [sums, played]);
+  const leaders = useMemo(() => careers?.slice(0, 15) ?? null, [careers]);
+
+  /** THE POSITION LEADERS (Max, 2026-09-08): most career WAR at each of the
+   *  four positions, in the lineup's own order. Off the full career list, not
+   *  the fifteen-row table — a position's best can sit well outside it. */
+  const posLeaders = useMemo(() => {
+    if (!careers) return null;
+    return POSITIONS.map(pos => ({ pos, row: careers.find(c => c.pos === pos) ?? null }));
+  }, [careers]);
 
   const span = played.length ? `${played[played.length - 1]}–${played[0]}` : "";
 
+  /** THE BIG DOG: most career WAR across every league season — the head of
+   *  the career leaders table below, lifted to the top so the all-time view
+   *  opens on its two players the way a season opens on its champion. */
+  const bigDog = leaders?.[0] ?? null;
+
   return (
     <>
+      {/* ---- the two career marks (Max, 2026-09-08) --------------------------
+          The season view's MVP pair, at career scale: WAR over every regular
+          season, win shares over every bracket. Same blocks, same ink; the
+          accent stays on the title-holders' ordinals in the standings below. */}
+      <div className="lgx-mvps">
+        <div className="lgx-mvp">
+          <div className="k">The Big Dog</div>
+          {bigDog
+            ? <RouteLink to={betaPath(`/player/${bigDog.pid}`)} className="nm">
+                {pInfo(players, bigDog.pid)[0]}
+              </RouteLink>
+            : <span className="nm">{sums === "error" ? DASH : "\u00a0"}</span>}
+          <div className="sub">
+            {bigDog
+              ? `${fmtWar(bigDog.war)} career WAR · ${bigDog.seasons} season${bigDog.seasons === 1 ? "" : "s"} · ${bigDog.pos}`
+              : sums === "error" ? "career WAR didn't load" : "\u00a0"}
+          </div>
+        </div>
+        <div className="lgx-mvp">
+          <div className="k">Playoff Star</div>
+          {star
+            ? <RouteLink to={betaPath(`/player/${star.pid}`)} className="nm">
+                {pInfo(players, star.pid)[0]}
+              </RouteLink>
+            : <span className="nm">{brs ? DASH : "\u00a0"}</span>}
+          <div className="sub">
+            {star
+              ? `${fmt(star.ws, 1)} playoff win shares · ${star.runs} postseason${star.runs === 1 ? "" : "s"} · ${star.team ?? pInfo(players, star.pid)[1]}`
+              : brs ? "no scored brackets" : "\u00a0"}
+          </div>
+        </div>
+      </div>
+
+      {/* ---- the four positions ------------------------------------------
+          Most career WAR at each, QB · RB · WR · TE in the lineup's order.
+          The spine carries the position colour, as it does on every row of
+          the site; the name stays in primary ink. */}
+      <div className="lgx-pos4">
+        {(posLeaders ?? POSITIONS.map(pos => ({ pos, row: null }))).map(({ pos, row }) => (
+          <div className="lgx-mvp" key={pos}>
+            <span className="lgx-posspine" style={{ background: POS_COLOR[pos] ?? "var(--rule-2)" }} />
+            <div className="k">Top {pos}</div>
+            {row
+              ? <RouteLink to={betaPath(`/player/${row.pid}`)} className="nm">
+                  {pInfo(players, row.pid)[0]}
+                </RouteLink>
+              : <span className="nm">{careers ? DASH : "\u00a0"}</span>}
+            <div className="sub">
+              {row
+                ? `${fmtWar(row.war)} WAR · ${row.seasons} season${row.seasons === 1 ? "" : "s"} · ${row.gp} games`
+                : careers ? `no ${pos} scored` : "\u00a0"}
+            </div>
+          </div>
+        ))}
+      </div>
+
       <Band label="All-time standings"
         note={`${span} · regular season · ordered by win percentage, then points`} />
       {frQ.error ? <DataError what="Franchise history didn't load" />
@@ -986,6 +1105,12 @@ function HistoryView({ season }: { season: string }) {
      this query failed is a failure rather than a wait. */
   const teamsQ = useJson<Team[]>(`${season}/teams.json`);
   const teams = teamsQ.data;
+  // the draft that stocked this season, off the same file and the same model
+  // the Drafts screen reads — one board, two screens
+  const drafts = useJson<Drafts>("drafts.json").data;
+  const draftHist = useMemo(() => (drafts ? buildHistory(drafts, fr) : null), [drafts, fr]);
+  const draftRows = draftHist?.rowsBy[season];
+  const draftKind = draftHist?.kindOf[season];
 
   /** the title game, and which of its two point totals belongs to the winner */
   const title = useMemo(() => {
@@ -1060,6 +1185,24 @@ function HistoryView({ season }: { season: string }) {
       .map(r => ({ pid: r[0], pos: r[1], gp: r[2], war: r[6], team: owner[r[0]] ?? null }));
   }, [sum, teams]);
 
+  /** THE TWO MVPs (Max, 2026-09-08). SEASON: most regular-season WAR in the
+   *  league — the same fact the player honors call `mvp`, off the same summary
+   *  row, so the crown on his page and the name here cannot disagree. PLAYOFF:
+   *  the bracket's own MVP score (playoff_wpa.py — win probability added
+   *  across the elimination games, round-weighted, 100 = that year's best
+   *  run), so the winner is whoever the file scores 100. Each carries his
+   *  franchise from that season, not today's. */
+  const seasonMvp = leaders?.[0] ?? null;
+  const playoffMvp = useMemo(() => {
+    if (!br?.wpa) return null;
+    let best: { pid: string; mvp: number; mvpp: number | null; rid: number } | null = null;
+    for (const [pid, w] of Object.entries(br.wpa)) {
+      if (w.mvp == null) continue;
+      if (!best || w.mvp > best.mvp) best = { pid, mvp: w.mvp, mvpp: w.mvpp ?? null, rid: w.rid };
+    }
+    return best;
+  }, [br]);
+
   return (
     <>
       {/* ---- the champion -------------------------------------------------
@@ -1077,6 +1220,44 @@ function HistoryView({ season }: { season: string }) {
               ui.tsx's identity sub-line: a manager-less block would collapse
               to zero height and the name above it would jump */}
           <div className="sub">{champ?.manager ?? " "}</div>
+        </div>
+        {/* THE SEASON'S TWO PLAYERS, beside each other under the champion
+            (Max, 2026-09-08). Neither takes the accent — the title already
+            spent it — and the two are different questions: a regular season
+            of WAR against three weeks of the bracket. A block with nothing to
+            name reads — rather than dropping out, so the row keeps its shape
+            year to year. */}
+        <div className="lgx-mvps">
+          <div className="lgx-mvp">
+            <div className="k">Season MVP</div>
+            {seasonMvp
+              ? <RouteLink to={betaPath(`/player/${seasonMvp.pid}`)} className="nm">
+                  {pInfo(players, seasonMvp.pid)[0]}
+                </RouteLink>
+              : <span className="nm">{DASH}</span>}
+            <div className="sub">
+              {seasonMvp
+                ? `${fmtWar(seasonMvp.war)} WAR · ${[seasonMvp.pos, seasonMvp.team].filter(Boolean).join(" · ")}`
+                : "no scored season"}
+            </div>
+          </div>
+          <div className="lgx-mvp">
+            <div className="k">Playoff MVP</div>
+            {playoffMvp
+              ? <RouteLink to={betaPath(`/player/${playoffMvp.pid}`)} className="nm">
+                  {pInfo(players, playoffMvp.pid)[0]}
+                </RouteLink>
+              : <span className="nm">{DASH}</span>}
+            <div className="sub">
+              {playoffMvp
+                ? [
+                  playoffMvp.mvpp != null ? `MVP index ${Math.round(playoffMvp.mvpp)}` : null,
+                  pInfo(players, playoffMvp.pid)[1],
+                  br?.names[String(playoffMvp.rid)] ?? null,
+                ].filter(Boolean).join(" · ")
+                : "no bracket scoring"}
+            </div>
+          </div>
         </div>
         <Strip figures={figures} />
       </>}
@@ -1153,6 +1334,36 @@ function HistoryView({ season }: { season: string }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {/* ---- the bracket (Max, 2026-09-08) --------------------------------
+          The season's playoff tree, as the Seasons screen draws it — every
+          game a head-to-head card, placement games under the tree in the
+          column of the week they were played. The same component, so the two
+          screens cannot disagree about a score. A season with no bracket file
+          (unplayed, or predating the writer) simply has no band. */}
+      {br && br.winners.length > 0 && (
+        <>
+          <Band label={`${season} playoffs`}
+            note={`Winners' bracket from week ${br.playoff_start} · tap a game for that week`} />
+          <PlayoffBracket season={season} bracket={br} />
+        </>
+      )}
+
+      {/* ---- the draft board (Max, 2026-09-08) ----------------------------
+          The draft that stocked this season — the rookie draft of its
+          offseason, or the startup for the league's first year — as the
+          Sleeper-style board the Drafts screen draws: rounds down, slots
+          across, cells tinted by position. Rendered from drafts.json through
+          the same `buildHistory` the Drafts screen uses, so the board here IS
+          that board. Traded picks say who used them. */}
+      {draftRows && draftRows.length > 0 && (
+        <>
+          <Band label={`${season} ${draftKind === "rookie" ? "rookie draft" : "startup draft"}`}
+            note={`${draftRows.length} picks · columns are the original holders of each first-round pick · a cell names the franchise that made the pick when it was not theirs`}
+            right={<ViewAll to={betaPath(`/drafts/history/${season}`)} />} />
+          <DraftBoardGrid rows={draftRows} />
+        </>
       )}
 
       <div className="tnote screen">
