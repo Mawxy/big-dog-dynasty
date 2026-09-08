@@ -271,6 +271,9 @@ export interface Asset {
   /** dynasty market price, in THIS league's KTC column (`lib/values.ktcOf`,
    *  off meta.tep) — never the base `row.ktc`. Picks have one, by tier. */
   ktc: number | null;
+  /** FantasyCalc dynasty value, the second market. Players from the values
+   *  feed; picks from FantasyCalc's own pick ladder, by tier. */
+  fc: number | null;
   /** 30-day raw market delta. RAW VALUE, never a rank delta — a rank delta is
    *  a statement about everyone else moving. Players only; the pick feed
    *  publishes no trend. */
@@ -307,6 +310,7 @@ export function useAssets() {
   return useMemo<Asset[] | null>(() => {
     if (!dvi || !cvi) return null;
     const pickKtc = new Map(vals?.picks?.ktc ?? []);
+    const pickFc = new Map(vals?.picks?.fc ?? []);
     const out: Asset[] = [];
     // the population is the index's, not the roster's: DVI covers every player
     // the model prices, which is what lets an unrostered player be dropped into
@@ -324,7 +328,7 @@ export function useAssets() {
         // 9160 for the same player. Everything downstream of this hook is
         // priced off it: the baskets, the ledger's market column, and the
         // KTC->DVI/CVI fit the pick indexer runs over the player field.
-        ktc: ktcOf(v, meta.tep), d30: v?.ktcT?.["30"] ?? null,
+        ktc: ktcOf(v, meta.tep), fc: v?.fc ?? null, d30: v?.ktcT?.["30"] ?? null,
         war: war?.[pid] ?? null,
       });
     }
@@ -342,7 +346,9 @@ export function useAssets() {
             // KTC publishes ONE pick ladder — the premium columns are a player
             // repricing and the feed carries no tiered pick board — so this is
             // the only figure available and `ktcOf` has nothing to choose from.
-            ktc: pickKtc.get(`${cur} ${tier} ${ROUND_ORD[r]}`) ?? null, d30: null,
+            ktc: pickKtc.get(`${cur} ${tier} ${ROUND_ORD[r]}`) ?? null,
+            // FantasyCalc prices the class drafting now by exact slot
+            fc: pickFc.get(`${cur} Pick ${slot}`) ?? null, d30: null,
             war: sum(pickStream(pv, tier, r + 1)),
           });
         }
@@ -354,12 +360,44 @@ export function useAssets() {
               key: `k${y} ${tier} ${ROUND_ORD[r]}`, label: `${y} ${tier} ${ROUND_ORD[r]}`,
               kind: "pick", pid: null, pos: "PICK", nfl: "",
               dvi: null, cvi: null,
-              ktc: pickKtc.get(`${y} ${tier} ${ROUND_ORD[r]}`) ?? null, d30: null,
+              ktc: pickKtc.get(`${y} ${tier} ${ROUND_ORD[r]}`) ?? null,
+              fc: fcTier(pickFc, y, r + 1, tier), d30: null,
               war: sum(pickStream(pv, tier, r + 1)),
             });
     }
     return out;
   }, [dvi, cvi, war, vals, pv, owned, players, meta]);
+}
+
+/**
+ * A future pick's FantasyCalc value BY TIER. FantasyCalc tiers only the next
+ * class (`2027 1st (Early)` … `(Late)`); further years come as one round
+ * value (`2028 1st`). So a tier the feed does not price is the round's raw
+ * value scaled by the tier's share in the nearest year that IS tiered:
+ *
+ *     fc(2028, 1st, Late) = fc(2028 1st) × fc(2027 1st (Late)) ÷ fc(2027 1st)
+ *
+ * (Max, 2026-09-08.) A ratio rather than a difference, because the tier
+ * spread narrows as the year moves out the same way the round value does.
+ * Falls back to the raw round value when no year carries tiers for that
+ * round, and to null when the feed has nothing at all.
+ */
+export function fcTier(
+  fc: Map<string, number>, season: number, round: number, tier: string,
+): number | null {
+  const ord = ROUND_ORD[round - 1];
+  const exact = fc.get(`${season} ${ord} (${tier})`);
+  if (exact != null) return exact;
+  const raw = fc.get(`${season} ${ord}`);
+  if (raw == null) return null;
+  // the nearest season with this round tiered, searching outward
+  for (let d = 1; d <= 6; d++) {
+    for (const y of [season - d, season + d]) {
+      const t = fc.get(`${y} ${ord} (${tier})`), base = fc.get(`${y} ${ord}`);
+      if (t != null && base) return Math.round(raw * t / base);
+    }
+  }
+  return raw;
 }
 
 /**
@@ -423,6 +461,7 @@ export function useTeamValues(season: string) {
     if (!teams || !dvi || !cvi || !war) return null;
     const lineup = lineupOf(meta);
     const pickKtc = new Map(vals?.picks?.ktc ?? []);
+    const pickFc = new Map(vals?.picks?.fc ?? []);
     // projected WAR arrives as pid -> number with no position, and the lineup
     // optimizer needs one to seat a player. DVI's position is the right source:
     // it is the position the figure was computed for.

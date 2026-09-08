@@ -96,13 +96,15 @@
   /* a 2×2 grid rather than the offer card's wrapping flex row: at a panel's
      half-phone width four pairs wrapped 3+1, and the orphan read as a
      different kind of figure. Two rows of two, labels aligned in columns. */
-  display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px;
+  display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 5px 10px; align-items: baseline;
   margin: 0; padding: 8px 10px 9px;
   background: var(--band); border-top: 1px solid var(--rule);
 }
-.trx-tally .fg { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: baseline; }
-.trx-tally dt { min-width: 3.4em; }
-.trx-tally dd { color: var(--txt2); text-align: right; }
+/* the pairs dissolve into the one grid, so every label shares a column and
+   every figure starts on the same line — `.trx-figs .fg`'s flex would give
+   each pair its own label width and the figures would stagger */
+.trx-figs.trx-tally .fg { display: contents; }
+.trx-tally dd { color: var(--txt2); }
 
 /* ---- the favor board ----------------------------------------------------
    (Max, 2026-09-08.) One row per currency, star adjusted, and a diverging
@@ -159,7 +161,6 @@
 .trx-favor .f.a { text-align: right; }
 .trx-favor .f.b { text-align: left; }
 .trx-favor .f.win { color: var(--acc); }
-.trx-favor .f .est { color: var(--dim); font-weight: 400; }
 .trx-favor .v {
   font: 700 12px/1.2 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
   text-align: right;

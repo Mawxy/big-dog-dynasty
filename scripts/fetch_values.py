@@ -30,6 +30,9 @@ UA = {"User-Agent": "Mozilla/5.0 (BigDogDynasty league site)"}
 FC_URL = "https://api.fantasycalc.com/values/current?isDynasty=true&numQbs=2&numTeams=12&ppr=1"
 KTC_URL = "https://keeptradecut.com/dynasty-rankings"
 CORE = {"QB", "RB", "WR", "TE"}
+# how long a source may go unanswered before its trends are dropped rather
+# than shown "as of" the last day it answered
+STALE_DAYS = 10
 
 def get(url):
     req = urllib.request.Request(url, headers=UA)
@@ -173,53 +176,73 @@ def update_history(hist, vals, seen_today, today, cutoffs):
     on every run, and the delta scan below then compared that number against
     itself: his 7/14/30-day moves flattened to ~0 and stayed there for good.
 
-    So a source that did not list him today records nothing for him, and his
-    carried deltas are dropped rather than restated as today's. The scan skips
-    nulls (it walks back to the newest row that has a real number), so a gap is
-    honest and heals itself on the next run that actually sees him.
+    So a source that did not list him today records nothing for him. His
+    deltas are then computed AS OF his last real observation — the newest
+    history row where that source quoted him — and stamped `<src>AsOf` with
+    that date, so the board can say "as of Sep 7" rather than go blank
+    (Max, 2026-09-08: one missed KTC scrape emptied the market movers). A
+    delta is only ever measured between two observations of the same source,
+    never against a carried-forward copy of itself. Past STALE_DAYS the
+    deltas are dropped rather than shown as a move nobody has seen lately.
     """
+    from datetime import date as _date, timedelta as _td
     for pid, e in vals.items():
         ktc = e.get("ktc") if pid in seen_today.get("ktc", ()) else None
         fc = e.get("fc") if pid in seen_today.get("fc", ()) else None
-        if ktc is None and fc is None:
-            # nothing fresh for him from either source: leave his history
-            # untouched, and do not leave the last run's deltas standing as
-            # though they described a move that happened today
-            e.pop("ktcT", None)
-            e.pop("fcT", None)
-            continue
-        h = hist.setdefault(pid, [])
-        entry = [today, ktc, fc]
-        if h and h[-1][0] == today:
-            # a second run on the same day must not blank a source that
-            # succeeded on the first
-            for i in (1, 2):
-                if entry[i] is None and len(h[-1]) > i:
-                    entry[i] = h[-1][i]
-            h[-1] = entry
-        else:
-            h.append(entry)
-        del h[:-45]                          # keep ~45 most recent days; the
+        # no empty history entry for a player nobody quoted today
+        h = hist.setdefault(pid, []) if (ktc is not None or fc is not None) else hist.get(pid, [])
+        if ktc is not None or fc is not None:
+            entry = [today, ktc, fc]
+            if h and h[-1][0] == today:
+                # a second run on the same day must not blank a source that
+                # succeeded on the first
+                for i in (1, 2):
+                    if entry[i] is None and len(h[-1]) > i:
+                        entry[i] = h[-1][i]
+                h[-1] = entry
+            else:
+                h.append(entry)
+            del h[:-45]                      # keep ~45 most recent days; the
                                              # years-deep KTC/FC backfill lives
                                              # in values_history_deep.json,
                                              # written once and never trimmed
         for name, idx in (("ktc", 1), ("fc", 2)):
-            cur = e.get(name)
-            if cur is None or pid not in seen_today.get(name, ()):
-                # a price this source did not quote today is carried forward and
-                # has no new move to report — N/A beats yesterday's delta
-                e.pop(name + "T", None)
+            fresh = pid in seen_today.get(name, ()) and e.get(name) is not None
+            # the source's own native trend (KTC's 7-day) is the labeled
+            # fallback while our history is too shallow to align one — but
+            # only when the source listed him TODAY; otherwise it is the
+            # previous run's figure wearing today's date
+            native = (e.get(name + "T") or {}) if fresh else {}
+            e.pop(name + "T", None)
+            e.pop(name + "AsOf", None)
+            # the newest row where THIS source actually quoted him — today if
+            # it answered, else the last day it did
+            obs = None
+            for row in h:
+                if len(row) > idx and row[idx] is not None:
+                    obs = row
+            if obs is None:
                 continue
-            trends = e.get(name + "T") or {}
-            for d, cutoff in cutoffs.items():
+            as_of, cur = obs[0], obs[idx]
+            try:
+                age = (_date.fromisoformat(today) - _date.fromisoformat(as_of)).days
+            except ValueError:
+                continue
+            if age > STALE_DAYS:
+                continue
+            trends = dict(native)
+            for d in cutoffs:
+                cutoff = (_date.fromisoformat(as_of) - _td(days=d)).isoformat()
                 base = None
-                for row in h:                # most recent snapshot >= d days old
+                for row in h:                # most recent snapshot >= d days before as_of
                     if row[0] <= cutoff and len(row) > idx and row[idx] is not None:
                         base = row[idx]
                 if base is not None:
                     trends[str(d)] = cur - base
             if trends:
                 e[name + "T"] = trends
+                if age > 0:
+                    e[name + "AsOf"] = as_of
 
 def main():
     ap = argparse.ArgumentParser()

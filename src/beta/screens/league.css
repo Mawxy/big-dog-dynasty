@@ -172,6 +172,15 @@
 .lgx-count .go:hover { text-decoration: none; color: var(--txt); }
 .lgx-count .go:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
+/* THE WAY OUT OF A MODULE: "View all →" in a band's right edge, the same
+   face as `.lgx-count .go` so every "→" on the screen is one control. */
+.lgx-all {
+  flex: 0 0 auto; color: var(--acc); text-decoration: none; white-space: nowrap;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.lgx-all:hover { color: var(--txt); }
+.lgx-all:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
 /* Whose move it was, on the third line of a roster-move row. `.idc-s` already
    owns the type; this only lifts it off the add/drop line above it, which was
    an inline `style={{ marginTop: 4 }}` on the screen this replaces. */

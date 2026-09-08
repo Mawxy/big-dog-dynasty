@@ -21,6 +21,7 @@ import Players from "./screens/Players";
 import Teams from "./screens/Teams";
 import Trade from "./screens/Trade";
 import More from "./screens/More";
+import Movers from "./screens/Movers";
 import "./beta.css";
 
 /* The deep destinations More points at are the classic board's views, mounted
@@ -278,6 +279,8 @@ function BetaBoard() {
                     on a Trade screen showing an empty machine. */}
                 <Route path="ledger" element={<Navigate replace to={`${base}/trade?scope=history`} />} />
                 <Route path="more" element={<More />} />
+                {/* the whole of a League module: value | dynasty | market */}
+                <Route path="movers/:kind" element={<Movers />} />
                 <Route path="player/:pid" element={<PlayerRoute />} />
                 <Route path="drafts" element={<Draft />} />
                 <Route path="drafts/:sub" element={<Draft />} />

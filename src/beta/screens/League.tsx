@@ -1,20 +1,22 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import type {
-  BracketFile, DynastyMovers, Franchises, Matchups, ProjectionsFile,
+  BracketFile, Franchises, Matchups, ProjectionsFile,
   SleeperProjFile, SummaryRow, Team, Trade, TradesPayload, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
-import { useCvi, useDvi } from "../../lib/useIndices";
 import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
-import { fmt, mean, normCdf, normInv, ord, sgn } from "../../lib/stats";
+import { fmt, mean, normCdf, normInv, ord } from "../../lib/stats";
 import {
   POS_COLOR, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
-import { ktcOf } from "../../lib/values";
 import { readTrades, tradeWhen } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
 import { useActivity, useSeasonPhase, useStandings, useTeamValues, type ActMove } from "../model";
+import {
+  DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
+  useDynMovers, useGapRows, useMarketMovers,
+} from "../movers";
 import {
   Band, DataError, fmtWar, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure,
 } from "../ui";
@@ -47,6 +49,13 @@ import "./league.css";
 /** rows per half of a split module — five is what fits under a band without
  *  the second half starting off-screen */
 const MODULE_ROWS = 5;
+
+/** THE BAND'S WAY OUT (Max, 2026-09-08): a module that shows five of a
+ *  longer list says so in its own header, where the note would sit, and the
+ *  link opens the whole list on the Movers screen. */
+function ViewAll({ to }: { to: string }) {
+  return <RouteLink to={to} className="lgx-all">View all →</RouteLink>;
+}
 
 /** the "what moved" window, in days. A week, because that is the cadence a
  *  reader checks a league on. The band's LABEL changes with the season; the
@@ -375,9 +384,12 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
                 </div>
               </div>
             );
+            // THE CARD IS THE MATCHUP, so it opens the matchup — both
+            // lineups — not the week it sits in (Max, 2026-09-08). The route
+            // takes either side's roster id.
             return (
               <RouteLink key={`${g.a.rid}-${g.b.rid}`} className="lgx-game"
-                to={seasonsRoute(twSeason, thisWeek.wk)}>
+                to={`${seasonsRoute(twSeason, thisWeek.wk)}/${g.a.rid}`}>
                 {side(g.a, mlA, aWon, false)}
                 <div className="mid">
                   {thisWeek.played ? <span className="k">Final</span> : (
@@ -575,21 +587,6 @@ interface PowerRow {
   ppg: number | null;
 }
 
-/** one win-now-vs-dynasty row: the two indices and the gap between them */
-interface GapRow {
-  pid: string; name: string; pos: string; nfl: string;
-  dvi: number; cvi: number; gap: number;
-}
-
-/** how deep into the startable universe a value play may sit — the classic
- *  board's VALUE_PLAY_DEPTH, restated so the two shells qualify the same way */
-const VALUE_PLAY_DEPTH = 100;
-
-/** one market-mover row */
-interface MoverRow {
-  pid: string; name: string; pos: string; nfl: string; price: number; d: number;
-}
-
 function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const { meta, players } = useLeague();
   const betaPath = useBetaPath();
@@ -606,7 +603,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   // the market prices a FORMAT, not a league — global files, global scope
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
   const vals = valsQ.data;
-  const dyn = useJson<DynastyMovers>("data/dynasty_movers.json", "globalDaily").data;
+  const dyn = useDynMovers();
   /* The window is a span of TIME and useActivity's argument is a row count, so
      it is asked for far more rows than it will show and then filtered by
      timestamp. 400 covers seven days with years of slack — this league's whole
@@ -715,69 +712,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
   const [openMoves, setOpenMoves] = useState(false);
 
-  /* ---- win now vs dynasty ------------------------------------------------ */
-
-  /**
-   * WHO IS A WIN-NOW PLAYER AND WHO IS A DYNASTY PLAYER (Max, 2026-09-02): the
-   * largest disagreements between our two indices, among rostered players.
-   * CVI prices the coming season and DVI the dynasty horizon, so a player far
-   * above his DVI on CVI is worth more to a contender than a rebuilder, and
-   * the reverse is a stash. This band used to compare the model's WAR to the
-   * market's implied WAR — a fact about the market, not about the roster —
-   * which was the wrong question for the League screen.
-   *
-   * The classic board's value-plays rules, restated so the two shells qualify
-   * the same population: a WIN-NOW row needs a CVI rank inside the startable
-   * top 100 (or the gap is only age); a DYNASTY row needs a DVI rank inside
-   * it and a redraft ECR rank, so a player known to give nothing this year
-   * does not read as a stash. Gap is CVI minus DVI, signed, in index points.
-   */
-  const dvi = useDvi();
-  const cvi = useCvi();
-  const mvm = useMemo(() => {
-    if (!dvi || !cvi || !teams) return null;
-    const owned = new Set(teams.flatMap(t => t.players));
-    const rows: (GapRow & { dRank: number; cRank: number; ecr?: number })[] = [];
-    for (const [pid, dr] of Object.entries(dvi.players)) {
-      const cr = cvi.players[pid];
-      const info = players[pid];
-      if (!cr || !info || !owned.has(pid)) continue;
-      rows.push({
-        pid, name: info[0], pos: dr.pos, nfl: info[2],
-        dvi: dr.dvi, cvi: cr.cvi, gap: cr.cvi - dr.dvi,
-        dRank: dr.rank, cRank: cr.rank, ecr: cr.ecr,
-      });
-    }
-    rows.sort((a, b) => b.gap - a.gap);
-    return {
-      now: rows.filter(r => r.gap > 0 && r.cRank <= VALUE_PLAY_DEPTH).slice(0, MODULE_ROWS),
-      later: rows.filter(r => r.gap < 0 && r.ecr != null && r.dRank <= VALUE_PLAY_DEPTH)
-        .slice(-MODULE_ROWS).reverse(),
-    };
-  }, [dvi, cvi, teams, players]);
-
-  /* ---- market movers ---------------------------------------------------- */
-
-  /** KeepTradeCut's seven-day change. The VALUE is priced in this league's
-   *  TE-premium column through `ktcOf`; the TREND stays the base feed's,
-   *  because KTC publishes no per-tier trends — direction and magnitude read
-   *  the same either way. */
-  const movers = useMemo(() => {
-    if (!vals) return null;
-    const rows: MoverRow[] = [];
-    for (const [pid, v] of Object.entries(vals.players)) {
-      const info = players[pid];
-      const price = ktcOf(v, meta.tep);
-      const d = v.ktcT?.["7"];
-      if (!info || price == null || d == null || d === 0) continue;
-      rows.push({ pid, name: info[0], pos: info[1], nfl: info[2], price, d });
-    }
-    rows.sort((a, b) => b.d - a.d);
-    return {
-      up: rows.filter(r => r.d > 0).slice(0, MODULE_ROWS),
-      down: rows.filter(r => r.d < 0).slice(-MODULE_ROWS).reverse(),
-    };
-  }, [vals, players, meta.tep]);
+  /* ---- the three mover modules -------------------------------------------
+     Computed in `../movers` and shared with the Movers screen, so the five
+     rows here are the head of exactly the list "View all" opens. */
+  const mvm = useGapRows(teams);
+  const movers = useMarketMovers(vals);
 
   const windowFrom = new Date(since)
     .toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -924,151 +863,26 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       )}
 
       {/* ---- 4. win now vs dynasty --------------------------------------- */}
-      <Band label="Win now vs dynasty" note="CVI prices this season, DVI the horizon" />
+      <Band label="Win now vs dynasty" note="CVI prices this season, DVI the horizon"
+        right={<ViewAll to={betaPath("/movers/value")} />} />
       {teamsQ.error
         ? <DataError what="Rosters didn't load" />
-        : !mvm ? <div className="empty">Loading…</div> : (
-        <table className="v3tbl lgx-grid">
-          {/* THE GROUP LABEL IS THE HEADER ROW (Max, 2026-09-02). A column header
-              row above a group band above the rows put a strip of nothing
-              between "Value" and the first value. Each group now opens with
-              one row that is both: the label and its note sit in the identity
-              column's header cell, the figure headers repeat beside it, and
-              the values start on the next line. The first group's row is the
-              table's first row, which is what the fixed layout takes its
-              column widths from — so it carries the width hints, and it holds
-              no colspan. */}
-            {([
-              ["Win now", mvm.now],
-              ["Dynasty", mvm.later],
-            ] as const).map(([label, list]) => (
-              <tbody key={label}>
-                <tr className="lgx-cols">
-                  <th className="c sp">#</th>
-                  <th className="t"><span className="k">{label}</span></th>
-                  <th className="n" style={{ width: "18%" }}>DVI</th>
-                  <th className="n" style={{ width: "18%" }}>CVI</th>
-                  <th className="n" style={{ width: "20%" }}>Gap</th>
-                </tr>
-                {list.map((r, i) => (
-                  <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)}
-                    className={i % 2 ? "zebra" : ""}>
-                    <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                    <IdCell name={r.name}
-                      sub={[r.nfl || null, r.pos].filter(Boolean).join(" · ")}
-                      to={betaPath(`/player/${r.pid}`)} />
-                    <td className="n"><span className="f">{fmt(r.dvi, 1)}</span></td>
-                    <td className="n"><span className="f">{fmt(r.cvi, 1)}</span></td>
-                    {/* the sign is the whole claim, and `.f.up` / `.f.down` are
-                        the tokens the board already spends on a signed figure.
-                        Legal here and nowhere near a trade ledger: a gap is a
-                        direction of travel, not a verdict about who won. */}
-                    <td className="n">
-                      <span className={`f hd ${r.gap > 0 ? "up" : "down"}`}>{sgn(r.gap, 1)}</span>
-                    </td>
-                  </TapRow>
-                ))}
-              </tbody>
-            ))}
-        </table>
-      )}
+        : !mvm ? <div className="empty">Loading…</div>
+        : <GapTable rows={mvm} limit={MODULE_ROWS} />}
 
       {/* ---- 5. dynasty movers ------------------------------------------- */}
-      <Band label="Dynasty movers"
-        note={dyn
-          ? `Last ${dyn.meta.window_days} days, ${dyn.meta.leagues?.toLocaleString() ?? "—"} leagues`
-          : undefined} />
-      {!dyn ? <div className="empty">Waiting on the trade-corpus refresh…</div> : (
-        <table className="v3tbl lgx-grid">
-          {/* THE GROUP LABEL IS THE HEADER ROW (Max, 2026-09-02). A column header
-              row above a group band above the rows put a strip of nothing
-              between "Value" and the first value. Each group now opens with
-              one row that is both: the label and its note sit in the identity
-              column's header cell, the figure headers repeat beside it, and
-              the values start on the next line. The first group's row is the
-              table's first row, which is what the fixed layout takes its
-              column widths from — so it carries the width hints, and it holds
-              no colspan. */}
-            {([
-              ["Going over value", dyn.overpaid],
-              ["Going under value", dyn.underpaid],
-            ] as const).map(([label, list]) => (
-              <tbody key={label}>
-                <tr className="lgx-cols">
-                  <th className="c sp">#</th>
-                  <th className="t"><span className="k">{label}</span></th>
-                  <th className="n" style={{ width: "18%" }}>Value</th>
-                  <th className="n" style={{ width: "18%" }}>Paid</th>
-                  <th className="n" style={{ width: "20%" }}>Δ</th>
-                </tr>
-                {list.slice(0, MODULE_ROWS).map((r, i) => (
-                  <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
-                    className={i % 2 ? "zebra" : ""}>
-                    <Spine rank={i + 1} color={r.pos ? POS_COLOR[r.pos] : undefined} />
-                    <IdCell name={r.name}
-                      sub={[r.team, r.pos, `${r.n} trades`].filter(Boolean).join(" · ")}
-                      to={betaPath(`/player/${r.pid}`)} />
-                    {/* Value and Paid on the same ramp (Max, 2026-09-02): the
-                        KTC value was on the quiet ramp to let Paid lead, and it
-                        read as a smaller number rather than a quieter one. The
-                        Δ column is the headline; these two are its inputs. */}
-                    <td className="n"><span className="f">{r.value.toLocaleString()}</span></td>
-                    <td className="n"><span className="f">{r.avg_paid.toLocaleString()}</span></td>
-                    <td className="n">
-                      <span className={`f hd ${r.avg_delta > 0 ? "up" : "down"}`}>
-                        {r.avg_pct == null ? NUL : `${sgn(r.avg_pct, 0)}%`}
-                      </span>
-                    </td>
-                  </TapRow>
-                ))}
-              </tbody>
-            ))}
-        </table>
-      )}
+      <Band label="Dynasty movers" note={dynNote(dyn)}
+        right={<ViewAll to={betaPath("/movers/dynasty")} />} />
+      {!dyn ? <div className="empty">Waiting on the trade-corpus refresh…</div>
+        : <DynTable dyn={dyn} limit={MODULE_ROWS} />}
 
       {/* ---- 6. market movers -------------------------------------------- */}
-      <Band label="Market movers" note="KeepTradeCut, 7-day change in points" />
+      <Band label="Market movers" note={`${marketNote(movers)} · ${MODULE_MIN_VALUE.toLocaleString()}+ value`}
+        right={<ViewAll to={betaPath("/movers/market")} />} />
       {valsQ.error
         ? <DataError what="Market didn't load" />
-        : !movers ? <div className="empty">Waiting on the nightly market pull…</div> : (
-        <table className="v3tbl lgx-grid">
-          {/* THE GROUP LABEL IS THE HEADER ROW (Max, 2026-09-02). A column header
-              row above a group band above the rows put a strip of nothing
-              between "Value" and the first value. Each group now opens with
-              one row that is both: the label and its note sit in the identity
-              column's header cell, the figure headers repeat beside it, and
-              the values start on the next line. The first group's row is the
-              table's first row, which is what the fixed layout takes its
-              column widths from — so it carries the width hints, and it holds
-              no colspan. */}
-            {([
-              ["Rising", movers.up],
-              ["Falling", movers.down],
-            ] as const).map(([label, list]) => (
-              <tbody key={label}>
-                <tr className="lgx-cols">
-                  <th className="c sp">#</th>
-                  <th className="t"><span className="k">{label}</span></th>
-                  <th className="n" style={{ width: "18%" }}>Value</th>
-                  <th className="n" style={{ width: "20%" }}>7d</th>
-                </tr>
-                {list.map((r, i) => (
-                  <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}
-                    className={i % 2 ? "zebra" : ""}>
-                    <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                    <IdCell name={r.name}
-                      sub={[r.nfl || null, r.pos].filter(Boolean).join(" · ")}
-                      to={betaPath(`/player/${r.pid}`)} />
-                    <td className="n"><span className="f">{r.price.toLocaleString()}</span></td>
-                    <td className="n">
-                      <span className={`f hd ${r.d > 0 ? "up" : "down"}`}>{sgn(r.d, 0)}</span>
-                    </td>
-                  </TapRow>
-                ))}
-              </tbody>
-            ))}
-        </table>
-      )}
+        : !movers ? <div className="empty">Waiting on the nightly market pull…</div>
+        : <MarketTable movers={movers} limit={MODULE_ROWS} minValue={MODULE_MIN_VALUE} />}
 
       {/* the freshness line, kept when the paragraph around it went (Max,
           2026-09-02): when the market was fetched and when the board was

@@ -906,3 +906,10 @@
    that says "label, not affiliation" — this only stops the ≈ glyph being
    uppercased into something else and keeps the mark off the name line. */
 .v3-side .asset .idc-s .tg { text-transform: uppercase; white-space: nowrap; }
+
+/* ---- a band with a note and a control ---------------------------------- */
+.band-side { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
+.band-side .band-note { min-width: 0; }
+@media (max-width: 899px) {
+  .band-side { flex-direction: column; align-items: flex-start; gap: 3px; }
+}

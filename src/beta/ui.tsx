@@ -72,7 +72,11 @@ export function Band({ label, note, right, total }: {
         {label}
         {total != null && <span className="band-total">{total}</span>}
       </span>
-      {right ?? (note ? <span className="band-note">{note}</span> : null)}
+      {/* a control AND a note share the right edge — note first, control
+          last, so the way out of a module sits where the eye ends the line */}
+      {right && note
+        ? <span className="band-side"><span className="band-note">{note}</span>{right}</span>
+        : right ?? (note ? <span className="band-note">{note}</span> : null)}
     </div>
   );
 }

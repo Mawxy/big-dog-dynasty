@@ -143,6 +143,9 @@ export interface Values {
     /** KTC TE-premium columns (fetch_values.py): TE+ / TE++ / TE+++ */
     ktcTep?: number; ktcTepp?: number; ktcTeppp?: number;
     fc?: number; fcRank?: number; fcPosRank?: number; fcT?: Record<string, number>;
+    /** ISO date the source last quoted him, set ONLY when that was not today:
+     *  the trends above are measured as of that day (fetch_values.py). */
+    ktcAsOf?: string; fcAsOf?: string;
     /** precomputed by value_bridge.py so the page renders in one fetch */
     impWar?: { ktc?: number; fc?: number };  // market-implied 3-yr WAR
     modelWar?: number;                       // our projected 3-yr composite WAR

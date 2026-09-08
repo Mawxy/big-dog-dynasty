@@ -158,7 +158,9 @@ def main():
                          "A 900-point scrub overpaid by 90%% is trivia, not a "
                          "market signal; the floor keeps the board about "
                          "players people actually shop")
-    ap.add_argument("--top", type=int, default=5)
+    # 25, up from 5 (Max, 2026-09-08): the League band shows five, the
+    # Movers screen shows the whole list
+    ap.add_argument("--top", type=int, default=25)
     ap.add_argument("--max-assets", type=int, default=6,
                     help="skip trades with more assets than this on either side "
                          "(dispersal drafts and roster swaps executed as trades "

@@ -13,7 +13,7 @@ import { readTrades } from "../../lib/trades";
 import { useMobile } from "../../lib/useWidth";
 import {
   makePickIndexer, tradeLedger,
-  type PickIndexer, type PricedAsset, type SideLedger, type ValueBridge,
+  type PickIndexer, type SideLedger, type ValueBridge,
 } from "../../lib/tradeModel";
 import { tierOf, useAssets, usePickTiers, type Asset } from "../model";
 import ScopeControl, { ALL_SEASONS, seasonSet, useScope, type ScopeSeason } from "../Scope";
@@ -385,6 +385,10 @@ interface Holding {
  *  WAR sum lives in neither space — so it keeps its plain sum and its plain
  *  difference, and the consolidation row reads — under it. */
 const sumWar = (rows: Holding[]) => rows.reduce((a, h) => a + (h.asset.war ?? 0), 0);
+/** the asset line's WAR — "WAR 1.24" — on the asset itself, since the favor
+ *  board sums it and nothing adjusts it, so the tally has no line for it */
+const warTag = (a: Asset) => (a.war == null ? null : `WAR ${fmtWar(a.war)}`);
+const sumFc = (rows: Holding[]) => rows.reduce((a, h) => a + (h.asset.fc ?? 0), 0);
 
 function Build() {
   const { league } = useLeague();
@@ -456,7 +460,7 @@ function Build() {
         if (!a) continue;
         players.push({
           id: `p${pid}`, asset: a, label: a.label,
-          sub: [a.nfl || null, a.pos, a.ktc?.toLocaleString() ?? null]
+          sub: [a.nfl || null, a.pos, a.ktc?.toLocaleString() ?? null, warTag(a)]
             .filter(Boolean).join(" · "),
         });
       }
@@ -480,7 +484,7 @@ function Build() {
           sub: ["Pick",
             p.orig === t.roster_id ? "own" : `from ${name.get(p.orig) ?? `Team ${p.orig}`}`,
             `proj. ${tierOf(tiers, p.orig).toLowerCase()}`,
-            a.ktc?.toLocaleString() ?? null].filter(Boolean).join(" · "),
+            a.ktc?.toLocaleString() ?? null, warTag(a)].filter(Boolean).join(" · "),
         });
       }
       picks.sort((x, y) => x.id.localeCompare(y.id));
@@ -503,8 +507,8 @@ function Build() {
     const rows: Holding[] = assets.map(a => ({
       id: a.key, asset: a, label: a.label,
       sub: (a.kind === "player"
-        ? [a.nfl || null, a.pos, a.ktc?.toLocaleString() ?? null]
-        : ["Pick", a.ktc?.toLocaleString() ?? null]).filter(Boolean).join(" · "),
+        ? [a.nfl || null, a.pos, a.ktc?.toLocaleString() ?? null, warTag(a)]
+        : ["Pick", a.ktc?.toLocaleString() ?? null, warTag(a)]).filter(Boolean).join(" · "),
     }));
     // players by price, then picks by their own label order (year, tier, round)
     rows.sort((x, y) => (x.asset.kind === y.asset.kind
@@ -688,11 +692,11 @@ function Build() {
         <>
           <div className="v3-sides">
             <Panel gets={sideA} named={!!nameA} from={nameB} rows={viewA.rows}
-              lost={viewA.lost} priced={led.a.rows} led={led.a} war={warA}
+              lost={viewA.lost} led={led.a}
               onTeam={() => setChoosing("a")}
               onAdd={() => setPicking("a")} onRemove={id => drop("a", id)} />
             <Panel gets={sideB} named={!!nameB} from={nameA} rows={viewB.rows}
-              lost={viewB.lost} priced={led.b.rows} led={led.b} war={warB}
+              lost={viewB.lost} led={led.b}
               onTeam={() => setChoosing("b")}
               onAdd={() => setPicking("b")} onRemove={id => drop("b", id)} />
           </div>
@@ -715,10 +719,8 @@ function Build() {
             <FavorBoard nameA={sideA} nameB={sideB} fixes={fixes}
               onAdd={(side, id) => add(side, id)} rows={[
               { m: "market", k: "Adjusted KTC", a: led.a.effective.market, b: led.b.effective.market, f: mkt },
-              { m: "dvi", k: "Adjusted DVI", a: led.a.effective.dvi, b: led.b.effective.dvi, f: idx,
-                estA: led.a.estimated > 0, estB: led.b.estimated > 0 },
-              { m: "cvi", k: "Adjusted CVI", a: led.a.effective.cvi, b: led.b.effective.cvi, f: idx,
-                estA: led.a.estimated > 0, estB: led.b.estimated > 0 },
+              { m: "dvi", k: "Adjusted DVI", a: led.a.effective.dvi, b: led.b.effective.dvi, f: idx },
+              { m: "cvi", k: "Adjusted CVI", a: led.a.effective.cvi, b: led.b.effective.cvi, f: idx },
               { m: "war", k: "3yr WAR", a: warA, b: warB, f: fmtWar },
             ]} />
           ) : (
@@ -769,7 +771,7 @@ function Build() {
  * add button is dead until the OTHER franchise is named, because this panel
  * lists what this side receives and it receives from over there.
  */
-function Panel({ gets, named, from, rows, lost, priced, led, war, onTeam, onAdd, onRemove }: {
+function Panel({ gets, named, from, rows, lost, led, onTeam, onAdd, onRemove }: {
   /** who receives — the franchise, or "Side A" / "Side B" when none is named */
   gets: string;
   /** whether a franchise is named (the header's quiet ink says "still open") */
@@ -777,14 +779,10 @@ function Panel({ gets, named, from, rows, lost, priced, led, war, onTeam, onAdd,
   /** the franchise the assets come off, or null for the open pool */
   from: string | null;
   rows: Holding[]; lost: number;
-  /** the ledger's priced rows, in the order they went in, so each asset can
-   *  show its own estimate flag */
-  priced: PricedAsset[];
   /** this side's ledger — the RAW totals tally under the assets */
-  led: SideLedger; war: number;
+  led: SideLedger;
   onTeam: () => void; onAdd: () => void; onRemove: (id: string) => void;
 }) {
-  const ap = led.estimated ? "≈ " : "";
   return (
     <div className="v3-side">
       <button type="button" className="trx-sidehd" aria-haspopup="dialog" onClick={onTeam}>
@@ -793,16 +791,13 @@ function Panel({ gets, named, from, rows, lost, priced, led, war, onTeam, onAdd,
         </span>
         <span className="n">{rows.length || ""}</span>
       </button>
-      {rows.map((h, i) => (
+      {rows.map(h => (
         <div className="asset" key={h.id}>
           <PosSpine color={POS_COLOR[h.asset.pos]} />
-          {/* THE ESTIMATE MARK. A pick's DVI and CVI are estimated from its
-              market price and its stream's timing, not computed from a
-              projection the way a player's are, and the totals below include
-              them. Marking it on the asset it qualifies keeps the ledger's
-              caption to the one sentence the design system asks for. */}
-          <IdLines name={h.label} sub={h.sub}
-            tags={priced[i]?.estimated ? ["≈ est"] : undefined} />
+          {/* No estimate mark (Max, 2026-09-08): a pick's DVI and CVI are
+              estimated from its price and timing rather than projected, but
+              the board reads them as figures like any other. */}
+          <IdLines name={h.label} sub={h.sub} />
           <button className="x" type="button" aria-label={`Remove ${h.label}`}
             onClick={() => onRemove(h.id)}>×</button>
         </div>
@@ -825,11 +820,15 @@ function Panel({ gets, named, from, rows, lost, priced, led, war, onTeam, onAdd,
            both places. The star-adjusted figures live in the favor board
            below, never here. */
         <dl className="trx-figs trx-tally" aria-label={`${gets} — raw totals`}>
+          {/* a 2×2 read DOWN the columns: DVI over CVI, then FantasyCalc over
+              KTC. No WAR line — it is on each asset, and the favor board sums
+              it — and no FantasyCalc anywhere else: it is a second market
+              quote, shown for the reader, not priced by the model. */}
           {([
+            ["DVI", idx(led.raw.dvi)],
+            ["FC", mkt(sumFc(rows))],
+            ["CVI", idx(led.raw.cvi)],
             ["KTC", mkt(led.raw.market)],
-            ["DVI", `${ap}${idx(led.raw.dvi)}`],
-            ["CVI", `${ap}${idx(led.raw.cvi)}`],
-            ["3yr WAR", fmtWar(war)],
           ] as const).map(([k, v]) => (
             <div className="fg" key={k}><dt>{k}</dt><dd>{v}</dd></div>
           ))}
@@ -884,7 +883,6 @@ interface FavorRow {
    *  through the utilization curve, so it has no adjusted form) */
   a: number; b: number;
   f: (v: number) => string;
-  estA?: boolean; estB?: boolean;
 }
 
 /**
@@ -946,7 +944,7 @@ function FavorBoard({ nameA, nameB, rows, fixes, onAdd }: {
             <div key={r.k} className={`row ${side}${i % 2 ? " alt" : ""}`} role="row">
               <span className="t" role="cell">{r.k}</span>
               <span className={`f a${side === "a" ? " win" : ""}`} role="cell">
-                {r.estA && <span className="est">≈ </span>}{r.f(r.a)}
+                {r.f(r.a)}
               </span>
               <span className="bar" role="cell">
                 <span className={`fb ${side}`} role="img" aria-label={verdict}>
@@ -957,7 +955,7 @@ function FavorBoard({ nameA, nameB, rows, fixes, onAdd }: {
                 </span>
               </span>
               <span className={`f b${side === "b" ? " win" : ""}`} role="cell">
-                {r.estB && <span className="est">≈ </span>}{r.f(r.b)}
+                {r.f(r.b)}
               </span>
               <span className={`v ${side}`} role="cell">
                 {side === "even" ? verdict : (
@@ -1143,7 +1141,6 @@ function Compare({ offers, active, loaded, nameA, nameB, ridA, ridB, indexer, re
 function Column({ name, rows, led, war }: {
   name: string; rows: Holding[]; led: SideLedger; war: number;
 }) {
-  const ap = led.estimated ? "≈ " : "";
   return (
     <div className="trx-cmpside">
       <div className="who">{name} gets</div>
@@ -1155,8 +1152,8 @@ function Column({ name, rows, led, war }: {
       <dl className="trx-figs">
         {([
           ["KTC", mkt(led.raw.market)],
-          ["DVI", `${ap}${idx(led.raw.dvi)}`],
-          ["CVI", `${ap}${idx(led.raw.cvi)}`],
+          ["DVI", idx(led.raw.dvi)],
+          ["CVI", idx(led.raw.cvi)],
           ["WAR", fmtWar(war)],
         ] as const).map(([k, v]) => (
           <div className="fg" key={k}><dt>{k}</dt><dd>{v}</dd></div>

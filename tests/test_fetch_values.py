@@ -125,5 +125,35 @@ class TestDeltas(unittest.TestCase):
         self.assertEqual(vals["p1"]["ktcT"]["7"], 600)
 
 
+class TestAsOf(unittest.TestCase):
+    """A source that missed today does not blank the board (Max, 2026-09-08):
+    the deltas are measured as of its last real observation and say so."""
+
+    def test_a_missed_day_reports_the_delta_as_of_the_last_observation(self):
+        hist = {"p1": [["2026-08-24", 5000, None], ["2026-08-31", 5600, None]]}
+        _, vals = run(hist, {"p1": {"ktc": 5600}})       # KTC failed today
+        self.assertEqual(vals["p1"]["ktcT"]["7"], 600)
+        self.assertEqual(vals["p1"]["ktcAsOf"], "2026-08-31")
+
+    def test_a_fresh_day_carries_no_as_of(self):
+        hist = {"p1": [["2026-08-24", 5000, None]]}
+        _, vals = run(hist, {"p1": {"ktc": 5600}}, ktc_seen=["p1"])
+        self.assertEqual(vals["p1"]["ktcT"]["7"], 600)
+        self.assertNotIn("ktcAsOf", vals["p1"])
+
+    def test_too_stale_is_dropped(self):
+        hist = {"p1": [["2026-08-10", 5000, None], ["2026-08-18", 5600, None]]}
+        _, vals = run(hist, {"p1": {"ktc": 5600}})       # 14 days unanswered
+        self.assertNotIn("ktcT", vals["p1"])
+        self.assertNotIn("ktcAsOf", vals["p1"])
+
+    def test_a_delta_never_spans_a_carried_forward_copy(self):
+        # the only observation is the last one; there is nothing 7 days
+        # before it to measure against, so no delta rather than a fake 0
+        hist = {"p1": [["2026-08-31", 5600, None]]}
+        _, vals = run(hist, {"p1": {"ktc": 5600}})
+        self.assertNotIn("ktcT", vals["p1"])
+
+
 if __name__ == "__main__":
     unittest.main()
