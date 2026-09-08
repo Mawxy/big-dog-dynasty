@@ -209,11 +209,15 @@ export function useMarketMovers(
     rows.sort((a, b) => b.d - a.d);
     // WHEN THE SOURCE LAST ANSWERED. A missed scrape no longer blanks the
     // module: the feed carries each player's trend as of the last day the
-    // source quoted him and stamps `<src>AsOf`. The note says the newest such
-    // date, so a reader knows the moves are real and a day old, not today's.
-    const asOf = Object.values(vals.players)
-      .map(v => (source === "ktc" ? v.ktcAsOf : v.fcAsOf))
-      .filter((d): d is string => !!d).sort().pop() ?? null;
+    // source quoted him and stamps `<src>AsOf`. The stamp is PER PLAYER —
+    // on a fresh day a few dozen the source stopped listing still carry one
+    // — so the band only says "as of" when NOBODY with a trend is fresh, and
+    // then says the newest date. A fresh day reads as fresh.
+    const stamped = Object.values(vals.players)
+      .filter(v => (source === "ktc" ? v.ktcT : v.fcT)?.[String(window)] != null)
+      .map(v => (source === "ktc" ? v.ktcAsOf : v.fcAsOf) ?? null);
+    const asOf = stamped.length && stamped.every(d => d != null)
+      ? (stamped as string[]).sort().pop() ?? null : null;
     return {
       up: rows.filter(r => r.d > 0),
       down: rows.filter(r => r.d < 0).reverse(),
