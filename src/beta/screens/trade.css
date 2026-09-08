@@ -93,10 +93,16 @@
 /* two classes, because `.trx-figs` below sets its own margin and would win on
    file order otherwise */
 .trx-figs.trx-tally {
+  /* a 2×2 grid rather than the offer card's wrapping flex row: at a panel's
+     half-phone width four pairs wrapped 3+1, and the orphan read as a
+     different kind of figure. Two rows of two, labels aligned in columns. */
+  display: grid; grid-template-columns: 1fr 1fr; gap: 5px 10px;
   margin: 0; padding: 8px 10px 9px;
   background: var(--band); border-top: 1px solid var(--rule);
 }
-.trx-tally dd { color: var(--txt2); }
+.trx-tally .fg { display: grid; grid-template-columns: auto 1fr; gap: 6px; align-items: baseline; }
+.trx-tally dt { min-width: 3.4em; }
+.trx-tally dd { color: var(--txt2); text-align: right; }
 
 /* ---- the favor board ----------------------------------------------------
    (Max, 2026-09-08.) One row per currency, star adjusted, and a diverging
