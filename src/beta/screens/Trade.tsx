@@ -6,7 +6,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
-import { fmt, sgn } from "../../lib/stats";
+import { fmt } from "../../lib/stats";
 import { latestSeasonOf, POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
 import { readTrades } from "../../lib/trades";
@@ -18,7 +18,7 @@ import {
 import { tierOf, useAssets, usePickTiers, type Asset } from "../model";
 import ScopeControl, { ALL_SEASONS, seasonSet, useScope, type ScopeSeason } from "../Scope";
 import {
-  Band, DataError, fmtWar, IdLines, Ledger, LedgerRow, LEDGER_GUARDRAIL, NUL,
+  Band, DataError, fmtWar, IdLines, NUL,
   PosSpine, sgnWar, Sheet, SheetRow, useBetaPath,
 } from "../ui";
 import "./trade.css";
@@ -74,7 +74,6 @@ const sgnMkt = (v: number) =>
 /** an index figure. One decimal: DVI and CVI are 0–100 scales where a whole
  *  point is a real difference and a hundredth is noise. */
 const idx = (v: number) => fmt(v, 1);
-const sgnIdx = (v: number) => sgn(v, 1);
 
 /** the date without its year — the season column beside it carries that */
 const whenShort = (ts: number) => ts
@@ -602,9 +601,6 @@ function Build() {
   const nameB = teams?.find(t => t.roster_id === st.b)?.team ?? null;
   /** the panel's name when no franchise is: the old machine's bare sides */
   const sideA = nameA ?? "Side A", sideB = nameB ?? "Side B";
-  /** a total containing an estimated index IS an estimate, and says so with the
-   *  same mark the asset carries */
-  const apA = led.a.estimated ? "≈ " : "", apB = led.b.estimated ? "≈ " : "";
   const any = viewA.rows.length + viewB.rows.length > 0;
   const showBuilder = desktop || !allView;
   // one offer is not a comparison; on desktop the band appears the moment there
@@ -645,74 +641,37 @@ function Build() {
         <>
           <div className="v3-sides">
             <Panel gets={sideA} named={!!nameA} from={nameB} rows={viewA.rows}
-              lost={viewA.lost} priced={led.a.rows} onTeam={() => setChoosing("a")}
+              lost={viewA.lost} priced={led.a.rows} led={led.a} war={warA}
+              onTeam={() => setChoosing("a")}
               onAdd={() => setPicking("a")} onRemove={id => drop("a", id)} />
             <Panel gets={sideB} named={!!nameB} from={nameA} rows={viewB.rows}
-              lost={viewB.lost} priced={led.b.rows} onTeam={() => setChoosing("b")}
+              lost={viewB.lost} priced={led.b.rows} led={led.b} war={warB}
+              onTeam={() => setChoosing("b")}
               onAdd={() => setPicking("b")} onRemove={id => drop("b", id)} />
           </div>
 
           {any ? (
-            /* ONE COLUMN PER FRANCHISE, ONE ROW PER CURRENCY, AND THE THIRD
-               COLUMN IS THE FIRST TWO SUBTRACTED.
-               Every cell under Difference is literally the cell to its left
-               minus the cell before that — `tradeLedger` defines `net` as
-               `a.raw − b.raw` and `adjNet` as `a.effective − b.effective`, and
-               the WAR row does its own subtraction inline. Nothing is authored
-               per asset or per offer, so no figure here can outlive the assets
-               it describes.
+            /* ONE ROW PER CURRENCY, STAR ADJUSTED, WITH A FAVOR BAR.
+               (Max, 2026-09-08, superseding the no-verdict ledger.) The raw
+               totals moved up into each panel's tally strip — they are "what
+               you get", and they read beside the assets that make them. Down
+               here every figure is the star-adjusted one, because that is the
+               number the reader actually decides on, and a bar between the two
+               says which side it favors and by how much. Inside ±10% the row
+               says EVEN rather than crowning a side over noise.
 
-               Three columns rather than four currencies across, because the
-               figure face is monospaced and four columns leave ~49px of text at
-               375px — not enough for a signed five-figure total. This shape is
-               the design system's two-basket comparison in the ledger's own
-               grammar: one currency per row, its correction under it.
-
-               No winner column, no verdict, no colour on any figure — DVI and
-               CVI answer different questions and routinely point at different
-               sides, so a single number would be inventing agreement and a
-               green total would be declaring a winner in CSS. */
-            <Ledger title="What each side gets"
-              columns={[nameA ?? "Side A", nameB ?? "Side B", "Difference"]}
-              caption={
-                <>
-                  {LEDGER_GUARDRAIL} Difference is the two columns beside it
-                  subtracted — {nameA ?? "side A"} minus {nameB ?? "side B"} —
-                  computed at render, never authored. Consolidated weights each
-                  asset by the share of weeks a thing of that value starts; a
-                  3-year WAR sum is not priced through that curve, so it has no
-                  consolidated line.
-                  {led.a.estimated + led.b.estimated > 0 &&
-                    " Figures marked ≈ carry a pick's estimated index, from its market price and when it lands; a difference between them inherits it."}
-                </>
-              }>
-              <LedgerRow label="KTC" tone="net" values={[
-                mkt(led.a.raw.market), mkt(led.b.raw.market), sgnMkt(led.net.market),
-              ]} />
-              <LedgerRow label="Consolidated" tone="adj" values={[
-                mkt(led.a.effective.market), mkt(led.b.effective.market),
-                sgnMkt(led.adjNet.market),
-              ]} />
-              <LedgerRow label="DVI" tone="net" values={[
-                `${apA}${idx(led.a.raw.dvi)}`, `${apB}${idx(led.b.raw.dvi)}`,
-                sgnIdx(led.net.dvi),
-              ]} />
-              <LedgerRow label="Consolidated" tone="adj" values={[
-                `${apA}${idx(led.a.effective.dvi)}`, `${apB}${idx(led.b.effective.dvi)}`,
-                sgnIdx(led.adjNet.dvi),
-              ]} />
-              <LedgerRow label="CVI" tone="net" values={[
-                `${apA}${idx(led.a.raw.cvi)}`, `${apB}${idx(led.b.raw.cvi)}`,
-                sgnIdx(led.net.cvi),
-              ]} />
-              <LedgerRow label="Consolidated" tone="adj" values={[
-                `${apA}${idx(led.a.effective.cvi)}`, `${apB}${idx(led.b.effective.cvi)}`,
-                sgnIdx(led.adjNet.cvi),
-              ]} />
-              <LedgerRow label="3yr WAR" tone="net" values={[
-                fmtWar(warA), fmtWar(warB), sgnWar(warA - warB),
-              ]} />
-            </Ledger>
+               The bar is a SHARE, not a meter: the marker sits at A ÷ (A + B),
+               so it never restates an index as a magnitude (SKILL §3). Every
+               verdict is computed at render from the two figures beside it —
+               nothing authored per asset or per offer. */
+            <FavorBoard nameA={sideA} nameB={sideB} rows={[
+              { k: "Adjusted KTC", a: led.a.effective.market, b: led.b.effective.market, f: mkt },
+              { k: "Adjusted DVI", a: led.a.effective.dvi, b: led.b.effective.dvi, f: idx,
+                estA: led.a.estimated > 0, estB: led.b.estimated > 0 },
+              { k: "Adjusted CVI", a: led.a.effective.cvi, b: led.b.effective.cvi, f: idx,
+                estA: led.a.estimated > 0, estB: led.b.estimated > 0 },
+              { k: "3yr WAR", a: warA, b: warB, f: fmtWar },
+            ]} />
           ) : (
             <div className="tnote screen">
               {nameA && nameB
@@ -761,7 +720,7 @@ function Build() {
  * add button is dead until the OTHER franchise is named, because this panel
  * lists what this side receives and it receives from over there.
  */
-function Panel({ gets, named, from, rows, lost, priced, onTeam, onAdd, onRemove }: {
+function Panel({ gets, named, from, rows, lost, priced, led, war, onTeam, onAdd, onRemove }: {
   /** who receives — the franchise, or "Side A" / "Side B" when none is named */
   gets: string;
   /** whether a franchise is named (the header's quiet ink says "still open") */
@@ -772,8 +731,11 @@ function Panel({ gets, named, from, rows, lost, priced, onTeam, onAdd, onRemove 
   /** the ledger's priced rows, in the order they went in, so each asset can
    *  show its own estimate flag */
   priced: PricedAsset[];
+  /** this side's ledger — the RAW totals tally under the assets */
+  led: SideLedger; war: number;
   onTeam: () => void; onAdd: () => void; onRemove: (id: string) => void;
 }) {
+  const ap = led.estimated ? "≈ " : "";
   return (
     <div className="v3-side">
       <button type="button" className="trx-sidehd" aria-haspopup="dialog" onClick={onTeam}>
@@ -808,6 +770,110 @@ function Panel({ gets, named, from, rows, lost, priced, onTeam, onAdd, onRemove 
       <button className="addbtn" type="button" onClick={onAdd}>
         {from ? `+ Add from ${from}` : "+ Add"}
       </button>
+      {rows.length > 0 && (
+        /* THE RAW TALLY. What this side gets, summed and unadjusted — the same
+           four figures the offer cards carry, so a package reads the same in
+           both places. The star-adjusted figures live in the favor board
+           below, never here. */
+        <dl className="trx-figs trx-tally" aria-label={`${gets} — raw totals`}>
+          {([
+            ["KTC", mkt(led.raw.market)],
+            ["DVI", `${ap}${idx(led.raw.dvi)}`],
+            ["CVI", `${ap}${idx(led.raw.cvi)}`],
+            ["3yr WAR", fmtWar(war)],
+          ] as const).map(([k, v]) => (
+            <div className="fg" key={k}><dt>{k}</dt><dd>{v}</dd></div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
+/* ---- the favor board ----------------------------------------------------- */
+
+/** Inside this band a row says EVEN. Measured as |A − B| ÷ max(A, B), so a
+ *  4,603-vs-4,335 KTC gap (5.8%) is even and 56.6-vs-0.7 CVI (99%) is not. */
+const EVEN = 0.10;
+
+interface FavorRow {
+  k: string;
+  /** the STAR-ADJUSTED figure per side (WAR: the plain sum — it is not priced
+   *  through the utilization curve, so it has no adjusted form) */
+  a: number; b: number;
+  f: (v: number) => string;
+  estA?: boolean; estB?: boolean;
+}
+
+/**
+ * One row per currency: A's figure, a favor bar, B's figure, a verdict.
+ *
+ * The bar is a DIVERGING bar, centre = even. The marker starts at the middle
+ * and moves TOWARD the favored side's figure by the margin — A ahead by 99%
+ * puts it against A's column, not B's — and gold fills from the centre out to
+ * it. The lit band across the middle is the even zone: a marker inside it is
+ * an EVEN row. It never states a magnitude, only the margin between two
+ * figures, so it does not restate an index as a meter (SKILL §3 on DVI/CVI).
+ *
+ * The verdict is the one place on the board that names a winner, and it is
+ * per currency on purpose: DVI and CVI routinely disagree, and four rows that
+ * disagree are the honest picture. There is no roll-up line.
+ */
+function FavorBoard({ nameA, nameB, rows }: {
+  nameA: string; nameB: string; rows: FavorRow[];
+}) {
+  // the even zone: margin ±EVEN maps to centre ± EVEN/2 of the bar's width
+  const lo = 0.5 - EVEN / 2, hi = 0.5 + EVEN / 2;
+  return (
+    <div className="trx-favor">
+      <div className="band">
+        <span className="lk">Who's favored</span>
+        <span className="r">Star adjusted · even inside ±{Math.round(EVEN * 100)}%</span>
+      </div>
+      {/* A GRID, NOT A TABLE, so a phone can reflow each row to two lines —
+          label and verdict, then A · bar · B — without a second markup tree.
+          The header row is desktop-only; on a phone every figure is beside the
+          bar that explains it and the verdict names the side outright. */}
+      <div className="grid" role="table" aria-label="Who's favored, star adjusted">
+        <div className="hd" role="row">
+          <span className="t" role="columnheader">Measure</span>
+          <span className="a" role="columnheader">{nameA}</span>
+          <span className="bar" role="columnheader">Favor</span>
+          <span className="b" role="columnheader">{nameB}</span>
+          <span className="v" role="columnheader">Verdict</span>
+        </div>
+        {rows.map(r => {
+          const pct = Math.max(r.a, r.b) > 0 ? (r.a - r.b) / Math.max(r.a, r.b) : 0;
+          const side = Math.abs(pct) <= EVEN ? "even" : pct > 0 ? "a" : "b";
+          const verdict = side === "even" ? "Even"
+            : `${side === "a" ? nameA : nameB} +${Math.round(Math.abs(pct) * 100)}%`;
+          // marker position: centre, pushed toward the favored side by the margin
+          const at = 0.5 - pct / 2;
+          const fill = at < 0.5
+            ? { left: `${at * 100}%`, width: `${(0.5 - at) * 100}%` }
+            : { left: "50%", width: `${(at - 0.5) * 100}%` };
+          return (
+            <div key={r.k} className={`row ${side}`} role="row">
+              <span className="t" role="cell">{r.k}</span>
+              <span className={`f a${side === "a" ? " win" : ""}`} role="cell">
+                {r.estA && <span className="est">≈ </span>}{r.f(r.a)}
+              </span>
+              <span className="bar" role="cell">
+                <span className={`fb ${side}`} role="img" aria-label={verdict}>
+                  <span className="win" style={{ left: `${lo * 100}%`, width: `${(hi - lo) * 100}%` }} />
+                  {side !== "even" && <span className="fill" style={fill} />}
+                  <span className="mid" />
+                  <span className="split" style={{ left: `${at * 100}%` }} />
+                </span>
+              </span>
+              <span className={`f b${side === "b" ? " win" : ""}`} role="cell">
+                {r.estB && <span className="est">≈ </span>}{r.f(r.b)}
+              </span>
+              <span className={`v ${side}`} role="cell">{verdict}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

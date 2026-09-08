@@ -160,12 +160,16 @@ export interface Packaged { raw: number; effective: number; adj: number }
  * would come back *less* negative, i.e. the curve would reward holding a
  * liability, which is the one behaviour a scale must not have.
  */
-export function packageValue(values: number[], c: UtilCurve): Packaged {
+export function packageValue(values: number[], c: UtilCurve, at?: (number | null)[]): Packaged {
   let raw = 0, effective = 0;
-  for (const v0 of values) {
-    const v = Math.max(0, v0);
+  for (let i = 0; i < values.length; i++) {
+    const v = Math.max(0, values[i]);
     raw += v;
-    effective += v * utilization(v, c);
+    // `at` is where the curve is EVALUATED when that differs from what the
+    // asset contributes: a converted pick contributes its haircut figure but
+    // starts as often as the player it converts to. See `PricedAsset.utilAt`.
+    const u = Math.max(0, at?.[i] ?? v);
+    effective += v * utilization(u, c);
   }
   return { raw, effective, adj: effective - raw };
 }
@@ -269,6 +273,29 @@ export function monotoneFit(points: [number, number][], minN = 20):
  * Index 0 is the season now in progress.
  */
 export const CVI_TIMING: readonly number[] = [1, 0.35, 0.10];
+
+/**
+ * THE CONVERSION FLOOR (Max, 2026-09-08). A pick is liquid: a contender who
+ * holds a 2028 1st does not have to wait for 2028 — he can trade it today for
+ * a player at roughly its market price, and that player has CVI now. So a
+ * pick's CVI is never lower than what it converts to, less a haircut for the
+ * cost of actually flipping it (you rarely get full price mid-season, and one
+ * pick usually has to be packaged):
+ *
+ *     cvi = baseCvi(price) × max(timing, CVI_CONVERSION)
+
+ * and under the star adjustment a converted pick starts as often as the
+ * player it buys (utilization read at `baseCvi`, not at the haircut figure —
+ * see `PricedAsset.utilAt`).
+ *
+ * Timing still wins for the class drafting now (×1.0); the floor takes over
+ * once the pick is far enough out that holding it is worse than trading it.
+ * 0.7 is a judgment call — fit it from the History ledger, which already has
+ * every trade where a contender sent picks for players, when there are enough.
+ * No DVI equivalent: DVI's own timing (~0.88 a year out) already sits above
+ * any sensible haircut.
+ */
+export const CVI_CONVERSION = 0.7;
 export const DVI_TIMING: readonly number[] =
   [1, 0.95, 0.90, 0.84, 0.77, 0.69, 0.60, 0.50, 0.40];
 
@@ -341,6 +368,9 @@ export interface PickIndex {
   baseDvi: number; baseCvi: number;
   /** the timing multipliers applied, for anyone auditing the figure */
   timeDvi: number; timeCvi: number;
+  /** true when CVI came from the conversion floor rather than from timing —
+   *  i.e. this pick is worth more to a contender traded than held */
+  converted: boolean;
   /** seasons until the pick is made. 0 = this year's class. */
   lag: number;
 }
@@ -379,6 +409,9 @@ export interface PickIndexerInput {
  *     by `timingMultiplier` on the bridge's own per-year stream, which is what
  *     makes a 2028 pick discount brutally under CVI (~×0.07) and mildly under
  *     DVI (~×0.88).
+ *  3. **Conversion floor, CVI only.** The timing discount assumes the pick is
+ *     held to the draft. A contender would trade it instead, so CVI is floored
+ *     at `baseCvi × CVI_CONVERSION` — see that constant.
  *
  * WHAT IT COSTS: the WAR / roster% / start% half of each index is inherited
  * from comparably-priced players rather than computed from the pick's own
@@ -424,10 +457,11 @@ export function makePickIndexer(inp: PickIndexerInput): PickIndexer | null {
     const timeDvi = timingMultiplier(stream, lag, DVI_TIMING);
     const timeCvi = timingMultiplier(stream, lag, CVI_TIMING);
     const baseDvi = fitDvi(price), baseCvi = fitCvi(price);
+    const converted = timeCvi < CVI_CONVERSION;
     return {
-      baseDvi, baseCvi, timeDvi, timeCvi, lag,
+      baseDvi, baseCvi, timeDvi, timeCvi, lag, converted,
       dvi: baseDvi * timeDvi,
-      cvi: baseCvi * timeCvi,
+      cvi: baseCvi * (converted ? CVI_CONVERSION : timeCvi),
     };
   };
 }
@@ -444,6 +478,14 @@ export interface PricedAsset {
    *  model's own. The screen marks these; an estimated index rendered
    *  identically to a computed one is a lie of typography. */
   estimated: boolean;
+  /** Where the utilization curve is evaluated, per currency, when that is not
+   *  the contributed value. A CONVERTED pick contributes
+   *  `baseCvi × CVI_CONVERSION` but is flipped for a player scoring `baseCvi`,
+   *  and it is THAT player who does or does not start — so the curve is read
+   *  at `baseCvi`, and the haircut is a cost on the whole, not a demotion of
+   *  the player. Read at the haircut figure instead, the star adjustment
+   *  would say "a 48 never starts" about a pick that buys a 68. */
+  utilAt?: Partial<Triple>;
 }
 
 export function priceAsset(a: LedgerAsset, idx: PickIndexer | null): PricedAsset {
@@ -453,6 +495,7 @@ export function priceAsset(a: LedgerAsset, idx: PickIndexer | null): PricedAsset
       return {
         asset: a, estimated: true,
         value: { market: a.ktc ?? 0, dvi: e.dvi, cvi: e.cvi },
+        ...(e.converted ? { utilAt: { cvi: e.baseCvi } } : {}),
       };
     }
   }
@@ -482,7 +525,9 @@ export function sideLedger(rows: LedgerAsset[], idx: PickIndexer | null): SideLe
   const priced = rows.map(r => priceAsset(r, idx));
   const raw = zero(), effective = zero(), adj = zero();
   for (const lens of LENSES) {
-    const p = packageValue(priced.map(x => x.value[lens]), UTIL_CURVES[lens]);
+    const p = packageValue(
+      priced.map(x => x.value[lens]), UTIL_CURVES[lens],
+      priced.map(x => x.utilAt?.[lens] ?? null));
     raw[lens] = p.raw; effective[lens] = p.effective; adj[lens] = p.adj;
   }
   return {

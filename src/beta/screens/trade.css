@@ -82,6 +82,96 @@
   font: 400 11px/1.4 var(--sans); color: var(--dim);
 }
 
+/* ---- the raw tally under a panel ----------------------------------------
+   The same `.trx-figs` pairs the offer cards use, parked at the foot of the
+   panel on the band surface so it reads as a total of what is above it. */
+.trx-tally {
+  margin: 0; padding: 8px 10px 9px;
+  background: var(--band); border-top: 1px solid var(--rule);
+}
+.trx-tally dd { color: var(--txt2); }
+
+/* ---- the favor board ----------------------------------------------------
+   (Max, 2026-09-08.) One row per currency, star adjusted, and a diverging
+   favor bar between the two figures that says which side it favors. This replaces the
+   no-verdict ledger on this screen; the "no winner" comments in beta.css
+   describe the shared `.v3-ledger`, which the offer cards still honour.
+
+   Bar anatomy: a `--band` track, a lit slab across the even zone, a 1px
+   `--dim` tick at 50%, gold fill from centre out to the marker, and the
+   marker itself in `--txt`, pushed toward the favored side by the margin.
+   Not a meter — it never states a magnitude, only a margin. */
+.trx-favor { background: var(--bg); border-top: 3px solid var(--acc); }
+.trx-favor .band {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+  padding: 8px var(--v3pad); background: var(--deep); border-bottom: 1px solid var(--rule);
+}
+.trx-favor .lk {
+  font: 600 11px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase; color: var(--acc);
+}
+.trx-favor .r {
+  font: 600 10px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--dim3);
+  text-align: right;
+}
+/* PHONE FIRST: two lines per row. Line one is the label and the verdict,
+   line two is A's figure · the bar · B's figure. The header row is not
+   rendered here — every figure sits beside the bar that explains it and the
+   verdict names the side in words. 900px up is the five-column table. */
+.trx-favor .grid { font-variant-numeric: tabular-nums; }
+.trx-favor .hd { display: none; }
+.trx-favor .row {
+  display: grid;
+  /* FIXED figure tracks, so every bar is the same length down the board and
+     the centre ticks line up: "≈ 4,323" is seven mono glyphs at 15px, ~4.3em */
+  grid-template-columns: 4.6em minmax(0, 1fr) 4.6em;
+  grid-template-areas: "t t v" "a bar b";
+  column-gap: 10px; row-gap: 7px; align-items: center;
+  padding: 10px var(--v3pad); border-bottom: 1px solid var(--hair);
+}
+.trx-favor .row:nth-child(even) { background: var(--deep); }
+.trx-favor .row .t { grid-area: t; }
+.trx-favor .row .a { grid-area: a; }
+.trx-favor .row .bar { grid-area: bar; min-width: 0; }
+.trx-favor .row .b { grid-area: b; }
+.trx-favor .row .v { grid-area: v; }
+.trx-favor .t {
+  font: 600 11px/1.2 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+  white-space: nowrap;
+}
+.trx-favor .f {
+  font: 700 15px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt);
+  white-space: nowrap;
+}
+.trx-favor .f.a { text-align: right; }
+.trx-favor .f.b { text-align: left; }
+.trx-favor .f.win { color: var(--acc); }
+.trx-favor .f .est { color: var(--dim); font-weight: 400; }
+.trx-favor .v {
+  font: 700 12px/1.2 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+  text-align: right;
+}
+.trx-favor .v.a, .trx-favor .v.b { color: var(--acc); }
+
+.trx-favor .fb {
+  display: block; position: relative; height: 12px;
+  background: var(--band); border: 1px solid var(--rule);
+}
+.trx-favor .fb span { position: absolute; top: 0; bottom: 0; display: block; }
+/* THE EVEN ZONE is lit, not hinted: a marker either sits in it or it does not,
+   and at --rule on --band the old band was a rumour. --dim2 at 35% reads as a
+   pale slab against the track with hard --dim edges, and stays under the gold
+   fill so a favored row still reads as gold crossing out of it. */
+.trx-favor .fb .win {
+  background: color-mix(in srgb, var(--dim2) 35%, transparent);
+  border-left: 1px solid var(--dim); border-right: 1px solid var(--dim);
+  box-sizing: border-box;
+}
+.trx-favor .fb .fill { background: var(--acc); }
+.trx-favor .fb .mid { left: 50%; width: 1px; background: var(--dim); transform: translateX(-.5px); }
+.trx-favor .fb .split { top: -3px; bottom: -3px; width: 2px; background: var(--txt); transform: translateX(-1px); z-index: 1; }
+.trx-favor .fb.even .split { background: var(--txt2); }
+
+
 /* ---- the ledger, transposed ---------------------------------------------
    Two overrides on beta.css's `.v3-ledger`, both scoped to this screen, both
    because this ledger's COLUMNS are franchises rather than currencies.
@@ -301,6 +391,32 @@
   /* beta.css's own desktop size, restated: the phone rule above outranks its
      media query, so leaving this out would pin the headline at 15px here */
   .trx-build .v3-ledger td .big { font-size: 21px; }
+
+  /* the favor board as a five-column table, header row and all */
+  .trx-favor .hd, .trx-favor .row {
+    display: grid;
+    grid-template-columns: 19% 14% minmax(0, 1fr) 14% 18%;
+    grid-template-areas: "t a bar b v";
+    column-gap: 0; align-items: center; padding: 0;
+  }
+  .trx-favor .hd {
+    background: var(--band); border-bottom: 1px solid var(--rule);
+  }
+  .trx-favor .hd span {
+    padding: 7px 8px;
+    font: 600 10.5px/1.25 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim2);
+    text-align: right; overflow-wrap: anywhere;
+  }
+  .trx-favor .hd .t { grid-area: t; text-align: left; padding-left: var(--v3pad); }
+  .trx-favor .hd .a { grid-area: a; }
+  .trx-favor .hd .bar { grid-area: bar; text-align: center; }
+  .trx-favor .hd .b { grid-area: b; text-align: left; }
+  .trx-favor .hd .v { grid-area: v; padding-right: var(--v3pad); }
+  .trx-favor .row > span { padding: 11px 8px; }
+  .trx-favor .row .t { padding-left: var(--v3pad); }
+  .trx-favor .row .v { padding-right: var(--v3pad); }
+  .trx-favor .row:nth-child(even) { background: none; }
+  .trx-favor .row:nth-child(odd) { background: var(--deep); }
 
   /* Both halves of the offer navigation on screen at once — which is the whole
      reason the "All offers" chip exists on a phone and not here. */
