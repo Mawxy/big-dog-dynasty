@@ -232,3 +232,8 @@
      layout 208px narrower than the viewport */
   .lgx-champ .nm { font-size: 38px; }
 }
+
+/* ---- movers: the market's source and window chips ----------------------
+   A breath between the two chip groups, so "FantasyCalc 7d" does not read as
+   one control. */
+.mvx-gap { flex: 0 0 10px; }

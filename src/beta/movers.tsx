@@ -19,6 +19,14 @@ import { IdCell, NUL, Spine, TapRow, useBetaPath } from "./ui";
  * Every hook returns the FULL list, ordered; `limit` is the table's business.
  */
 
+/** Which half of a two-sided module to render: the first group, the second,
+ *  or both stacked (League's default). The Movers screen shows one at a
+ *  time behind a lens strip, so the second half is a tap away rather than a
+ *  scroll past the first (Max, 2026-09-08). */
+export type Half = "a" | "b" | "both";
+const halves = <T,>(a: T, b: T, half: Half): T[] =>
+  half === "a" ? [a] : half === "b" ? [b] : [a, b];
+
 /** how deep into the startable universe a value play may sit — the classic
  *  board's VALUE_PLAY_DEPTH, restated so the two shells qualify the same way */
 export const VALUE_PLAY_DEPTH = 100;
@@ -71,8 +79,8 @@ export function useGapRows(teams: Team[] | null | undefined) {
   }, [dvi, cvi, teams, players]);
 }
 
-export function GapTable({ rows, limit }: {
-  rows: NonNullable<ReturnType<typeof useGapRows>>; limit?: number;
+export function GapTable({ rows, limit, half = "both" }: {
+  rows: NonNullable<ReturnType<typeof useGapRows>>; limit?: number; half?: Half;
 }) {
   const betaPath = useBetaPath();
   return (
@@ -80,7 +88,7 @@ export function GapTable({ rows, limit }: {
       {/* THE GROUP LABEL IS THE HEADER ROW (Max, 2026-09-02): each group opens
           with one row that is both the label and the column headers, and the
           first group's row carries the width hints the fixed layout reads. */}
-      {([["Win now", rows.now], ["Dynasty", rows.later]] as const).map(([label, list]) => (
+      {halves(["Win now", rows.now] as const, ["Dynasty", rows.later] as const, half).map(([label, list]) => (
         <tbody key={label}>
           <tr className="lgx-cols">
             <th className="c sp">#</th>
@@ -121,11 +129,13 @@ export const dynNote = (dyn: DynastyMovers | null | undefined) => dyn
   ? `Last ${dyn.meta.window_days} days, ${dyn.meta.leagues?.toLocaleString() ?? "—"} leagues`
   : undefined;
 
-export function DynTable({ dyn, limit }: { dyn: DynastyMovers; limit?: number }) {
+export function DynTable({ dyn, limit, half = "both" }: {
+  dyn: DynastyMovers; limit?: number; half?: Half;
+}) {
   const betaPath = useBetaPath();
   return (
     <table className="v3tbl lgx-grid">
-      {([["Going over value", dyn.overpaid], ["Going under value", dyn.underpaid]] as const)
+      {halves(["Going over value", dyn.overpaid] as const, ["Going under value", dyn.underpaid] as const, half)
         .map(([label, list]) => (
         <tbody key={label}>
           <tr className="lgx-cols">
@@ -166,39 +176,54 @@ export interface MoverRow {
   pid: string; name: string; pos: string; nfl: string; price: number; d: number;
 }
 
-/** KeepTradeCut's seven-day change. The VALUE is priced in this league's
- *  TE-premium column through `ktcOf`; the TREND stays the base feed's, because
- *  KTC publishes no per-tier trends — direction and magnitude read the same
- *  either way. */
-export function useMarketMovers(vals: Values | null | undefined) {
+export type MarketSource = "ktc" | "fc";
+export type MarketWindow = 7 | 14 | 30;
+export const MARKET_WINDOWS: readonly MarketWindow[] = [7, 14, 30];
+export const SOURCE_NAME: Record<MarketSource, string> = { ktc: "KeepTradeCut", fc: "FantasyCalc" };
+
+/**
+ * A market's change over a window (Max, 2026-09-08: source and window are
+ * both the reader's to pick on the Movers screen; League reads KTC over 7).
+ *
+ * KTC's VALUE is priced in this league's TE-premium column through `ktcOf`;
+ * its TREND stays the base feed's, because KTC publishes no per-tier trends
+ * — direction and magnitude read the same either way. FantasyCalc has one
+ * column. Every trend is our own, off the daily snapshots in
+ * values_history.json (fetch_values.py), so the three windows are measured
+ * the same way for both sources.
+ */
+export function useMarketMovers(
+  vals: Values | null | undefined, source: MarketSource = "ktc", window: MarketWindow = 7,
+) {
   const { players, meta } = useLeague();
   return useMemo(() => {
     if (!vals) return null;
     const rows: MoverRow[] = [];
     for (const [pid, v] of Object.entries(vals.players)) {
       const info = players[pid];
-      const price = ktcOf(v, meta.tep);
-      const d = v.ktcT?.["7"];
+      const price = source === "ktc" ? ktcOf(v, meta.tep) : v.fc ?? null;
+      const d = (source === "ktc" ? v.ktcT : v.fcT)?.[String(window)];
       if (!info || price == null || d == null || d === 0) continue;
       rows.push({ pid, name: info[0], pos: info[1], nfl: info[2], price, d });
     }
     rows.sort((a, b) => b.d - a.d);
-    // WHEN KTC LAST ANSWERED. A missed scrape no longer blanks the module:
-    // the feed carries each player's trend as of the last day KTC quoted him
-    // and stamps `ktcAsOf`. The note says the newest such date, so a reader
-    // knows the moves are real and a day old rather than today's.
+    // WHEN THE SOURCE LAST ANSWERED. A missed scrape no longer blanks the
+    // module: the feed carries each player's trend as of the last day the
+    // source quoted him and stamps `<src>AsOf`. The note says the newest such
+    // date, so a reader knows the moves are real and a day old, not today's.
     const asOf = Object.values(vals.players)
-      .map(v => v.ktcAsOf).filter((d): d is string => !!d).sort().pop() ?? null;
+      .map(v => (source === "ktc" ? v.ktcAsOf : v.fcAsOf))
+      .filter((d): d is string => !!d).sort().pop() ?? null;
     return {
       up: rows.filter(r => r.d > 0),
       down: rows.filter(r => r.d < 0).reverse(),
-      asOf,
+      asOf, source, window,
     };
-  }, [vals, players, meta.tep]);
+  }, [vals, players, meta.tep, source, window]);
 }
 
-export const marketNote = (m: { asOf: string | null } | null | undefined) =>
-  `KeepTradeCut, 7-day change in points${m?.asOf
+export const marketNote = (m: { asOf: string | null; source?: MarketSource; window?: MarketWindow } | null | undefined) =>
+  `${SOURCE_NAME[m?.source ?? "ktc"]}, ${m?.window ?? 7}-day change in points${m?.asOf
     ? ` · as of ${new Date(m.asOf + "T12:00:00").toLocaleDateString(undefined, { month: "short", day: "numeric" })}`
     : ""}`;
 
@@ -208,22 +233,24 @@ export const marketNote = (m: { asOf: string | null } | null | undefined) =>
  *  screen has no floor — the whole point of it is the whole list. */
 export const MODULE_MIN_VALUE = 2000;
 
-export function MarketTable({ movers, limit, minValue }: {
+export function MarketTable({ movers, limit, minValue, half = "both" }: {
   movers: NonNullable<ReturnType<typeof useMarketMovers>>; limit?: number;
   /** drop rows priced under this before taking `limit` */
   minValue?: number;
+  half?: Half;
 }) {
   const betaPath = useBetaPath();
   const floor = (list: MoverRow[]) => (minValue ? list.filter(r => r.price >= minValue) : list);
   return (
     <table className="v3tbl lgx-grid">
-      {([["Rising", floor(movers.up)], ["Falling", floor(movers.down)]] as const).map(([label, list]) => (
+      {halves(["Rising", floor(movers.up)] as const, ["Falling", floor(movers.down)] as const, half)
+        .map(([label, list]) => (
         <tbody key={label}>
           <tr className="lgx-cols">
             <th className="c sp">#</th>
             <th className="t"><span className="k">{label}</span></th>
             <th className="n" style={{ width: "18%" }}>Value</th>
-            <th className="n" style={{ width: "20%" }}>7d</th>
+            <th className="n" style={{ width: "20%" }}>{movers.window}d</th>
           </tr>
           {(limit ? list.slice(0, limit) : list).map((r, i) => (
             <TapRow key={`${label}${r.pid}`} to={betaPath(`/player/${r.pid}`)}

@@ -9,7 +9,7 @@ import { useIdentity } from "../../lib/identity";
 import { MODEL_NOTE, splitCurve, STREAM_NOTE, useModel } from "../../lib/model";
 import { useIndexModels } from "../../lib/useIndices";
 import { useSeasonPhase } from "../model";
-import { useDynMovers, useGapRows, useMarketMovers } from "../movers";
+import { useMarketMovers } from "../movers";
 import { Band, NUL, useBetaPath } from "../ui";
 import { RouteLink } from "../../components/RouteLink";
 import "./more.css";
@@ -113,9 +113,7 @@ export default function More() {
   const phase = useSeasonPhase();
   const model = useModel();
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
-  // the three mover modules' populations, for their rows' state figures
-  const gap = useGapRows(teams);
-  const dyn = useDynMovers();
+  // the market's freshness, for the Trends row's state figure
   const movers = useMarketMovers(useJson<Values>("data/values.json", "globalDaily").data);
   const [openModel, setOpenModel] = useState(false);
   const [openMeth, setOpenMeth] = useState(false);
@@ -224,19 +222,13 @@ export default function More() {
         <Row to={betaPath("/teams")} name="Teams"
           sub="Every roster ranked on DVI, CVI, projected WAR and both market prices"
           state={teams ? `${teams.length} franchises` : NUL} />
-        {/* THE THREE MOVER MODULES, whole (Max, 2026-09-08). League shows the
-            top five of each; these open the full list. They sit in this band
-            because all three reprice nightly. The state figure is what a
-            reader is opening: how many rows the list holds. */}
-        <Row to={betaPath("/movers/value")} name="Win now vs dynasty"
-          sub="Rostered players where CVI and DVI disagree most — contender assets and stashes"
-          state={gap ? `${gap.now.length + gap.later.length} players` : NUL} />
-        <Row to={betaPath("/movers/dynasty")} name="Dynasty movers"
-          sub="Who the wider dynasty market is paying over and under value for"
-          state={dyn ? `${dyn.overpaid.length + dyn.underpaid.length} players` : NUL} />
-        <Row to={betaPath("/movers/market")} name="Market movers"
-          sub="KeepTradeCut risers and fallers over the last seven days"
-          state={movers ? `${movers.up.length + movers.down.length} players` : NUL} />
+        {/* THE MOVER HUB (Max, 2026-09-08). League shows the top five of each
+            of its three mover modules; Trends opens the whole lists. It sits
+            in this band because all three reprice nightly, and it is the
+            rail's Explore entry on desktop. */}
+        <Row to={betaPath("/trends")} name="Trends"
+          sub="Win now vs dynasty, dynasty movers, market movers — the full lists"
+          state={movers ? (movers.asOf ? `market as of ${movers.asOf.slice(5).replace("-", "/")}` : "market fresh today") : NUL} />
       </div>
 
       <Band label="The long view" note="What the board has already settled" />

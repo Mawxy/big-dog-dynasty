@@ -100,15 +100,38 @@ def name_index(players):
             idx[key] = (pid, pref)
     return idx
 
+def ktc_players(html):
+    """The rankings page's player array, wherever KTC keeps it this month.
+
+    On 2026-09-08 KTC moved it out of the inline `var playersArray = [...]`
+    into a `<script id="ktc-players" type="application/json">` block that
+    the page then parses (`var playersArray = JSON.parse(document
+    .getElementById('ktc-players').textContent)`). The row shape did not
+    change — superflexValues.value / rank / tep / overall7DayTrend are all
+    still there — so the parser tries the JSON block first and falls back
+    to the old inline literal, and says which one it found.
+    """
+    m = re.search(
+        r"<script[^>]*\bid=[\"']ktc-players[\"'][^>]*>(.*?)</script>", html, re.S)
+    if m:
+        arr = json.loads(m.group(1).strip())
+        print(f"KTC: {len(arr)} rows from the ktc-players JSON block")
+        return arr
+    m = re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S)
+    if m:
+        arr = json.loads(m.group(1))
+        print(f"KTC: {len(arr)} rows from the inline playersArray")
+        return arr
+    raise RuntimeError("playersArray not found — KTC page layout changed "
+                       "(neither #ktc-players nor an inline literal)")
+
+
 def fetch_ktc(out, picks, players):
     idx = name_index(players)
     tep_hits = [0]   # list so the row loop can bump it
     html = get(KTC_URL)
-    m = re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S)
-    if not m:
-        raise RuntimeError("playersArray not found — KTC page layout changed")
     rows = []
-    for row in json.loads(m.group(1)):
+    for row in ktc_players(html):
         pos = row.get("position")
         sf = row.get("superflexValues") or {}
         if pos not in CORE:

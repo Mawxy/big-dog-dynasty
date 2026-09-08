@@ -22,6 +22,7 @@ import Teams from "./screens/Teams";
 import Trade from "./screens/Trade";
 import More from "./screens/More";
 import Movers from "./screens/Movers";
+import Trends from "./screens/Trends";
 import "./beta.css";
 
 /* The deep destinations More points at are the classic board's views, mounted
@@ -279,7 +280,8 @@ function BetaBoard() {
                     on a Trade screen showing an empty machine. */}
                 <Route path="ledger" element={<Navigate replace to={`${base}/trade?scope=history`} />} />
                 <Route path="more" element={<More />} />
-                {/* the whole of a League module: value | dynasty | market */}
+                {/* the mover hub, and the whole of one module: value | dynasty | market */}
+                <Route path="trends" element={<Trends />} />
                 <Route path="movers/:kind" element={<Movers />} />
                 <Route path="player/:pid" element={<PlayerRoute />} />
                 <Route path="drafts" element={<Draft />} />
@@ -337,13 +339,16 @@ function BetaBoard() {
             { id: "seasons", label: "Seasons", to: `${base}/seasons` },
             { id: "history", label: "History", to: `${base}/history` },
             { id: "insights", label: "Insights", to: `${base}/insights` },
+            /* Trends lights for its hub AND for the Movers screens under it —
+               they are one destination with three floors (Max, 2026-09-08). */
+            { id: "trends", label: "Trends", to: `${base}/trends`, lit: ["trends", "movers"] },
             /* Ledger keeps its place in Explore and loses its page: it points
                at Trade's History scope, the same address the `ledger` route
                redirects to. It never lights, because the Trade tab above it
                does — two lit rows would be two answers to "where am I". */
             { id: "ledger", label: "Ledger", to: `${base}/trade?scope=history` },
           ].map(x => (
-            <a key={x.id} className={`sub desk${seg === x.id ? " on" : ""}`}
+            <a key={x.id} className={`sub desk${(("lit" in x ? x.lit : [x.id]) as string[]).includes(seg ?? "") ? " on" : ""}`}
               href={`#${x.to}`}
               onClick={e => {
                 if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
