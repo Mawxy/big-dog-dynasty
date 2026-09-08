@@ -1124,15 +1124,8 @@ export default function Players() {
              definition in the Key, where it has room to be a sentence instead
              of a clause and where a reader goes when they want it. A band note
              that repeats the Key is a second copy to keep in step. The price
-             board keeps its note: it has no Key habit yet and the one line it
-             carries is an argument about the columns, not a definition of
-             them. */
+             board's "never blended" line went the same way (Max, 2026-09-08). */
           <span className="plx-bandr">
-            {!hist && (
-              <span className="band-note">
-                Three horizons side by side, never blended — where they disagree is the point
-              </span>
-            )}
             <button type="button" className={`plx-keybtn${keyOpen ? " on" : ""}`}
               aria-expanded={keyOpen} onClick={() => setKeyOpen(v => !v)}>
               {keyOpen ? "Close" : "Key"}
