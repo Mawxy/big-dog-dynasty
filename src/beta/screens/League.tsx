@@ -252,6 +252,10 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
 
   const nameOf = (list: Team[] | null | undefined, rid: number) =>
     list?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
+  /** whose roster a player is on — that season's end-of-season roster, which
+   *  is the closest thing the data has; null when nobody holds him */
+  const teamOf = (list: Team[] | null | undefined, pid: string) =>
+    list?.find(t => t.players.includes(pid))?.team ?? null;
 
   /* ---- this week -------------------------------------------------------- */
   const thisWeek = useMemo(() => {
@@ -332,21 +336,29 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     const upset = winners.length
       ? winners.reduce((m, r) => (line[String(r.rid)].wp! < line[String(m.rid)].wp! ? r : m))
       : null;
-    // THE WEEK'S WAR LEADER, among players who were STARTED — a bench 40 is
-    // a fact about a bench, not about the week
-    const startedBy = new Map<string, number>();
-    for (const r of rows) for (const pid of r.starters) if (pid && pid !== "0") startedBy.set(pid, r.rid);
-    let best: { pid: string; war: number; rid: number } | null = null;
+    // THE CLOSEST SCORE (Max, 2026-09-08): the week's narrowest margin, each
+    // game counted once from its winner's side. A tie is a margin of zero.
+    let closest: { rid: number; pts: number; opp: number; oppPts: number } | null = null;
+    for (const r of rows) {
+      if (r.opp == null || r.oppPts == null || r.pts < r.oppPts) continue;
+      if (!closest || r.pts - r.oppPts < closest.pts - closest.oppPts)
+        closest = { rid: r.rid, pts: r.pts, opp: r.opp, oppPts: r.oppPts };
+    }
+    // THE WEEK'S TOP SCORE AT EACH POSITION, bench or starter (Max,
+    // 2026-09-08): weekly.json scores every rostered player, so a 40 left on
+    // a bench counts — it is a fact about the week, whoever sat him.
+    const posTop: Record<string, { pid: string; pts: number } | null> = {};
     if (weeklyR) {
       for (const [pid, wrows] of Object.entries(weeklyR)) {
-        const rid = startedBy.get(pid);
-        if (rid == null) continue;
         const w = wrows.find(x => x[0] === wk);
-        if (w && (!best || w[5] > best.war)) best = { pid, war: w[5], rid };
+        if (!w) continue;
+        const pos = pInfo(players, pid)[1];
+        const cur = posTop[pos];
+        if (!cur || w[1] > cur.pts) posTop[pos] = { pid, pts: w[1] };
       }
     }
-    return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, best };
-  }, [mwR, oddsR, weeklyR]);
+    return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, closest, posTop };
+  }, [mwR, oddsR, weeklyR, players]);
 
   const seasonsRoute = (season: string, wk: number) => betaPath(`/seasons/${season}/${wk}`);
   const twSeason = rosterSeason;
@@ -422,13 +434,25 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               ? `${nameOf(teamsR, lastWeek.upset.rid)} beat ${lastWeek.upset.opp != null ? nameOf(teamsR, lastWeek.upset.opp) : "—"}`
               : "no winner beat the line",
             to: seasonsRoute(lwSeason, lastWeek.wk) },
-          { key: "war", label: "WAR leader",
-            value: lastWeek.best ? fmtWar(lastWeek.best.war) : DASH, acc: !!lastWeek.best,
-            sub: lastWeek.best
-              ? `${pInfo(players, lastWeek.best.pid)[0]} · ${nameOf(teamsR, lastWeek.best.rid)}`
-              : (weeklyR ? "no starter scored" : "loading…"),
-            to: lastWeek.best ? betaPath(`/player/${lastWeek.best.pid}`) : undefined },
+          { key: "close", label: "Closest score",
+            value: lastWeek.closest ? fmt(lastWeek.closest.pts - lastWeek.closest.oppPts, 1) : DASH,
+            sub: lastWeek.closest
+              ? `${nameOf(teamsR, lastWeek.closest.rid)} ${fmt(lastWeek.closest.pts, 1)} · ${nameOf(teamsR, lastWeek.closest.opp)} ${fmt(lastWeek.closest.oppPts, 1)}`
+              : "no scored game",
+            to: seasonsRoute(lwSeason, lastWeek.wk) },
         ]} />
+      )}
+      {/* the week's best at each position, bench or starter — the same four
+          blocks the season and all-time views carry, scoped to one week */}
+      {lastWeek && (
+        <PosLeaders
+          leaders={POSITIONS.map(pos => {
+            const t = lastWeek.posTop[pos];
+            return t ? { pid: t.pid, value: `${fmt(t.pts, 1)} pts`,
+              note: `${teamOf(teamsR, t.pid) ?? "unrostered"} · wk ${lastWeek.wk}` } : null;
+          })}
+          settled={!!weeklyR}
+          empty={pos => `no ${pos} scored`} />
       )}
     </>
   );
@@ -609,7 +633,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       const best = rows.filter(r => r[1] === pos && typeof r[6] === "number")
         .sort((a, b) => b[6] - a[6])[0];
       return best && best[6] > 0
-        ? { pid: best[0], war: best[6], gp: best[2],
+        ? { pid: best[0], value: `${fmtWar(best[6])} WAR`,
           note: `${best[2]} game${best[2] === 1 ? "" : "s"} · ${rosterSeason} so far` }
         : null;
     });
@@ -859,7 +883,9 @@ interface AllTimeRow {
  * scored yet, and reads `empty(pos)`.
  */
 function PosLeaders({ leaders, settled, empty }: {
-  leaders: ({ pid: string; war: number; gp: number; note: string } | null)[] | null;
+  /** per position, in POSITIONS order: the player, his headline figure
+   *  already formatted with its unit ("2.31 WAR", "48.6 pts"), and a note */
+  leaders: ({ pid: string; value: string; note: string } | null)[] | null;
   settled: boolean;
   empty: (pos: string) => string;
 }) {
@@ -879,7 +905,7 @@ function PosLeaders({ leaders, settled, empty }: {
                 </RouteLink>
               : <span className="nm">{settled ? DASH : "\u00a0"}</span>}
             <div className="sub">
-              {row ? `${fmtWar(row.war)} WAR · ${row.note}` : settled ? empty(pos) : "\u00a0"}
+              {row ? `${row.value} · ${row.note}` : settled ? empty(pos) : "\u00a0"}
             </div>
           </div>
         );
@@ -1058,7 +1084,7 @@ function AllTimeView({ played }: { played: string[] }) {
       <Band label="Top performers · all-time"
         note="Most career WAR at each position across every league season" />
       <PosLeaders
-        leaders={posLeaders?.map(x => x.row && ({ pid: x.row.pid, war: x.row.war, gp: x.row.gp,
+        leaders={posLeaders?.map(x => x.row && ({ pid: x.row.pid, value: `${fmtWar(x.row.war)} WAR`,
           note: `${x.row.seasons} season${x.row.seasons === 1 ? "" : "s"} · ${x.row.gp} games` })) ?? null}
         settled={!!careers} empty={pos => `no ${pos} scored`} />
 
