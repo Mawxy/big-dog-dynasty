@@ -615,6 +615,8 @@ def main():
                 "name": t["team"], "manager": t["manager"],
                 "wins": t["wins"], "losses": t["losses"], "ties": t["ties"],
                 "fpts": t["fpts"], "ppg": round(t["fpts"] / g, 1) if g else 0,
+                # Max PF, for the all-time standings (Max, 2026-09-09)
+                "ppts": t.get("ppts"),
                 "war": team_war.get(rid, 0.0), "seed": seed.get(rid),
                 "finish": finish.get(rid),
                 "top": team_top.get(rid), "low": team_low.get(rid),

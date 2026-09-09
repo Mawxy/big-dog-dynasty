@@ -547,6 +547,9 @@ export interface FranchiseSeason {
   rid?: number;
   wins: number; losses: number; ties: number;
   fpts: number; ppg: number; war: number;
+  /** Sleeper's potential points (Max PF). Absent in data built before
+   *  2026-09-09; null when Sleeper has none for that season. */
+  ppts?: number | null;
   seed: number | null; finish: number | null;
   top?: { pid: string; war: number } | null;                 // best WAR contributor
   low?: { pid: string; war: number; starts: number } | null; // weakest regular starter (>6 starts)

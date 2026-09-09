@@ -186,9 +186,16 @@ export function PosSpine({ color }: { color?: string }) {
  * the column: Christian McCaffrey with four tiers and three ×N counts rendered
  * as "C.". A name is the row's handle — it is how a reader finds the row they
  * came for — and nothing gets to take width from it. The marks moved to the
- * sub-line, which is short by construction and has the slack. */
-export function IdCell({ name, sub, tags, to }: {
+ * sub-line, which is short by construction and has the slack.
+ *
+ * The one exception is `mark`, and it is DESKTOP ONLY (Max, 2026-09-09): the
+ * all-time standings put a franchise's honor marks beside its name, where a
+ * 900px+ row has the width to spare. `.idc-m` is display:none under 900px, so
+ * the phone rule above still holds — line 1 is the name and nothing else. */
+export function IdCell({ name, sub, tags, to, mark }: {
   name: ReactNode; sub?: ReactNode;
+  /** honor marks beside the name — rendered only at desktop widths */
+  mark?: ReactNode;
   /** SLOT TAGS — FLX, SFLX, TAXI, IR — on the sub-line, after `sub`.
    *
    *  Passed structurally rather than joined into `sub` by the caller, because a
@@ -214,6 +221,7 @@ export function IdCell({ name, sub, tags, to }: {
             e.preventDefault(); nav(to);
           }}>{name}</a>
           : name}
+        {mark != null && <span className="idc-m">{mark}</span>}
       </div>
       <div className="idc-s">{subLine(sub, tags)}</div>
     </td>

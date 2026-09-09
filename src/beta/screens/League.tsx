@@ -12,6 +12,9 @@ import {
 } from "../../lib/league";
 import { RouteLink } from "../../components/RouteLink";
 import PlayoffBracket from "../../components/PlayoffBracket";
+import { HonorSprite } from "../../components/HonorMarks";
+import TeamHonorMarks from "../../components/TeamHonorMarks";
+import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamHonors";
 import DraftBoardGrid from "../../components/DraftBoardGrid";
 import { buildHistory } from "../../lib/draftHistory";
 import { useSeasonPhase, useStandings } from "../model";
@@ -1069,11 +1072,19 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 /** one franchise's whole record */
 interface AllTimeRow {
   rid: number; team: string; manager: string;
+  /** franchises.json key — what the honor index is filed under */
+  fkey: string;
   seasons: number; wins: number; losses: number; ties: number;
   fpts: number; ppg: number;
-  /** mean playoff-inclusive finish over the seasons that have one */
+  /** Max PF summed over the seasons that carry it; null when none does */
+  ppts: number | null;
+  /** mean playoff-inclusive finish over the seasons that have one, and the
+   *  best of them */
   avgFinish: number | null;
+  bestFinish: number | null;
   titles: number;
+  /** seasons finished as a top-2 seed — a first-round bye */
+  byes: number;
 }
 
 /** one player's career in this league */
@@ -1121,7 +1132,24 @@ function PosLeaders({ leaders, settled, empty }: {
   );
 }
 
-interface CareerRow { pid: string; pos: string; gp: number; war: number; seasons: number }
+interface CareerRow {
+  pid: string; pos: string; gp: number; pts: number; war: number; seasons: number;
+  /** first and last league season he scored in — the years, not a count */
+  first: string; last: string;
+  /** his best single season's WAR, and which season it was */
+  best: number; bestSeason: string;
+}
+
+/** a player's record in the games he STARTED, regular season and elimination
+ *  playoff games apart. A win is the franchise's win that week; he was in the
+ *  lineup, so it is on his line. */
+interface StarterRecord {
+  w: number; l: number; t: number;
+  pw: number; pl: number; pt: number;
+  /** his points in elimination games while starting, and how many weeks
+   *  that is — bracket.json `stars`, cut to the same games as the record */
+  ppts: number; pg: number;
+}
 
 /**
  * Every franchise's record across the league's life, and the career WAR
@@ -1140,6 +1168,9 @@ function AllTimeView({ played }: { played: string[] }) {
   const betaPath = useBetaPath();
   const frQ = useJson<Franchises>("franchises.json");
   const fr = frQ.data;
+  // titles, top seeds, points crowns, playoff trips — the marks the Team page
+  // shows, beside each franchise's name in the standings (desktop only)
+  const honorIdx = useTeamHonors(played);
 
   const rows = useMemo<AllTimeRow[] | null>(() => {
     if (!fr) return null;
@@ -1156,13 +1187,19 @@ function AllTimeView({ played }: { played: string[] }) {
       const losses = ss.reduce((a, x) => a + x.losses, 0);
       const ties = ss.reduce((a, x) => a + x.ties, 0);
       const fpts = ss.reduce((a, x) => a + x.fpts, 0);
+      // Max PF over the seasons Sleeper priced a best lineup for — a partial
+      // sum is still the right denominator for the share, per season
+      const withMax = ss.filter(x => x.ppts != null);
+      const ppts = withMax.length ? withMax.reduce((a, x) => a + (x.ppts as number), 0) : null;
       const games = wins + losses + ties;
       out.push({
-        rid: last.rid ?? Number(key), team: last.name, manager: last.manager,
-        seasons: ss.length, wins, losses, ties, fpts,
+        rid: last.rid ?? Number(key), team: last.name, manager: last.manager, fkey: key,
+        seasons: ss.length, wins, losses, ties, fpts, ppts,
         ppg: games ? fpts / games : 0,
         avgFinish: fins.length ? mean(fins) : null,
+        bestFinish: fins.length ? Math.min(...fins) : null,
         titles: fins.filter(x => x === 1).length,
+        byes: ss.filter(x => x.seed != null && x.seed <= 2).length,
       });
     }
     const pct = (r: AllTimeRow) => (r.wins + r.ties / 2) / Math.max(1, r.wins + r.losses + r.ties);
@@ -1193,12 +1230,78 @@ function AllTimeView({ played }: { played: string[] }) {
     return () => { dead = true; };
   }, [played]);
 
+  /* every played season's matchups, for the starters' records — who was in
+     the lineup each week, and whether the franchise won it */
+  const [mws, setMws] = useState<Record<string, Matchups | null> | null>(null);
+  useEffect(() => {
+    let dead = false;
+    Promise.all(played.map(s =>
+      jl<Matchups>(`${s}/matchups.json`).catch(() => null).then(m => [s, m] as const)))
+      .then(all => { if (!dead) setMws(Object.fromEntries(all)); });
+    return () => { dead = true; };
+  }, [played]);
+
+  /* ---- W-L as a starter (Max, 2026-09-09) --------------------------------
+     Per player, every week he was in a starting lineup: the franchise's result
+     that week goes on his line. Regular season is every week before the
+     playoffs. Playoff games are ELIMINATION games only — the bracket file says
+     which winners-bracket game a franchise played each week, and placement
+     games (`p` set, other than the title game at p=1) and the consolation
+     bracket are left out, the same cut the franchise ledger below makes. A
+     season without a bracket file adds no playoff games; the regular season
+     still counts. */
+  const starts = useMemo<Record<string, StarterRecord> | null>(() => {
+    if (!mws || !brs) return null;
+    const acc: Record<string, StarterRecord> = {};
+    const at = (pid: string) =>
+      (acc[pid] ??= { w: 0, l: 0, t: 0, pw: 0, pl: 0, pt: 0, ppts: 0, pg: 0 });
+    for (const s of played) {
+      const mw = mws[s];
+      if (!mw) continue;
+      const br = brs[s];
+      // franchise -> the weeks it played an elimination game
+      const elim = new Map<number, Set<number>>();
+      for (const g of br?.winners ?? []) {
+        if (g.p != null && g.p !== 1) continue;
+        for (const rid of [g.t1, g.t2]) {
+          if (rid == null) continue;
+          (elim.get(rid) ?? elim.set(rid, new Set()).get(rid)!).add(g.week);
+        }
+      }
+      // his playoff points: every elimination week he started, off `stars`
+      for (const [pid, st] of Object.entries(br?.stars ?? {})) {
+        const weeks = elim.get(st.rid);
+        if (!weeks) continue;
+        for (const [wk, pts] of Object.entries(st.wk)) {
+          if (!weeks.has(Number(wk))) continue;
+          const r = at(pid); r.ppts += pts; r.pg++;
+        }
+      }
+      for (const [ridS, entries] of Object.entries(mw.teams)) {
+        const rid = Number(ridS);
+        for (const [week, pts, , opp, starters] of entries) {
+          if (opp == null || !starters?.length) continue;
+          const post = week >= mw.playoff_start;
+          if (post && !elim.get(rid)?.has(week)) continue;
+          const res: "w" | "l" | "t" = pts > opp ? "w" : pts < opp ? "l" : "t";
+          for (const pid of starters) {
+            if (!pid || pid === "0") continue;
+            const r = at(pid);
+            if (post) r[`p${res}`]++; else r[res]++;
+          }
+        }
+      }
+    }
+    return acc;
+  }, [mws, brs, played]);
+
   /* ---- the postseason ledger (Max, 2026-09-09) ---------------------------
      Per franchise, across every scored bracket: appearances (took the field
      in a winners-bracket game — a bye still plays in round two), the record
      in ELIMINATION games (placement games decide 3rd and 5th, not a title,
      and are left out), and titles (the championship game's winner). Ordered
-     by titles, then playoff wins, then appearances. */
+     by titles, then playoff wins, then appearances. Byes (top-2 seeds, so a
+     first-round pass) come off the season rows, not the bracket. */
   const playoffs = useMemo(() => {
     if (!brs || !rows) return null;
     const acc = new Map<number, { apps: number; w: number; l: number; titles: number; pts: number; g: number }>();
@@ -1261,8 +1364,12 @@ function AllTimeView({ played }: { played: string[] }) {
     // oldest first, so the position on the row is the most recent season's
     for (const s of played.slice().reverse()) {
       for (const r of sums[s] ?? []) {
-        const c = acc.get(r[0]) ?? { pid: r[0], pos: r[1], gp: 0, war: 0, seasons: 0 };
-        c.pos = r[1]; c.gp += r[2]; c.war += r[6]; c.seasons += 1;
+        const c = acc.get(r[0]) ?? {
+          pid: r[0], pos: r[1], gp: 0, pts: 0, war: 0, seasons: 0, first: s, last: s,
+          best: -Infinity, bestSeason: s,
+        };
+        c.pos = r[1]; c.gp += r[2]; c.pts += r[3]; c.war += r[6]; c.seasons += 1; c.last = s;
+        if (r[6] > c.best) { c.best = r[6]; c.bestSeason = s; }
         acc.set(r[0], c);
       }
     }
@@ -1287,6 +1394,8 @@ function AllTimeView({ played }: { played: string[] }) {
 
   return (
     <>
+      {/* the symbol sheet the honor marks draw from — once per view */}
+      <HonorSprite />
       {/* ---- the two career marks (Max, 2026-09-08) --------------------------
           The season view's MVP pair, at career scale: WAR over every regular
           season, win shares over every bracket. Same blocks, same ink; the
@@ -1349,17 +1458,35 @@ function AllTimeView({ played }: { played: string[] }) {
                 {/* the accent marks titles won, in the one place the screen
                     spends it: the ordinal of every franchise with a ring */}
                 <Spine rank={i + 1} top={r.titles > 0} />
+                {/* the sub-line is the manager and nothing else (Max, 2026-09-09):
+                    franchises are not split at owner changes, so a season count
+                    was the same on every row, and the honor marks beside the
+                    name say what each franchise won — "N titles" repeated the
+                    trophy. The phone keeps the gold spine for a ring. */}
                 <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)}
-                  sub={[r.manager, `${r.seasons} season${r.seasons === 1 ? "" : "s"}`,
-                    r.titles ? `${r.titles} title${r.titles === 1 ? "" : "s"}` : null]
-                    .filter(Boolean).join(" · ")} />
+                  mark={(() => {
+                    const m = teamHonorTotals(franchiseHonors(honorIdx, r.fkey));
+                    return m.length ? <TeamHonorMarks marks={m} size={15} /> : null;
+                  })()}
+                  sub={r.manager} />
                 <td className="n">
                   <span className="f hd">{r.wins}-{r.losses}{r.ties ? `-${r.ties}` : ""}</span>
                   <div className="idc-s r">{fmt(r.ppg, 1)} ppg</div>
                 </td>
-                <td className="n"><span className="f">{Math.round(r.fpts).toLocaleString()}</span></td>
+                <td className="n">
+                  <span className="f">{Math.round(r.fpts).toLocaleString()}</span>
+                  {/* Max PF under the points (Max, 2026-09-09): the ceiling the
+                      lineups were chasing, blank until the data carries it */}
+                  <div className="idc-s r">
+                    {r.ppts ? `${Math.round(r.ppts).toLocaleString()} max` : ""}
+                  </div>
+                </td>
                 <td className="n">
                   <span className="f">{r.avgFinish == null ? NUL : fmt(r.avgFinish, 1)}</span>
+                  {/* the best of those finishes under the mean (Max, 2026-09-09) */}
+                  <div className="idc-s r">
+                    {r.bestFinish == null ? "" : `best ${ord(r.bestFinish)}`}
+                  </div>
                 </td>
               </TapRow>
             ))}
@@ -1368,7 +1495,7 @@ function AllTimeView({ played }: { played: string[] }) {
       )}
 
       <Band label="Playoffs · all-time"
-        note={`${span} · elimination games only · titles, then playoff wins`} />
+        note={`${span} · elimination games only · byes are top-2 seeds · titles, then playoff wins`} />
       {!brs ? <div className="empty">Loading…</div>
         : !playoffs ? <div className="empty">Loading…</div>
         : !Object.values(brs).some(Boolean) ? <div className="empty">No scored brackets yet.</div> : (
@@ -1377,7 +1504,8 @@ function AllTimeView({ played }: { played: string[] }) {
             <tr>
               <th className="c sp">#</th>
               <th className="t">Franchise</th>
-              <th className="n" style={{ width: "18%" }}>Apps</th>
+              {/* the full word (Max, 2026-09-09); wider so it fits a phone */}
+              <th className="n" style={{ width: "24%" }}>Appearances</th>
               <th className="n" style={{ width: "18%" }}>W-L</th>
               <th className="n" style={{ width: "20%" }}>Titles</th>
             </tr>
@@ -1386,9 +1514,14 @@ function AllTimeView({ played }: { played: string[] }) {
             {playoffs.map((r, i) => (
               <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
                 <Spine rank={i + 1} top={r.po.titles > 0} />
-                <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)}
-                  sub={[r.manager, `${r.seasons} season${r.seasons === 1 ? "" : "s"}`].join(" · ")} />
-                <td className="n"><span className="f">{r.po.apps}</span></td>
+                {/* the sub-line is the manager, as in the standings above — a
+                    season count was the same on every row */}
+                <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)} sub={r.manager} />
+                <td className="n">
+                  <span className="f">{r.po.apps || NUL}</span>
+                  {/* first-round byes under the appearances (Max, 2026-09-09) */}
+                  <div className="idc-s r">{r.byes ? `${r.byes} bye${r.byes === 1 ? "" : "s"}` : ""}</div>
+                </td>
                 <td className="n">
                   <span className="f hd">{r.po.apps ? `${r.po.w}-${r.po.l}` : NUL}</span>
                   <div className="idc-s r">{r.po.g ? `${fmt(r.po.pts / r.po.g, 1)} ppg` : ""}</div>
@@ -1403,7 +1536,7 @@ function AllTimeView({ played }: { played: string[] }) {
       )}
 
       <Band label="Career WAR leaders"
-        note="Regular-season WAR on this league's own scoring, summed over every season" />
+        note="Regular-season WAR on this league's own scoring, summed over every season · W-L and ppg in the games he started" />
       {sums === "error" ? <DataError what="Career WAR didn't load" />
         : !leaders ? <div className="empty">Loading…</div> : (
         <table className="v3tbl lgx-grid">
@@ -1411,30 +1544,48 @@ function AllTimeView({ played }: { played: string[] }) {
             <tr>
               <th className="c sp">#</th>
               <th className="t">Player</th>
-              <th className="n" style={{ width: "18%" }}>GP</th>
+              <th className="n" style={{ width: "22%" }}>Regular season</th>
+              <th className="n" style={{ width: "18%" }}>Playoffs</th>
               <th className="n" style={{ width: "20%" }}>WAR</th>
             </tr>
           </thead>
           <tbody>
-            {leaders.map((r, i) => (
-              <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)} className={i % 2 ? "zebra" : ""}>
-                <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
-                <IdCell name={pInfo(players, r.pid)[0]} to={betaPath(`/player/${r.pid}`)}
-                  sub={`${r.pos} · ${r.seasons} season${r.seasons === 1 ? "" : "s"}`} />
-                <td className="n"><span className="f q">{r.gp}</span></td>
-                <td className="n"><span className="f hd">{fmtWar(r.war)}</span></td>
-              </TapRow>
-            ))}
+            {leaders.map((r, i) => {
+              const sr = starts?.[r.pid];
+              // the record cells stay blank, not em-dashed, until the matchups
+              // land: "no games" is a claim the fetch in flight cannot make
+              const rec = (w: number, l: number, t: number) =>
+                w + l + t ? `${w}-${l}${t ? `-${t}` : ""}` : NUL;
+              return (
+                <TapRow key={r.pid} to={betaPath(`/player/${r.pid}`)} className={i % 2 ? "zebra" : ""}>
+                  <Spine rank={i + 1} color={POS_COLOR[r.pos]} />
+                  {/* the years he was in the league, not a count of them
+                      (Max, 2026-09-09): "2022–2025" places a career; "4
+                      seasons" does not */}
+                  <IdCell name={pInfo(players, r.pid)[0]} to={betaPath(`/player/${r.pid}`)}
+                    sub={`${r.pos} · ${r.first === r.last ? r.first : `${r.first}–${r.last}`}`} />
+                  {/* the record over his points per start (Max, 2026-09-09) —
+                      the same W-L-over-ppg cell the standings use */}
+                  <td className="n">
+                    <span className="f">{starts ? rec(sr?.w ?? 0, sr?.l ?? 0, sr?.t ?? 0) : ""}</span>
+                    <div className="idc-s r">{r.gp ? `${fmt(r.pts / r.gp, 1)} ppg` : ""}</div>
+                  </td>
+                  <td className="n">
+                    <span className="f">{starts ? rec(sr?.pw ?? 0, sr?.pl ?? 0, sr?.pt ?? 0) : ""}</span>
+                    <div className="idc-s r">{sr?.pg ? `${fmt(sr.ppts / sr.pg, 1)} ppg` : ""}</div>
+                  </td>
+                  <td className="n">
+                    <span className="f hd">{fmtWar(r.war)}</span>
+                    {/* his best single season under the career total (Max, 2026-09-09) */}
+                    <div className="idc-s r">{`${fmtWar(r.best)} · ${r.bestSeason}`}</div>
+                  </td>
+                </TapRow>
+              );
+            })}
           </tbody>
         </table>
       )}
 
-      <div className="tnote screen">
-        Records and points are regular season only, summed over every season the franchise
-        played; average finish is the mean of its playoff-inclusive finishes, over the seasons
-        that have one. A franchise is named as it is today. Career WAR is the plain sum of each
-        season's regular-season WAR — no market price appears under a result.
-      </div>
     </>
   );
 }
