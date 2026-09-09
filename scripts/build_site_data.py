@@ -209,6 +209,11 @@ def main():
                               if u.get("avatar") else None),
                 "wins": st.get("wins", 0), "losses": st.get("losses", 0), "ties": st.get("ties", 0),
                 "fpts": round(st.get("fpts", 0) + st.get("fpts_decimal", 0) / 100, 1),
+                # MAX PF (Max, 2026-09-09): Sleeper's potential points — what
+                # the roster would have scored with its best lineup every
+                # week. Absent from older seasons' settings; null then.
+                "ppts": (round(st["ppts"] + st.get("ppts_decimal", 0) / 100, 1)
+                         if st.get("ppts") is not None else None),
                 "players": plist,
                 "starters": r.get("starters") or [],
                 "taxi": r.get("taxi") or [], "reserve": r.get("reserve") or [],

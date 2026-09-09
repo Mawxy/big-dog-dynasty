@@ -77,6 +77,9 @@ export interface Team {
    *  null when the owner has neither. */
   avatar?: string | null;
   wins: number; losses: number; ties: number; fpts: number;
+  /** Sleeper's potential points — best possible lineup every week (max PF).
+   *  Absent in data built before 2026-09-09; null when Sleeper has none. */
+  ppts?: number | null;
   players: string[]; starters: string[]; taxi: string[]; reserve: string[];
 }
 

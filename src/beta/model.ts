@@ -140,6 +140,9 @@ export interface StandingRow {
   team: string; manager: string;
   wins: number; losses: number; ties: number;
   rec: string; ppg: number;
+  /** points for, and the best the roster could have scored (Sleeper's
+   *  potential points; null in data built before it was carried) */
+  pf: number; maxPf: number | null;
   /** record against each week's league median score — the schedule-luck
    *  signature. Null before a game is played; never 0-0, which would read as
    *  a team that went even rather than one that hasn't started. */
@@ -184,6 +187,7 @@ export function useStandings(season: string | null) {
         wins: t.wins, losses: t.losses, ties: t.ties,
         rec: `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ""}`,
         ppg: g ? t.fpts / g : 0,
+        pf: t.fpts, maxPf: t.ppts ?? null,
         med: reg.length ? `${mwin}-${mloss}${mtie ? `-${mtie}` : ""}` : null,
         medWins: reg.length ? mwin : null,
         played: reg.length,

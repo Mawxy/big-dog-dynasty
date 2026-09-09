@@ -412,3 +412,13 @@
   .lgx-pos4 .lgx-mvp { background: color-mix(in srgb, var(--pos-c, var(--rule-2)) 12%, var(--deep)); }
 }
 .lgx-pos4 .lgx-posspine { background: var(--pos-c, var(--rule-2)); }
+
+/* ---- standings and power rankings: names wrap, rows one height ----------
+   (Max, 2026-09-09.) A franchise name is the row's whole identity, so it
+   wraps to two lines rather than ellipsising; and every row takes the
+   height a two-line name needs, so the table does not ripple where one
+   name is long and the next is short. `height` on a table cell is a
+   minimum, which is what a row with a short name needs. */
+.lgx-wrap .idc-n { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; text-wrap: balance; }
+.lgx-wrap .idc-s { white-space: normal; overflow: visible; text-overflow: clip; }
+.lgx-wrap tbody td { height: 58px; vertical-align: middle; }

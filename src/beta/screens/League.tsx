@@ -14,7 +14,7 @@ import { RouteLink } from "../../components/RouteLink";
 import PlayoffBracket from "../../components/PlayoffBracket";
 import DraftBoardGrid from "../../components/DraftBoardGrid";
 import { buildHistory } from "../../lib/draftHistory";
-import { useSeasonPhase, useStandings, useTeamValues } from "../model";
+import { useSeasonPhase, useStandings } from "../model";
 import Moved from "../moved";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
@@ -60,8 +60,8 @@ const MODULE_ROWS = 5;
 /** THE BAND'S WAY OUT (Max, 2026-09-08): a module that shows five of a
  *  longer list says so in its own header, where the note would sit, and the
  *  link opens the whole list on the Movers screen. */
-function ViewAll({ to }: { to: string }) {
-  return <RouteLink to={to} className="lgx-all">View all →</RouteLink>;
+function ViewAll({ to, label = "View all →" }: { to: string; label?: string }) {
+  return <RouteLink to={to} className="lgx-all">{label}</RouteLink>;
 }
 
 /** An em dash OUTSIDE a table. ui.tsx's NUL rides `.nul`, which beta.css scopes
@@ -706,15 +706,6 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
   const rows = useStandings(rosterSeason);
   const oddsQ = useJson<WeekOdds>(`${rosterSeason}/odds.json`);
   const sim = oddsQ.data?.season?.teams ?? null;
-  const vig = useJson<VigModel>("data/vig_model.json").data;
-  /* AMERICAN ODDS AS WELL AS THE PERCENTAGE (Max, 2026-09-02). Playoffs is a
-     yes/no market per team, so "yes" takes the same measured two-way vig the
-     matchup lines use; Title is a futures board, juiced as one. The fair
-     percentage sits under the price so the model's own number is never
-     hidden behind the book's. */
-  const titleLines = useMemo(() => sim
-    ? futuresLines(Object.fromEntries(Object.entries(sim).map(([rid, o]) => [rid, o.title])))
-    : {}, [sim]);
   /* BEFORE WEEK 1 every row is 0-0 with 0 points and the league's order is
      no order at all — roster id, which says nothing. Until a game has been
      played the table sits in projected-finish order (playoff odds, then title
@@ -729,15 +720,13 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
       .map((r, i) => ({ ...r, rank: i + 1 }));
   }, [rows, sim]);
   const preseason = !!rows && !rows.some(r => r.played > 0);
-  const pct = (v: number | undefined) =>
-    v == null ? NUL : v >= 0.995 ? ">99%" : v < 0.005 && v > 0 ? "<1%" : `${Math.round(v * 100)}%`;
   return (
     <>
       <Band label={`Standings · ${rosterSeason}`}
-        note={preseason && sim ? "Nothing played yet · in projected-finish order · odds from the season simulation"
-          : sim ? "Wins, then points · odds from the season simulation" : "Wins, then points"} />
+        note={preseason && sim ? "Nothing played yet · in projected-finish order"
+          : "Wins, then points · Max PF is the best lineup every week"} />
       {!ordered ? <div className="empty">Loading…</div> : (
-        <table className="v3tbl lgx-grid">
+        <table className="v3tbl lgx-grid lgx-wrap">
           <thead>
             <tr>
               <th className="c sp">#</th>
@@ -750,8 +739,12 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
                   stays on the record's sub-line on a phone. */}
               <th className="n lgx-desk" style={{ width: "14%" }}>W-L</th>
               <th className="n" style={{ width: "18%" }}><span className="lgx-desk">PPG</span><span className="lgx-phone">W-L</span></th>
-              <th className="n" style={{ width: "18%" }}>Playoff</th>
-              <th className="n" style={{ width: "20%" }}>Title</th>
+              {/* PF AND MAX PF (Max, 2026-09-09), in place of the odds, which
+                  moved to Power rankings: what the roster scored and what it
+                  could have with its best lineup every week. The gap between
+                  them is the lineup-setting tax. */}
+              <th className="n" style={{ width: "18%" }}>PF</th>
+              <th className="n" style={{ width: "20%" }}>Max PF</th>
             </tr>
           </thead>
           <tbody>
@@ -761,7 +754,12 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
                 <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
                   {/* the accent marks the title favorite, the one claim this
                       table makes beyond the order itself */}
+                  {/* THE SEED LINE ON THE SPINE (Max, 2026-09-09): seeds 1–2
+                      hold a first-round bye and take the accent, 3–6 are in
+                      and take --good, the rest are out and take the rule.
+                      A six-team, two-bye bracket is this league's shape. */}
                   <Spine rank={r.rank}
+                    color={r.rank <= 2 ? "var(--acc)" : r.rank <= 6 ? "var(--good)" : undefined}
                     top={!!sim && !!o && o.title === Math.max(...Object.values(sim).map(x => x.title)) && o.title > 0} />
                   <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
                   <td className="n lgx-desk"><span className="f hd">{r.rec}</span></td>
@@ -770,13 +768,13 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
                     <span className="f lgx-desk">{r.played ? fmt(r.ppg, 1) : NUL}</span>
                     <div className="idc-s r lgx-phone">{r.played ? `${fmt(r.ppg, 1)} ppg` : "no games"}</div>
                   </td>
+                  <td className="n"><span className="f">{r.played ? fmt(r.pf, 1) : NUL}</span></td>
                   <td className="n">
-                    <span className="f">{o ? capMl(lines(o.playoff, vig, 5)[0]) : NUL}</span>
-                    <div className="idc-s r">{o ? pct(o.playoff) : ""}</div>
-                  </td>
-                  <td className="n">
-                    <span className="f">{o ? titleLines[String(r.rid)] ?? NUL : NUL}</span>
-                    <div className="idc-s r">{o ? pct(o.title) : ""}</div>
+                    <span className="f">{r.played && r.maxPf != null ? fmt(r.maxPf, 1) : NUL}</span>
+                    {/* the share of the ceiling the lineups captured */}
+                    <div className="idc-s r">
+                      {r.played && r.maxPf ? `${Math.round(r.pf / r.maxPf * 100)}%` : ""}
+                    </div>
                   </td>
                 </TapRow>
               );
@@ -839,9 +837,19 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const dyn = useDynMovers();
 
   const lineup = lineupOf(meta);
-  // whole-roster market, players plus picks, for the power table's last column
-  const tvals = useTeamValues(rosterSeason);
-  const mktOf = useMemo(() => new Map((tvals ?? []).map(t => [t.rid, t.market])), [tvals]);
+  /* THE ODDS ON THE POWER TABLE (Max, 2026-09-09), moved from Standings:
+     playoff and title chances from the season simulation, priced the way a
+     book would — a yes/no market at the measured two-way vig for the
+     playoffs, a juiced futures board for the title — with the fair
+     percentage under each price so the model's own figure is never hidden
+     behind the book's. */
+  const sim = oddsW?.season?.teams ?? null;
+  const vig = useJson<VigModel>("data/vig_model.json").data;
+  const titleLines = useMemo(() => sim
+    ? futuresLines(Object.fromEntries(Object.entries(sim).map(([rid, o]) => [rid, o.title])))
+    : {}, [sim]);
+  const pct = (v: number | undefined) =>
+    v == null ? NUL : v >= 0.995 ? ">99%" : v < 0.005 && v > 0 ? "<1%" : `${Math.round(v * 100)}%`;
 
   /**
    * Per-franchise projected strength and record for the roster season.
@@ -916,14 +924,15 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
       {/* ---- 2. power rankings ------------------------------------------- */}
       <Band label={`Power rankings · ${rosterSeason}`}
-        note="Projected starter WAR — the best legal lineup, not the lineup as set" />
+        note="Ordered by projected starter WAR · odds from the season simulation"
+        right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
       {/* A FAILED FETCH IS NOT A SLOW ONE. Without the error arm the band
           claims to be loading projections that are never coming, for the life
           of the page. */}
       {teamsQ.error || projQ.error
         ? <DataError what="Power rankings didn't load" />
         : !power ? <div className="empty">Loading projections…</div> : (
-        <table className="v3tbl lgx-grid">
+        <table className="v3tbl lgx-grid lgx-wrap">
           <thead>
             <tr>
               {/* No header on this table is a control. The band above claims one
@@ -942,8 +951,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   folds under the projected record, as ppg does under W-L. */}
               <th className="n lgx-desk" style={{ width: "14%" }}>Proj W-L</th>
               <th className="n" style={{ width: "18%" }}><span className="lgx-desk">Proj PPG</span><span className="lgx-phone">Proj W-L</span></th>
-              <th className="n" style={{ width: "18%" }}>Starters WAR</th>
-              <th className="n" style={{ width: "20%" }}>Market</th>
+              {/* no Starters WAR column (Max, 2026-09-09): the order says
+                  it, and the figure itself lives on the Teams board the band
+                  links to. The odds take the 18 / 20 slots of the grid. */}
+              <th className="n" style={{ width: "18%" }}>Playoff</th>
+              <th className="n" style={{ width: "20%" }}>Title</th>
             </tr>
           </thead>
           <tbody>
@@ -965,23 +977,22 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                       header above it says Proj, so the sub-line needn't. */}
                   <div className="idc-s r lgx-phone">{r.ppg != null ? `${fmt(r.ppg, 1)} ppg` : ""}</div>
                 </td>
-                <td className="n">
-                  {/* NO METER (Max, 2026-09-02): the WAR bar that filled with
-                      the figure read as a dashboard gauge on this board, not a
-                      statistic. The sort column is the headline weight and
-                      the ordinal spine carries the order. */}
-                  <span className="f hd">{fmtWar(r.war)}</span>
-                </td>
-                {/* MARKET, last (Max, 2026-09-02), in place of a Move column
-                    the pipeline could never fill: the whole roster's KTC,
-                    players plus the picks it holds at their inferred tiers —
-                    the same figure the Team screen's strip carries, from the
-                    same hook, so the two cannot disagree. */}
-                <td className="n">
-                  <span className="f">
-                    {tvals ? (mktOf.get(r.rid) != null ? Math.round(mktOf.get(r.rid)!).toLocaleString() : NUL) : NUL}
-                  </span>
-                </td>
+                {/* the odds, each with its fair percentage under the price */}
+                {(() => {
+                  const o = sim?.[String(r.rid)];
+                  return (
+                    <>
+                      <td className="n">
+                        <span className="f">{o ? capMl(lines(o.playoff, vig, 5)[0]) : NUL}</span>
+                        <div className="idc-s r">{o ? pct(o.playoff) : ""}</div>
+                      </td>
+                      <td className="n">
+                        <span className="f">{o ? titleLines[String(r.rid)] ?? NUL : NUL}</span>
+                        <div className="idc-s r">{o ? pct(o.title) : ""}</div>
+                      </td>
+                    </>
+                  );
+                })()}
               </TapRow>
             ))}
           </tbody>
