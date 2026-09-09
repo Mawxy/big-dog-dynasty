@@ -9,6 +9,13 @@ import { useLeague } from "../lib/context";
 import PosBadge from "./PosBadge";
 import { PlayerLink } from "./PlayerLink";
 
+/** the NFL opponent beside a name — "MIA", or BYE in the caution ink a bye
+ *  takes on the week grid; nothing at all when the schedule is not known */
+function Opp({ v }: { v: string | null }) {
+  if (v == null) return null;
+  return <span className={`mopp${v === "BYE" ? " bye" : ""}`}>{v}</span>;
+}
+
 interface Side {
   rid: number; name: string;
   /** slot label, player, and what he scored (or is projected to) */
@@ -18,7 +25,11 @@ interface Side {
   hasBench: boolean;
   /** what the best legal lineup would have scored from the same roster */
   max: number;
-  /** highest-scoring players who were NOT started */
+  /** THE BENCH, whole (Max, 2026-09-08): everyone rostered and not started,
+   *  by points. Not "the best five not started" — a manager reading his own
+   *  week wants to see the whole bench, zeros included; the zeros are the
+   *  byes and the busts, which is information. Taxi and IR stay out: they
+   *  could not have been started. */
   benched: { pid: string; pts: number }[];
 }
 
@@ -31,9 +42,6 @@ interface Side {
  * points, which is a forecast of the manager's decision as much as the result.
  * The two are labeled differently for that reason.
  */
-/** how many of the best benched players to name */
-const BENCH_SHOWN = 5;
-
 export default function MatchupDetail({ season, wk, rid, data, weekly, mw, players, back }: {
   season: string; wk: number; rid: number;
   data: SeasonData; weekly: WeeklyT; mw: Matchups; players: PlayersMin;
@@ -51,8 +59,21 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
     ?? null;
   const played = !!mine && mine[1] > 0;
 
-  // only an unplayed week needs a projection to stand in for a result
-  const sproj = useJson<SleeperProjFile>(played ? null : "proj_sleeper.json").data;
+  // an unplayed week needs the projection to stand in for a result; every
+  // week of the roster season needs its NFL schedule, which rides on the same
+  // file (fetch_projections.py `schedule`)
+  const sproj = useJson<SleeperProjFile>("proj_sleeper.json").data;
+  /** the player's NFL opponent this week, or BYE, or null when the file has no
+   *  schedule for this season (past years — it carries the current one only) */
+  const oppOf = (pid: string): string | null => {
+    const sched = sproj?.schedule;
+    if (!sched || String(sproj?.meta?.season) !== season) return null;
+    const club = pInfo(players, pid)[2];
+    if (!club) return null;
+    const line = sched[club];
+    if (!line) return null;
+    return line[String(wk)] ?? "BYE";
+  };
 
   /** league-wide weekly scoring sigma, for the win probability. Same shape the
    *  WAR engine uses: a margin is worth more in a low-scoring week. */
@@ -73,6 +94,21 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
     }
     return idx;
   }, [weekly, wk]);
+
+  /** an unplayed week's bench: the roster less the lineup, less taxi and IR,
+   *  each at this week's projected line, best first */
+  const benchOf = (team: { players: string[]; taxi: string[]; reserve: string[] } | undefined,
+    started: (string | null)[]) => {
+    if (!team) return [];
+    const out = new Set([...started.filter((x): x is string => !!x), ...team.taxi, ...team.reserve]);
+    const sp = (pid: string) => {
+      const row = sproj?.players?.[pid];
+      return row?.wk ? row.wk[String(wk)] ?? 0 : row?.ppg ?? 0;
+    };
+    return team.players.filter(pid => !out.has(pid))
+      .map(pid => ({ pid, pts: sp(pid) }))
+      .sort((a, b) => b.pts - a.pts);
+  };
 
   const sideOf = (r: number | null): Side | null => {
     if (r == null) return null;
@@ -101,9 +137,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
         max: bestSlots.reduce((a, sl) => a + (sl.player?.war ?? 0), 0),
         benched: bench
           .map(pid => ({ pid, pts: wkIdx[pid]?.[0] ?? 0 }))
-          .filter(b => b.pts > 0)
-          .sort((a, b) => b.pts - a.pts)
-          .slice(0, BENCH_SHOWN),
+          .sort((a, b) => b.pts - a.pts),
       };
     }
     // not played: price with THIS week's own projection line, not the season
@@ -133,7 +167,8 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
         .reduce((a, s) => a + (s.player?.war ?? 0), 0);
       return {
         rid: r, name, slots: rows, total,
-        hasBench: true, max: Math.max(best, total), benched: [],
+        hasBench: true, max: Math.max(best, total),
+        benched: benchOf(team, rows.map(x => x.pid)),
       };
     }
     const pool = (team?.players ?? [])
@@ -150,10 +185,9 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
       })),
       total: slots.reduce((a, s) => a + (s.player?.war ?? 0), 0),
       hasBench: true,      // nothing to report, but nothing is missing either
-      // the projected lineup already IS the optimal one, and nothing has been
-      // benched yet, so neither has anything to say
+      // the projected lineup already IS the optimal one, so max is the total
       max: slots.reduce((a, s) => a + (s.player?.war ?? 0), 0),
-      benched: [],
+      benched: benchOf(team, slots.map(s => s.player?.id ?? null)),
     };
   };
 
@@ -233,13 +267,18 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
               <div className="pick-title">{s.name}</div>
               <table className="feed">
                 <tbody>
+                  {/* NO SEAT LABELS (Max, 2026-09-08): the badge says the
+                      position and the order is the league's lineup order, so
+                      a QB / RB / FLX column said it twice. The NFL opponent
+                      sits where it was — the thing a reader checks a lineup
+                      against on a Sunday. */}
                   {s.slots.map((sl, i) => (
                     <tr key={`${sl.label}${i}`}>
-                      <td className="t sub" style={{ width: 52 }}>{sl.label}</td>
                       <td className="t">
                         {sl.pid ? <span className="line">
                           <PosBadge pos={pInfo(players, sl.pid)[1]} />
                           <PlayerLink pid={sl.pid} name={pInfo(players, sl.pid)[0]} />
+                          <Opp v={oppOf(sl.pid)} />
                         </span> : <span className="sub">— empty —</span>}
                       </td>
                       <td className="n"><b>{fmt(sl.pts, 1)}</b></td>
@@ -257,17 +296,18 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
               {s.benched.length > 0 && (
                 <table className="feed">
                   <tbody>
-                    <tr className="grp"><th scope="colgroup" className="t" colSpan={3}>Best not started</th></tr>
+                    <tr className="grp"><th scope="colgroup" className="t" colSpan={3}>Bench</th></tr>
                     {s.benched.map(b => (
                       <tr key={b.pid}>
-                        <td className="t sub" style={{ width: 52 }} />
                         <td className="t">
                           <span className="line">
                             <PosBadge pos={pInfo(players, b.pid)[1]} />
                             <PlayerLink pid={b.pid} name={pInfo(players, b.pid)[0]} />
+                            <Opp v={oppOf(b.pid)} />
                           </span>
                         </td>
-                        <td className="n"><b>{fmt(b.pts, 1)}</b></td>
+                        <td className="n"><b className={b.pts > 0 ? "" : "sub"}>{fmt(b.pts, 1)}</b></td>
+                        <td className="n sub">{played ? sgnWar(wkIdx[b.pid]?.[1] ?? 0) : ""}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -280,8 +320,8 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
 
       <div className="tnote screen">
         {played
-          ? "Actual starters and what they scored; WAR is that player's contribution in this week. Max is the best legal lineup from that week's roster — bench included."
-          : `Lineups are the best legal eleven by projected points — rosters aren't set yet. Win probability from the projected margin against a league weekly sigma of ${fmt(sigma, 1)}.`}
+          ? "Actual starters and what they scored; WAR is that player's contribution in this week. Max is the best legal lineup from that week's roster — bench included. The bench is everyone rostered and not started, taxi and IR excluded."
+          : `Lineups are the best legal eleven by projected points — rosters aren't set yet. Win probability from the projected margin against a league weekly sigma of ${fmt(sigma, 1)}. Beside each name: his NFL opponent this week. The bench is the rest of the active roster at this week's projected line.`}
       </div>
     </>
   );

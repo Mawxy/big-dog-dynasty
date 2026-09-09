@@ -2411,3 +2411,13 @@ table.feed td.who .line { align-items: center; }
   .rtx-sides { font-size: 12.5px; }
   .rtx-more { padding: 10px var(--pad); }
 }
+
+/* the NFL opponent beside a lineup name on the matchup page
+   (components/MatchupDetail Opp): a label, not a figure — condensed, tracked,
+   quiet. BYE takes --warn, the same ink a bye carries on the week grid. */
+.mopp {
+  margin-left: 2px;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2); white-space: nowrap;
+}
+.mopp.bye { color: var(--warn); }

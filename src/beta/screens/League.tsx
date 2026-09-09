@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type {
   BracketFile, Drafts, Franchises, Matchups, ProjectionsFile,
   SleeperProjFile, SummaryRow, Team, Values, WeekOdds, Weekly,
@@ -422,14 +422,24 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
 
       <Band label={lastWeek ? `Last week · ${lwSeason} wk ${lastWeek.wk}` : "Last week"}
         note="Regular season" />
+      {/* FOUR EVEN CELLS over the four position blocks below (`.lgx-even`),
+          so the two rows read as one grid. THE THREE FIGURES THAT EARN A
+          COLOUR (Max, 2026-09-08): the top score is the week's positive, the
+          low its negative, the upset its caution — the semantic tokens the
+          rest of the board already gives those three facts. The margin stays
+          neutral: a close game is not good or bad for anyone. */}
       {!lastWeek ? <div className="empty">{mwR ? "No week played yet." : "Loading…"}</div> : (
+        <div className="lgx-even">
         <Strip figures={[
-          { key: "top", label: "Top score", value: fmt(lastWeek.top.pts, 1),
+          { key: "top", label: "Top score",
+            value: <span className="lgx-good">{fmt(lastWeek.top.pts, 1)}</span>,
             sub: nameOf(teamsR, lastWeek.top.rid), to: seasonsRoute(lwSeason, lastWeek.wk) },
-          { key: "low", label: "Low score", value: fmt(lastWeek.low.pts, 1),
+          { key: "low", label: "Low score",
+            value: <span className="lgx-bad">{fmt(lastWeek.low.pts, 1)}</span>,
             sub: nameOf(teamsR, lastWeek.low.rid), to: seasonsRoute(lwSeason, lastWeek.wk) },
           { key: "upset", label: "Upset",
-            value: lastWeek.upset && lastWeek.upsetWp != null ? `${Math.round(lastWeek.upsetWp * 100)}%` : DASH,
+            value: lastWeek.upset && lastWeek.upsetWp != null
+              ? <span className="lgx-warn">{`${Math.round(lastWeek.upsetWp * 100)}%`}</span> : DASH,
             sub: lastWeek.upset
               ? `${nameOf(teamsR, lastWeek.upset.rid)} beat ${lastWeek.upset.opp != null ? nameOf(teamsR, lastWeek.upset.opp) : "—"}`
               : "no winner beat the line",
@@ -441,6 +451,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               : "no scored game",
             to: seasonsRoute(lwSeason, lastWeek.wk) },
         ]} />
+        </div>
       )}
       {/* the week's best at each position, bench or starter — the same four
           blocks the season and all-time views carry, scoped to one week */}
@@ -449,7 +460,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
           leaders={POSITIONS.map(pos => {
             const t = lastWeek.posTop[pos];
             return t ? { pid: t.pid, value: `${fmt(t.pts, 1)} pts`,
-              note: `${teamOf(teamsR, t.pid) ?? "unrostered"} · wk ${lastWeek.wk}` } : null;
+              note: teamOf(teamsR, t.pid) ?? "unrostered" } : null;
           })}
           settled={!!weeklyR}
           empty={pos => `no ${pos} scored`} />
@@ -896,8 +907,9 @@ function PosLeaders({ leaders, settled, empty }: {
       {POSITIONS.map((pos, i) => {
         const row = leaders?.[i] ?? null;
         return (
-          <div className="lgx-mvp" key={pos}>
-            <span className="lgx-posspine" style={{ background: POS_COLOR[pos] ?? "var(--rule-2)" }} />
+          <div className="lgx-mvp" key={pos}
+            style={{ "--pos-c": POS_COLOR[pos] ?? "var(--rule-2)" } as CSSProperties}>
+            <span className="lgx-posspine" />
             <div className="k">Top {pos}</div>
             {row
               ? <RouteLink to={betaPath(`/player/${row.pid}`)} className="nm">

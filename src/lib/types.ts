@@ -410,7 +410,14 @@ export interface SleeperProj {
    *  bye/absence — a fact, not missing data. Absent map = season-only row. */
   wk?: Record<string, number>;
 }
-export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }
+export interface SleeperProjFile {
+  meta: Record<string, unknown>;
+  players: Record<string, SleeperProj>;
+  /** NFL club -> week -> opponent club, off the weekly projection items
+   *  (fetch_projections.py). A club with no entry for a week is on its bye.
+   *  Absent in files built before it was carried. */
+  schedule?: Record<string, Record<string, string>>;
+}
 
 /** The analog read as a player page draws it — his cohort's band, its size and
  *  match, and the three named comparables. A SUBSET of KnnProjection on purpose:

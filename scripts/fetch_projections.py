@@ -177,6 +177,13 @@ def main():
         return
 
     out = {}
+    # THE NFL SCHEDULE, as a by-product (Max, 2026-09-08): every weekly item
+    # names the player's club and its opponent that week, so the pass that
+    # prices the lines also learns who plays whom. Kept at TEAM level —
+    # {club: {week: opponent}} — because that is the fact; a bye is a week
+    # the club has no entry. The matchup page reads it to put an opponent
+    # beside every lineup row.
+    schedule = defaultdict(dict)
     for pos in POSITIONS:
         season_pts = {}
         data = get(season_proj_url(season, pos))
@@ -230,6 +237,9 @@ def main():
                 for item in get(week_proj_url(season, wk, pos)) or []:
                     pid = str(item.get("player_id") or "")
                     st = item.get("stats") or {}
+                    tm, opp = item.get("team"), item.get("opponent")
+                    if tm and opp:
+                        schedule[tm][str(wk)] = opp
                     if pid and st and scored(st):
                         pts_w = score_line(st, scoring, pos)
                         wk_pts[pid] += pts_w
@@ -278,7 +288,10 @@ def main():
                                "matches the Sleeper app), pts13 = ppg x 13 (full-participation "
                                "per-13; injury discounting lives in project_war's expected "
                                "stream). src:season rows fall back to the season total / 17."},
-              "players": out}
+              "players": out,
+              # club -> week -> opponent, off the same weekly items
+              "schedule": {tm: dict(sorted(wks.items(), key=lambda kv: int(kv[0])))
+                           for tm, wks in sorted(schedule.items())}}
     atomic_write(dest, json.dumps(result, separators=(",", ":")))
     print(f"wrote {dest}  ({len(out)} players, season {season})")
 

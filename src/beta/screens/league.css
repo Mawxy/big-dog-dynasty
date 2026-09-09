@@ -276,3 +276,28 @@
 @media (min-width: 900px) {
   .lgx-pos4 { grid-template-columns: repeat(4, 1fr); }
 }
+
+/* ---- the last-week strip and the top-performer blocks as one grid ---------
+   Four even cells (Max, 2026-09-08), so the strip's figures sit over the four
+   position blocks under them instead of at their own content widths. The
+   cells take the blocks' left padding for the same reason. */
+@media (min-width: 900px) {
+  .lgx-even .v3strip .cell { flex: 1 1 0; min-width: 0; padding-left: calc(var(--v3pad) + 6px); }
+  .lgx-even .v3strip .cell .s { max-width: none; }
+}
+/* the week's three inked figures — the tokens the board gives these facts
+   everywhere else: --good for the high, --bad for the low, --warn for the
+   upset. The figure only, never the name beside it. */
+.lgx-good { color: var(--good); }
+.lgx-bad { color: var(--bad); }
+.lgx-warn { color: var(--warn); }
+/* THE POSITION WASH behind a top-performer block: the position colour at
+   12% over --deep, plus the 3px spine in the colour itself. The draft board's
+   tint rule at a lighter step — there are no figures to misread in a block
+   that is one name and one number, and the four blocks in a row are the
+   position map. Falls back to plain --deep where color-mix is unsupported. */
+.lgx-pos4 .lgx-mvp { background: var(--deep); }
+@supports (background: color-mix(in srgb, red 10%, black)) {
+  .lgx-pos4 .lgx-mvp { background: color-mix(in srgb, var(--pos-c, var(--rule-2)) 12%, var(--deep)); }
+}
+.lgx-pos4 .lgx-posspine { background: var(--pos-c, var(--rule-2)); }
