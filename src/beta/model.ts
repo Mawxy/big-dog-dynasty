@@ -214,6 +214,10 @@ export interface ActTrade extends ActBase {
 }
 export interface ActMove extends ActBase {
   kind: "move";
+  /** the franchise KEY (franchises.json — the roster_id, as a string, in a
+   *  dynasty league), so a screen about one franchise can filter by identity
+   *  rather than by a name that changes most seasons */
+  key: string;
   team: string; waiver: boolean; adds: string[]; drops: string[];
 }
 export type Activity = ActTrade | ActMove;
@@ -247,7 +251,7 @@ export function useActivity(limit: number) {
       f.tx.forEach((tx, i) => {
         if (tx.type === "trade") return;              // already in, and priced
         out.push({
-          kind: "move", id: `m${key}:${i}`,
+          kind: "move", id: `m${key}:${i}`, key,
           ts: tx.ts, season: tx.season, week: tx.week,
           team: name, waiver: tx.type === "waiver",
           adds: tx.adds ?? [], drops: tx.drops ?? [],

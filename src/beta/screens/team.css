@@ -152,3 +152,38 @@
 @media (min-width: 900px) {
   .v3tbl.roster td .f:not(.q) { font-size: 14.5px; }
 }
+
+/* ---- the split-rail shell (Max, 2026-09-08) --------------------------------
+   The Team screen wears the player page's shell — style.css's `.split`,
+   `.rail`, `.figstrip`, `.verdict` and the `.pid-*` phone header — so the two
+   one-subject screens are one shape. Only what this screen adds is here. */
+
+/* the ladder's rows are LINKS here (each opens its season on League), so the
+   anchor has to sit like the div the franchise page draws */
+.rail a.rail-season, .pid-ladder a.rail-season { display: block; color: inherit; text-decoration: none; }
+.pid-ladder .rail-season { padding: 8px var(--pad) 9px; }
+.pid-ladder .rail-season.mark::before { left: 0; }
+
+/* the identity escape hatch, under the manager: outlined and quiet, the same
+   control the old title row carried as `.hact` */
+.rail-claim {
+  display: inline-block; margin-top: 10px; padding: 5px 11px;
+  background: none; border: 1px solid var(--rule); color: var(--dim);
+  cursor: pointer; text-decoration: none;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.rail-claim:hover { border-color: var(--acc); color: var(--acc); text-decoration: none; }
+.rail-claim:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.pid-id .rail-claim { margin-top: 8px; }
+
+/* the ladder row's second line: the name it played under, and that season's
+   franchise marks pushed right. The marks are small (14px) so a title year
+   reads as a row with a trophy on it, not a row of trophies. */
+.rail-season .l2 { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.rail-season .l2 .tname { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-season .l2 .hmark-row { flex: 0 0 auto; gap: 3px; }
+/* the key in the 232px rail stacks one mark per line; in the phone band it
+   is the usual divided strip */
+.rail .hmark-legend { margin-top: 10px; }
+.rail .hmark-leg { flex: 1 1 100%; justify-content: flex-start; padding: 7px 8px; }
+.rail .hmark-leg + .hmark-leg { border-left: 0; border-top: 1px solid var(--rule); }

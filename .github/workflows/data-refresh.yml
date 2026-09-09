@@ -205,7 +205,7 @@ jobs:
           # directory without thinking about ownership. The `_redraft` suffixes
           # are crawl-signals-redraft's two files: the guard has to name what a
           # widened allow-list could catch, not only what one catches today.
-          CRAWL='^data/(league_signals(_redraft)?|crawl_leagues(_redraft)?|draft_signals|rookie_pick_corpus|draft_index|benchmarks|dynasty_movers|tep_map|outcome_signals_[0-9]+)\.json$'
+          CRAWL='^data/((league_signals(_redraft)?|crawl_leagues(_redraft)?|draft_signals|rookie_pick_corpus|draft_index|benchmarks|dynasty_movers|tep_map|outcome_signals_[0-9]+)\.json|recent_trades/.*)$'
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD

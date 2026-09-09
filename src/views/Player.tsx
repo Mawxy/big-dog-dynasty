@@ -1,7 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Absences, MatrixModel, Ownership, PlayerShard, SummaryRow, Team, Values, Weekly, WeeklyRow,
+  Absences, MatrixModel, Ownership, PlayerShard, RecentAsset, RecentTrades, SummaryRow, Team,
+  Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
@@ -35,6 +36,19 @@ const heldBy = (owners: CareerSeason["owners"]) => owners.length
   ))
   : <span className="fig quiet">—</span>;
 const WINDOWS = ["7", "14", "30"] as const;
+
+/** data/recent_trades/<bucket>.json — MIRRORS dynasty_movers.py
+ *  (RECENT_BUCKETS / recent_bucket): the same pid has to land in the same
+ *  file on both ends. Numeric pids by modulus; anything else in bucket 0. */
+const RECENT_BUCKETS = 32;
+const recentBucket = (pid: string) => (/^\d+$/.test(pid) ? Number(pid) % RECENT_BUCKETS : 0);
+/** KTC's own ladder of TE-premium classes, as the crawl records them */
+const TEP_LABEL: Record<string, string> = { tep: "TE+", tepp: "TE++", teppp: "TE+++" };
+/** how many trades the section shows before "View all" */
+const RECENT_PREVIEW = 3;
+/** the day, without its year — a 7-day window never crosses one that matters */
+const whenDay = (t: number) =>
+  new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 /** stable empty stand-ins, so a not-yet-loaded file doesn't hand every memo a
  *  fresh object literal on each render */
 const NO_OWNERSHIP: Ownership = {};
@@ -123,6 +137,19 @@ export default function Player({ pid }: { pid: string }) {
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   // global file: the market prices a format, not a league
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  /**
+   * HIS TRADES ACROSS THE CRAWLED LEAGUES, last 7 days (Max, 2026-09-08).
+   * Global, like the market feed: a trade in one of 46k dynasty leagues
+   * belongs to no league of ours. One bucket file of 32, picked by pid, so
+   * the page downloads one player's worth of the window rather than all of
+   * it. The movers job rewrites the buckets ~12x a day; the daily cache-bust
+   * means a browser sees at most a day-old window, same as values.json.
+   * `error` (the shards not deployed yet) hides the section rather than
+   * showing an empty one.
+   */
+  const recentQ = useJson<RecentTrades>(`data/recent_trades/${recentBucket(pid)}.json`, "globalDaily");
+  const recent = recentQ.data?.players[pid] ?? null;
+  const [allTrades, setAllTrades] = useState(false);
 
   /**
    * The six-curve matrix row and the analog read — BOTH out of the shard.
@@ -224,6 +251,7 @@ export default function Player({ pid }: { pid: string }) {
     career: useRef<HTMLDivElement>(null),
     ownership: useRef<HTMLDivElement>(null),
     market: useRef<HTMLDivElement>(null),
+    trades: useRef<HTMLDivElement>(null),
   };
   const goto = (k: keyof typeof refs) =>
     refs[k].current?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -412,8 +440,20 @@ export default function Player({ pid }: { pid: string }) {
       <button onClick={() => goto("career")}>Career</button>
       {events.length > 0 && <button onClick={() => goto("ownership")}>Ownership</button>}
       {market.length > 0 && <button onClick={() => goto("market")}>Market value</button>}
+      {recentQ.data && <button onClick={() => goto("trades")}>Trades</button>}
     </>
   );
+
+  /** an asset on either side of a recent trade, named. Players resolve
+   *  through the bucket's own names map first — players_min covers this
+   *  league's rostered players, not every body traded in 46k leagues — then
+   *  the league map, then the bare pid, so a row is never silently short. */
+  const assetName = (a: RecentAsset) => {
+    if (a[0] !== "p") return a[1];
+    const n = recentQ.data?.names[a[1]]?.[0];
+    if (n && !n.startsWith("#")) return n;
+    return pInfo(players, a[1])[0];
+  };
 
   /** the career WAR ladder, newest first — the rows only; the caller frames it */
   const ladderRows = ladder.length > 0 && (
@@ -1114,6 +1154,127 @@ export default function Player({ pid }: { pid: string }) {
                   A dash in a movement column means the daily snapshot history doesn't reach back that far yet.
                   Deltas are raw value, not rank.
                 </div>
+              </div>
+            )}
+
+            {/* RECENT TRADES (Max, 2026-09-08): what the market actually did
+                with him this week, across every crawled dynasty league — how
+                many times he moved, what he fetched, and the deals themselves.
+                The figures are the movers board's own maths (dynasty_movers.py):
+                "going for" is what the other side paid for him as his side's
+                CENTERPIECE, net of his throw-ins, against his face KTC in that
+                league's TE-premium column. A trade he rode along in as a
+                throw-in is listed but carries no price — the price belongs to
+                the piece the package was built around. Neutral ink on every
+                figure: an overpay is a fact about a market, not a verdict. */}
+            {recentQ.data && (
+              <div ref={refs.trades}>
+                <div className="band">
+                  <span className="band-label">
+                    Recent trades · last {recentQ.data.meta.window_days} days
+                  </span>
+                  <span className="band-note">
+                    Across the crawled dynasty leagues · as of {recentQ.data.meta.as_of.slice(0, 10)} ·
+                    going for = what the other side paid when he was the centerpiece, face KTC
+                  </span>
+                </div>
+                {!recent ? (
+                  <div className="tnote" style={{ padding: `14px ${gut}px 18px` }}>
+                    Not traded in any crawled league in the last {recentQ.data.meta.window_days} days.
+                  </div>
+                ) : (() => {
+                  const diff = recent.paid != null && recent.value != null ? recent.paid - recent.value : null;
+                  const shown = allTrades ? recent.trades : recent.trades.slice(0, RECENT_PREVIEW);
+                  return (
+                    <>
+                      <div className="rtx-figs">
+                        <div className="fg">
+                          <div className="k">Trades</div>
+                          <div className="v">{recent.n}</div>
+                          <div className="s">{recent.cp} as centerpiece</div>
+                        </div>
+                        <div className="fg">
+                          <div className="k">Going for</div>
+                          <div className="v">{recent.paid == null ? "—" : num(recent.paid)}</div>
+                          <div className="s">{recent.paid == null ? "throw-in only" : `avg of ${recent.cp}`}</div>
+                        </div>
+                        <div className="fg">
+                          <div className="k">KTC value</div>
+                          <div className="v">{recent.value == null ? "—" : num(recent.value)}</div>
+                          <div className="s">face, TE-premium matched</div>
+                        </div>
+                        <div className="fg">
+                          <div className="k">Difference</div>
+                          <div className="v">
+                            {diff == null ? "—" : `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${num(Math.abs(diff))}`}
+                          </div>
+                          <div className="s">
+                            {diff == null || !recent.value ? "market points"
+                              : `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${Math.abs(Math.round(100 * diff / recent.value))}% of value`}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="rtx-list">
+                        {shown.map((tr, i) => {
+                          const mine = tr.s === 0 ? tr.a : tr.b;
+                          const theirs = tr.s === 0 ? tr.b : tr.a;
+                          // him first, then whatever rode along with him
+                          const pkg = [...mine.filter(x => x[0] === "p" && x[1] === pid),
+                            ...mine.filter(x => !(x[0] === "p" && x[1] === pid))];
+                          return (
+                            <div className={`rtx${i % 2 ? " zebra" : ""}`} key={`${tr.t}-${i}`}>
+                              <div className="rtx-when">
+                                {whenDay(tr.t)}
+                                {tr.c && TEP_LABEL[tr.c] && <span className="tep">{TEP_LABEL[tr.c]}</span>}
+                              </div>
+                              <div className="rtx-sides">
+                                <div className="rtx-side">
+                                  {pkg.map((x, k) => (
+                                    <Fragment key={k}>
+                                      {k > 0 && <span className="sep"> · </span>}
+                                      <span className={x[0] === "p" && x[1] === pid ? "him" : x[0] === "p" ? "" : "pick"}>
+                                        {assetName(x)}
+                                      </span>
+                                    </Fragment>
+                                  ))}
+                                </div>
+                                <div className="rtx-side">
+                                  <span className="for">for </span>
+                                  {theirs.map((x, k) => (
+                                    <Fragment key={k}>
+                                      {k > 0 && <span className="sep"> · </span>}
+                                      <span className={x[0] === "p" ? "" : "pick"}>{assetName(x)}</span>
+                                    </Fragment>
+                                  ))}
+                                </div>
+                              </div>
+                              <div className="rtx-paid">
+                                <span className="v">{tr.paid == null ? "—" : num(tr.paid)}</span>
+                                <span className="k">{tr.paid == null ? "in package" : "paid"}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {recent.trades.length > RECENT_PREVIEW && (
+                        <button type="button" className="rtx-more"
+                          onClick={() => setAllTrades(v => !v)}>
+                          {allTrades
+                            ? "Show fewer"
+                            : `View all ${recent.trades.length}${recent.n > recent.trades.length ? ` of ${recent.n}` : ""}`}
+                        </button>
+                      )}
+                      <div className="tnote" style={{ padding: `10px ${gut}px 16px` }}>
+                        Paid is the other side's package, net of anything that rode along with him, in KTC
+                        points on that league's TE-premium ladder; a lesser asset in a package counts at the
+                        share of weeks a thing of its value starts, so two 4,500s do not sum to a 9,000. A trade
+                        he was not the centerpiece of lists what moved and carries no price. Every league is
+                        not this league: a superflex TE-premium market and a 1QB one price the same player
+                        differently, and both are in here.
+                      </div>
+                    </>
+                  );
+                })()}
               </div>
             )}
           </div>

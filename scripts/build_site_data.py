@@ -199,6 +199,14 @@ def main():
                 "team": name_override.get((league["league_id"], r["roster_id"])) or meta.get("team_name")
                         or u.get("display_name") or f"Team {r['roster_id']}",
                 "manager": name_override.get((league["league_id"], r["roster_id"]), u.get("display_name", "?")),
+                # THE TEAM'S PICTURE (Max, 2026-09-08): the custom team logo
+                # Sleeper keeps as a full URL in the user's league metadata,
+                # falling back to the user's own avatar on Sleeper's CDN. None
+                # when the owner has neither (or the slot is orphaned), and the
+                # front end draws nothing rather than a placeholder.
+                "avatar": meta.get("avatar")
+                          or (f"https://sleepercdn.com/avatars/thumbs/{u['avatar']}"
+                              if u.get("avatar") else None),
                 "wins": st.get("wins", 0), "losses": st.get("losses", 0), "ties": st.get("ties", 0),
                 "fpts": round(st.get("fpts", 0) + st.get("fpts_decimal", 0) / 100, 1),
                 "players": plist,

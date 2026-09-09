@@ -24,21 +24,101 @@
    same ink otherwise — a line is not a verdict. */
 .lgx-games { display: flex; flex-direction: column; gap: 1px; background: var(--rule); border-bottom: 1px solid var(--rule); }
 .lgx-game {
-  display: flex; align-items: stretch;
+  display: flex; align-items: stretch; width: 100%;
   background: var(--bg); color: inherit; text-decoration: none;
+  /* a button now (Max, 2026-09-09): the card opens its slot-by-slot drawer */
+  border: 0; padding: 0; font: inherit; text-align: left; cursor: pointer;
 }
 .lgx-game:hover { background: var(--sel); text-decoration: none; }
+.lgx-game:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.lgx-game.open { background: var(--sel); }
+
+/* ---- the slot-by-slot drawer --------------------------------------------
+   The row-drawer grammar: under the card, in the same flow, --band surface
+   with the 3px accent top rule. One row per starting slot, the two sides'
+   figures outermost, the slot and the margin in the middle; the higher
+   figure takes the accent so a column of gold is the read. */
+.lgx-drawer { background: var(--band); border-top: 3px solid var(--acc); }
+.lgx-drawer .sd-head {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  padding: 8px var(--v3pad) 6px;
+}
+.lgx-drawer .sd-head .k {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase; color: var(--dim);
+}
+.lgx-drawer .sd-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) 76px minmax(0, 1fr);
+  align-items: center; border-top: 1px solid var(--hair);
+}
+.lgx-drawer .sd-side {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 6px var(--v3pad);
+}
+.lgx-drawer .sd-side.r { flex-direction: row-reverse; text-align: right; }
+.lgx-drawer .sd-side .nm {
+  flex: 1 1 auto; min-width: 0;
+  font: 400 12.5px/1.3 var(--sans); color: var(--txt2);
+  overflow-wrap: anywhere; text-wrap: balance;
+}
+.lgx-drawer .sd-side .v {
+  flex: 0 0 auto;
+  font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt);
+}
+.lgx-drawer .sd-side.win .v { color: var(--acc); }
+.lgx-drawer .sd-side.win .nm { color: var(--txt); }
+.lgx-drawer .sd-mid {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  padding: 5px 0; background: var(--deep); align-self: stretch; justify-content: center;
+}
+.lgx-drawer .sd-mid .slot {
+  font: 600 9.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--dim2);
+}
+.lgx-drawer .sd-mid .edge {
+  display: grid; grid-template-columns: 14px auto 14px; column-gap: 4px; align-items: center;
+  font: 600 11px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
+  white-space: nowrap;
+}
+.lgx-drawer .sd-mid .edge .n { text-align: center; }
+.lgx-drawer .sd-mid .edge .ar { text-align: center; }
+.lgx-drawer .sd-mid .edge.push { color: var(--dim3); font-family: var(--cond); letter-spacing: .1em; text-transform: uppercase; }
+.lgx-drawer .sd-tot { border-top: 1px solid var(--rule); }
+.lgx-drawer .sd-tot .sd-side .nm { font-weight: 600; }
+.lgx-drawer .sd-tot .sd-side .v { font-size: 15px; font-weight: 700; }
 .lgx-game .side { flex: 1 1 0; min-width: 0; padding: 9px var(--v3pad) 10px; }
 .lgx-game .side.r { text-align: right; }
+/* WRAPS, never ellipsises (Max, 2026-09-09): a franchise name is the
+   whole identity of the side, and "Captain Jah'M…" is worse than two lines.
+   `text-wrap: balance` keeps a two-line name from leaving one word alone. */
 .lgx-game .side .nm {
   font: 600 13.5px/1.25 var(--sans); color: var(--txt);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  overflow-wrap: anywhere; text-wrap: balance;
 }
 .lgx-game .side .fig {
   margin-top: 3px;
   font: 700 17px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
 }
 .lgx-game .side.won .fig { color: var(--acc); }
+/* THE LEAGUE MEDIAN, one line across the top of the games */
+.lgx-median {
+  display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap;
+  padding: 7px var(--v3pad); background: var(--deep);
+}
+.lgx-median .k {
+  font: 600 10px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase; color: var(--dim);
+}
+.lgx-median .v {
+  font: 700 14px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt);
+}
+.lgx-median .s { font: 400 11px/1.3 var(--sans); color: var(--dim3); }
+/* the side's projected total under its moneyline, on the quiet figure ramp */
+.lgx-game .side .proj {
+  margin-top: 3px;
+  font: 600 12px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim);
+}
+.lgx-game .side .proj .k {
+  font: 600 9.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase; color: var(--dim2);
+  margin-right: 2px;
+}
 .lgx-game .side .sub {
   margin-top: 3px; min-height: 1.3em;
   font: 400 11px/1.3 var(--sans); color: var(--dim3);
@@ -62,6 +142,11 @@
   white-space: nowrap;
 }
 .lgx-game .mid .v + .k { margin-top: 4px; }
+.lgx-game .mid .v.edge { display: grid; grid-template-columns: 14px auto 14px; column-gap: 4px; align-items: center; }
+.lgx-game .mid .v.edge .n { text-align: center; }
+/* the spread's arrow takes the accent — it is the card's one pointer at the
+   favorite; the drawer's per-slot arrows stay plain (Max, 2026-09-09) */
+.lgx-game .mid .v.edge .ar { text-align: center; color: var(--acc); }
 @media (min-width: 900px) {
   .lgx-game .side .nm { font-size: 14.5px; }
   .lgx-game .side .fig { font-size: 21px; }
@@ -221,6 +306,30 @@
   color: var(--dim);
 }
 
+/* THE TWO MVPs under the champion (Max, 2026-09-08): two equal blocks divided
+   by a rule, the champion block's anatomy at a smaller step and in primary
+   ink — the title has the accent, these are the season's two players. */
+.lgx-mvps {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 0 1px;
+  background: var(--rule); border-bottom: 1px solid var(--rule);
+}
+.lgx-mvp { background: var(--deep); padding: 11px var(--v3pad) 12px; min-width: 0; }
+.lgx-mvp .k {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
+  color: var(--dim);
+}
+.lgx-mvp .nm {
+  display: block; margin-top: 6px;
+  font: 700 19px/1.1 var(--cond); letter-spacing: .02em; text-transform: uppercase;
+  color: var(--txt); overflow-wrap: anywhere;
+}
+.lgx-mvp a.nm:hover { color: var(--acc); text-decoration: none; }
+.lgx-mvp .sub {
+  margin-top: 4px;
+  font: 400 11.5px/1.4 var(--sans); color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
 /* an em dash OUTSIDE a table. beta.css's `.nul` is scoped to `.v3tbl td`, and
    a null in a basket figure or a champion block needs the same decorative ink
    without inheriting a table's cell rules. */
@@ -231,9 +340,75 @@
      figures grow, so the champion's name stops being phone-sized on a rail
      layout 208px narrower than the viewport */
   .lgx-champ .nm { font-size: 38px; }
+  .lgx-mvp .nm { font-size: 24px; }
 }
 
 /* ---- movers: the market's source and window chips ----------------------
    A breath between the two chip groups, so "FantasyCalc 7d" does not read as
    one control. */
 .mvx-gap { flex: 0 0 10px; }
+
+/* THE FOUR POSITION LEADERS on the all-time view (Max, 2026-09-08): the MVP
+   block anatomy, four across on a desktop and two-by-two on a phone, each
+   carrying its position's colour as a 3px spine on its left edge — the one
+   place a position colour goes, as on every row of the site. */
+.lgx-pos4 {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+  background: var(--rule); border-bottom: 1px solid var(--rule);
+}
+.lgx-pos4 .lgx-mvp { position: relative; padding-left: calc(var(--v3pad) + 6px); }
+.lgx-posspine { position: absolute; left: 0; top: 0; bottom: 0; width: 3px; }
+@media (min-width: 900px) {
+  .lgx-pos4 { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ---- the last-week strip and the top-performer blocks as one grid ---------
+   Four even cells (Max, 2026-09-08), so the strip's figures sit over the four
+   position blocks under them instead of at their own content widths. The
+   cells take the blocks' left padding for the same reason. */
+@media (min-width: 900px) {
+  .lgx-even .v3strip .cell { flex: 1 1 0; min-width: 0; padding-left: calc(var(--v3pad) + 3px); }
+  .lgx-even .v3strip .cell .s { max-width: none; }
+}
+/* THE SAME SPINE, UNINKED (Max, 2026-09-09). The position blocks under the
+   strip carry a 3px position-colored spine inside their left edge, so their
+   seams read 1px rule + 3px; the strip's read 1px. A 3px `--rule-2` spine on
+   each cell makes the two rows' seams one weight — a step lighter than the
+   1px rule beside it so the spine reads as a spine and not as a fat rule,
+   and neutral, because these four facts have no position to be colored by. Padding drops by the spine
+   so the text still lines up with the blocks' text. */
+.lgx-even .v3strip .cell, .lgx-even .v3strip .cell:first-child { border-left: 3px solid var(--rule-2); }
+/* the superlatives' sub-lines name two franchises ("X beat Y", "X 123.2 ·
+   Y 118.9"); they wrap rather than cut off, at every width */
+.lgx-even .v3strip .cell .s { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; }
+/* ON A PHONE the strip is the same 2×2 the position blocks under it are
+   (Max, 2026-09-09) — four cells in one scrolling row hid the fourth and
+   put a scroll under a grid that has none. The rule between rows is the
+   grid's gap, the same hairline `.lgx-pos4` draws. */
+@media (max-width: 899px) {
+  .lgx-even .v3strip {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: var(--rule); overflow: visible;
+  }
+  .lgx-even .v3strip .cell {
+    min-width: 0; border-left: 3px solid var(--rule-2); background: var(--deep);
+    padding-left: calc(var(--v3pad) + 3px);
+  }
+  .lgx-even .v3strip .cell .s { max-width: none; }
+}
+/* the week's three inked figures — the tokens the board gives these facts
+   everywhere else: --good for the high, --bad for the low, --warn for the
+   upset. The figure only, never the name beside it. */
+.lgx-good { color: var(--good); }
+.lgx-bad { color: var(--bad); }
+.lgx-warn { color: var(--warn); }
+/* THE POSITION WASH behind a top-performer block: the position colour at
+   12% over --deep, plus the 3px spine in the colour itself. The draft board's
+   tint rule at a lighter step — there are no figures to misread in a block
+   that is one name and one number, and the four blocks in a row are the
+   position map. Falls back to plain --deep where color-mix is unsupported. */
+.lgx-pos4 .lgx-mvp { background: var(--deep); }
+@supports (background: color-mix(in srgb, red 10%, black)) {
+  .lgx-pos4 .lgx-mvp { background: color-mix(in srgb, var(--pos-c, var(--rule-2)) 12%, var(--deep)); }
+}
+.lgx-pos4 .lgx-posspine { background: var(--pos-c, var(--rule-2)); }

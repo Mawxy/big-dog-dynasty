@@ -72,6 +72,10 @@ export interface Team {
    *  links must carry. roster_id as a string for dynasty, owner user_id for
    *  redraft/keeper. Absent in data built before it; fall back to roster_id. */
   fkey?: string;
+  /** the team's picture — Sleeper's custom team logo, else the owner's
+   *  avatar thumb (build_site_data.py). Absent in data built before it;
+   *  null when the owner has neither. */
+  avatar?: string | null;
   wins: number; losses: number; ties: number; fpts: number;
   players: string[]; starters: string[]; taxi: string[]; reserve: string[];
 }
@@ -174,6 +178,49 @@ export interface DynastyMoverRow {
   avg_delta: number;
   /** avg_delta as a % of value; null when the value is 0 */
   avg_pct: number | null;
+}
+
+/**
+ * data/recent_trades/<bucket>.json — every player's trades across the crawled
+ * dynasty leagues over the movers' 7-day window, bucketed by pid
+ * (dynasty_movers.py write_recent). The player page's Recent trades section.
+ */
+export interface RecentTrades {
+  meta: {
+    generated: string; as_of: string; window_days: number; unit: string;
+    buckets: number; per_player_max: number;
+  };
+  /** every pid named on any side of any row in this bucket: [name, pos, team] */
+  names: Record<string, [string, string | null, string | null]>;
+  players: Record<string, RecentPlayer>;
+}
+export interface RecentPlayer {
+  /** trades he was part of in the window */
+  n: number;
+  /** of those, how many he was the centerpiece of — the ones `paid` is built on */
+  cp: number;
+  /** his face KTC, averaged over centerpiece trades (TE-premium-matched) */
+  value: number | null;
+  /** what the other side paid for him, net of his throw-ins, averaged */
+  paid: number | null;
+  /** newest first, capped at meta.per_player_max */
+  trades: RecentTrade[];
+}
+/** one asset on a side: kind (p player pid · k pick label · f FAAB label),
+ *  key, face KTC at the trade's TE-premium class (0 = unpriced / throw-in) */
+export type RecentAsset = ["p" | "k" | "f", string, number];
+export interface RecentTrade {
+  /** epoch seconds */
+  t: number;
+  /** which side he was on — 0 for `a`, 1 for `b` */
+  s: 0 | 1;
+  a: RecentAsset[];
+  b: RecentAsset[];
+  /** the league's TE-premium class; absent = none */
+  c?: string;
+  /** present only where he was his side's centerpiece */
+  paid?: number;
+  face?: number;
 }
 
 /** data/pick_values.json — Bridge A: rookie pick -> realized WAR streams */
@@ -363,7 +410,14 @@ export interface SleeperProj {
    *  bye/absence — a fact, not missing data. Absent map = season-only row. */
   wk?: Record<string, number>;
 }
-export interface SleeperProjFile { meta: Record<string, unknown>; players: Record<string, SleeperProj>; }
+export interface SleeperProjFile {
+  meta: Record<string, unknown>;
+  players: Record<string, SleeperProj>;
+  /** NFL club -> week -> opponent club, off the weekly projection items
+   *  (fetch_projections.py). A club with no entry for a week is on its bye.
+   *  Absent in files built before it was carried. */
+  schedule?: Record<string, Record<string, string>>;
+}
 
 /** The analog read as a player page draws it — his cohort's band, its size and
  *  match, and the three named comparables. A SUBSET of KnnProjection on purpose:

@@ -76,7 +76,7 @@ nflverse ──> scripts/nfl_history.py ──> nfl_history_data/ (gitignored)
              aging_curves.py ──> nfl_history/aging_curves.json   (hand-run)
 
 sleeper_crawl.py (signals / trades / drafts / outcomes, sharded) ──> data/*_signals.json, corpora
-merge_trade_corpus.py + dynasty_movers.py ──> data/dynasty_movers.json
+merge_trade_corpus.py + dynasty_movers.py ──> data/dynasty_movers.json, data/recent_trades/<0..31>.json
 benchmarks.py ──> data/benchmarks.json
 fetch_values.py / fetch_ecr.py ──> data/values.json, values_history.json, ecr.json
 ```
@@ -113,7 +113,7 @@ regenerated file conflicts identically on every retry) and stages an
 | `crawl-signals` | `0 0,6,12,18 * * *` | `crawl-signals` | `sleeper_crawl --mode signals` (the only discoverer) | `league_signals.json`, `crawl_leagues.json` |
 | `crawl-signals-redraft` | `0 3,9,15,21 * * *` | `crawl-signals-redraft` | same, `--league-type redraft`, seeded from Pizza | `league_signals_redraft.json`, `crawl_leagues_redraft.json` |
 | `crawl-drafts` | `0 2,8,14,20 * * *` | `crawl-drafts` | `--mode drafts`, walks chains back to 2019 | `draft_signals.json`, `draft_index.json`, `rookie_pick_corpus.json` |
-| `crawl-trades` | `0 1-23/2 * * *` | per shard + `crawl-trades-movers` | 4 shards → artifacts → `movers` job: merge_trade_corpus → dynasty_movers | `dynasty_movers.json`, `tep_map.json`; calls `deploy` (a `GITHUB_TOKEN` push never triggers `on: push`) |
+| `crawl-trades` | `0 1-23/2 * * *` | per shard + `crawl-trades-movers` | 4 shards → artifacts → `movers` job: merge_trade_corpus → dynasty_movers | `dynasty_movers.json`, `recent_trades/*.json` (per-player 7-day trades, bucketed by pid — the player page's Recent trades section), `tep_map.json`; calls `deploy` (a `GITHUB_TOKEN` push never triggers `on: push`) |
 | `crawl-outcomes` | `0 3,15 * * *` | per shard | 4 shards → artifact rows + committed counters → benchmarks.py (warn-only) | `outcome_signals_<n>.json`, `benchmarks.json` |
 
 Notes that bite:

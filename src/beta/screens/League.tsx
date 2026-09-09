@@ -1,18 +1,21 @@
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type {
-  BracketFile, Franchises, Matchups, ProjectionsFile,
-  SleeperProjFile, SummaryRow, Team, Trade, TradesPayload, Values, WeekOdds, Weekly,
+  BracketFile, Drafts, Franchises, Matchups, PlayersMin, ProjectionsFile,
+  SleeperProjFile, SummaryRow, Team, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
 import { fmt, mean, normCdf, normInv, ord } from "../../lib/stats";
 import {
-  POS_COLOR, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
+  POS_CHIPS, POS_COLOR, SLOT_LABEL, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
-import { readTrades, tradeWhen } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
-import { useActivity, useSeasonPhase, useStandings, useTeamValues, type ActMove } from "../model";
+import PlayoffBracket from "../../components/PlayoffBracket";
+import DraftBoardGrid from "../../components/DraftBoardGrid";
+import { buildHistory } from "../../lib/draftHistory";
+import { useSeasonPhase, useStandings, useTeamValues } from "../model";
+import Moved from "../moved";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
   useDynMovers, useGapRows, useMarketMovers,
@@ -46,6 +49,10 @@ import "./league.css";
  * three modules that would read identically on any board in the world.
  */
 
+/** the four lineup positions, in the lineup's order — POS_CHIPS less its
+ *  "ALL" filter chip, so there is one list of positions on the site */
+const POSITIONS = POS_CHIPS.filter(p => p !== "ALL");
+
 /** rows per half of a split module — five is what fits under a band without
  *  the second half starting off-screen */
 const MODULE_ROWS = 5;
@@ -56,13 +63,6 @@ const MODULE_ROWS = 5;
 function ViewAll({ to }: { to: string }) {
   return <RouteLink to={to} className="lgx-all">View all →</RouteLink>;
 }
-
-/** the "what moved" window, in days. A week, because that is the cadence a
- *  reader checks a league on. The band's LABEL changes with the season; the
- *  window never does. */
-const WINDOW_DAYS = 7;
-
-
 
 /** An em dash OUTSIDE a table. ui.tsx's NUL rides `.nul`, which beta.css scopes
  *  to `.v3tbl td`; a basket figure and a champion block are not table cells. */
@@ -229,8 +229,12 @@ const spread = (mine: number, theirs: number): string => {
 };
 
 function WeekBands({ rosterSeason }: { rosterSeason: string }) {
-  const { players } = useLeague();
+  const { players, meta } = useLeague();
   const betaPath = useBetaPath();
+  /* THE OPEN CARD (Max, 2026-09-09): tapping a game opens a drawer under it
+     with the two lineups slot by slot — who is favored where. One open at a
+     time; the full matchup page is a link inside the drawer. */
+  const [openGame, setOpenGame] = useState<string | null>(null);
   const phase = useSeasonPhase();
   const resultSeason = phase.resultSeason;
 
@@ -252,6 +256,10 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
 
   const nameOf = (list: Team[] | null | undefined, rid: number) =>
     list?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
+  /** whose roster a player is on — that season's end-of-season roster, which
+   *  is the closest thing the data has; null when nobody holds him */
+  const teamOf = (list: Team[] | null | undefined, pid: string) =>
+    list?.find(t => t.players.includes(pid))?.team ?? null;
 
   /* ---- this week -------------------------------------------------------- */
   const thisWeek = useMemo(() => {
@@ -301,14 +309,55 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       }
       return best;
     };
-    return {
-      wk, played,
-      games: pairs.map(([a, b]) => ({
-        a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, pts: scored.get(a)?.pts ?? null, star: star(a) },
-        b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, pts: scored.get(b)?.pts ?? null, star: star(b) },
-      })),
-    };
+    const games = pairs.map(([a, b]) => ({
+      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, pts: scored.get(a)?.pts ?? null, star: star(a) },
+      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, pts: scored.get(b)?.pts ?? null, star: star(b) },
+    }));
+    // THE LEAGUE MEDIAN (Max, 2026-09-09): the middle score of every team's
+    // figure this week — points once played, the projected total before.
+    // The line a median-win league pays on, and the line every team is over
+    // or under regardless.
+    const figs = games.flatMap(g => [g.a, g.b])
+      .map(x => (played ? x.pts : x.mu)).filter((v): v is number => v != null)
+      .sort((x, y) => x - y);
+    const median = figs.length
+      ? figs.length % 2 ? figs[(figs.length - 1) / 2] : (figs[figs.length / 2 - 1] + figs[figs.length / 2]) / 2
+      : null;
+    return { wk, played, games, median };
   }, [mwQ.data, oddsQ.data, phase.week, teams, sproj, weeklyNow]);
+
+  /* ---- slot by slot ------------------------------------------------------
+     A side's starting lineup as the manager set it (matchups.set, or the
+     scored entry's starters once played), one entry per starting slot in
+     the league's lineup order; before a lineup is set, the roster's best
+     projected lineup. Each slot carries its week figure: the actual score
+     once played, Sleeper's per-week projection before. A bye or an empty
+     slot is a real 0.0 — that IS the weakness. */
+  const slotsOf = useCallback((rid: number, wk: number, played: boolean) => {
+    const mw = mwQ.data;
+    const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
+    const val = (pid: string): number => {
+      if (played) return weeklyNow?.[pid]?.find(x => x[0] === wk)?.[1] ?? 0;
+      return sproj?.players[pid]?.wk?.[String(wk)] ?? 0;
+    };
+    const e = mw?.teams[String(rid)]?.find(x => x[0] === wk);
+    let set: string[] | null = e?.[4]?.length ? e[4]
+      : mw?.set?.week === wk ? mw.set.starters[String(rid)] ?? null : null;
+    if (set && set.length !== lineup.length) set = null;
+    if (set) {
+      return lineup.map((slot, i) => {
+        const pid = set![i];
+        const real = pid && pid !== "0";
+        return { slot, pid: real ? pid : null, v: real ? val(pid) : 0 };
+      });
+    }
+    const roster = teams?.find(t => t.roster_id === rid)?.players ?? [];
+    const pool = roster.map(pid => ({ id: pid, pos: pInfo(players, pid)[1], war: val(pid) }))
+      .filter(p => p.pos);
+    return optimalLineup(pool, lineup).slots.map(sl => ({
+      slot: sl.slot, pid: sl.player?.id ?? null, v: sl.player?.war ?? 0,
+    }));
+  }, [mwQ.data, meta, weeklyNow, sproj, teams, players]);
 
   /* ---- last week -------------------------------------------------------- */
   const lastWeek = useMemo(() => {
@@ -332,21 +381,29 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     const upset = winners.length
       ? winners.reduce((m, r) => (line[String(r.rid)].wp! < line[String(m.rid)].wp! ? r : m))
       : null;
-    // THE WEEK'S WAR LEADER, among players who were STARTED — a bench 40 is
-    // a fact about a bench, not about the week
-    const startedBy = new Map<string, number>();
-    for (const r of rows) for (const pid of r.starters) if (pid && pid !== "0") startedBy.set(pid, r.rid);
-    let best: { pid: string; war: number; rid: number } | null = null;
+    // THE CLOSEST SCORE (Max, 2026-09-08): the week's narrowest margin, each
+    // game counted once from its winner's side. A tie is a margin of zero.
+    let closest: { rid: number; pts: number; opp: number; oppPts: number } | null = null;
+    for (const r of rows) {
+      if (r.opp == null || r.oppPts == null || r.pts < r.oppPts) continue;
+      if (!closest || r.pts - r.oppPts < closest.pts - closest.oppPts)
+        closest = { rid: r.rid, pts: r.pts, opp: r.opp, oppPts: r.oppPts };
+    }
+    // THE WEEK'S TOP SCORE AT EACH POSITION, bench or starter (Max,
+    // 2026-09-08): weekly.json scores every rostered player, so a 40 left on
+    // a bench counts — it is a fact about the week, whoever sat him.
+    const posTop: Record<string, { pid: string; pts: number } | null> = {};
     if (weeklyR) {
       for (const [pid, wrows] of Object.entries(weeklyR)) {
-        const rid = startedBy.get(pid);
-        if (rid == null) continue;
         const w = wrows.find(x => x[0] === wk);
-        if (w && (!best || w[5] > best.war)) best = { pid, war: w[5], rid };
+        if (!w) continue;
+        const pos = pInfo(players, pid)[1];
+        const cur = posTop[pos];
+        if (!cur || w[1] > cur.pts) posTop[pos] = { pid, pts: w[1] };
       }
     }
-    return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, best };
-  }, [mwR, oddsR, weeklyR]);
+    return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, closest, posTop };
+  }, [mwR, oddsR, weeklyR, players]);
 
   const seasonsRoute = (season: string, wk: number) => betaPath(`/seasons/${season}/${wk}`);
   const twSeason = rosterSeason;
@@ -359,6 +416,13 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       {mwQ.error ? <DataError what="Schedule didn't load" />
         : !thisWeek ? <div className="empty">{mwQ.loading ? "Loading…" : "No week scheduled."}</div> : (
         <div className="lgx-games">
+          {thisWeek.median != null && (
+            <div className="lgx-median">
+              <span className="k">League median</span>
+              <span className="v">{fmt(thisWeek.median, 1)}</span>
+              <span className="s">{thisWeek.played ? "of the week's scores" : "of the projected totals"}</span>
+            </div>
+          )}
           {thisWeek.games.map(g => {
             const aWon = g.a.pts != null && g.b.pts != null && g.a.pts > g.b.pts;
             const bWon = g.a.pts != null && g.b.pts != null && g.b.pts > g.a.pts;
@@ -377,60 +441,215 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
                 <div className="nm">{nameOf(teams, x.rid)}</div>
                 <div className="fig">{x.pts != null ? fmt(x.pts, 1) : ml ?? DASH}</div>
+                {/* the side's projected total, pregame (Max, 2026-09-09): the
+                    figure the line is made from, under the line it makes.
+                    The middle block's Total is the two of these added. */}
+                {x.pts == null && x.mu != null && (
+                  <div className="proj"><span className="k">Proj</span> {fmt(x.mu, 1)}</div>
+                )}
+                {/* the star to watch, mirrored on the right side so the figure
+                    sits on the card's outer edge and the name reads inward,
+                    the way the moneyline above it does */}
                 <div className="sub">
                   {x.star
-                    ? `${pInfo(players, x.star.pid)[0]} · ${fmt(x.star.v, 1)}`
+                    ? right
+                      ? `${fmt(x.star.v, 1)} · ${pInfo(players, x.star.pid)[0]}`
+                      : `${pInfo(players, x.star.pid)[0]} · ${fmt(x.star.v, 1)}`
                     : ""}
                 </div>
               </div>
             );
-            // THE CARD IS THE MATCHUP, so it opens the matchup — both
-            // lineups — not the week it sits in (Max, 2026-09-08). The route
-            // takes either side's roster id.
-            return (
-              <RouteLink key={`${g.a.rid}-${g.b.rid}`} className="lgx-game"
-                to={`${seasonsRoute(twSeason, thisWeek.wk)}/${g.a.rid}`}>
+            // THE CARD OPENS ITS DRAWER (Max, 2026-09-09) — slot by slot,
+            // inline, under the card. The matchup page is the link inside it.
+            const key = `${g.a.rid}-${g.b.rid}`;
+            const isOpen = openGame === key;
+            return [
+              <button key={key} type="button" className={`lgx-game${isOpen ? " open" : ""}`}
+                aria-expanded={isOpen}
+                onClick={() => setOpenGame(isOpen ? null : key)}>
                 {side(g.a, mlA, aWon, false)}
                 <div className="mid">
                   {thisWeek.played ? <span className="k">Final</span> : (
                     <>
                       <span className="k">Spread</span>
-                      <span className="v">{sp ? (aFav ? `◂ ${sp}` : `${sp} ▸`) : DASH}</span>
+                      {/* the figure holds the center; the arrow takes a fixed
+                          slot either side, so spreads line up down the column */}
+                      <span className="v edge">
+                        <span className="ar">{sp && aFav ? "◂" : ""}</span>
+                        <span className="n">{sp ?? DASH}</span>
+                        <span className="ar">{sp && !aFav ? "▸" : ""}</span>
+                      </span>
                       <span className="k">Total</span>
                       <span className="v">{total ?? DASH}</span>
                     </>
                   )}
                 </div>
                 {side(g.b, mlB, bWon, true)}
-              </RouteLink>
-            );
+              </button>,
+              isOpen && (
+                <SlotDrawer key={`${key}-drawer`}
+                  a={{ rid: g.a.rid, name: nameOf(teams, g.a.rid), slots: slotsOf(g.a.rid, thisWeek.wk, thisWeek.played) }}
+                  b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid), slots: slotsOf(g.b.rid, thisWeek.wk, thisWeek.played) }}
+                  played={thisWeek.played} players={players}
+                  to={`${seasonsRoute(twSeason, thisWeek.wk)}/${g.a.rid}`} />
+              ),
+            ];
           })}
         </div>
       )}
 
       <Band label={lastWeek ? `Last week · ${lwSeason} wk ${lastWeek.wk}` : "Last week"}
         note="Regular season" />
+      {/* FOUR EVEN CELLS over the four position blocks below (`.lgx-even`),
+          so the two rows read as one grid. THE THREE FIGURES THAT EARN A
+          COLOUR (Max, 2026-09-08): the top score is the week's positive, the
+          low its negative, the upset its caution — the semantic tokens the
+          rest of the board already gives those three facts. The margin stays
+          neutral: a close game is not good or bad for anyone. */}
       {!lastWeek ? <div className="empty">{mwR ? "No week played yet." : "Loading…"}</div> : (
+        <div className="lgx-even">
         <Strip figures={[
-          { key: "top", label: "Top score", value: fmt(lastWeek.top.pts, 1),
+          { key: "top", label: "Top score",
+            value: <span className="lgx-good">{fmt(lastWeek.top.pts, 1)}</span>,
             sub: nameOf(teamsR, lastWeek.top.rid), to: seasonsRoute(lwSeason, lastWeek.wk) },
-          { key: "low", label: "Low score", value: fmt(lastWeek.low.pts, 1),
+          { key: "low", label: "Low score",
+            value: <span className="lgx-bad">{fmt(lastWeek.low.pts, 1)}</span>,
             sub: nameOf(teamsR, lastWeek.low.rid), to: seasonsRoute(lwSeason, lastWeek.wk) },
           { key: "upset", label: "Upset",
-            value: lastWeek.upset && lastWeek.upsetWp != null ? `${Math.round(lastWeek.upsetWp * 100)}%` : DASH,
+            value: lastWeek.upset && lastWeek.upsetWp != null
+              ? <span className="lgx-warn">{`${Math.round(lastWeek.upsetWp * 100)}%`}</span> : DASH,
             sub: lastWeek.upset
               ? `${nameOf(teamsR, lastWeek.upset.rid)} beat ${lastWeek.upset.opp != null ? nameOf(teamsR, lastWeek.upset.opp) : "—"}`
               : "no winner beat the line",
             to: seasonsRoute(lwSeason, lastWeek.wk) },
-          { key: "war", label: "WAR leader",
-            value: lastWeek.best ? fmtWar(lastWeek.best.war) : DASH, acc: !!lastWeek.best,
-            sub: lastWeek.best
-              ? `${pInfo(players, lastWeek.best.pid)[0]} · ${nameOf(teamsR, lastWeek.best.rid)}`
-              : (weeklyR ? "no starter scored" : "loading…"),
-            to: lastWeek.best ? betaPath(`/player/${lastWeek.best.pid}`) : undefined },
+          { key: "close", label: "Closest score",
+            value: lastWeek.closest ? fmt(lastWeek.closest.pts - lastWeek.closest.oppPts, 1) : DASH,
+            // "X beat Y, 123.2–121.1": the same grammar as the upset line, so
+            // the two sides read as one game rather than two facts
+            sub: lastWeek.closest
+              ? `${nameOf(teamsR, lastWeek.closest.rid)} beat ${nameOf(teamsR, lastWeek.closest.opp)}, ${fmt(lastWeek.closest.pts, 1)}–${fmt(lastWeek.closest.oppPts, 1)}`
+              : "no scored game",
+            to: seasonsRoute(lwSeason, lastWeek.wk) },
         ]} />
+        </div>
+      )}
+      {/* the week's best at each position, bench or starter — the same four
+          blocks the season and all-time views carry, scoped to one week */}
+      {lastWeek && (
+        <PosLeaders
+          leaders={POSITIONS.map(pos => {
+            const t = lastWeek.posTop[pos];
+            return t ? { pid: t.pid, value: `${fmt(t.pts, 1)} pts`,
+              note: teamOf(teamsR, t.pid) ?? "unrostered" } : null;
+          })}
+          settled={!!weeklyR}
+          empty={pos => `no ${pos} scored`} />
       )}
     </>
+  );
+}
+
+/* ---- the matchup drawer ------------------------------------------------- */
+
+interface SlotSide {
+  rid: number; name: string;
+  slots: { slot: string; pid: string | null; v: number }[];
+}
+
+/**
+ * THE SLOT LABEL, INKED BY POSITION (Max, 2026-09-09). QB / RB / WR / TE take
+ * their own color. A flex slot is spelled out in the colors of what it can
+ * hold, letter by letter: FLX is F in RB, L in WR, X in TE; SFLX adds S in
+ * QB. The one place the board puts a position color on type, and the
+ * letters are a legend for it.
+ */
+function SlotTag({ slot }: { slot: string }) {
+  const label = SLOT_LABEL[slot] ?? slot;
+  const single = POS_COLOR[slot];
+  if (single) return <span className="slot" style={{ color: single }}>{label}</span>;
+  const FLEX_INK: Record<string, string[]> = {
+    FLX: ["RB", "WR", "TE"],
+    SFLX: ["QB", "RB", "WR", "TE"],
+  };
+  const inks = FLEX_INK[label];
+  if (!inks || inks.length !== label.length) return <span className="slot">{label}</span>;
+  return (
+    <span className="slot">
+      {label.split("").map((ch, i) => (
+        <span key={i} style={{ color: POS_COLOR[inks[i]] }}>{ch}</span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * SLOT BY SLOT: the two lineups side by side, one row per starting slot,
+ * the slot's label and the margin between them in the middle. The higher
+ * figure takes the accent, so a column of gold down one side IS the read —
+ * where each roster is strong, where it is thin. A margin under half a
+ * point is a push and takes no side. Pregame the figures are Sleeper's
+ * per-week projections; played, they are the points. The foot sums both.
+ */
+function SlotDrawer({ a, b, played, players, to }: {
+  a: SlotSide; b: SlotSide; played: boolean;
+  players: PlayersMin; to: string;
+}) {
+  const PUSH = 0.5;
+  const n = Math.max(a.slots.length, b.slots.length);
+  const totA = a.slots.reduce((t, x) => t + x.v, 0);
+  const totB = b.slots.reduce((t, x) => t + x.v, 0);
+  const who = (pid: string | null) => (pid ? pInfo(players, pid)[0] : "—");
+  const cell = (x: { pid: string | null; v: number } | undefined, win: boolean, right: boolean) => (
+    <div className={`sd-side${right ? " r" : ""}${win ? " win" : ""}`}>
+      <span className="nm">{x ? who(x.pid) : "—"}</span>
+      <span className="v">{x ? fmt(x.v, 1) : DASH}</span>
+    </div>
+  );
+  return (
+    <div className="lgx-drawer">
+      <div className="sd-head">
+        <span className="k">{played ? "Slot by slot · final" : "Slot by slot · projected"}</span>
+        <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>
+      </div>
+      {Array.from({ length: n }, (_, i) => {
+        const x = a.slots[i], y = b.slots[i];
+        const d = (x?.v ?? 0) - (y?.v ?? 0);
+        const push = Math.abs(d) < PUSH;
+        return (
+          <div className="sd-row" key={i}>
+            {cell(x, !push && d > 0, false)}
+            <div className="sd-mid">
+              <SlotTag slot={x?.slot ?? y?.slot ?? ""} />
+              {/* the figure holds the center; the arrow sits in its own
+                  fixed slot either side of it, so a margin lines up down the
+                  column whichever way it points */}
+              <span className={`edge${push ? " push" : ""}`}>
+                <span className="ar">{!push && d > 0 ? "◂" : ""}</span>
+                <span className="n">{push ? "even" : fmt(Math.abs(d), 1)}</span>
+                <span className="ar">{!push && d < 0 ? "▸" : ""}</span>
+              </span>
+            </div>
+            {cell(y, !push && d < 0, true)}
+          </div>
+        );
+      })}
+      <div className="sd-row sd-tot">
+        <div className={`sd-side${totA > totB ? " win" : ""}`}>
+          <span className="nm">{a.name}</span><span className="v">{fmt(totA, 1)}</span>
+        </div>
+        <div className="sd-mid">
+          <span className="slot">Total</span>
+          <span className="edge">
+            <span className="ar">{totA > totB ? "◂" : ""}</span>
+            <span className="n">{fmt(Math.abs(totA - totB), 1)}</span>
+            <span className="ar">{totB > totA ? "▸" : ""}</span>
+          </span>
+        </div>
+        <div className={`sd-side r${totB > totA ? " win" : ""}`}>
+          <span className="nm">{b.name}</span><span className="v">{fmt(totB, 1)}</span>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -599,16 +818,25 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
   // the per-week lines, for projected points per game on the power table
   const oddsW = useJson<WeekOdds>(`${rosterSeason}/odds.json`).data;
-  const tradesFile = useJson<TradesPayload>("trades.json").data;
+  // this season's WAR so far, for the four position blocks. A 404 before the
+  // first scored week is a season that has not started, not a failure.
+  const sumNowQ = useJson<SummaryRow[]>(`${rosterSeason}/summary.json`);
+  const seasonPos = useMemo(() => {
+    const rows = sumNowQ.data;
+    if (!rows) return null;
+    return POSITIONS.map(pos => {
+      const best = rows.filter(r => r[1] === pos && typeof r[6] === "number")
+        .sort((a, b) => b[6] - a[6])[0];
+      return best && best[6] > 0
+        ? { pid: best[0], value: `${fmtWar(best[6])} WAR`,
+          note: `${best[2]} game${best[2] === 1 ? "" : "s"} · ${rosterSeason} so far` }
+        : null;
+    });
+  }, [sumNowQ.data, rosterSeason]);
   // the market prices a FORMAT, not a league — global files, global scope
   const valsQ = useJson<Values>("data/values.json", "globalDaily");
   const vals = valsQ.data;
   const dyn = useDynMovers();
-  /* The window is a span of TIME and useActivity's argument is a row count, so
-     it is asked for far more rows than it will show and then filtered by
-     timestamp. 400 covers seven days with years of slack — this league's whole
-     transaction history is about 1,650 rows. */
-  const acts = useActivity(400);
 
   const lineup = lineupOf(meta);
   // whole-roster market, players plus picks, for the power table's last column
@@ -672,54 +900,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const leader = power?.[0] ?? null;
 
 
-  /* ---- the last seven days -------------------------------------------- */
-
-  /** the window's opening edge, fixed for the life of the mount so the memo
-   *  below is not recomputed on every render by a moving `Date.now()` */
-  const since = useMemo(() => Date.now() - WINDOW_DAYS * 86400000, []);
-
-  const trades = useMemo<Trade[]>(
-    () => (tradesFile ? readTrades(tradesFile).trades : []), [tradesFile]);
-
-  const recent = useMemo(() => {
-    const inWindow = trades.filter(t => t.ts >= since && t.sides.length >= 2);
-    /* BIGGEST BY WHAT. trades.json prices a side three ways and all three are
-       frozen at the trade: `expThen` (projected WAR), `mktThen` (KTC) and
-       `fcThen`. Market points are the only one most sides carry and the only
-       one whose magnitude compares across deals, so "biggest" is the largest
-       side's at-trade market price.
-
-       A MAX over sides rather than a sum, and the reason is no longer that a
-       pick-only side is unpriced — the snapshot has priced picks at their
-       mid-tier ladder key since 2026-08-21. It is that the two sides of a deal
-       are two readings of ONE size, not two halves of it: summing them would
-       rank a trade above an identical one where the picks went the other way,
-       and one priced side is enough to size a deal where the other still
-       carries an asset the history cannot reach. */
-    const size = (t: Trade) => Math.max(0, ...t.sides.map(s => s.mktThen ?? 0));
-    const biggest = inWindow.length
-      ? inWindow.slice().sort((a, b) => size(b) - size(a) || b.ts - a.ts)[0]
-      : null;
-    const moves = (acts ?? [])
-      .filter((a): a is ActMove => a.kind === "move" && a.ts >= since);
-    return {
-      trades: inWindow.length, biggest, moves,
-      // whether the "biggest" claim is actually sized by anything, or whether
-      // every side of every trade in the window is unpriced
-      sized: biggest ? size(biggest) > 0 : false,
-    };
-  }, [trades, acts, since]);
-
-  const [openMoves, setOpenMoves] = useState(false);
-
   /* ---- the three mover modules -------------------------------------------
      Computed in `../movers` and shared with the Movers screen, so the five
      rows here are the head of exactly the list "View all" opens. */
   const mvm = useGapRows(teams);
   const movers = useMarketMovers(vals);
-
-  const windowFrom = new Date(since)
-    .toLocaleDateString(undefined, { month: "short", day: "numeric" });
 
   return (
     <>
@@ -803,64 +988,22 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         </table>
       )}
 
-      {/* ---- 3. what moved ----------------------------------------------- */}
-      <Band label={phase.offseason ? `Last ${WINDOW_DAYS} days` : "Since Sunday"}
-        note={`Trades and roster moves since ${windowFrom}`} />
-      {recent.biggest ? <BigTrade trade={recent.biggest} sized={recent.sized} /> : (
-        /* A QUIET BAND, not an empty table. A week with no trades in it is a
-           fact about the league, and a header over twelve pixels of nothing is
-           the wrong way to state it. */
-        <div className="lgx-quiet">
-          No trades in the last {WINDOW_DAYS} days.{" "}
-          {recent.moves.length
-            ? `${recent.moves.length} roster move${recent.moves.length === 1 ? "" : "s"} went through — the count below opens them.`
-            : "Nothing went through at all, which is a fact about the league rather than a gap in the data."}
-        </div>
-      )}
-      <div className="lgx-counts">
-        <div className="lgx-count">
-          <span className="k">Trades</span>
-          <span className="v">{recent.trades}</span>
-          {/* the league ledger: every trade this league has ever made, scored */}
-          <RouteLink to={betaPath("/trade?scope=history")} className="go">All →</RouteLink>
-        </div>
-        <div className="lgx-count">
-          <span className="k">Roster moves</span>
-          <span className="v">{recent.moves.length}</span>
-          {/* Opens IN PLACE rather than linking out. Waivers and free agents
-              have no destination of their own in this shell — the League screen
-              is where they have always been shown — and a link to a page that
-              does not exist is worse than a disclosure that does. */}
-          {recent.moves.length > 0 && (
-            <button type="button" className="go" aria-expanded={openMoves}
-              onClick={() => setOpenMoves(v => !v)}>
-              {openMoves ? "Close ▴" : "All ▾"}
-            </button>
-          )}
-        </div>
-      </div>
-      {openMoves && (
-        <div className="v3-feed">
-          {recent.moves.map(a => (
-            /* the ACTIVITY'S OWN ID, not ts+team. Sleeper batch-processes
-               waivers, so a whole Wednesday's claims share one timestamp to the
-               millisecond and one franchise can hold several of them — the old
-               key collided and React silently dropped every row after the first
-               of each collision, which read as moves that never happened. */
-            <div className="v3-act" key={a.id}>
-              <div className="when">
-                <span>{tradeWhen(a.ts)}</span>
-                <span>{a.waiver ? "Waiver" : "Free agent"}</span>
-              </div>
-              <div className="v3-wv">
-                <span className="add"><span className="k">Add</span>{a.adds.join(", ") || "—"}</span>
-                <span className="drop"><span className="k">Drop</span>{a.drops.join(", ") || "—"}</span>
-              </div>
-              <div className="idc-s lgx-who">{a.team}</div>
-            </div>
-          ))}
-        </div>
-      )}
+      {/* ---- 2b. the season's four positions (Max, 2026-09-08) --------------
+          Most WAR at each position THIS season, off the roster season's own
+          summary — the same blocks the all-time view shows for careers, so a
+          reader watches the year's leaders grow and change hands week to week.
+          Before week one the summary is empty and every block reads —. */}
+      <Band label={`Top performers · ${rosterSeason}`}
+        note="Most WAR at each position this season, regular season only · updates weekly" />
+      <PosLeaders
+        leaders={seasonPos}
+        settled={sumNowQ.data != null || sumNowQ.error}
+        empty={pos => `no ${pos} scored yet`} />
+
+      {/* ---- 3. what moved -----------------------------------------------
+          Shared with the Team screen (`../moved`), which renders the same
+          module filtered to one franchise (Max, 2026-09-08). */}
+      <Moved />
 
       {/* ---- 4. win now vs dynasty --------------------------------------- */}
       <Band label="Win now vs dynasty" note="CVI prices this season, DVI the horizon"
@@ -894,63 +1037,6 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   );
 }
 
-/* ---- the window's biggest trade ------------------------------------------ */
-
-/**
- * One trade, two neutral baskets.
- *
- * BOTH SIDES ARE NAMED and each lists what it GETS — the two-basket comparison
- * (SKILL §5) — and both take the same ink. Coloring one side would declare a
- * winner, which is exactly what the ledger refuses to declare.
- *
- * WHAT THE FIGURES ARE, AND WHY THEY ARE NOT INDICES. The plan asked for a
- * per-side DVI/CVI swing and the pipeline does not publish one: trades.json
- * carries `war`, `future`, `total`, plus the frozen-at-the-trade `expThen`
- * (projected WAR), `mktThen` (KTC) and `fcThen`, and no index at any level.
- * Summing today's DVI over a side would be worse than absent — a pick has a
- * price and a WAR stream but NO index, so a package containing one silently
- * values it at zero, and the side of the most recent trade here took two 2027
- * picks and would have read 0.0. So the card shows the two frozen figures the
- * file does publish, labeled "then" so they cannot be read as today's price.
- */
-function BigTrade({ trade, sized }: { trade: Trade; sized: boolean }) {
-  const betaPath = useBetaPath();
-  return (
-    <a className="v3-act lgx-trade" href={`#${betaPath(`/trade?load=${trade.ts}`)}`}>
-      <div className="when">
-        {/* the DATE, not "season · week": in the offseason every trade carries
-            week 1, and a card headed "2026 · WK 1" in August names a week that
-            has not happened */}
-        <span>{tradeWhen(trade.ts)}</span>
-        <span>{sized ? "Biggest trade" : "Latest trade"}</span>
-        {/* `?load=<ts>` opens this deal's own row in the ledger — the Trade
-            screen consumes the param, flips itself to the history scope and
-            drops it. It is NOT the builder any more: the builder draws from
-            current rosters, so the label says where the tap lands. */}
-        <span className="go">Ledger →</span>
-      </div>
-      <div className="v3-baskets">
-        {trade.sides.map(s => (
-          <div className="bk" key={s.rid}>
-            <div className="who">{s.team} gets</div>
-            {s.got.map((g, j) => (
-              <div className={`it${g.kind !== "player" ? " pick" : ""}`} key={j}>{g.label}</div>
-            ))}
-            <div className="lgx-bkfig">
-              <span className="k">Proj WAR then</span>
-              <span className="v">{s.expThen != null ? fmtWar(s.expThen) : DASH}</span>
-            </div>
-            <div className="lgx-bkfig">
-              <span className="k">KTC then</span>
-              <span className="v">{s.mktThen != null ? s.mktThen.toLocaleString() : DASH}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-    </a>
-  );
-}
-
 /* ========================================================================
    HISTORY — one settled season
    ======================================================================== */
@@ -980,6 +1066,50 @@ interface AllTimeRow {
 }
 
 /** one player's career in this league */
+/**
+ * THE FOUR POSITION LEADERS as a row of blocks — QB · RB · WR · TE in the
+ * lineup's order (Max, 2026-09-08). All-time feeds it career WAR; Current
+ * feeds it the roster season's WAR so far, so the same four blocks grow and
+ * change hands week by week. The spine carries the position colour, as it
+ * does on every row of the site; the name stays in primary ink.
+ *
+ * `leaders` is null until the source has loaded (blank blocks, not dashes —
+ * a dash is a claim); a null entry once it has is a position with nobody
+ * scored yet, and reads `empty(pos)`.
+ */
+function PosLeaders({ leaders, settled, empty }: {
+  /** per position, in POSITIONS order: the player, his headline figure
+   *  already formatted with its unit ("2.31 WAR", "48.6 pts"), and a note */
+  leaders: ({ pid: string; value: string; note: string } | null)[] | null;
+  settled: boolean;
+  empty: (pos: string) => string;
+}) {
+  const { players } = useLeague();
+  const betaPath = useBetaPath();
+  return (
+    <div className="lgx-pos4">
+      {POSITIONS.map((pos, i) => {
+        const row = leaders?.[i] ?? null;
+        return (
+          <div className="lgx-mvp" key={pos}
+            style={{ "--pos-c": POS_COLOR[pos] ?? "var(--rule-2)" } as CSSProperties}>
+            <span className="lgx-posspine" />
+            <div className="k">Top {pos}</div>
+            {row
+              ? <RouteLink to={betaPath(`/player/${row.pid}`)} className="nm">
+                  {pInfo(players, row.pid)[0]}
+                </RouteLink>
+              : <span className="nm">{settled ? DASH : "\u00a0"}</span>}
+            <div className="sub">
+              {row ? `${row.value} · ${row.note}` : settled ? empty(pos) : "\u00a0"}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 interface CareerRow { pid: string; pos: string; gp: number; war: number; seasons: number }
 
 /**
@@ -1040,7 +1170,47 @@ function AllTimeView({ played }: { played: string[] }) {
     return () => { dead = true; };
   }, [played]);
 
-  const leaders = useMemo<CareerRow[] | null>(() => {
+  /* every played season's bracket, for the postseason ledger. Missing files
+     are a season without a scored bracket, not an error — the star is summed
+     over whatever exists. */
+  const [brs, setBrs] = useState<Record<string, BracketFile | null> | null>(null);
+  useEffect(() => {
+    let dead = false;
+    Promise.all(played.map(s =>
+      jl<BracketFile>(`${s}/bracket.json`).catch(() => null).then(b => [s, b] as const)))
+      .then(all => { if (!dead) setBrs(Object.fromEntries(all)); });
+    return () => { dead = true; };
+  }, [played]);
+
+  /**
+   * THE PLAYOFF STAR (Max, 2026-09-08): most postseason WIN SHARES across
+   * every bracket — each elimination game hands out exactly 1.0 to the winning
+   * side (playoff_wpa.py `ws`), so this is wins in the bracket, credited by
+   * how much of each win was his. Raw shares rather than the round-weighted
+   * or season-scaled scores, because a career total wants a unit that adds
+   * across years: a win in 2022 is a win in 2025.
+   */
+  const star = useMemo(() => {
+    if (!brs) return null;
+    const acc = new Map<string, { pid: string; ws: number; runs: number }>();
+    for (const b of Object.values(brs)) {
+      for (const [pid, w] of Object.entries(b?.wpa ?? {})) {
+        if (w.ws == null) continue;
+        const c = acc.get(pid) ?? { pid, ws: 0, runs: 0 };
+        c.ws += w.ws; c.runs += 1;
+        acc.set(pid, c);
+      }
+    }
+    // NO FRANCHISE on a career mark (Max, 2026-09-08): the shares were earned
+    // across postseasons and often across rosters, and naming one of them
+    // credits it with the rest. The season view's MVP names his team because
+    // there it is one season, one roster.
+    return [...acc.values()].sort((a, b) => b.ws - a.ws)[0] ?? null;
+  }, [brs]);
+
+  /** every player's career line, WAR descending — the leaders table is its
+   *  head, the position blocks its per-position heads */
+  const careers = useMemo<CareerRow[] | null>(() => {
     if (!sums || sums === "error") return null;
     const acc = new Map<string, CareerRow>();
     // oldest first, so the position on the row is the most recent season's
@@ -1051,13 +1221,69 @@ function AllTimeView({ played }: { played: string[] }) {
         acc.set(r[0], c);
       }
     }
-    return [...acc.values()].sort((a, b) => b.war - a.war).slice(0, 15);
+    return [...acc.values()].sort((a, b) => b.war - a.war);
   }, [sums, played]);
+  const leaders = useMemo(() => careers?.slice(0, 15) ?? null, [careers]);
+
+  /** THE POSITION LEADERS (Max, 2026-09-08): most career WAR at each of the
+   *  four positions, in the lineup's own order. Off the full career list, not
+   *  the fifteen-row table — a position's best can sit well outside it. */
+  const posLeaders = useMemo(() => {
+    if (!careers) return null;
+    return POSITIONS.map(pos => ({ pos, row: careers.find(c => c.pos === pos) ?? null }));
+  }, [careers]);
 
   const span = played.length ? `${played[played.length - 1]}–${played[0]}` : "";
 
+  /** THE BIG DOG: most career WAR across every league season — the head of
+   *  the career leaders table below, lifted to the top so the all-time view
+   *  opens on its two players the way a season opens on its champion. */
+  const bigDog = leaders?.[0] ?? null;
+
   return (
     <>
+      {/* ---- the two career marks (Max, 2026-09-08) --------------------------
+          The season view's MVP pair, at career scale: WAR over every regular
+          season, win shares over every bracket. Same blocks, same ink; the
+          accent stays on the title-holders' ordinals in the standings below. */}
+      <div className="lgx-mvps">
+        <div className="lgx-mvp">
+          <div className="k">The Big Dog</div>
+          {bigDog
+            ? <RouteLink to={betaPath(`/player/${bigDog.pid}`)} className="nm">
+                {pInfo(players, bigDog.pid)[0]}
+              </RouteLink>
+            : <span className="nm">{sums === "error" ? DASH : "\u00a0"}</span>}
+          <div className="sub">
+            {bigDog
+              ? `${fmtWar(bigDog.war)} career WAR · ${bigDog.seasons} season${bigDog.seasons === 1 ? "" : "s"} · ${bigDog.pos}`
+              : sums === "error" ? "career WAR didn't load" : "\u00a0"}
+          </div>
+        </div>
+        <div className="lgx-mvp">
+          <div className="k">Playoff Star</div>
+          {star
+            ? <RouteLink to={betaPath(`/player/${star.pid}`)} className="nm">
+                {pInfo(players, star.pid)[0]}
+              </RouteLink>
+            : <span className="nm">{brs ? DASH : "\u00a0"}</span>}
+          <div className="sub">
+            {star
+              ? `${fmt(star.ws, 1)} playoff win shares · ${star.runs} postseason${star.runs === 1 ? "" : "s"} · ${pInfo(players, star.pid)[1]}`
+              : brs ? "no scored brackets" : "\u00a0"}
+          </div>
+        </div>
+      </div>
+
+      {/* ---- the four positions ------------------------------------------
+          Most career WAR at each, QB · RB · WR · TE in the lineup's order. */}
+      <Band label="Top performers · all-time"
+        note="Most career WAR at each position across every league season" />
+      <PosLeaders
+        leaders={posLeaders?.map(x => x.row && ({ pid: x.row.pid, value: `${fmtWar(x.row.war)} WAR`,
+          note: `${x.row.seasons} season${x.row.seasons === 1 ? "" : "s"} · ${x.row.gp} games` })) ?? null}
+        settled={!!careers} empty={pos => `no ${pos} scored`} />
+
       <Band label="All-time standings"
         note={`${span} · regular season · ordered by win percentage, then points`} />
       {frQ.error ? <DataError what="Franchise history didn't load" />
@@ -1153,6 +1379,50 @@ function HistoryView({ season }: { season: string }) {
      this query failed is a failure rather than a wait. */
   const teamsQ = useJson<Team[]>(`${season}/teams.json`);
   const teams = teamsQ.data;
+  // the draft that stocked this season, off the same file and the same model
+  // the Drafts screen reads — one board, two screens
+  const drafts = useJson<Drafts>("drafts.json").data;
+  const draftHist = useMemo(() => (drafts ? buildHistory(drafts, fr) : null), [drafts, fr]);
+  const draftRows = draftHist?.rowsBy[season];
+  const draftKind = draftHist?.kindOf[season];
+  // the season's week-by-week record — team scores from matchups, player
+  // scores from weekly (regular season; WAR is only scored there), and the
+  // bracket's own `stars` for the postseason player line
+  const mws = useJson<Matchups>(`${season}/matchups.json`).data;
+  const wkly = useJson<Weekly>(`${season}/weekly.json`).data;
+  const best = useMemo(() => {
+    const ps = mws?.playoff_start ?? 15;
+    let teamWeek: { rid: number; week: number; pts: number } | null = null;
+    for (const [rid, list] of Object.entries(mws?.teams ?? {})) {
+      for (const e of list) {
+        if (e[0] >= ps || e[1] == null) continue;
+        if (!teamWeek || e[1] > teamWeek.pts) teamWeek = { rid: Number(rid), week: e[0], pts: e[1] };
+      }
+    }
+    let playerWeek: { pid: string; week: number; pts: number } | null = null;
+    for (const [pid, list] of Object.entries(wkly ?? {})) {
+      for (const w of list) {
+        if (w[0] >= ps) continue;
+        if (!playerWeek || w[1] > playerWeek.pts) playerWeek = { pid, week: w[0], pts: w[1] };
+      }
+    }
+    // the bracket: winners' rounds only — a consolation game is not a playoff
+    // performance, and `stars` is already scoped to the winners' weeks
+    let playoffTeam: { rid: number; week: number; pts: number } | null = null;
+    for (const g of br?.winners ?? []) {
+      for (const [rid, pts] of [[g.t1, g.t1_pts], [g.t2, g.t2_pts]] as [number | null, number | null][]) {
+        if (rid == null || pts == null) continue;
+        if (!playoffTeam || pts > playoffTeam.pts) playoffTeam = { rid, week: g.week, pts };
+      }
+    }
+    let playoffPlayer: { pid: string; week: number; pts: number } | null = null;
+    for (const [pid, st] of Object.entries(br?.stars ?? {})) {
+      for (const [wk, pts] of Object.entries(st.wk)) {
+        if (!playoffPlayer || pts > playoffPlayer.pts) playoffPlayer = { pid, week: Number(wk), pts };
+      }
+    }
+    return { teamWeek, playerWeek, playoffTeam, playoffPlayer };
+  }, [mws, wkly, br]);
 
   /** the title game, and which of its two point totals belongs to the winner */
   const title = useMemo(() => {
@@ -1180,39 +1450,43 @@ function HistoryView({ season }: { season: string }) {
 
   const champRid = title?.rid ?? fallback?.rid ?? null;
   const champ = rows?.find(r => r.rid === champRid) ?? null;
-  const runnerUp = rows?.find(r => r.rid === title?.loser) ?? null;
   const champName = champ?.team
     ?? (champRid != null ? br?.names[String(champRid)] : null)
     ?? fallback?.name ?? null;
 
-  /** SEED, DERIVED — never a row's position in an array. useStandings orders on
-   *  wins then points, which is the tiebreak the league seeds on, and its
-   *  `rank` is that ordinal. bracket.json publishes the seeding independently
-   *  and the two agree in every season this league has played; the file is only
-   *  consulted when the standings cannot supply the champion's row at all. */
-  const seed = champ?.rank ?? (champRid != null ? br?.seeds[String(champRid)] ?? null : null);
-
   const finishOf = (rid: number) =>
     fr?.[String(rid)]?.seasons.find(s => s.season === season)?.finish ?? null;
 
-  /* DASH, NOT NUL. `Strip` renders `.v3strip .cell` divs and beta.css scopes
+  /* THE SEASON'S FOUR SUPERLATIVES (Max, 2026-09-08), in place of the
+     champion's own seed / record / median / title-game line — which repeated
+     the standings row two bands down. These are facts about the YEAR, not
+     the winner: the biggest week any team put up, the biggest single game any
+     player had, and the same two inside the bracket.
+
+     DASH, NOT NUL. `Strip` renders `.v3strip .cell` divs and beta.css scopes
      `.nul` to `.v3tbl td`, so a NUL in here is an unstyled em dash sitting at
      figure weight in primary ink — a missing figure shouting louder than the
      ones that exist. DASH is the same glyph in decorative ink, defined at the
      top of this file for exactly this. */
+  const teamName = (rid: number) =>
+    rows?.find(r => r.rid === rid)?.team ?? br?.names[String(rid)] ?? `Roster ${rid}`;
   const figures: Figure[] = [
-    { key: "seed", label: "Seed", value: seed != null ? ord(seed) : DASH,
-      sub: "regular-season finish" },
-    { key: "rec", label: "Record", value: champ?.rec ?? DASH,
-      sub: champ?.played ? `${fmt(champ.ppg, 1)} ppg` : undefined },
-    { key: "med", label: "Vs median", value: champ?.med ?? DASH,
-      sub: "against each week's league median" },
-    { key: "final", label: "Title game",
-      value: title && title.pts != null && title.oppPts != null
-        ? `${fmt(title.pts, 1)}–${fmt(title.oppPts, 1)}` : DASH,
-      sub: title
-        ? `beat ${runnerUp?.team ?? (title.loser != null ? br?.names[String(title.loser)] : null) ?? "—"} · wk ${title.week}`
-        : undefined },
+    { key: "bestwk", label: "Best week",
+      value: best.teamWeek ? fmt(best.teamWeek.pts, 1) : DASH,
+      sub: best.teamWeek ? `${teamName(best.teamWeek.rid)} · wk ${best.teamWeek.week}` : "regular season · team",
+      to: best.teamWeek ? betaPath(`/seasons/${season}/${best.teamWeek.week}`) : undefined },
+    { key: "bestgm", label: "Best game",
+      value: best.playerWeek ? fmt(best.playerWeek.pts, 1) : DASH,
+      sub: best.playerWeek ? `${pInfo(players, best.playerWeek.pid)[0]} · wk ${best.playerWeek.week}` : "regular season · player",
+      to: best.playerWeek ? betaPath(`/player/${best.playerWeek.pid}`) : undefined },
+    { key: "bestpo", label: "Best playoff game",
+      value: best.playoffPlayer ? fmt(best.playoffPlayer.pts, 1) : DASH,
+      sub: best.playoffPlayer ? `${pInfo(players, best.playoffPlayer.pid)[0]} · wk ${best.playoffPlayer.week}` : "bracket · player",
+      to: best.playoffPlayer ? betaPath(`/player/${best.playoffPlayer.pid}`) : undefined },
+    { key: "bestpot", label: "Best playoff week",
+      value: best.playoffTeam ? fmt(best.playoffTeam.pts, 1) : DASH,
+      sub: best.playoffTeam ? `${teamName(best.playoffTeam.rid)} · wk ${best.playoffTeam.week}` : "bracket · team",
+      to: best.playoffTeam ? betaPath(`/seasons/${season}/${best.playoffTeam.week}`) : undefined },
   ];
 
   /** the season's WAR leaders. Position and games come from that season's own
@@ -1226,6 +1500,24 @@ function HistoryView({ season }: { season: string }) {
       .slice(0, 10)
       .map(r => ({ pid: r[0], pos: r[1], gp: r[2], war: r[6], team: owner[r[0]] ?? null }));
   }, [sum, teams]);
+
+  /** THE TWO MVPs (Max, 2026-09-08). SEASON: most regular-season WAR in the
+   *  league — the same fact the player honors call `mvp`, off the same summary
+   *  row, so the crown on his page and the name here cannot disagree. PLAYOFF:
+   *  the bracket's own MVP score (playoff_wpa.py — win probability added
+   *  across the elimination games, round-weighted, 100 = that year's best
+   *  run), so the winner is whoever the file scores 100. Each carries his
+   *  franchise from that season, not today's. */
+  const seasonMvp = leaders?.[0] ?? null;
+  const playoffMvp = useMemo(() => {
+    if (!br?.wpa) return null;
+    let best: { pid: string; mvp: number; mvpp: number | null; rid: number } | null = null;
+    for (const [pid, w] of Object.entries(br.wpa)) {
+      if (w.mvp == null) continue;
+      if (!best || w.mvp > best.mvp) best = { pid, mvp: w.mvp, mvpp: w.mvpp ?? null, rid: w.rid };
+    }
+    return best;
+  }, [br]);
 
   return (
     <>
@@ -1244,6 +1536,44 @@ function HistoryView({ season }: { season: string }) {
               ui.tsx's identity sub-line: a manager-less block would collapse
               to zero height and the name above it would jump */}
           <div className="sub">{champ?.manager ?? " "}</div>
+        </div>
+        {/* THE SEASON'S TWO PLAYERS, beside each other under the champion
+            (Max, 2026-09-08). Neither takes the accent — the title already
+            spent it — and the two are different questions: a regular season
+            of WAR against three weeks of the bracket. A block with nothing to
+            name reads — rather than dropping out, so the row keeps its shape
+            year to year. */}
+        <div className="lgx-mvps">
+          <div className="lgx-mvp">
+            <div className="k">Season MVP</div>
+            {seasonMvp
+              ? <RouteLink to={betaPath(`/player/${seasonMvp.pid}`)} className="nm">
+                  {pInfo(players, seasonMvp.pid)[0]}
+                </RouteLink>
+              : <span className="nm">{DASH}</span>}
+            <div className="sub">
+              {seasonMvp
+                ? `${fmtWar(seasonMvp.war)} WAR · ${[seasonMvp.pos, seasonMvp.team].filter(Boolean).join(" · ")}`
+                : "no scored season"}
+            </div>
+          </div>
+          <div className="lgx-mvp">
+            <div className="k">Playoff MVP</div>
+            {playoffMvp
+              ? <RouteLink to={betaPath(`/player/${playoffMvp.pid}`)} className="nm">
+                  {pInfo(players, playoffMvp.pid)[0]}
+                </RouteLink>
+              : <span className="nm">{DASH}</span>}
+            <div className="sub">
+              {playoffMvp
+                ? [
+                  playoffMvp.mvpp != null ? `MVP index ${Math.round(playoffMvp.mvpp)}` : null,
+                  pInfo(players, playoffMvp.pid)[1],
+                  br?.names[String(playoffMvp.rid)] ?? null,
+                ].filter(Boolean).join(" · ")
+                : "no bracket scoring"}
+            </div>
+          </div>
         </div>
         <Strip figures={figures} />
       </>}
@@ -1320,6 +1650,36 @@ function HistoryView({ season }: { season: string }) {
             ))}
           </tbody>
         </table>
+      )}
+
+      {/* ---- the bracket (Max, 2026-09-08) --------------------------------
+          The season's playoff tree, as the Seasons screen draws it — every
+          game a head-to-head card, placement games under the tree in the
+          column of the week they were played. The same component, so the two
+          screens cannot disagree about a score. A season with no bracket file
+          (unplayed, or predating the writer) simply has no band. */}
+      {br && br.winners.length > 0 && (
+        <>
+          <Band label={`${season} playoffs`}
+            note={`Winners' bracket from week ${br.playoff_start} · tap a game for that week`} />
+          <PlayoffBracket season={season} bracket={br} />
+        </>
+      )}
+
+      {/* ---- the draft board (Max, 2026-09-08) ----------------------------
+          The draft that stocked this season — the rookie draft of its
+          offseason, or the startup for the league's first year — as the
+          Sleeper-style board the Drafts screen draws: rounds down, slots
+          across, cells tinted by position. Rendered from drafts.json through
+          the same `buildHistory` the Drafts screen uses, so the board here IS
+          that board. Traded picks say who used them. */}
+      {draftRows && draftRows.length > 0 && (
+        <>
+          <Band label={`${season} ${draftKind === "rookie" ? "rookie draft" : "startup draft"}`}
+            note={`${draftRows.length} picks · columns are the original holders of each first-round pick · a cell names the franchise that made the pick when it was not theirs`}
+            right={<ViewAll to={betaPath(`/drafts/history/${season}`)} />} />
+          <DraftBoardGrid rows={draftRows} />
+        </>
       )}
 
       <div className="tnote screen">

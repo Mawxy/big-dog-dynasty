@@ -334,11 +334,15 @@ function BetaBoard() {
           {/* On desktop the rail exposes More's contents rather than making a
               mouse open a menu. Hidden on a phone by beta.css. */}
           <div className="railgrp desk">Explore</div>
+          {/* THE QUICK HITS (Max, 2026-09-08): Seasons, Drafts, Teams, Trends,
+              then the Ledger. History and Insights are off the rail — History's
+              contents live under League's History scope now, and Insights is
+              the written outlook, which the Team page carries per franchise.
+              Both keep their routes, so a bookmark still lands. */}
           {[
-            { id: "drafts", label: "Drafts", to: `${base}/drafts` },
             { id: "seasons", label: "Seasons", to: `${base}/seasons` },
-            { id: "history", label: "History", to: `${base}/history` },
-            { id: "insights", label: "Insights", to: `${base}/insights` },
+            { id: "drafts", label: "Drafts", to: `${base}/drafts` },
+            { id: "teams", label: "Teams", to: `${base}/teams` },
             /* Trends lights for its hub AND for the Movers screens under it —
                they are one destination with three floors (Max, 2026-09-08). */
             { id: "trends", label: "Trends", to: `${base}/trends`, lit: ["trends", "movers"] },

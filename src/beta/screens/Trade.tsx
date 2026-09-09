@@ -1192,8 +1192,15 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   /** franchises in force — empty is every team. MULTI-SELECT like the season
-   *  filter: a trade shows if ANY picked franchise was a side of it. */
-  const [teamsOn, setTeamsOn] = useState<Set<number>>(() => new Set());
+   *  filter: a trade shows if ANY picked franchise was a side of it.
+   *
+   *  SEEDED FROM `?team=<rid>[,<rid>]` (Max, 2026-09-08): the Team screen's
+   *  "All →" lands here already filtered to that franchise. Read once, at
+   *  mount — the filter stays local after that, as it always was, so toggling
+   *  a franchise does not rewrite the URL under the reader. */
+  const [params] = useSearchParams();
+  const [teamsOn, setTeamsOn] = useState<Set<number>>(() => new Set(
+    (params.get("team") ?? "").split(",").map(Number).filter(n => Number.isInteger(n) && n > 0)));
   const toggleTeam = (rid: number) => setTeamsOn(prev => {
     const next = new Set(prev);
     if (next.has(rid)) next.delete(rid); else next.add(rid);

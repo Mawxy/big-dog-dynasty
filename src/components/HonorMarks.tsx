@@ -39,6 +39,22 @@ export function HonorSprite() {
         <symbol id="hm-mvp" viewBox="0 0 24 24">
           <path d="M4 5.5 6.8 3 9.4 6h5.2L17.2 3 20 5.5v7l-2.8 3v4H6.8v-4L4 12.5Z" fill="currentColor" mask="url(#hm-dog)" />
         </symbol>
+        {/* THE IRIDESCENT BIG DOG — the playoff MVP (Max, 2026-09-08). The
+            same silhouette as the season MVP's, filled with a gradient rather
+            than a token: the one mark on the board that is not a single flat
+            colour, because it is the one that says "January". The gradient
+            is defined here, once, and the symbol references it, so it is
+            immune to the CSS `color` every other mark takes. */}
+        <linearGradient id="hm-irid" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stopColor="#ff7ac6" />
+          <stop offset=".3" stopColor="#b48cff" />
+          <stop offset=".55" stopColor="#5fd6ff" />
+          <stop offset=".8" stopColor="#7cf5b2" />
+          <stop offset="1" stopColor="#ffe066" />
+        </linearGradient>
+        <symbol id="hm-pmvp" viewBox="0 0 24 24">
+          <path d="M4 5.5 6.8 3 9.4 6h5.2L17.2 3 20 5.5v7l-2.8 3v4H6.8v-4L4 12.5Z" fill="url(#hm-irid)" mask="url(#hm-dog)" />
+        </symbol>
         <symbol id="hm-king" viewBox="0 0 24 24">
           <path d="M3 19V7l4.5 5L12 5l4.5 7L21 7v12Z" fill="currentColor" mask="url(#hm-crown)" />
         </symbol>
