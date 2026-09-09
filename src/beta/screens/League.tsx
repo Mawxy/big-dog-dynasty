@@ -1193,6 +1193,40 @@ function AllTimeView({ played }: { played: string[] }) {
     return () => { dead = true; };
   }, [played]);
 
+  /* ---- the postseason ledger (Max, 2026-09-09) ---------------------------
+     Per franchise, across every scored bracket: appearances (took the field
+     in a winners-bracket game — a bye still plays in round two), the record
+     in ELIMINATION games (placement games decide 3rd and 5th, not a title,
+     and are left out), and titles (the championship game's winner). Ordered
+     by titles, then playoff wins, then appearances. */
+  const playoffs = useMemo(() => {
+    if (!brs || !rows) return null;
+    const acc = new Map<number, { apps: number; w: number; l: number; titles: number; pts: number; g: number }>();
+    const at = (rid: number) => {
+      let r = acc.get(rid);
+      if (!r) { r = { apps: 0, w: 0, l: 0, titles: 0, pts: 0, g: 0 }; acc.set(rid, r); }
+      return r;
+    };
+    for (const br of Object.values(brs)) {
+      if (!br) continue;
+      const seen = new Set<number>();
+      for (const g of br.winners) {
+        for (const t of [g.t1, g.t2]) if (t != null && !seen.has(t)) { seen.add(t); at(t).apps++; }
+        const elim = g.p == null || g.p === 1;
+        if (!elim || g.w == null || g.l == null) continue;
+        at(g.w).w++; at(g.l).l++;
+        if (g.p === 1) at(g.w).titles++;
+        // points per playoff game, elimination games only, both sides
+        if (g.t1 != null && g.t1_pts != null) { at(g.t1).pts += g.t1_pts; at(g.t1).g++; }
+        if (g.t2 != null && g.t2_pts != null) { at(g.t2).pts += g.t2_pts; at(g.t2).g++; }
+      }
+    }
+    return rows
+      .map(r => ({ ...r, po: acc.get(r.rid) ?? { apps: 0, w: 0, l: 0, titles: 0, pts: 0, g: 0 } }))
+      .sort((a, b) => b.po.titles - a.po.titles || b.po.w - a.po.w || b.po.apps - a.po.apps || a.team.localeCompare(b.team));
+  }, [brs, rows]);
+
+
   /**
    * THE PLAYOFF STAR (Max, 2026-09-08): most postseason WIN SHARES across
    * every bracket — each elimination game hands out exactly 1.0 to the winning
@@ -1299,7 +1333,7 @@ function AllTimeView({ played }: { played: string[] }) {
         note={`${span} · regular season · ordered by win percentage, then points`} />
       {frQ.error ? <DataError what="Franchise history didn't load" />
         : !rows ? <div className="empty">Loading…</div> : (
-        <table className="v3tbl lgx-grid">
+        <table className="v3tbl lgx-grid lgx-wrap">
           <thead>
             <tr>
               <th className="c sp">#</th>
@@ -1326,6 +1360,41 @@ function AllTimeView({ played }: { played: string[] }) {
                 <td className="n"><span className="f">{Math.round(r.fpts).toLocaleString()}</span></td>
                 <td className="n">
                   <span className="f">{r.avgFinish == null ? NUL : fmt(r.avgFinish, 1)}</span>
+                </td>
+              </TapRow>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      <Band label="Playoffs · all-time"
+        note={`${span} · elimination games only · titles, then playoff wins`} />
+      {!brs ? <div className="empty">Loading…</div>
+        : !playoffs ? <div className="empty">Loading…</div>
+        : !Object.values(brs).some(Boolean) ? <div className="empty">No scored brackets yet.</div> : (
+        <table className="v3tbl lgx-grid lgx-wrap">
+          <thead>
+            <tr>
+              <th className="c sp">#</th>
+              <th className="t">Franchise</th>
+              <th className="n" style={{ width: "18%" }}>Apps</th>
+              <th className="n" style={{ width: "18%" }}>W-L</th>
+              <th className="n" style={{ width: "20%" }}>Titles</th>
+            </tr>
+          </thead>
+          <tbody>
+            {playoffs.map((r, i) => (
+              <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
+                <Spine rank={i + 1} top={r.po.titles > 0} />
+                <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)}
+                  sub={[r.manager, `${r.seasons} season${r.seasons === 1 ? "" : "s"}`].join(" · ")} />
+                <td className="n"><span className="f">{r.po.apps}</span></td>
+                <td className="n">
+                  <span className="f hd">{r.po.apps ? `${r.po.w}-${r.po.l}` : NUL}</span>
+                  <div className="idc-s r">{r.po.g ? `${fmt(r.po.pts / r.po.g, 1)} ppg` : ""}</div>
+                </td>
+                <td className="n">
+                  <span className={`f${r.po.titles ? " acc" : ""}`}>{r.po.titles || NUL}</span>
                 </td>
               </TapRow>
             ))}
@@ -1594,7 +1663,7 @@ function HistoryView({ season }: { season: string }) {
         note="# is the playoff seed — regular-season record, then points" />
       {teamsQ.error ? <DataError what={`${season} standings didn't load`} />
         : !rows ? <div className="empty">Loading {season}…</div> : (
-        <table className="v3tbl lgx-grid">
+        <table className="v3tbl lgx-grid lgx-wrap">
           <thead>
             <tr>
               <th className="c sp">#</th>

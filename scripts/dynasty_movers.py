@@ -148,7 +148,8 @@ def write_recent(out_dir, recent, ledger, players_meta, meta, per_player):
 
     for pid, rows in recent.items():
         rows.sort(key=lambda r: -r["t"])          # newest first
-        rows = rows[:per_player]
+        if per_player:
+            rows = rows[:per_player]
         recs = ledger.get(pid) or []
         b = buckets[recent_bucket(pid)]
         b["players"][pid] = {
@@ -248,9 +249,13 @@ def main():
     ap.add_argument("--recent-dir", default=str(DATA / "recent_trades"),
                     help="where the per-player trade shards go (the player "
                          "page's Recent trades section); '' skips them")
-    ap.add_argument("--recent-max", type=int, default=100,
+    # 0 = every trade (Max, 2026-09-09): the player's Trades page shows the
+    # whole list, and a cap made "View all 100 of 539" a lie. A window is
+    # ~29k player-rows uncapped against ~22k at 100, so the shards grow by
+    # about a third.
+    ap.add_argument("--recent-max", type=int, default=0,
                     help="most trades kept per player in the shards, newest "
-                         "first (default %(default)s)")
+                         "first; 0 keeps every one (default %(default)s)")
     args = ap.parse_args()
 
     corpus = load(DATA / "trade_corpus.json")

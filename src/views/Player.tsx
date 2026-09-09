@@ -9,7 +9,9 @@ import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
 import { fmt, fmtWar, sgn, sgnWar, mean } from "../lib/stats";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
-import { useLeague } from "../lib/context";
+import { leagueSeg, useLeague } from "../lib/context";
+import { RouteLink } from "../components/RouteLink";
+import { RECENT_NOTE, RecentFigs, RecentRows } from "../components/RecentTrades";
 import { ktcOf } from "../lib/values";
 import { useMobile } from "../lib/useWidth";
 import PosBadge from "../components/PosBadge";
@@ -42,13 +44,8 @@ const WINDOWS = ["7", "14", "30"] as const;
  *  file on both ends. Numeric pids by modulus; anything else in bucket 0. */
 const RECENT_BUCKETS = 32;
 const recentBucket = (pid: string) => (/^\d+$/.test(pid) ? Number(pid) % RECENT_BUCKETS : 0);
-/** KTC's own ladder of TE-premium classes, as the crawl records them */
-const TEP_LABEL: Record<string, string> = { tep: "TE+", tepp: "TE++", teppp: "TE+++" };
 /** how many trades the section shows before "View all" */
 const RECENT_PREVIEW = 3;
-/** the day, without its year — a 7-day window never crosses one that matters */
-const whenDay = (t: number) =>
-  new Date(t * 1000).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 /** stable empty stand-ins, so a not-yet-loaded file doesn't hand every memo a
  *  fresh object literal on each render */
 const NO_OWNERSHIP: Ownership = {};
@@ -149,7 +146,6 @@ export default function Player({ pid }: { pid: string }) {
    */
   const recentQ = useJson<RecentTrades>(`data/recent_trades/${recentBucket(pid)}.json`, "globalDaily");
   const recent = recentQ.data?.players[pid] ?? null;
-  const [allTrades, setAllTrades] = useState(false);
 
   /**
    * The six-curve matrix row and the analog read — BOTH out of the shard.
@@ -448,13 +444,6 @@ export default function Player({ pid }: { pid: string }) {
    *  through the bucket's own names map first — players_min covers this
    *  league's rostered players, not every body traded in 46k leagues — then
    *  the league map, then the bare pid, so a row is never silently short. */
-  const assetName = (a: RecentAsset) => {
-    if (a[0] !== "p") return a[1];
-    const n = recentQ.data?.names[a[1]]?.[0];
-    if (n && !n.startsWith("#")) return n;
-    return pInfo(players, a[1])[0];
-  };
-
   /** the career WAR ladder, newest first — the rows only; the caller frames it */
   const ladderRows = ladder.length > 0 && (
     <div className="rail-ladder">
@@ -1182,99 +1171,23 @@ export default function Player({ pid }: { pid: string }) {
                   <div className="tnote" style={{ padding: `14px ${gut}px 18px` }}>
                     Not traded in any crawled league in the last {recentQ.data.meta.window_days} days.
                   </div>
-                ) : (() => {
-                  const diff = recent.paid != null && recent.value != null ? recent.paid - recent.value : null;
-                  const shown = allTrades ? recent.trades : recent.trades.slice(0, RECENT_PREVIEW);
-                  return (
-                    <>
-                      <div className="rtx-figs">
-                        <div className="fg">
-                          <div className="k">Trades</div>
-                          <div className="v">{recent.n}</div>
-                          <div className="s">{recent.cp} as centerpiece</div>
-                        </div>
-                        <div className="fg">
-                          <div className="k">Going for</div>
-                          <div className="v">{recent.paid == null ? "—" : num(recent.paid)}</div>
-                          <div className="s">{recent.paid == null ? "throw-in only" : `avg of ${recent.cp}`}</div>
-                        </div>
-                        <div className="fg">
-                          <div className="k">KTC value</div>
-                          <div className="v">{recent.value == null ? "—" : num(recent.value)}</div>
-                          <div className="s">face, TE-premium matched</div>
-                        </div>
-                        <div className="fg">
-                          <div className="k">Difference</div>
-                          <div className="v">
-                            {diff == null ? "—" : `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${num(Math.abs(diff))}`}
-                          </div>
-                          <div className="s">
-                            {diff == null || !recent.value ? "market points"
-                              : `${diff > 0 ? "+" : diff < 0 ? "−" : ""}${Math.abs(Math.round(100 * diff / recent.value))}% of value`}
-                          </div>
-                        </div>
-                      </div>
-                      <div className="rtx-list">
-                        {shown.map((tr, i) => {
-                          const mine = tr.s === 0 ? tr.a : tr.b;
-                          const theirs = tr.s === 0 ? tr.b : tr.a;
-                          // him first, then whatever rode along with him
-                          const pkg = [...mine.filter(x => x[0] === "p" && x[1] === pid),
-                            ...mine.filter(x => !(x[0] === "p" && x[1] === pid))];
-                          return (
-                            <div className={`rtx${i % 2 ? " zebra" : ""}`} key={`${tr.t}-${i}`}>
-                              <div className="rtx-when">
-                                {whenDay(tr.t)}
-                                {tr.c && TEP_LABEL[tr.c] && <span className="tep">{TEP_LABEL[tr.c]}</span>}
-                              </div>
-                              <div className="rtx-sides">
-                                <div className="rtx-side">
-                                  {pkg.map((x, k) => (
-                                    <Fragment key={k}>
-                                      {k > 0 && <span className="sep"> · </span>}
-                                      <span className={x[0] === "p" && x[1] === pid ? "him" : x[0] === "p" ? "" : "pick"}>
-                                        {assetName(x)}
-                                      </span>
-                                    </Fragment>
-                                  ))}
-                                </div>
-                                <div className="rtx-side">
-                                  <span className="for">for </span>
-                                  {theirs.map((x, k) => (
-                                    <Fragment key={k}>
-                                      {k > 0 && <span className="sep"> · </span>}
-                                      <span className={x[0] === "p" ? "" : "pick"}>{assetName(x)}</span>
-                                    </Fragment>
-                                  ))}
-                                </div>
-                              </div>
-                              <div className="rtx-paid">
-                                <span className="v">{tr.paid == null ? "—" : num(tr.paid)}</span>
-                                <span className="k">{tr.paid == null ? "in package" : "paid"}</span>
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                      {recent.trades.length > RECENT_PREVIEW && (
-                        <button type="button" className="rtx-more"
-                          onClick={() => setAllTrades(v => !v)}>
-                          {allTrades
-                            ? "Show fewer"
-                            : `View all ${recent.trades.length}${recent.n > recent.trades.length ? ` of ${recent.n}` : ""}`}
-                        </button>
-                      )}
-                      <div className="tnote" style={{ padding: `10px ${gut}px 16px` }}>
-                        Paid is the other side's package, net of anything that rode along with him, in KTC
-                        points on that league's TE-premium ladder; a lesser asset in a package counts at the
-                        share of weeks a thing of its value starts, so two 4,500s do not sum to a 9,000. A trade
-                        he was not the centerpiece of lists what moved and carries no price. Every league is
-                        not this league: a superflex TE-premium market and a 1QB one price the same player
-                        differently, and both are in here.
-                      </div>
-                    </>
-                  );
-                })()}
+                ) : (
+                  <>
+                    <RecentFigs recent={recent} />
+                    <RecentRows pid={pid} trades={recent.trades.slice(0, RECENT_PREVIEW)}
+                      file={recentQ.data} players={players} />
+                    {/* THE WHOLE LIST IS A PAGE (Max, 2026-09-09), not a
+                        toggle: the shard now carries every trade he was in,
+                        and 539 rows unfolding under a section is not a
+                        section. The count is his real count. */}
+                    {recent.n > RECENT_PREVIEW && (
+                      <RouteLink to={`/${leagueSeg(league)}/player/${pid}/trades`} className="rtx-more">
+                        View all {recent.n} →
+                      </RouteLink>
+                    )}
+                    <div className="tnote" style={{ padding: `10px ${gut}px 16px` }}>{RECENT_NOTE}</div>
+                  </>
+                )}
               </div>
             )}
           </div>

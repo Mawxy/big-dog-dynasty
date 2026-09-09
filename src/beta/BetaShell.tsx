@@ -23,6 +23,7 @@ import Trade from "./screens/Trade";
 import More from "./screens/More";
 import Movers from "./screens/Movers";
 import Trends from "./screens/Trends";
+import PlayerTrades from "./screens/PlayerTrades";
 import "./beta.css";
 
 /* The deep destinations More points at are the classic board's views, mounted
@@ -284,6 +285,8 @@ function BetaBoard() {
                 <Route path="trends" element={<Trends />} />
                 <Route path="movers/:kind" element={<Movers />} />
                 <Route path="player/:pid" element={<PlayerRoute />} />
+                {/* every trade he was in this window — the player page shows three */}
+                <Route path="player/:pid/trades" element={<PlayerTrades />} />
                 <Route path="drafts" element={<Draft />} />
                 <Route path="drafts/:sub" element={<Draft />} />
                 <Route path="drafts/history/:season" element={<DraftDetailRoute />} />

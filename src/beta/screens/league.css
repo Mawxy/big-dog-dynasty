@@ -419,3 +419,6 @@
 .lgx-wrap .idc-n { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: anywhere; text-wrap: balance; }
 .lgx-wrap .idc-s { white-space: normal; overflow: visible; text-overflow: clip; }
 .lgx-wrap tbody td { height: 58px; vertical-align: middle; }
+
+/* ---- the player's Trades page: the back control in the title row ------- */
+.ptx-back { margin: 0 4px 0 0; background: none; border: 0; padding: 0; flex: 0 0 100%; }
