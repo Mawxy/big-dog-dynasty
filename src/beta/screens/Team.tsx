@@ -527,17 +527,9 @@ export default function Team() {
           <Band label="Second string"
             note="The same seats again, refilled from everyone who missed the first cut" />
           <Seats rows={shape.benchRanks} n={n} lens={lens} />
-          <div className="tnote screen">
-            Each seat is ranked against the same seat league-wide, and the two currencies are
-            optimized separately, so a seat can hold different players in the two lines. The
-            rule at the left edge marks the top {TIER_N} and the bottom {TIER_N} at that seat,
-            read in whichever index the lens at the top of the screen is set to — it is one
-            rule per row and the two currencies disagree. Superflex reads as QB2; the flex
-            seat is left out — it
-            holds a different position on every roster, so a column of it would not mean the
-            same thing twice. A seat no eligible player can fill reads empty and ranks last:
-            owning a fourth quarterback is better than owning none.
-          </div>
+          {/* no methodology paragraph under the seats (Max, 2026-09-08): the
+              band notes say what a rank is against, and the rest belongs in
+              a Key, not a footnote */}
         </>
       )}
     </>
