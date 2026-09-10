@@ -83,10 +83,12 @@
 }
 .lgx-drawer .sd-side .v.miss { color: var(--bad); }
 /* a miss outranks the winning-side gold: red is the fact, gold the comparison */
-.lgx-drawer .sd-side.win .v.miss { color: var(--bad); }
-/* the edge is the figure's alone (Max, 2026-09-10): every name reads in
-   the same ink whichever side is favored */
-.lgx-drawer .sd-side.win .v { color: var(--acc); }
+.lgx-drawer .sd-tot .sd-side.win .v.miss { color: var(--bad); }
+/* THE GOLD IS THE TOTALS ROW'S ALONE (Max, 2026-09-10): a slot's edge is
+   the arrow in the middle, and its figure stays plain whichever side has
+   it; every name reads in the same ink whichever side is favored. Only the
+   team total takes the accent — one gold figure per side, at the foot. */
+.lgx-drawer .sd-tot .sd-side.win .v { color: var(--acc); }
 .lgx-drawer .sd-mid {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 5px 0; background: var(--deep); align-self: stretch; justify-content: center;
@@ -106,7 +108,13 @@
 .lgx-drawer .sd-tot .sd-side .nm { font-weight: 600; }
 .lgx-drawer .sd-tot .sd-side .v { font-size: 15px; font-weight: 700; }
 .lgx-drawer .sd-tot .sd-side .p { font-size: 11px; }
-.lgx-game .side { flex: 1 1 0; min-width: 0; padding: 9px var(--v3pad) 10px; }
+/* A COLUMN THAT FILLS THE CARD (Max, 2026-09-10): name at the top, the
+   figure and its lines spread down the rest, so a side stands as tall as
+   the middle block and the Proj / ML lines are not huddled under the score. */
+.lgx-game .side {
+  flex: 1 1 0; min-width: 0; padding: 9px var(--v3pad) 10px;
+  display: flex; flex-direction: column; justify-content: space-between; gap: 4px;
+}
 .lgx-game .side.r { text-align: right; }
 /* WRAPS, never ellipsises (Max, 2026-09-09): a franchise name is the
    whole identity of the side, and "Captain Jah'M…" is worse than two lines.
@@ -116,7 +124,7 @@
   overflow-wrap: anywhere; text-wrap: balance;
 }
 .lgx-game .side .fig {
-  margin-top: 3px;
+  margin-top: 4px;
   font: 700 17px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
 }
 .lgx-game .side.won .fig { color: var(--acc); }
@@ -134,16 +142,12 @@
 .lgx-median .s { font: 400 11px/1.3 var(--sans); color: var(--dim3); }
 /* the side's projected total under its moneyline, on the quiet figure ramp */
 .lgx-game .side .proj {
-  margin-top: 3px;
+  margin-top: 5px;
   font: 600 12px/1.2 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim);
 }
 .lgx-game .side .proj .k {
   font: 600 9.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase; color: var(--dim2);
   margin-right: 2px;
-}
-.lgx-game .side .sub {
-  margin-top: 3px; min-height: 1.3em;
-  font: 400 11px/1.3 var(--sans); color: var(--dim3);
 }
 /* the middle block: spread and total stacked, the way a scoreboard card posts
    them, on the --deep spine. The spread is quoted from the favorite's side

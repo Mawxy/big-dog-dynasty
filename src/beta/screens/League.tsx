@@ -292,30 +292,12 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     const line = oddsQ.data?.weeks[String(wk)] ?? {};
     const played = pairs.length > 0 && pairs.every(([a, b]) => scored.has(a) && scored.has(b));
 
-    /* THE STAR TO WATCH on each side. Before kickoff: the highest-projected
-       player among the starters the manager has set (matchups.set, the live
-       lineup), or the roster's best projected player when no lineup is set
-       yet. Once scored: the starter who actually scored most. One name per
-       side, so the card stays a card. */
-    const startersOf = (rid: number): string[] => {
-      const e = mw.teams[String(rid)]?.find(x => x[0] === wk);
-      if (e?.[4]?.length) return e[4].filter(p => p && p !== "0");
-      if (mw.set?.week === wk) return (mw.set.starters[String(rid)] ?? []).filter(p => p && p !== "0");
-      return teams?.find(t => t.roster_id === rid)?.players ?? [];
-    };
-    const star = (rid: number): { pid: string; v: number; actual: boolean } | null => {
-      const pool = startersOf(rid);
-      let best: { pid: string; v: number; actual: boolean } | null = null;
-      for (const pid of pool) {
-        const act = scored.has(rid) ? weeklyNow?.[pid]?.find(x => x[0] === wk)?.[1] : undefined;
-        const v = act ?? sproj?.players[pid]?.wk?.[String(wk)] ?? (scored.has(rid) ? undefined : sproj?.players[pid]?.ppg);
-        if (v != null && (!best || v > best.v)) best = { pid, v, actual: act != null };
-      }
-      return best;
-    };
+    // NO STAR TO WATCH (Max, 2026-09-10): the card carried each side's
+    // top projected / top scoring starter under the figure; it was noise
+    // beside a line and a score, and the drawer has every slot anyway.
     const games = pairs.map(([a, b]) => ({
-      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, sd: line[String(a)]?.sd ?? null, pts: scored.get(a)?.pts ?? null, star: star(a) },
-      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, sd: line[String(b)]?.sd ?? null, pts: scored.get(b)?.pts ?? null, star: star(b) },
+      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, sd: line[String(a)]?.sd ?? null, pts: scored.get(a)?.pts ?? null },
+      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, sd: line[String(b)]?.sd ?? null, pts: scored.get(b)?.pts ?? null },
     }));
     // THE LEAGUE MEDIAN (Max, 2026-09-09): the middle score of every team's
     // figure this week — points once played, the projected total before.
@@ -328,7 +310,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       ? figs.length % 2 ? figs[(figs.length - 1) / 2] : (figs[figs.length / 2 - 1] + figs[figs.length / 2]) / 2
       : null;
     return { wk, played, games, median };
-  }, [mwQ.data, oddsQ.data, phase.week, teams, sproj, weeklyNow]);
+  }, [mwQ.data, oddsQ.data, phase.week]);
 
   /* ---- live (Max, 2026-09-10) --------------------------------------------
      The week in progress, from Sleeper, once a minute: points so far on
@@ -340,18 +322,6 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const live = useLiveScores(leagueId, thisWeek?.wk ?? null, !!thisWeek && !thisWeek.played);
   const isLive = !!live?.started && !thisWeek?.played;
   const liveOf = (rid: number): LiveSide | null => live?.sides[String(rid)] ?? null;
-  /** the top scorer so far among a side's starters, off the live read */
-  const liveStar = (rid: number): { pid: string; v: number } | null => {
-    const ls = liveOf(rid);
-    if (!ls) return null;
-    let best: { pid: string; v: number } | null = null;
-    for (const pid of ls.starters) {
-      if (!pid || pid === "0") continue;
-      const v = ls.ppts[pid] ?? 0;
-      if (!best || v > best.v) best = { pid, v };
-    }
-    return best;
-  };
   /* ---- the live line (Max, 2026-09-10) -----------------------------------
      The projection and the odds move with the games. Per starter: his game
      still to come, his week projection; under way, points so far plus the
@@ -504,9 +474,9 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   return (
     <>
       <Band label={thisWeek ? `This week · ${twSeason} wk ${thisWeek.wk}` : "This week"}
-        note={thisWeek?.played ? "Final · top scorer under each side"
-          : isLive ? "Live · points so far, projection and odds moving with the games · top scorer so far under each side"
-          : "Pregame line · star to watch under each side"} />
+        note={thisWeek?.played ? "Final"
+          : isLive ? "Live · points so far, projection and odds moving with the games"
+          : "Pregame line"} />
       {mwQ.error ? <DataError what="Schedule didn't load" />
         : !thisWeek ? <div className="empty">{mwQ.loading ? "Loading…" : "No week scheduled."}</div> : (
         <div className="lgx-games">
@@ -535,9 +505,8 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
             const favSide = aFav ? g.a : g.b, dogSide = aFav ? g.b : g.a;
             const sp = favSide.mu != null && dogSide.mu != null ? spread(favSide.mu, dogSide.mu) : null;
             const [mlA, mlB] = g.a.wp != null ? lines(g.a.wp, vig) : [null, null];
-            const side = (x: typeof g.a, ls: LiveSide | null, ml: string | null, won: boolean, right: boolean) => {
+            const side = (x: typeof g.a, ls: LiveSide | null, ml: string | null, won: boolean, right: boolean, lml: string | null = null) => {
               const pts = ls ? ls.pts : x.pts;
-              const star = ls ? liveStar(x.rid) : x.star;
               // live: the re-projected total; pregame: the line's
               const ll = ls ? liveLine(x.rid, x.sd) : null;
               const mu = ll ? ll.mu : x.mu;
@@ -551,16 +520,13 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
                   {x.pts == null && mu != null && (
                     <div className="proj"><span className="k">Proj</span> {fmt(mu, 1)}</div>
                   )}
-                  {/* the star to watch, mirrored on the right side so the figure
-                      sits on the card's outer edge and the name reads inward,
-                      the way the moneyline above it does */}
-                  <div className="sub">
-                    {star
-                      ? right
-                        ? `${fmt(star.v, 1)} · ${pInfo(players, star.pid)[0]}`
-                        : `${pInfo(players, star.pid)[0]} · ${fmt(star.v, 1)}`
-                      : ""}
-                  </div>
+                  {/* the moneyline, live (Max, 2026-09-10): the points took
+                      the figure, so the odds move down here — the same line
+                      the card quoted pregame, re-priced off the live win
+                      probability with the same vig */}
+                  {lml && (
+                    <div className="proj"><span className="k">ML</span> {lml}</div>
+                  )}
                 </div>
               );
             };
@@ -575,6 +541,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
                 : llA.mu > llB.mu ? 1 : llA.mu < llB.mu ? 0 : 0.5)
               : null;
             const lTotal = llA && llB ? fmt(llA.mu + llB.mu, 1) : null;
+            const [lmlA, lmlB] = lwp != null ? lines(lwp, vig) : [null, null];
             // THE CARD OPENS ITS DRAWER (Max, 2026-09-09) — slot by slot,
             // inline, under the card. The matchup page is the link inside it.
             const key = `${g.a.rid}-${g.b.rid}`;
@@ -583,7 +550,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               <button key={key} type="button" className={`lgx-game${isOpen ? " open" : ""}`}
                 aria-expanded={isOpen}
                 onClick={() => setOpenGame(isOpen ? null : key)}>
-                {side(g.a, la, mlA, aWon, false)}
+                {side(g.a, la, mlA, aWon, false, lmlA)}
                 <div className="mid">
                   {thisWeek.played ? <span className="k">Final</span> : (
                     <>
@@ -625,7 +592,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
                     </>
                   )}
                 </div>
-                {side(g.b, lb, mlB, bWon, true)}
+                {side(g.b, lb, mlB, bWon, true, lmlB)}
               </button>,
               isOpen && (
                 <SlotDrawer key={`${key}-drawer`}
