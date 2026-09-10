@@ -304,27 +304,24 @@ interface BuildState {
 }
 
 /**
- * Persisted per league, on the same mechanism `lib/identity.ts` uses: one
- * `warboard.*` key holding a league-keyed map, read and written through
- * try/catch so private mode degrades to a session rather than to an exception.
+ * KEPT FOR THE VISIT, NOT FOREVER (Max, 2026-09-10). The build used to live
+ * in localStorage, and a trade sketched on Tuesday was still sitting in the
+ * panels the next weekend, on every visit, until the storage was cleared by
+ * hand. Now it lives in module memory: it survives leaving the screen for a
+ * player page and coming back, which is the one thing worth surviving, and a
+ * refresh starts clean. The old key is removed on first load so nothing
+ * stale is ever read again.
  */
 const STORE = "warboard.v3.trade";
 const emptyBuild = (): BuildState =>
   ({ a: null, b: null, offers: [{ id: 1, a: [], b: [] }], active: 1 });
 
-function readStore(): Record<string, BuildState> {
-  try {
-    const raw = window.localStorage.getItem(STORE);
-    if (!raw) return {};
-    const v = JSON.parse(raw) as unknown;
-    return v && typeof v === "object" ? v as Record<string, BuildState> : {};
-  } catch { return {}; }               // private mode, or a corrupt entry
-}
+let store: Record<string, BuildState> = {};
+try { window.localStorage.removeItem(STORE); } catch { /* private mode */ }
 
-function writeStore(all: Record<string, BuildState>) {
-  try { window.localStorage.setItem(STORE, JSON.stringify(all)); }
-  catch { /* private mode — the session still works, it just won't persist */ }
-}
+function readStore(): Record<string, BuildState> { return store; }
+
+function writeStore(all: Record<string, BuildState>) { store = all; }
 
 /** A stored entry is untrusted input: it outlives deploys, so it can predate
  *  any shape this file has ever had. Every field is checked or replaced. */

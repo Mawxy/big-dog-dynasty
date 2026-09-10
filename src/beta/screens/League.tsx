@@ -18,6 +18,7 @@ import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamH
 import DraftBoardGrid from "../../components/DraftBoardGrid";
 import { buildHistory } from "../../lib/draftHistory";
 import { useSeasonPhase, useStandings } from "../model";
+import { useLiveScores, useNflScoreboard, type LiveSide, type Scoreboard } from "../../lib/liveScores";
 import Moved from "../moved";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
@@ -232,7 +233,7 @@ const spread = (mine: number, theirs: number): string => {
 };
 
 function WeekBands({ rosterSeason }: { rosterSeason: string }) {
-  const { players, meta } = useLeague();
+  const { players, meta, league } = useLeague();
   const betaPath = useBetaPath();
   /* THE OPEN CARD (Max, 2026-09-09): tapping a game opens a drawer under it
      with the two lineups slot by slot — who is favored where. One open at a
@@ -313,8 +314,8 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       return best;
     };
     const games = pairs.map(([a, b]) => ({
-      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, pts: scored.get(a)?.pts ?? null, star: star(a) },
-      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, pts: scored.get(b)?.pts ?? null, star: star(b) },
+      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, sd: line[String(a)]?.sd ?? null, pts: scored.get(a)?.pts ?? null, star: star(a) },
+      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, sd: line[String(b)]?.sd ?? null, pts: scored.get(b)?.pts ?? null, star: star(b) },
     }));
     // THE LEAGUE MEDIAN (Max, 2026-09-09): the middle score of every team's
     // figure this week — points once played, the projected total before.
@@ -329,6 +330,71 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     return { wk, played, games, median };
   }, [mwQ.data, oddsQ.data, phase.week, teams, sproj, weeklyNow]);
 
+  /* ---- live (Max, 2026-09-10) --------------------------------------------
+     The week in progress, from Sleeper, once a minute: points so far on
+     each side, the top scorer so far under it, the running margin in the
+     middle. Only between the first kickoff and the pipeline scoring the
+     week; before anyone has scored the cards stay pregame, and once the
+     file carries the week it is the record and nothing is fetched. */
+  const leagueId = league.chain?.[rosterSeason] ?? league.currentLeagueId ?? null;
+  const live = useLiveScores(leagueId, thisWeek?.wk ?? null, !!thisWeek && !thisWeek.played);
+  const isLive = !!live?.started && !thisWeek?.played;
+  const liveOf = (rid: number): LiveSide | null => live?.sides[String(rid)] ?? null;
+  /** the top scorer so far among a side's starters, off the live read */
+  const liveStar = (rid: number): { pid: string; v: number } | null => {
+    const ls = liveOf(rid);
+    if (!ls) return null;
+    let best: { pid: string; v: number } | null = null;
+    for (const pid of ls.starters) {
+      if (!pid || pid === "0") continue;
+      const v = ls.ppts[pid] ?? 0;
+      if (!best || v > best.v) best = { pid, v };
+    }
+    return best;
+  };
+  /* ---- the live line (Max, 2026-09-10) -----------------------------------
+     The projection and the odds move with the games. Per starter: his game
+     still to come, his week projection; under way, points so far plus the
+     projection's share for the time left; over, his points, full stop. A
+     side's live total is the sum, its variance the pregame sd² scaled by
+     the share of its projected points still to be played, and the win
+     probability is the same normal the pregame line is quoted from —
+     Φ((muA − muB) / sqrt(varA + varB)). The scoreboard is ESPN's; without
+     it the pregame line stands. */
+  // fetched all week, not only once live: pregame the drawer shows each
+  // man's kickoff, which is worth a request on its own
+  const board = useNflScoreboard(rosterSeason, thisWeek?.wk ?? null, !!thisWeek && !thisWeek.played);
+  const liveLine = useCallback((rid: number, sd: number | null): { mu: number; v: number } | null => {
+    const ls = liveOf(rid);
+    if (!ls || !board) return null;
+    let mu = 0, projAll = 0, projLeft = 0;
+    for (const pid of ls.starters) {
+      if (!pid || pid === "0") continue;
+      const wk = thisWeek?.wk ?? 0;
+      const proj = sproj?.players[pid]?.wk?.[String(wk)] ?? sproj?.players[pid]?.ppg ?? 0;
+      const act = ls.ppts[pid] ?? 0;
+      const clock = board[pInfo(players, pid)[2]];
+      // no game on the board: a bye, or a code the board does not know —
+      // his points are what they are and the projection still to come
+      const rem = clock ? clock.remaining : act > 0 ? 0 : 1;
+      mu += act + rem * proj;
+      projAll += proj; projLeft += rem * proj;
+    }
+    const share = projAll > 0 ? projLeft / projAll : 0;
+    const v = (sd ?? 0) ** 2 * share;
+    return { mu, v };
+  }, [board, live, sproj, players, thisWeek?.wk]);
+
+  /** the league median of the points so far, while live */
+  const liveMedian = useMemo(() => {
+    if (!isLive || !live || !thisWeek) return null;
+    const figs = thisWeek.games.flatMap(g => [g.a.rid, g.b.rid])
+      .map(rid => live.sides[String(rid)]?.pts).filter((v): v is number => v != null)
+      .sort((x, y) => x - y);
+    if (!figs.length) return null;
+    return figs.length % 2 ? figs[(figs.length - 1) / 2] : (figs[figs.length / 2 - 1] + figs[figs.length / 2]) / 2;
+  }, [isLive, live, thisWeek]);
+
   /* ---- slot by slot ------------------------------------------------------
      A side's starting lineup as the manager set it (matchups.set, or the
      scored entry's starters once played), one entry per starting slot in
@@ -336,22 +402,44 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      projected lineup. Each slot carries its week figure: the actual score
      once played, Sleeper's per-week projection before. A bye or an empty
      slot is a real 0.0 — that IS the weakness. */
-  const slotsOf = useCallback((rid: number, wk: number, played: boolean) => {
+  const slotsOf = useCallback((rid: number, wk: number, played: boolean, ls: LiveSide | null = null): SlotEntry[] => {
     const mw = mwQ.data;
     const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
+    const projOf = (pid: string): number => sproj?.players[pid]?.wk?.[String(wk)] ?? 0;
     const val = (pid: string): number => {
+      // live: points so far, off Sleeper's read of the week in progress
+      if (ls) return ls.ppts[pid] ?? 0;
       if (played) return weeklyNow?.[pid]?.find(x => x[0] === wk)?.[1] ?? 0;
-      return sproj?.players[pid]?.wk?.[String(wk)] ?? 0;
+      return projOf(pid);
+    };
+    /** the projection under a result, and whether it was missed (Max,
+     *  2026-09-10): red only once his game is over — a slow first half is
+     *  not a miss yet */
+    const result = (pid: string, v: number): Pick<SlotEntry, "proj" | "over" | "miss" | "est"> => {
+      if (!ls && !played) return {};
+      // no line for the week (an older week the projections file has
+      // dropped): nothing to hit, so nothing under the figure
+      if (sproj?.players[pid]?.wk?.[String(wk)] == null) return { est: v, over: played };
+      const proj = projOf(pid);
+      const clock = board?.[pInfo(players, pid)[2]];
+      const over = played || clock?.state === "post";
+      // the share of his game still to play: none once over, all before
+      // kickoff, the clock's in between; no game on the board reads off
+      // whether he has scored
+      const rem = over ? 0 : clock ? clock.remaining : v > 0 ? 0 : 1;
+      return { proj, over, miss: over && v < proj, est: v + rem * proj };
     };
     const e = mw?.teams[String(rid)]?.find(x => x[0] === wk);
-    let set: string[] | null = e?.[4]?.length ? e[4]
+    let set: string[] | null = ls?.starters.length ? ls.starters
+      : e?.[4]?.length ? e[4]
       : mw?.set?.week === wk ? mw.set.starters[String(rid)] ?? null : null;
     if (set && set.length !== lineup.length) set = null;
     if (set) {
       return lineup.map((slot, i) => {
         const pid = set![i];
         const real = pid && pid !== "0";
-        return { slot, pid: real ? pid : null, v: real ? val(pid) : 0 };
+        const v = real ? val(pid) : 0;
+        return { slot, pid: real ? pid : null, v, ...(real ? result(pid, v) : {}) };
       });
     }
     const roster = teams?.find(t => t.roster_id === rid)?.players ?? [];
@@ -359,8 +447,9 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       .filter(p => p.pos);
     return optimalLineup(pool, lineup).slots.map(sl => ({
       slot: sl.slot, pid: sl.player?.id ?? null, v: sl.player?.war ?? 0,
+      ...(sl.player ? result(sl.player.id, sl.player.war) : {}),
     }));
-  }, [mwQ.data, meta, weeklyNow, sproj, teams, players]);
+  }, [mwQ.data, meta, weeklyNow, sproj, teams, players, board]);
 
   /* ---- last week -------------------------------------------------------- */
   const lastWeek = useMemo(() => {
@@ -415,20 +504,26 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   return (
     <>
       <Band label={thisWeek ? `This week · ${twSeason} wk ${thisWeek.wk}` : "This week"}
-        note={thisWeek?.played ? "Final · top scorer under each side" : "Pregame line · star to watch under each side"} />
+        note={thisWeek?.played ? "Final · top scorer under each side"
+          : isLive ? "Live · points so far, projection and odds moving with the games · top scorer so far under each side"
+          : "Pregame line · star to watch under each side"} />
       {mwQ.error ? <DataError what="Schedule didn't load" />
         : !thisWeek ? <div className="empty">{mwQ.loading ? "Loading…" : "No week scheduled."}</div> : (
         <div className="lgx-games">
-          {thisWeek.median != null && (
+          {(isLive ? liveMedian : thisWeek.median) != null && (
             <div className="lgx-median">
               <span className="k">League median</span>
-              <span className="v">{fmt(thisWeek.median, 1)}</span>
-              <span className="s">{thisWeek.played ? "of the week's scores" : "of the projected totals"}</span>
+              <span className="v">{fmt((isLive ? liveMedian : thisWeek.median) as number, 1)}</span>
+              <span className="s">{thisWeek.played ? "of the week's scores" : isLive ? "of the points so far" : "of the projected totals"}</span>
             </div>
           )}
           {thisWeek.games.map(g => {
-            const aWon = g.a.pts != null && g.b.pts != null && g.a.pts > g.b.pts;
-            const bWon = g.a.pts != null && g.b.pts != null && g.b.pts > g.a.pts;
+            // while live, the figures are the points so far and the leader
+            // takes the accent the winner takes at the final
+            const la = isLive ? liveOf(g.a.rid) : null, lb = isLive ? liveOf(g.b.rid) : null;
+            const ptsA = la ? la.pts : g.a.pts, ptsB = lb ? lb.pts : g.b.pts;
+            const aWon = ptsA != null && ptsB != null && ptsA > ptsB;
+            const bWon = ptsA != null && ptsB != null && ptsB > ptsA;
             /* THE LINE, THE WAY A BOOK WOULD QUOTE IT (Max, 2026-09-02): each
                side's moneyline is its figure; the spread and the total sit in
                the middle block between them, the way a scoreboard card posts
@@ -440,28 +535,46 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
             const favSide = aFav ? g.a : g.b, dogSide = aFav ? g.b : g.a;
             const sp = favSide.mu != null && dogSide.mu != null ? spread(favSide.mu, dogSide.mu) : null;
             const [mlA, mlB] = g.a.wp != null ? lines(g.a.wp, vig) : [null, null];
-            const side = (x: typeof g.a, ml: string | null, won: boolean, right: boolean) => (
-              <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
-                <div className="nm">{nameOf(teams, x.rid)}</div>
-                <div className="fig">{x.pts != null ? fmt(x.pts, 1) : ml ?? DASH}</div>
-                {/* the side's projected total, pregame (Max, 2026-09-09): the
-                    figure the line is made from, under the line it makes.
-                    The middle block's Total is the two of these added. */}
-                {x.pts == null && x.mu != null && (
-                  <div className="proj"><span className="k">Proj</span> {fmt(x.mu, 1)}</div>
-                )}
-                {/* the star to watch, mirrored on the right side so the figure
-                    sits on the card's outer edge and the name reads inward,
-                    the way the moneyline above it does */}
-                <div className="sub">
-                  {x.star
-                    ? right
-                      ? `${fmt(x.star.v, 1)} · ${pInfo(players, x.star.pid)[0]}`
-                      : `${pInfo(players, x.star.pid)[0]} · ${fmt(x.star.v, 1)}`
-                    : ""}
+            const side = (x: typeof g.a, ls: LiveSide | null, ml: string | null, won: boolean, right: boolean) => {
+              const pts = ls ? ls.pts : x.pts;
+              const star = ls ? liveStar(x.rid) : x.star;
+              // live: the re-projected total; pregame: the line's
+              const ll = ls ? liveLine(x.rid, x.sd) : null;
+              const mu = ll ? ll.mu : x.mu;
+              return (
+                <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
+                  <div className="nm">{nameOf(teams, x.rid)}</div>
+                  <div className="fig">{pts != null ? fmt(pts, 1) : ml ?? DASH}</div>
+                  {/* the side's projected total, pregame and live (Max,
+                      2026-09-09): the figure the line is made from, under the
+                      line it makes — and, once live, the pace to beat. */}
+                  {x.pts == null && mu != null && (
+                    <div className="proj"><span className="k">Proj</span> {fmt(mu, 1)}</div>
+                  )}
+                  {/* the star to watch, mirrored on the right side so the figure
+                      sits on the card's outer edge and the name reads inward,
+                      the way the moneyline above it does */}
+                  <div className="sub">
+                    {star
+                      ? right
+                        ? `${fmt(star.v, 1)} · ${pInfo(players, star.pid)[0]}`
+                        : `${pInfo(players, star.pid)[0]} · ${fmt(star.v, 1)}`
+                      : ""}
+                  </div>
                 </div>
-              </div>
-            );
+              );
+            };
+            // the running margin, while live — the spread's live counterpart
+            const lm = la && lb ? la.pts - lb.pts : null;
+            // the live line: re-projected totals and the win probability
+            // from them, or null while the scoreboard has not landed
+            const llA = la ? liveLine(g.a.rid, g.a.sd) : null;
+            const llB = lb ? liveLine(g.b.rid, g.b.sd) : null;
+            const lwp = llA && llB
+              ? (llA.v + llB.v > 0 ? normCdf((llA.mu - llB.mu) / Math.sqrt(llA.v + llB.v))
+                : llA.mu > llB.mu ? 1 : llA.mu < llB.mu ? 0 : 0.5)
+              : null;
+            const lTotal = llA && llB ? fmt(llA.mu + llB.mu, 1) : null;
             // THE CARD OPENS ITS DRAWER (Max, 2026-09-09) — slot by slot,
             // inline, under the card. The matchup page is the link inside it.
             const key = `${g.a.rid}-${g.b.rid}`;
@@ -470,30 +583,55 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               <button key={key} type="button" className={`lgx-game${isOpen ? " open" : ""}`}
                 aria-expanded={isOpen}
                 onClick={() => setOpenGame(isOpen ? null : key)}>
-                {side(g.a, mlA, aWon, false)}
+                {side(g.a, la, mlA, aWon, false)}
                 <div className="mid">
                   {thisWeek.played ? <span className="k">Final</span> : (
                     <>
-                      <span className="k">Spread</span>
-                      {/* the figure holds the center; the arrow takes a fixed
-                          slot either side, so spreads line up down the column */}
-                      <span className="v edge">
-                        <span className="ar">{sp && aFav ? "◂" : ""}</span>
-                        <span className="n">{sp ?? DASH}</span>
-                        <span className="ar">{sp && !aFav ? "▸" : ""}</span>
-                      </span>
-                      <span className="k">Total</span>
-                      <span className="v">{total ?? DASH}</span>
+                      {/* live: the margin so far over the pregame spread, so
+                          the read is "up 8, was favored by 3" */}
+                      {lm != null ? (
+                        <>
+                          <span className="k lgx-live">Live</span>
+                          <span className="v edge">
+                            <span className="ar">{lm > 0 ? "◂" : ""}</span>
+                            <span className="n">{fmt(Math.abs(lm), 1)}</span>
+                            <span className="ar">{lm < 0 ? "▸" : ""}</span>
+                          </span>
+                          {/* the odds now: the favorite's chance, arrow at
+                              him — the moneyline's live form, one figure */}
+                          <span className="k">Win</span>
+                          <span className="v edge">
+                            <span className="ar">{lwp != null && lwp >= 0.5 ? "◂" : ""}</span>
+                            <span className="n">{lwp != null ? `${Math.round(Math.max(lwp, 1 - lwp) * 100)}%` : DASH}</span>
+                            <span className="ar">{lwp != null && lwp < 0.5 ? "▸" : ""}</span>
+                          </span>
+                          <span className="k">Total</span>
+                          <span className="v">{lTotal ?? total ?? DASH}</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="k">Spread</span>
+                          {/* the figure holds the center; the arrow takes a fixed
+                              slot either side, so spreads line up down the column */}
+                          <span className="v edge">
+                            <span className="ar">{sp && aFav ? "◂" : ""}</span>
+                            <span className="n">{sp ?? DASH}</span>
+                            <span className="ar">{sp && !aFav ? "▸" : ""}</span>
+                          </span>
+                          <span className="k">Total</span>
+                          <span className="v">{total ?? DASH}</span>
+                        </>
+                      )}
                     </>
                   )}
                 </div>
-                {side(g.b, mlB, bWon, true)}
+                {side(g.b, lb, mlB, bWon, true)}
               </button>,
               isOpen && (
                 <SlotDrawer key={`${key}-drawer`}
-                  a={{ rid: g.a.rid, name: nameOf(teams, g.a.rid), slots: slotsOf(g.a.rid, thisWeek.wk, thisWeek.played) }}
-                  b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid), slots: slotsOf(g.b.rid, thisWeek.wk, thisWeek.played) }}
-                  played={thisWeek.played} players={players}
+                  a={{ rid: g.a.rid, name: nameOf(teams, g.a.rid), slots: slotsOf(g.a.rid, thisWeek.wk, thisWeek.played, la) }}
+                  b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid), slots: slotsOf(g.b.rid, thisWeek.wk, thisWeek.played, lb) }}
+                  played={thisWeek.played} live={!!la && !!lb} players={players} board={board}
                   to={`${seasonsRoute(twSeason, thisWeek.wk)}/${g.a.rid}`} />
               ),
             ];
@@ -556,7 +694,22 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
 
 interface SlotSide {
   rid: number; name: string;
-  slots: { slot: string; pid: string | null; v: number }[];
+  slots: SlotEntry[];
+}
+interface SlotEntry {
+  slot: string; pid: string | null;
+  /** the slot's figure: projection pregame, points so far live, points at the final */
+  v: number;
+  /** his projection, when the figure is a result (live or final) */
+  proj?: number;
+  /** his game is over (or the week is): the figure is settled */
+  over?: boolean;
+  /** what the slot is worth right now — points once over, the projection
+   *  before kickoff, points so far plus the projection's share of the time
+   *  left in between. The edge is quoted on this. */
+  est?: number;
+  /** settled under the projection. Not a miss while he is still playing. */
+  miss?: boolean;
 }
 
 /**
@@ -593,30 +746,85 @@ function SlotTag({ slot }: { slot: string }) {
  * point is a push and takes no side. Pregame the figures are Sleeper's
  * per-week projections; played, they are the points. The foot sums both.
  */
-function SlotDrawer({ a, b, played, players, to }: {
+/** a player's NFL game this week, for the line under his name: "vs PHI ·
+ *  Sun 1:00 PM" before kickoff, "@ KC · Q3 4:12" during, "vs PHI · Final"
+ *  after; "Bye" when the board has no game for his team */
+function gameLine(team: string, board: Scoreboard | null): string {
+  if (!board) return "";
+  const g = board[team];
+  if (!g) return "Bye";
+  const who = `${g.home ? "vs" : "@"} ${g.opp}`;
+  if (g.state !== "pre") return `${who} · ${g.detail || (g.state === "post" ? "Final" : "Live")}`;
+  const d = g.date ? new Date(g.date) : null;
+  const when = d && !isNaN(d.getTime())
+    ? d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })
+    : g.detail;
+  return `${who} · ${when}`;
+}
+
+function SlotDrawer({ a, b, played, live = false, players, board, to }: {
   a: SlotSide; b: SlotSide; played: boolean;
-  players: PlayersMin; to: string;
+  /** the week in progress: the figures are points so far */
+  live?: boolean;
+  players: PlayersMin;
+  /** the NFL scoreboard, for each man's game under his name */
+  board: Scoreboard | null;
+  to: string;
 }) {
   const PUSH = 0.5;
   const n = Math.max(a.slots.length, b.slots.length);
   const totA = a.slots.reduce((t, x) => t + x.v, 0);
   const totB = b.slots.reduce((t, x) => t + x.v, 0);
-  const who = (pid: string | null) => (pid ? pInfo(players, pid)[0] : "—");
-  const cell = (x: { pid: string | null; v: number } | undefined, win: boolean, right: boolean) => (
+  /* THE NAME, HIS CLUB, HIS GAME (Max, 2026-09-10): the club as a tag
+     after the name, and under it who he plays and when — the reason a slot
+     reads 0.0 is usually "Sun 4:25 PM", and the drawer should say so. */
+  const who = (pid: string | null) => {
+    if (!pid) return <span className="n1">—</span>;
+    const [name, , team] = pInfo(players, pid);
+    const gl = gameLine(team, board);
+    return (
+      <>
+        <span className="n1">{name}{team && <span className="tg">{team}</span>}</span>
+        {gl && <span className="n2">{gl}</span>}
+      </>
+    );
+  };
+  const cell = (x: SlotEntry | undefined, win: boolean, right: boolean) => (
     <div className={`sd-side${right ? " r" : ""}${win ? " win" : ""}`}>
       <span className="nm">{x ? who(x.pid) : "—"}</span>
-      <span className="v">{x ? fmt(x.v, 1) : DASH}</span>
+      <span className="vs">
+        {/* the figure goes red once he has settled short of the projection
+            under it (Max, 2026-09-10) — the result is what missed */}
+        <span className={`v${x?.miss ? " miss" : ""}`}>{x ? fmt(x.v, 1) : DASH}</span>
+        {x?.proj != null && <span className="p">{fmt(x.proj, 1)}</span>}
+      </span>
     </div>
   );
+  // the totals' projections, and whether a side finished short of its own
+  const hasProj = a.slots.some(x => x.proj != null) || b.slots.some(x => x.proj != null);
+  const projA = a.slots.reduce((t, x) => t + (x.proj ?? 0), 0);
+  const projB = b.slots.reduce((t, x) => t + (x.proj ?? 0), 0);
+  const settled = (side: SlotSide) => side.slots.every(x => x.pid == null || x.over);
+  const missA = hasProj && totA < projA && settled(a);
+  const missB = hasProj && totB < projB && settled(b);
+  /* THE ARROW IS QUOTED ON WHAT EACH SLOT IS WORTH RIGHT NOW (Max,
+     2026-09-10): a man who has played, his points; one who has not, his
+     projection; one mid-game, his points so far plus the projection's share
+     of the time left. So a 22.4 in the books faces a 15.1 still to come, and
+     once both are done the edge is simply who did better. The totals row is
+     the sum of the same. */
+  const edgeVal = (x: SlotEntry | undefined): number => x?.est ?? x?.v ?? 0;
+  const edgeA = a.slots.reduce((t, x) => t + edgeVal(x), 0);
+  const edgeB = b.slots.reduce((t, x) => t + edgeVal(x), 0);
   return (
     <div className="lgx-drawer">
       <div className="sd-head">
-        <span className="k">{played ? "Slot by slot · final" : "Slot by slot · projected"}</span>
+        <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live" : "Slot by slot · projected"}</span>
         <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>
       </div>
       {Array.from({ length: n }, (_, i) => {
         const x = a.slots[i], y = b.slots[i];
-        const d = (x?.v ?? 0) - (y?.v ?? 0);
+        const d = edgeVal(x) - edgeVal(y);
         const push = Math.abs(d) < PUSH;
         return (
           <div className="sd-row" key={i}>
@@ -637,19 +845,27 @@ function SlotDrawer({ a, b, played, players, to }: {
         );
       })}
       <div className="sd-row sd-tot">
-        <div className={`sd-side${totA > totB ? " win" : ""}`}>
-          <span className="nm">{a.name}</span><span className="v">{fmt(totA, 1)}</span>
+        <div className={`sd-side${edgeA > edgeB ? " win" : ""}`}>
+          <span className="nm">{a.name}</span>
+          <span className="vs">
+            <span className={`v${missA ? " miss" : ""}`}>{fmt(totA, 1)}</span>
+            {hasProj && <span className="p">{fmt(projA, 1)}</span>}
+          </span>
         </div>
         <div className="sd-mid">
           <span className="slot">Total</span>
           <span className="edge">
-            <span className="ar">{totA > totB ? "◂" : ""}</span>
-            <span className="n">{fmt(Math.abs(totA - totB), 1)}</span>
-            <span className="ar">{totB > totA ? "▸" : ""}</span>
+            <span className="ar">{edgeA > edgeB ? "◂" : ""}</span>
+            <span className="n">{fmt(Math.abs(edgeA - edgeB), 1)}</span>
+            <span className="ar">{edgeB > edgeA ? "▸" : ""}</span>
           </span>
         </div>
-        <div className={`sd-side r${totB > totA ? " win" : ""}`}>
-          <span className="nm">{b.name}</span><span className="v">{fmt(totB, 1)}</span>
+        <div className={`sd-side r${edgeB > edgeA ? " win" : ""}`}>
+          <span className="nm">{b.name}</span>
+          <span className="vs">
+            <span className={`v${missB ? " miss" : ""}`}>{fmt(totB, 1)}</span>
+            {hasProj && <span className="p">{fmt(projB, 1)}</span>}
+          </span>
         </div>
       </div>
     </div>

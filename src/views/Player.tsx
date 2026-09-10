@@ -7,7 +7,10 @@ import type {
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
-import { fmt, fmtWar, sgn, sgnWar, mean } from "../lib/stats";
+import { fmt, sgn, mean } from "../lib/stats";
+// WAR at the beta shell's two places (Max, 2026-09-10): the player page is a
+// beta screen now, and "0.382" was the one three-place figure left on it
+import { fmtWar, sgnWar } from "../beta/ui";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { leagueSeg, useLeague } from "../lib/context";
 import { RouteLink } from "../components/RouteLink";

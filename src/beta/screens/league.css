@@ -56,16 +56,37 @@
 }
 .lgx-drawer .sd-side.r { flex-direction: row-reverse; text-align: right; }
 .lgx-drawer .sd-side .nm {
-  flex: 1 1 auto; min-width: 0;
-  font: 400 12.5px/1.3 var(--sans); color: var(--txt2);
+  flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px;
+  font: 400 12.5px/1.3 var(--sans); color: var(--txt);
   overflow-wrap: anywhere; text-wrap: balance;
 }
+/* the club after the name, as a tag; the game under it on the sub-line ramp */
+.lgx-drawer .sd-side .nm .tg {
+  margin-left: 6px;
+  font: 600 10px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim2);
+}
+.lgx-drawer .sd-side.r .nm .tg { margin-left: 0; margin-right: 6px; }
+.lgx-drawer .sd-side.r .nm .n1 { display: flex; flex-direction: row-reverse; justify-content: flex-start; align-items: baseline; }
+.lgx-drawer .sd-side .nm .n2 { font: 400 10.5px/1.3 var(--sans); color: var(--dim3); }
 .lgx-drawer .sd-side .v {
   flex: 0 0 auto;
   font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt);
 }
+/* THE FIGURE OVER ITS PROJECTION (Max, 2026-09-10): stacked, right-aligned
+   on the left side and left-aligned on the mirrored right, the projection
+   on the quiet ramp — and the FIGURE goes --bad once it has settled short
+   of the projection under it; the miss is the result's, not the line's. */
+.lgx-drawer .sd-side .vs { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; }
+.lgx-drawer .sd-side.r .vs { align-items: flex-start; }
+.lgx-drawer .sd-side .p {
+  font: 500 10.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim2);
+}
+.lgx-drawer .sd-side .v.miss { color: var(--bad); }
+/* a miss outranks the winning-side gold: red is the fact, gold the comparison */
+.lgx-drawer .sd-side.win .v.miss { color: var(--bad); }
+/* the edge is the figure's alone (Max, 2026-09-10): every name reads in
+   the same ink whichever side is favored */
 .lgx-drawer .sd-side.win .v { color: var(--acc); }
-.lgx-drawer .sd-side.win .nm { color: var(--txt); }
 .lgx-drawer .sd-mid {
   display: flex; flex-direction: column; align-items: center; gap: 2px;
   padding: 5px 0; background: var(--deep); align-self: stretch; justify-content: center;
@@ -84,6 +105,7 @@
 .lgx-drawer .sd-tot { border-top: 1px solid var(--rule); }
 .lgx-drawer .sd-tot .sd-side .nm { font-weight: 600; }
 .lgx-drawer .sd-tot .sd-side .v { font-size: 15px; font-weight: 700; }
+.lgx-drawer .sd-tot .sd-side .p { font-size: 11px; }
 .lgx-game .side { flex: 1 1 0; min-width: 0; padding: 9px var(--v3pad) 10px; }
 .lgx-game .side.r { text-align: right; }
 /* WRAPS, never ellipsises (Max, 2026-09-09): a franchise name is the
@@ -147,6 +169,10 @@
 /* the spread's arrow takes the accent — it is the card's one pointer at the
    favorite; the drawer's per-slot arrows stay plain (Max, 2026-09-09) */
 .lgx-game .mid .v.edge .ar { text-align: center; color: var(--acc); }
+/* LIVE (Max, 2026-09-10): the label over the running margin, in --good — the
+   one word on the card that says the figures are moving. Under it the
+   pregame spread stays for the comparison. */
+.lgx-game .mid .k.lgx-live { color: var(--good); }
 @media (min-width: 900px) {
   .lgx-game .side .nm { font-size: 14.5px; }
   .lgx-game .side .fig { font-size: 21px; }
