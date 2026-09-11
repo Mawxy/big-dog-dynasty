@@ -49,9 +49,15 @@ jobs:
           restore-keys: crawl-trades-${{ matrix.shard }}-
       - name: Crawl trades (shard ${{ matrix.shard }} of 4)
         run: |
+          # --cooldown-days 2, down from the 7-day default (Max, 2026-09-11):
+          # a visit now costs one or two calls (only the weeks since the last
+          # visit — see mode_trades), not eighteen, so the whole list can be
+          # re-walked every couple of days and the 7-day trade shards on the
+          # player pages stay within a day or two of live.
           python scripts/sleeper_crawl.py --mode trades \
             --state .crawl-state/trades-${{ matrix.shard }} \
-            --shard ${{ matrix.shard }} --nshards 4 --max-minutes 300
+            --shard ${{ matrix.shard }} --nshards 4 --max-minutes 300 \
+            --cooldown-days 2
       - name: Upload corpus shard
         if: always()
         uses: actions/upload-artifact@v4

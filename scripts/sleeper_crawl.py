@@ -591,14 +591,46 @@ def mode_signals(args, t0):
 
 
 # ------------------------------------------------------------- mode: trades ---
+def trade_ts(entry):
+    """progress.json used to hold a bare timestamp per league; it now holds
+    {"ts", "wk"} (see mode_trades). Read either."""
+    if isinstance(entry, dict):
+        return entry.get("ts")
+    return entry
+
+
+def current_leg(cap):
+    """The NFL week Sleeper is filing transactions under right now, 1..cap.
+    /state/nfl `leg` is the transaction leg (week 1 all offseason and
+    preseason, then the game week); `week` is the fallback."""
+    st = get("/state/nfl") or {}
+    try:
+        leg = int(st.get("leg") or st.get("week") or 1)
+    except (TypeError, ValueError):
+        leg = 1
+    return max(1, min(leg, cap))
+
+
 def mode_trades(args, t0):
     sd = Path(args.state)
-    progress = jload(sd / "progress.json", {})     # lid -> last_trades ts
+    # lid -> {"ts": when, "wk": the last week fetched}. A bare float is the
+    # old form (ts only) and reads as "no week known".
+    progress = jload(sd / "progress.json", {})
     trades = jload(sd / "trades.json", {})         # tid -> trade
     league_list = jload(ROOT / args.leagues_out, {}).get("leagues", [])
     mine = [lid for lid in league_list
             if shard_of(lid, args.nshards) == args.shard
-            and not fresh(progress.get(lid), args.cooldown_days)]
+            and not fresh(trade_ts(progress.get(lid)), args.cooldown_days)]
+    # ONLY THE WEEKS THAT CAN HOLD SOMETHING NEW (Max, 2026-09-11: "can we
+    # speed up the trade crawling"). The crawl asked every league for all
+    # eighteen weeks on every visit — in September that is sixteen empty
+    # calls per league, and 83k leagues x 18 = 1.5M calls a pass. A trade is
+    # filed under the leg it was made in, and a past leg never gains one, so
+    # a league already walked through week W needs weeks W..now (W again,
+    # for anything that landed after the last visit), and a league never
+    # walked needs 1..now. Never a week that has not happened yet.
+    cur = current_leg(args.trade_weeks)
+    print(f"[trades] current leg {cur}", file=sys.stderr, flush=True)
     n_done = 0
     counters = lambda: {"shard": f"{args.shard}/{args.nshards}", "todo": len(mine) - n_done,
                         "done": n_done, "trades": len(trades)}
@@ -624,14 +656,16 @@ def mode_trades(args, t0):
         if deadline and time.time() >= deadline:
             break
         try:
-            for wk in range(1, args.trade_weeks + 1):
+            prev = progress.get(lid)
+            first = prev.get("wk", 1) if isinstance(prev, dict) else 1
+            for wk in range(max(1, min(first, cur)), cur + 1):
                 for tx in (get(f"/league/{lid}/transactions/{wk}") or []):
                     if tx.get("type") != "trade" or tx.get("status") != "complete":
                         continue
                     tid = tx.get("transaction_id")
                     if tid and tid not in trades:
                         trades[tid] = extract_trade(tx, args.season, lid)
-            progress[lid] = time.time()
+            progress[lid] = {"ts": time.time(), "wk": cur}
             n_done += 1
             if n_done % CHECKPOINT_EVERY == 0:
                 flush()
