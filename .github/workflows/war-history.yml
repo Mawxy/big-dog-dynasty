@@ -35,10 +35,16 @@ jobs:
         run: python scripts/nfl_history.py --start "$START" --end "$END" --out nfl_history_data
       - name: Compute WAA/WAR (unchanged engine)
         run: python scripts/sleeper_war.py --data nfl_history_data --top 10
+      - name: Skill features (usage, efficiency, expected points)
+        env:
+          START: ${{ github.event.inputs.start }}
+          END: ${{ github.event.inputs.end }}
+        run: python scripts/nfl_features.py --start "$START" --end "$END" --out nfl_history_data/features
       - name: Collect outputs
         run: |
           mkdir -p nfl_history
           cp nfl_history_data/analysis/*.csv nfl_history/
+          cp nfl_history_data/features/*.csv nfl_history/
           cp nfl_history_data/players_meta.csv nfl_history/
       - name: Commit history CSVs
         env:

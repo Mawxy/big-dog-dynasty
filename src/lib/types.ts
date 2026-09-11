@@ -288,6 +288,12 @@ export interface Projection {
   /** year-1 WAR implied by Sleeper's projected points alone (pts_to_war fit) */
   proj_ext: number | null;
   total: number; total_exp: number; total_comp: number;
+  /** which model wrote the streams: the points-first model, or the per-13
+   *  rate model it falls back to for a player it cannot read (rookies) */
+  src?: "points" | "scalar";
+  /** points-first rows only: projected ppg per year, natural and composite,
+   *  and expected games */
+  ppg_nat?: number[]; ppg_comp?: number[]; games?: number[];
 }
 export interface ProjectionsFile {
   meta: { seed_season: number; roster_season: number; horizon: number;
@@ -374,9 +380,28 @@ export const MATRIX_CURVES = [
   "scalar_natural", "scalar_composite",
   "analog_natural", "analog_composite",
   "blend_natural", "blend_composite",
+  // the points-first model (Max, 2026-09-11) — the site's default
+  "points_natural", "points_composite",
 ] as const;
 export type MatrixCurve = typeof MATRIX_CURVES[number];
-export type MatrixModel = "scalar" | "analog" | "blend";
+export type MatrixModel = "scalar" | "analog" | "blend" | "points";
+
+/** data/projections_points.json — the POINTS-FIRST arm (Max, 2026-09-10):
+ *  ppg and games from gradient-boosted trees on history and nflverse skill
+ *  features, WAR derived from the projected pool's replacement level. The
+ *  shard carries one player's row. */
+export interface PointsProj {
+  /** points per game if he plays, per horizon year, in league scoring */
+  ppg: number[];
+  /** expected games (0..13) */
+  games: number[];
+  /** ppg × games */
+  pts: number[];
+  /** WAR over expected games, and over a full 13 ("natural") */
+  war: number[]; war13: number[];
+  /** the 80% band, in natural WAR */
+  war13_low: number[]; war13_high: number[];
+}
 
 export type MatrixRow = {
   pid: string; name: string; pos: string; team: string | null;
@@ -386,6 +411,9 @@ export type MatrixRow = {
    *  the pts13 floor means every composite is its own natural. Both have to be
    *  said out loud or the table shows agreement that was never measured. */
   has_analog: boolean; has_sleeper: boolean;
+  /** the points-first model priced him; false means its two curves are the
+   *  scalar's (a rookie with no NFL season, an unjoined name) */
+  has_points?: boolean;
   sleeper_war: number | null;
   pts13: number;
   /** how much the analog's cohort is worth, in [0,1] — drives both the blend
@@ -450,6 +478,8 @@ export interface PlayerShard {
    *  header. Written only alongside `mx`, since nothing else reads it. */
   blend_w?: number[] | null;
   knn?: KnnShard | null;
+  /** his row from projections_points.json — absent when that arm has no read */
+  pts?: PointsProj | null;
 }
 
 /** data/insights.json — written per-franchise outlooks, keyed by roster_id */

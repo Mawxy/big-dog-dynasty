@@ -83,6 +83,12 @@ const MODELS: { key: MatrixModel; label: string; desc: string }[] = [
     desc: "nearest historical comparables and what they actually returned" },
   { key: "blend", label: "Blend",
     desc: "the two naturals mixed by how good the analog's cohort is" },
+  // THE POINTS-FIRST ARM (Max, 2026-09-10/11): points projected first, WAR
+  // derived from the projected pool — so his WAR moves only when his points
+  // do, not when the replacement line at his position moves. The site model
+  // since 2026-09-11; its two curves ride the matrix row like the others.
+  { key: "points", label: "Points",
+    desc: "points per game and games projected first, from his record and usage; WAR from the projected pool's replacement level" },
 ];
 
 /**
@@ -262,7 +268,9 @@ export default function Player({ pid }: { pid: string }) {
    *  Derived rather than corrected in state: the lens remembers what the reader
    *  picked, so navigating from a player who has an analog read to one who does
    *  not and back does not silently reset their choice. */
-  const modelOn: MatrixModel = mx && !mx.has_analog ? "scalar" : model;
+  const ptsArm = shard?.pts ?? null;
+  const modelOn: MatrixModel = model === "points" ? (mx?.has_points ? "points" : "scalar")
+    : mx && !mx.has_analog ? "scalar" : model;
   const owner = useMemo(() => {
     const t = teams?.find(x => x.players.includes(pid));
     return t ? t.team : null;
@@ -308,6 +316,7 @@ export default function Player({ pid }: { pid: string }) {
     const p = shard?.proj ?? null;
     if (!p) return none;
     const sc = { lo: p.nat_low, hi: p.nat_high };
+    if (modelOn === "points") return ptsArm ? { lo: ptsArm.war13_low, hi: ptsArm.war13_high } : sc;
     if (modelOn === "scalar" || !knn?.low || !knn?.high) return sc;
     const an = { lo: knn.low, hi: knn.high };
     if (modelOn === "analog") return an;
@@ -315,7 +324,7 @@ export default function Player({ pid }: { pid: string }) {
     const mix = (a: number[], b: number[]) =>
       b.map((val, i) => t * val + (1 - t) * (a[i] ?? val));
     return { lo: mix(sc.lo, an.lo), hi: mix(sc.hi, an.hi) };
-  }, [shard, knn, mx, modelOn]);
+  }, [shard, knn, mx, modelOn, ptsArm]);
 
   if (shard === undefined) return <div className="empty">Loading player…</div>;
 
@@ -619,6 +628,12 @@ export default function Player({ pid }: { pid: string }) {
                         trust {fmt(mx.trust, 2)}
                       </span>
                     </>}
+                    {modelOn === "points" && proj?.ppg_nat && proj.games && <>
+                      {" · "}
+                      <span title="points per game if he plays, then expected games, per projected season (natural)">
+                        {proj.ppg_nat.map((v, i) => `${fmt(v, 1)} ppg · ${fmt(proj.games![i], 0)} gp`).join(" / ")}
+                      </span>
+                    </>}
                     {mx.w_sleeper != null && <>
                       {" · "}
                       <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmtWar(mx.sleeper_war ?? 0)} WAR. The analog composite takes it at this weight in year one; scalar and blend take it at ${Math.round((blendW?.[0] ?? 0.9) * 100)}%.`}>
@@ -631,7 +646,7 @@ export default function Player({ pid }: { pid: string }) {
                   {MODELS.map(m => (
                     <button key={m.key} type="button" title={m.desc}
                       className={`seg${m.key === modelOn ? " on" : ""}`}
-                      disabled={m.key !== "scalar" && !mx.has_analog}
+                      disabled={m.key === "points" ? !mx.has_points : m.key !== "scalar" && !mx.has_analog}
                       onClick={() => setModel(m.key)}>{m.label}</button>
                   ))}
                 </div>
@@ -684,12 +699,12 @@ export default function Player({ pid }: { pid: string }) {
                              number, but repeating it here under an "Analog"
                              header would claim a measurement that never
                              happened — so it reads as an em dash instead. */
-                          const off = m.key !== "scalar" && !mx.has_analog;
+                          const off = m.key === "points" ? !mx.has_points : m.key !== "scalar" && !mx.has_analog;
                           const on = m.key === modelOn && !off;
                           return (
                             <Fragment key={m.key}>
                               {(["natural", "composite"] as const).map((s, k) => {
-                                const v = mx[`${m.key}_${s}` as const][i];
+                                const v = (mx[`${m.key}_${s}` as const] ?? mx.scalar_natural)[i];
                                 /* no Sleeper above the pts13 floor means the
                                    composite IS the natural — shown, but never
                                    accented, so an echo cannot read as a second
@@ -714,7 +729,7 @@ export default function Player({ pid }: { pid: string }) {
                                 left: `${(Math.max(0, band.lo[i] ?? 0) / rangeMax * 100).toFixed(1)}%`,
                                 width: `${(Math.max(0, (band.hi[i] ?? 0) - Math.max(0, band.lo[i] ?? 0)) / rangeMax * 100).toFixed(1)}%`,
                               }} />
-                              <div className="tick" style={{ left: `${(Math.max(0, mx[`${modelOn}_natural` as const][i]) / rangeMax * 100).toFixed(1)}%` }} />
+                              <div className="tick" style={{ left: `${(Math.max(0, (mx[`${modelOn}_natural` as const] ?? mx.scalar_natural)[i]) / rangeMax * 100).toFixed(1)}%` }} />
                             </div>
                             <div className="range-ends">
                               <span>{fmtWar(band.lo[i] ?? 0)}</span>

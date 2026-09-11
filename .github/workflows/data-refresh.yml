@@ -128,8 +128,19 @@ jobs:
       # ever fall back to a positional prior.
       - name: Week odds (pregame win probability per matchup)
         run: python scripts/week_odds.py --snapshot
-      - name: Recompute WAR projections
+      - name: Recompute WAR projections (scalar model)
         run: python scripts/project_war.py
+      # THE SITE MODEL (Max, 2026-09-11): points first, WAR from the projected
+      # pool. Reads the scalar's projections.json just written, parks it at
+      # projections_scalar.json for the comparison lens, and rewrites
+      # projections.json in the same schema — so everything after this step
+      # (value_bridge, the matrix, shards, index_models) prices on it. Needs
+      # scikit-learn (~2 min to fit 24 tree ensembles); every data input is
+      # committed (nfl_history/*.csv, proj_sleeper.json, players_min.json).
+      - name: Install scikit-learn (points model)
+        run: pip install scikit-learn
+      - name: Points-first projections (the site model)
+        run: python scripts/project_points.py --site
       - name: Bridge B (market value -> WAR, refit on fresh projections)
         run: python scripts/value_bridge.py
       # after project_war and the analog model: the matrix reads both, so it

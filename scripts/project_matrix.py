@@ -237,7 +237,23 @@ def main():
     if args.sleeper_gate:
         SLEEPER_GATE = args.sleeper_gate
 
-    scalar = json.loads((DATA / "projections.json").read_text())
+    # THE SCALAR ARM IS ITS OWN FILE NOW (Max, 2026-09-11): projections.json
+    # is the points-first model's, and project_points.py --site parks the
+    # per-13 rate model's output at projections_scalar.json so this lens keeps
+    # reading the scalar it was built to compare. Falls back to projections.json
+    # for a data directory the points model has not written.
+    scalar_path = DATA / "projections_scalar.json"
+    if not scalar_path.exists():
+        scalar_path = DATA / "projections.json"
+    scalar = json.loads(scalar_path.read_text())
+    # the points-first model's streams, keyed by pid, for the two curves it
+    # adds; a row it did not price (src:scalar) falls back to the scalar pair
+    points = {}
+    ppath = DATA / "projections.json"
+    if scalar_path != ppath and ppath.exists():
+        for r in json.loads(ppath.read_text())["players"]:
+            if r.get("src") == "points":
+                points[r["pid"]] = (r["proj"], r["composite"])
     knn_path = DATA / "projections_knn_hybrid.json"
     knnf = json.loads(knn_path.read_text())
     sproj = json.loads((DATA / "proj_sleeper.json").read_text())["players"]
@@ -311,12 +327,15 @@ def main():
             an_cmp = composite_path(an_nat, sl_war, sc_nat, w_an * scale)
             bl_cmp = composite_path(bl_nat, sl_war, sc_nat, BLEND_W[0] * scale)
 
+        pt_nat, pt_cmp = points.get(pid, (sc_nat, sc_cmp))
         rows.append({
             "pid": pid, "name": p["name"], "pos": pos, "team": p.get("team"),
             "age": p.get("age"),
             "scalar_natural": sc_nat, "scalar_composite": sc_cmp,
             "analog_natural": an_nat, "analog_composite": an_cmp,
             "blend_natural": bl_nat, "blend_composite": bl_cmp,
+            "points_natural": pt_nat, "points_composite": pt_cmp,
+            "has_points": pid in points,
             # diagnostics — the curves are only readable next to these
             "has_analog": k is not None,
             "has_sleeper": sl_war is not None,
@@ -330,7 +349,8 @@ def main():
             "totals": {n: round(sum(v), 3) for n, v in (
                 ("scalar_natural", sc_nat), ("scalar_composite", sc_cmp),
                 ("analog_natural", an_nat), ("analog_composite", an_cmp),
-                ("blend_natural", bl_nat), ("blend_composite", bl_cmp))},
+                ("blend_natural", bl_nat), ("blend_composite", bl_cmp),
+                ("points_natural", pt_nat), ("points_composite", pt_cmp))},
         })
 
     rows.sort(key=lambda r: -r["totals"]["blend_composite"])
@@ -338,7 +358,8 @@ def main():
         "meta": {
             "curves": ["scalar_natural", "scalar_composite",
                        "analog_natural", "analog_composite",
-                       "blend_natural", "blend_composite"],
+                       "blend_natural", "blend_composite",
+                       "points_natural", "points_composite"],
             "horizon": len(BLEND_W),
             "blend_w": BLEND_W,
             "trust_p": TRUST_P, "pad_penalty": PAD_PENALTY,

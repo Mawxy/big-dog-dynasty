@@ -37,6 +37,11 @@ CURVES = (
     "scalar_natural", "scalar_composite",
     "analog_natural", "analog_composite",
     "blend_natural", "blend_composite",
+    # THE POINTS-FIRST MODEL (Max, 2026-09-11): ppg and games projected
+    # first, WAR from the projected pool. project_matrix.py copies its two
+    # streams in from projections.json so the picker and index_models see
+    # one list of curves.
+    "points_natural", "points_composite",
 )
 
 # The site's published DVI/CVI. Blend over scalar because the analog arm is a
@@ -44,7 +49,9 @@ CURVES = (
 # play" as a state rather than a low number; composite over natural because
 # Sleeper's read is the only input that knows about THIS season's depth charts,
 # and neither model can see a trade or a rookie ahead of him.
-DEFAULT_CURVE = "blend_composite"
+# Points over blend since 2026-09-11: the points-first model is the site
+# model; the scalar and analog arms are kept as comparison lenses.
+DEFAULT_CURVE = "points_composite"
 
 MATRIX_FILE = "projections_matrix.json"
 FALLBACK_FILE = "projections.json"

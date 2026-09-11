@@ -22,7 +22,7 @@ Inputs:
 Output:
   data/player/<pid>.json
     {"years":[...], "proj":{...}|null, "sproj":{...}|null,
-     "mx":{...}, "blend_w":[...], "knn":{...}}
+     "mx":{...}, "blend_w":[...], "knn":{...}, "pts":{...}}
 
 WHAT GOES IN, AND WHAT DOES NOT. The shard carries exactly what
 `src/views/Player.tsx` renders and nothing else — its whole reason to exist is
@@ -41,6 +41,10 @@ that a page should not download a league-wide file to read one row:
     reads out of that file's HEADER (the Sleeper-weight tooltip). Copying three
     numbers into every shard costs ~14 KB across the tree and removes the last
     reason to fetch the whole matrix.
+
+  * `pts` is his row from projections_points.json (Max, 2026-09-10) — the
+    points-first arm: ppg, games, points, and the WAR derived from the
+    projected pool with its bands. ~300 B, all of it on screen.
 
 A field is OMITTED, never written as null, when the player has no row in that
 source — the page reads `shard?.mx ?? null` either way, and an absent key keeps
@@ -72,6 +76,7 @@ from leaguepaths import DataDir
 
 #: the fields of a KnnProjection the player page actually renders
 KNN_KEYS = ("n", "sim_med", "low", "high", "near")
+PTS_KEYS = ("ppg", "games", "pts", "war", "war13", "war13_low", "war13_high")
 
 def load(p):
     try:
@@ -98,6 +103,7 @@ def main():
     sprojf = load(out / "proj_sleeper.json") or {}
     mxf = load(out / "projections_matrix.json") or {}
     knnf = load(out / "projections_knn_hybrid.json") or {}
+    ptsf = load(out / "projections_points.json") or {}
     years = ((projf.get("meta") or {}).get("years")) or []
     blend_w = ((mxf.get("meta") or {}).get("blend_w")) or None
     proj = by_pid(projf.get("players"))
@@ -105,6 +111,9 @@ def main():
     mx = by_pid(mxf.get("players"))
     knn = {pid: {k: r[k] for k in KNN_KEYS if k in r}
            for pid, r in by_pid(knnf.get("players")).items()}
+    # keyed by pid already — a dict, not a list of rows carrying `pid`
+    pts = {pid: {k: r[k] for k in PTS_KEYS if k in r}
+           for pid, r in (ptsf.get("players") or {}).items()}
     reachable = set(load(out / "players_min.json") or {})
 
     pdir = out / "player"
@@ -114,7 +123,7 @@ def main():
     # page draws the comparables table, which before enrichment came out of the
     # whole-file fetch. Dropping him here would delete that table from ~200
     # pages while calling it a performance fix.
-    wanted = core | ((set(mx) | set(knn)) & reachable)
+    wanted = core | ((set(mx) | set(knn) | set(pts)) & reachable)
     # never wipe committed shards because the inputs were missing — that's a
     # silent local-run data-loss mode, not a legitimate rebuild
     if not reachable:
@@ -136,6 +145,9 @@ def main():
         k = knn.get(pid)
         if k:
             rec["knn"] = k
+        pt = pts.get(pid)
+        if pt:
+            rec["pts"] = pt
         # same serialization as ever — compact, no trailing newline — only now
         # it lands whole or not at all
         atomic_write(pdir / f"{pid}.json",
