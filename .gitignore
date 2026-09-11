@@ -29,3 +29,6 @@ scratch/
 # same, if one lands outside scratch/ by accident
 *-preview.html
 HANDOFF_*.md
+
+# the Claude desktop app's drop folder — never part of the repo
+Claude outputs/
