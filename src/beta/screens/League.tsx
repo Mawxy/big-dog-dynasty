@@ -815,8 +815,12 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
           </div>
         );
       })}
+      {/* THE GOLD IS WHO IS WINNING (Max, 2026-09-11): the totals row's
+          accent follows the actual points so far, not the projected edge —
+          the arrow between them still quotes the projection. Pregame the
+          totals are the projections, so the two agree. */}
       <div className="sd-row sd-tot">
-        <div className={`sd-side${edgeA > edgeB ? " win" : ""}`}>
+        <div className={`sd-side${totA > totB ? " win" : ""}`}>
           <span className="nm">{a.name}</span>
           <span className="vs">
             <span className={`v${missA ? " miss" : beatA ? " beat" : ""}`}>{fmt(totA, 1)}</span>
@@ -831,7 +835,7 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
             <span className="ar">{edgeB > edgeA ? "▸" : ""}</span>
           </span>
         </div>
-        <div className={`sd-side r${edgeB > edgeA ? " win" : ""}`}>
+        <div className={`sd-side r${totB > totA ? " win" : ""}`}>
           <span className="nm">{b.name}</span>
           <span className="vs">
             <span className={`v${missB ? " miss" : beatB ? " beat" : ""}`}>{fmt(totB, 1)}</span>
