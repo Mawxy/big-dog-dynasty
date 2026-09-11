@@ -300,8 +300,19 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
     import polars as pl
     stats = nfl.load_player_stats([season], summary_level="week")
     stats = stats.filter(pl.col("season_type") == "REG").to_dicts()
-    snaps = nfl.load_snap_counts([season])
-    snaps = snaps.filter(pl.col("game_type") == "REG").to_dicts()
+    # BEFORE 2012 THERE ARE NO SNAP COUNTS (Max, 2026-09-11: the corpus goes
+    # back to 1999 now). With no snap data and no coverage set, the ACT
+    # fallback below never fires, so the played rule collapses to the stat
+    # line: a dressed player who never touched the ball is invisible in
+    # those seasons, as he was everywhere before 2026-08-07. Accepted — the
+    # alternative was no seasons at all — and the players who matter to a
+    # projection all have stat lines.
+    try:
+        snaps = nfl.load_snap_counts([season])
+        snaps = snaps.filter(pl.col("game_type") == "REG").to_dicts()
+    except Exception as e:                                  # noqa: BLE001
+        print(f"  ! snap counts unavailable for {season}: {e}")
+        snaps = []
     # weekly, not season-level: status changes week to week, and season-level
     # rosters would call an eight-week IR stint "active".
     try:
@@ -401,7 +412,7 @@ def pull_season(season, players_pos, pfr_to_gsis, nfl):
 
 def main():
     ap = argparse.ArgumentParser(description="nflverse -> sleeper_war-shaped dump")
-    ap.add_argument("--start", type=int, default=2014)
+    ap.add_argument("--start", type=int, default=1999)
     ap.add_argument("--end", type=int, default=2025)
     ap.add_argument("--out", default="nfl_history_data")
     args = ap.parse_args()

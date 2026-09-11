@@ -7,7 +7,7 @@ on:
     inputs:
       start:
         description: "First season"
-        default: "2014"
+        default: "1999"
       end:
         description: "Last season"
         default: "2025"
@@ -42,9 +42,18 @@ jobs:
         run: python scripts/nfl_features.py --start "$START" --end "$END" --out nfl_history_data/features
       - name: Collect outputs
         run: |
-          mkdir -p nfl_history
-          cp nfl_history_data/analysis/*.csv nfl_history/
-          cp nfl_history_data/features/*.csv nfl_history/
+          mkdir -p nfl_history/early
+          # 1999-2011 WAR (no snap counts before 2012: stat-line played rule)
+          # and 1999-2013 features live in early/ — only project_points.py
+          # reads them; every other reader of nfl_history/ globs the snap era
+          for f in nfl_history_data/analysis/waa_war_*.csv; do
+            y=$(basename "$f" .csv | sed 's/.*_//')
+            if [ "$y" -lt 2012 ] 2>/dev/null; then cp "$f" nfl_history/early/; else cp "$f" nfl_history/; fi
+          done
+          for f in nfl_history_data/features/features_*.csv; do
+            y=$(basename "$f" .csv | sed 's/.*_//')
+            if [ "$y" -lt 2014 ]; then cp "$f" nfl_history/early/; else cp "$f" nfl_history/; fi
+          done
           cp nfl_history_data/players_meta.csv nfl_history/
       - name: Commit history CSVs
         env:

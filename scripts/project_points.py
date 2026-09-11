@@ -99,6 +99,22 @@ import numpy as np
 
 ROOT = Path(__file__).resolve().parent.parent
 HIST = ROOT / "nfl_history"
+# THE EARLY CORPUS (Max, 2026-09-11: "widen it all the way back to 1999").
+# 1999-2011 sit in their own folder because nflverse has no snap counts before
+# 2012, so those seasons were built on the stat-line played rule alone (a
+# dressed player who never touched the ball is invisible), and the other
+# readers of nfl_history/ — franchise_players, pick_value, the analog arm —
+# glob waa_war_*.csv and were calibrated on the snap era. This model reads
+# both folders; nothing else does unless it asks to.
+HIST_EARLY = HIST / "early"
+
+
+def hist_files(pattern):
+    """waa_war_*.csv / features_*.csv from the main corpus and the early one"""
+    files = list(HIST.glob(pattern))
+    if HIST_EARLY.exists():
+        files += list(HIST_EARLY.glob(pattern))
+    return sorted(files, key=lambda f: int(f.stem.split("_")[-1]) if f.stem.split("_")[-1].isdigit() else 0)
 
 CORE = ("QB", "RB", "WR", "TE")
 FULL_GP = 13
@@ -121,6 +137,7 @@ FEAT_COLS = [
     "catch_rate", "ypt", "ypr", "adot", "racr", "yac_rec", "epa_tgt",
     "rec_td_rate", "rec_fd_rate", "rec_expl_rate",
     "fp_exp_pg", "exp_share", "fp_diff", "td_diff",
+    "wk_act", "wk_res", "wk_ina", "wk_hurt", "wk_bench",
 ]
 # opportunity counts, gating the rates above: a 9.0 ypc on three carries is
 # not a skill, and the trees can only know that if the count is a feature
@@ -144,11 +161,17 @@ ALL_COLS = FEAT_COLS + COUNT_COLS
 #   TE  3.29 / 3.63 / 3.58  ->  3.19 / 3.63 / 3.57
 # Three seasons of ppg and games already carry most of what these know; the
 # gains are at the longer horizons and on the games model.
+# AVAILABILITY, every position (Max, 2026-09-11): weeks lost to injury
+# (IR / PUP / game-day inactive) and weeks dressed without a touch. Without
+# them a five-game injury season reads as a benching — Brock Purdy's 2025
+# (15.6 ppg in 5 games, 8 weeks inactive) projected 7.8 ppg, a backup's
+# line, when the same model had him at 16-17 the two years before.
+AVAIL = ["wk_hurt", "wk_bench"]
 POS_COLS = {
-    "QB": ["fp_exp_pg", "epa_db"],
-    "RB": ["fp_exp_pg", "car_pg", "tgt_share"],
-    "WR": ["fp_exp_pg", "tgt_pg", "tgt_share", "ay_share"],
-    "TE": ["fp_exp_pg", "tgt_share", "ay_share"],
+    "QB": ["fp_exp_pg", "epa_db"] + AVAIL,
+    "RB": ["fp_exp_pg", "car_pg", "tgt_share"] + AVAIL,
+    "WR": ["fp_exp_pg", "tgt_pg", "tgt_share", "ay_share"] + AVAIL,
+    "TE": ["fp_exp_pg", "tgt_share", "ay_share"] + AVAIL,
 }
 
 
@@ -180,7 +203,7 @@ def load_meta():
 def load_seasons():
     """season -> pid -> {pos, gp, pts, ppg}"""
     seasons = defaultdict(dict)
-    for f in sorted(HIST.glob("waa_war_*.csv")):
+    for f in hist_files("waa_war_*.csv"):
         if "career" in f.name:
             continue
         yr = int(f.stem.split("_")[-1])
@@ -199,7 +222,7 @@ def load_seasons():
 def load_features():
     """season -> pid -> {col: float|nan}"""
     feats = defaultdict(dict)
-    for f in sorted(HIST.glob("features_*.csv")):
+    for f in hist_files("features_*.csv"):
         yr = int(f.stem.split("_")[-1])
         for r in csv.DictReader(open(f, encoding="utf-8")):
             feats[yr][r["player_id"]] = {c: fnum(r.get(c)) for c in ALL_COLS}
@@ -295,7 +318,18 @@ def build_corpus(seasons, feats, meta, lvl, last_year):
 
 
 # --------------------------------------------------------------------- model --
-def make_model(target, seed=0):
+# the smallest group a tree may split off, per position. 40 everywhere but
+# QB: with ~50 QB seasons a year, a leaf of 40 cannot isolate "an
+# established starter off a short injury season" — five cases in the corpus
+# (Rodgers 2017, Dak 2020, Newton 2021, Wentz 2022, Kyler 2023) — and reads
+# him as a benched backup. 25 is measured neutral on the QB holdout (3.27 vs
+# 3.28) and moves Purdy's 2026 from 7.4 to 10.6 ppg. Still short of what
+# those five did (three of them came back at 17-19); the corpus is thin
+# there and the composite's Sleeper leg carries year one.
+MIN_LEAF = {"QB": 25, "RB": 40, "WR": 40, "TE": 40}
+
+
+def make_model(target, seed=0, pos=None):
     """ppg is fit to the MEDIAN (absolute error): a rate, and one outlier
     season should not drag a cohort. games is fit to the MEAN (squared
     error): it is an expectation over a lumpy outcome — most fringe
@@ -305,7 +339,7 @@ def make_model(target, seed=0):
     return HistGradientBoostingRegressor(
         loss="absolute_error" if target == "ppg" else "squared_error",
         max_iter=400, learning_rate=0.04,
-        max_leaf_nodes=15, min_samples_leaf=40, l2_regularization=1.0,
+        max_leaf_nodes=15, min_samples_leaf=MIN_LEAF.get(pos, 40), l2_regularization=1.0,
         random_state=seed)
 
 
@@ -323,7 +357,7 @@ def fit_models(corpus, positions=CORE):
                     mods[tgt] = None
                     continue
                 X = np.vstack([p[0] for p in pairs]); y = np.array([p[1] for p in pairs])
-                mods[tgt] = make_model(tgt, seed=k).fit(X, y)
+                mods[tgt] = make_model(tgt, seed=k, pos=pos).fit(X, y)
             out[pos][k] = mods
     return out
 
@@ -483,7 +517,7 @@ BLEND_W = [0.9, 0.5, 0.1]
 UDFA_PICK = 260
 # the first draft class the arm learns from — nflverse draft picks and the
 # WAR corpus both cover it
-ROOKIE_FIRST_CLASS = 2014
+ROOKIE_FIRST_CLASS = 1999
 
 
 def win_shift(x, sigma=SIGMA):

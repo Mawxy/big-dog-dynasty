@@ -25,6 +25,15 @@ rates, so a two-target game does not count as much as a twelve-target one.
 The exceptions are target_share / air_yards_share / WOPR, which nflverse only
 ships per game; those are the mean over the weeks he had a stat line.
 
+AVAILABILITY (Max, 2026-09-11): the history files cannot tell a quarterback
+who lost his job from one who tore a ligament — both show five games. The
+weekly roster status can: RES / PUP is injured reserve, INA is a game-day
+inactive (hurt or a healthy scratch), ACT with no touch is a healthy backup.
+So each row carries wk_act / wk_res / wk_ina / wk_hurt (RES+PUP+INA) /
+wk_bench (active, never touched the ball). INA is only recorded from 2019;
+before that a game-day inactive reads ACT, so wk_ina, wk_hurt and wk_bench
+are blank for 2014-2018 rather than wrong, and the trees route the blank.
+
 Whole regular season, not weeks 1-14: these describe the player, not the
 league's schedule, and four more games are four more games of evidence.
 `gp14` is carried so a caller can still tell which seasons align with the
@@ -107,6 +116,32 @@ def season_features(season, nfl):
                  *[pl.col(c).sum().alias(c) for c in sums],
                  *[pl.col(c).filter(pl.col("_touched")).mean().alias(c) for c in means]]))
 
+    # ---- availability: weekly roster status, regular season ---------------
+    status = {}          # pid -> {"act": n, "res": n, "ina": n}
+    has_ina = season >= 2019
+    try:
+        ro = nfl.load_rosters_weekly([season])
+        if "game_type" in ro.columns:
+            ro = ro.filter(pl.col("game_type") == "REG")
+        ro = ro.filter(pl.col("week") <= reg_last)
+        for r in ro.select(["gsis_id", "week", "status"]).to_dicts():
+            g = r.get("gsis_id")
+            if not g:
+                continue
+            d = status.setdefault(g, {"act": 0, "res": 0, "ina": 0, "weeks": set()})
+            if r["week"] in d["weeks"]:
+                continue                                      # one row per week
+            d["weeks"].add(r["week"])
+            st = r.get("status") or ""
+            if st == "ACT":
+                d["act"] += 1
+            elif st in ("RES", "PUP"):
+                d["res"] += 1
+            elif st == "INA":
+                d["ina"] += 1
+    except Exception as e:                                  # noqa: BLE001
+        print(f"  ! weekly rosters unavailable for {season}: {e}")
+
     # ---- expected points: ffopportunity, regular season only ---------------
     opp = {}
     try:
@@ -170,6 +205,13 @@ def season_features(season, nfl):
             "rec_fd_rate": safe_div(v("receiving_first_downs"), tgt),
             "rec_expl_rate": safe_div(v("receiving_16"), tgt),
             "fum_lost": int(v("rushing_fumbles_lost") + v("receiving_fumbles_lost")),
+            # ---- availability ----
+            "wk_act": status[pid]["act"] if pid in status else "",
+            "wk_res": status[pid]["res"] if pid in status else "",
+            "wk_ina": status[pid]["ina"] if pid in status and has_ina else "",
+            "wk_hurt": (status[pid]["res"] + status[pid]["ina"]) if pid in status and has_ina else "",
+            # dressed and never touched the ball: a healthy backup's week
+            "wk_bench": max(status[pid]["act"] - r["games"], 0) if pid in status and has_ina else "",
             "fp_ppr": round(v("fantasy_points_ppr"), 1),
             # ---- opportunity (ffopportunity) ----
             "fp_exp": round(ov("total_fantasy_points_exp"), 1) if o else "",
