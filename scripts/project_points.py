@@ -491,15 +491,22 @@ def win_shift(x, sigma=SIGMA):
     return 0.5 * math.erf(x / (sigma * math.sqrt(2)) / math.sqrt(2))
 
 
-def pool_war(ppg_by_pid, pos_by_pid, games_by_pid=None):
-    """pid -> (war13, war_over_games, repl) for ONE season's ppg map, the
-    replacement line set by the greedy league-wide lineup on these ppg."""
+def pool_war(ppg_by_pid, pos_by_pid, games_by_pid=None, repl=None):
+    """pid -> (war13, war_over_games, repl) for ONE season's ppg map. The
+    replacement line is the greedy league-wide lineup's on these ppg, or
+    `repl` when the caller has already established one — the composite is
+    priced against the NATURAL pool's line (Max, 2026-09-11): Sleeper's
+    read adjusts a player's own number, never the line he is measured
+    against. Blending everyone first lifted the QB line from 11.0 to 14.4
+    because Sleeper prices the backup tier as full-time starters, and Josh
+    Allen's composite came out 0.78 against a natural 1.22."""
     import sys
     sys.path.insert(0, str(ROOT / "scripts"))
     from sleeper_war import build_week
-    points = {pid: v for pid, v in ppg_by_pid.items() if v > 0}
-    positions = {pid: pos_by_pid[pid] for pid in points}
-    _, _, repl = build_week(points, positions, dict(SLOTS))
+    if repl is None:
+        points = {pid: v for pid, v in ppg_by_pid.items() if v > 0}
+        positions = {pid: pos_by_pid[pid] for pid in points}
+        _, _, repl = build_week(points, positions, dict(SLOTS))
     out = {}
     for pid, v in ppg_by_pid.items():
         r = repl.get(pos_by_pid[pid], 0.0)
@@ -742,9 +749,11 @@ def write_projections(rows, last):
         else:
             comp[pid] = list(nat[pid])
 
-    # ---- WAR from the two pools, one per horizon year ----------------------
+    # ---- WAR: one replacement line per horizon year, the natural pool's ----
     nat_w = [pool_war({p: nat[p][k] for p in rows}, pos_of, {p: games[p][k] for p in rows}) for k in range(H)]
-    comp_w = [pool_war({p: comp[p][k] for p in rows}, pos_of, {p: games[p][k] for p in rows}) for k in range(H)]
+    repl_k = [{pos_of[p]: nat_w[k][p][2] for p in rows} for k in range(H)]
+    comp_w = [pool_war({p: comp[p][k] for p in rows}, pos_of, {p: games[p][k] for p in rows}, repl=repl_k[k])
+              for k in range(H)]
 
     out_rows, replaced = [], 0
     for row in scalar["players"]:

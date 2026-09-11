@@ -11,6 +11,7 @@ import { fmt, sgn, mean } from "../lib/stats";
 // WAR at the beta shell's two places (Max, 2026-09-10): the player page is a
 // beta screen now, and "0.382" was the one three-place figure left on it
 import { fmtWar, sgnWar } from "../beta/ui";
+import { splitCurve, useModel } from "../lib/model";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { leagueSeg, useLeague } from "../lib/context";
 import { RouteLink } from "../components/RouteLink";
@@ -269,8 +270,21 @@ export default function Player({ pid }: { pid: string }) {
    *  picked, so navigating from a player who has an analog read to one who does
    *  not and back does not silently reset their choice. */
   const ptsArm = shard?.pts ?? null;
-  const modelOn: MatrixModel = model === "points" ? (mx?.has_points ? "points" : "scalar")
-    : mx && !mx.has_analog ? "scalar" : model;
+  /* WHICH THREE MODELS THE TABLE SHOWS (Max, 2026-09-11): the site model
+     picker (More › Projection model) decides. With the points model picked,
+     the table is Scalar · Analog · Points, the blend hidden; with any other
+     model picked, Scalar · Analog · Blend as before, the points arm hidden.
+     Three columns pairs either way — the phone has room for one model at a
+     time and the desktop for three, not four. */
+  const siteModel = splitCurve(useModel().curve).model;
+  const pointsMode = siteModel === "points";
+  const models = MODELS.filter(m => pointsMode ? m.key !== "blend" : m.key !== "points");
+  // the lens the page opens on follows the site model; a lens hidden by the
+  // picker falls back to the visible default rather than to a blank table
+  const lensDefault: MatrixModel = pointsMode ? "points" : "blend";
+  const lens: MatrixModel = models.some(m => m.key === model) ? model : lensDefault;
+  const modelOn: MatrixModel = lens === "points" ? (mx?.has_points ? "points" : "scalar")
+    : mx && !mx.has_analog ? "scalar" : lens;
   const owner = useMemo(() => {
     const t = teams?.find(x => x.players.includes(pid));
     return t ? t.team : null;
@@ -621,7 +635,7 @@ export default function Player({ pid }: { pid: string }) {
                       here as tokens with the explanation on hover, rather than
                       as a paragraph underneath. */}
                   <span className="band-note">
-                    {MODELS.find(m => m.key === modelOn)?.desc} · 80% band
+                    {models.find(m => m.key === modelOn)?.desc} · 80% band
                     {mx.trust != null && <>
                       {" · "}
                       <span title={`How dense his cohort of comparables is (median distance ${fmt(mx.d_med ?? 0, 2)}${mx.padded ? ", padded past the cutoff" : ""}). A tight cohort keeps the analog's own read; a thin one hands the answer to the scalar model and to Sleeper.`}>
@@ -643,7 +657,7 @@ export default function Player({ pid }: { pid: string }) {
                   </span>
                 </div>
                 <div className="lens">
-                  {MODELS.map(m => (
+                  {models.map(m => (
                     <button key={m.key} type="button" title={m.desc}
                       className={`seg${m.key === modelOn ? " on" : ""}`}
                       disabled={m.key === "points" ? !mx.has_points : m.key !== "scalar" && !mx.has_analog}
@@ -662,20 +676,20 @@ export default function Player({ pid }: { pid: string }) {
                         because there the disagreement is readable at a glance. */}
                     <tr className="grp">
                       <th colSpan={2}></th>
-                      {MODELS.map(m => (
+                      {models.map(m => (
                         <th key={m.key} scope="colgroup" colSpan={2}
                           className={`edge${m.key === modelOn ? " value" : " hm"}`}>
                           {m.label}
                         </th>
                       ))}
                       <th scope="colgroup" className="edge" colSpan={2}>
-                        {MODELS.find(m => m.key === modelOn)?.label} view
+                        {models.find(m => m.key === modelOn)?.label} view
                       </th>
                     </tr>
                     <tr>
                       <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
                       <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
-                      {MODELS.map(m => {
+                      {models.map(m => {
                         const hm = m.key === modelOn ? "" : " hm";
                         return (
                           <Fragment key={m.key}>
@@ -693,7 +707,7 @@ export default function Player({ pid }: { pid: string }) {
                       <tr key={i} className={i % 2 ? "zebra" : ""}>
                         <td className="t fig strong">{years[i] ?? `Year ${i + 1}`}</td>
                         <td className="n fig quiet">{mx.age == null ? "—" : mx.age + i}</td>
-                        {MODELS.map(m => {
+                        {models.map(m => {
                           /* A model with no cohort has no read. The JSON carries
                              the scalar fallback so downstream consumers get a
                              number, but repeating it here under an "Analog"
