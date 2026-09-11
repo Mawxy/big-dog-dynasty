@@ -82,8 +82,11 @@
   font: 500 10.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim2);
 }
 .lgx-drawer .sd-side .v.miss { color: var(--bad); }
+/* and --good once it has settled over it (Max, 2026-09-11) */
+.lgx-drawer .sd-side .v.beat { color: var(--good); }
 /* a miss outranks the winning-side gold: red is the fact, gold the comparison */
 .lgx-drawer .sd-tot .sd-side.win .v.miss { color: var(--bad); }
+.lgx-drawer .sd-tot .sd-side.win .v.beat { color: var(--good); }
 /* THE GOLD IS THE TOTALS ROW'S ALONE (Max, 2026-09-10): a slot's edge is
    the arrow in the middle, and its figure stays plain whichever side has
    it; every name reads in the same ink whichever side is favored. Only the

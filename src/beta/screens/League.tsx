@@ -385,7 +385,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     /** the projection under a result, and whether it was missed (Max,
      *  2026-09-10): red only once his game is over — a slow first half is
      *  not a miss yet */
-    const result = (pid: string, v: number): Pick<SlotEntry, "proj" | "over" | "miss" | "est"> => {
+    const result = (pid: string, v: number): Pick<SlotEntry, "proj" | "over" | "miss" | "beat" | "est"> => {
       if (!ls && !played) return {};
       // no line for the week (an older week the projections file has
       // dropped): nothing to hit, so nothing under the figure
@@ -397,7 +397,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       // kickoff, the clock's in between; no game on the board reads off
       // whether he has scored
       const rem = over ? 0 : clock ? clock.remaining : v > 0 ? 0 : 1;
-      return { proj, over, miss: over && v < proj, est: v + rem * proj };
+      return { proj, over, miss: over && v < proj, beat: over && v > proj, est: v + rem * proj };
     };
     const e = mw?.teams[String(rid)]?.find(x => x[0] === wk);
     let set: string[] | null = ls?.starters.length ? ls.starters
@@ -677,6 +677,8 @@ interface SlotEntry {
   est?: number;
   /** settled under the projection. Not a miss while he is still playing. */
   miss?: boolean;
+  /** settled over it (Max, 2026-09-11) */
+  beat?: boolean;
 }
 
 /**
@@ -762,7 +764,7 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
       <span className="vs">
         {/* the figure goes red once he has settled short of the projection
             under it (Max, 2026-09-10) — the result is what missed */}
-        <span className={`v${x?.miss ? " miss" : ""}`}>{x ? fmt(x.v, 1) : DASH}</span>
+        <span className={`v${x?.miss ? " miss" : x?.beat ? " beat" : ""}`}>{x ? fmt(x.v, 1) : DASH}</span>
         {x?.proj != null && <span className="p">{fmt(x.proj, 1)}</span>}
       </span>
     </div>
@@ -774,6 +776,8 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
   const settled = (side: SlotSide) => side.slots.every(x => x.pid == null || x.over);
   const missA = hasProj && totA < projA && settled(a);
   const missB = hasProj && totB < projB && settled(b);
+  const beatA = hasProj && totA > projA && settled(a);
+  const beatB = hasProj && totB > projB && settled(b);
   /* THE ARROW IS QUOTED ON WHAT EACH SLOT IS WORTH RIGHT NOW (Max,
      2026-09-10): a man who has played, his points; one who has not, his
      projection; one mid-game, his points so far plus the projection's share
@@ -815,7 +819,7 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
         <div className={`sd-side${edgeA > edgeB ? " win" : ""}`}>
           <span className="nm">{a.name}</span>
           <span className="vs">
-            <span className={`v${missA ? " miss" : ""}`}>{fmt(totA, 1)}</span>
+            <span className={`v${missA ? " miss" : beatA ? " beat" : ""}`}>{fmt(totA, 1)}</span>
             {hasProj && <span className="p">{fmt(projA, 1)}</span>}
           </span>
         </div>
@@ -830,7 +834,7 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
         <div className={`sd-side r${edgeB > edgeA ? " win" : ""}`}>
           <span className="nm">{b.name}</span>
           <span className="vs">
-            <span className={`v${missB ? " miss" : ""}`}>{fmt(totB, 1)}</span>
+            <span className={`v${missB ? " miss" : beatB ? " beat" : ""}`}>{fmt(totB, 1)}</span>
             {hasProj && <span className="p">{fmt(projB, 1)}</span>}
           </span>
         </div>
