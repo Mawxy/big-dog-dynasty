@@ -186,11 +186,16 @@ class TestOneOwnerPerNumber(unittest.TestCase):
             "project_matrix has re-grown its own composite formula")
 
     def test_scalar_composite_matches_projections_json(self):
-        """The shipped gate reads project_war's number verbatim."""
+        """The shipped gate reads project_war's number verbatim. Since
+        2026-09-11 project_war's output lives at projections_scalar.json
+        (projections.json is the points-first model's); read whichever the
+        matrix itself read."""
         import json
         from leaguepaths import DataDir
         d = DataDir(Path(__file__).resolve().parent.parent / "data")
-        f_s, f_m = d / "projections.json", d / "projections_matrix.json"
+        f_s, f_m = d / "projections_scalar.json", d / "projections_matrix.json"
+        if not f_s.exists():
+            f_s = d / "projections.json"
         if not (f_s.exists() and f_m.exists()):
             self.skipTest("no built data")
         sc = {str(p["pid"]): p for p in json.loads(f_s.read_text())["players"]}

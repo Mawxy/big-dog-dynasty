@@ -28,10 +28,11 @@ def _write(d, name, obj):
 
 
 class CurveVocabulary(unittest.TestCase):
-    def test_default_is_blend_composite(self):
+    def test_default_is_points_composite(self):
         """The published default. Changing it reprices the whole site, so it
-        should take a failing test to do it by accident."""
-        self.assertEqual(DEFAULT_CURVE, "blend_composite")
+        should take a failing test to do it by accident. Blend until
+        2026-09-11; the points-first model since (Max)."""
+        self.assertEqual(DEFAULT_CURVE, "points_composite")
         self.assertIn(DEFAULT_CURVE, CURVES)
 
     def test_vocabulary_matches_the_frontend(self):

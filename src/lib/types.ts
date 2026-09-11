@@ -376,11 +376,12 @@ export interface KnnFile {
  *  weight scales with `trust` rather than sitting at the scalar model's flat
  *  0.9. At a flat 0.9 the scalar and analog composites agree to a mean of
  *  0.020 WAR — the same curve twice, not two curves. */
+// The last pair is the points-first model (Max, 2026-09-11), the site's
+// default. No comments INSIDE the literal: tests/test_curves.py tokenizes it.
 export const MATRIX_CURVES = [
   "scalar_natural", "scalar_composite",
   "analog_natural", "analog_composite",
   "blend_natural", "blend_composite",
-  // the points-first model (Max, 2026-09-11) — the site's default
   "points_natural", "points_composite",
 ] as const;
 export type MatrixCurve = typeof MATRIX_CURVES[number];
