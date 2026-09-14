@@ -744,17 +744,26 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
   const n = Math.max(a.slots.length, b.slots.length);
   const totA = a.slots.reduce((t, x) => t + x.v, 0);
   const totB = b.slots.reduce((t, x) => t + x.v, 0);
-  /* THE NAME, HIS CLUB, HIS GAME (Max, 2026-09-10): the club as a tag
-     after the name, and under it who he plays and when — the reason a slot
-     reads 0.0 is usually "Sun 4:25 PM", and the drawer should say so. */
+  /* THE NAME, HIS CLUB, HIS GAME (Max, 2026-09-10): the name on its own
+     line, and under it his club and who he plays and when — the reason a
+     slot reads 0.0 is usually "Sun 4:25 PM", and the drawer should say so.
+     The club led the sub-line from 2026-09-14: as a tag after the name it
+     could only mirror on the right side as a flex item, which would not wrap
+     into the name beside it and so stranded itself on a line of its own the
+     moment the name was long. */
   const who = (pid: string | null) => {
     if (!pid) return <span className="n1">—</span>;
     const [name, , team] = pInfo(players, pid);
     const gl = gameLine(team, board);
     return (
       <>
-        <span className="n1">{name}{team && <span className="tg">{team}</span>}</span>
-        {gl && <span className="n2">{gl}</span>}
+        <span className="n1">{name}</span>
+        {(team || gl) && (
+          <span className="n2">
+            {team && <span className="tg">{team}</span>}
+            {team && gl ? " · " : ""}{gl}
+          </span>
+        )}
       </>
     );
   };
