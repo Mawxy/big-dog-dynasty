@@ -357,6 +357,16 @@ def fit_models(corpus, positions=CORE):
                     mods[tgt] = None
                     continue
                 X = np.vstack([p[0] for p in pairs]); y = np.array([p[1] for p in pairs])
+                # A column with no observed value anywhere in this fit — the
+                # availability features (wk_hurt, wk_bench) start in 2019, so a
+                # holdout fit that stops before then sees three blank columns —
+                # carries nothing the trees can split on. scikit-learn < 1.9
+                # binned it away silently; 1.9 raises "window shape cannot be
+                # larger than input array shape". A constant says the same
+                # nothing and bins to a single bin, so the fit is unchanged.
+                blank = np.all(np.isnan(X), axis=0)
+                if blank.any():
+                    X[:, blank] = 0.0
                 mods[tgt] = make_model(tgt, seed=k, pos=pos).fit(X, y)
             out[pos][k] = mods
     return out
