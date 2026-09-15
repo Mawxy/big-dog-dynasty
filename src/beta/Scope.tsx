@@ -75,15 +75,17 @@ export function useScope(seasons: string[], opts?: {
 }
 
 /**
- * The segmented control itself. `currentLabel` is "Current" everywhere except
- * Trade, whose left segment reads "Build" — a trade being assembled is not a
- * current state. Tapping History with one played season selects it directly;
- * with more than one it opens the picker sheet, and tapping the History
- * segment while already in history reopens the picker.
+ * The segmented control itself. `currentLabel` is "Current" on most screens;
+ * Trade's left segment reads "Build" — a trade being assembled is not a
+ * current state — and Players' reads "Value", because on that board the left
+ * segment is a KIND OF FIGURE (a price) rather than a tense. Tapping History
+ * with one played season selects it directly; with more than one it opens the
+ * picker sheet, and tapping the History segment while already in history
+ * reopens the picker. `pickOnReturn` moves that first sheet to the second tap.
  */
 export default function ScopeControl({
   value, onChange, seasons, currentLabel = "Current", historyLabel = "History",
-  all, allTime,
+  all, allTime, pickOnReturn,
 }: {
   value: ScopeSel;
   onChange: (s: ScopeSel) => void;
@@ -101,9 +103,21 @@ export default function ScopeControl({
   /** an "All-time" row at the top of the picker, selecting ALL_SEASONS. Pair
    *  with `useScope(…, { allowAll })`. */
   allTime?: boolean;
+  /** THE FIRST TAP IS A SEASON, NOT A SHEET (Max, 2026-09-15). Where the right
+   *  segment names a kind of figure rather than a period, tapping it should
+   *  show that figure: the newest season in `seasons` is selected outright and
+   *  the picker becomes the question a reader asks SECOND, on a tap that lands
+   *  with the board already switched behind it. Off by default — on the
+   *  screens whose right segment really does mean "the past", the sheet is the
+   *  whole point of the tap. */
+  pickOnReturn?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const onHistory = value.scope === "history";
+  /** does the NEXT tap on the right segment open the sheet, or pick a season
+   *  outright? One season is never worth a sheet; `pickOnReturn` spends the
+   *  arrival tap on the season and the one after it on the sheet. */
+  const sheetNext = seasons.length > 1 && (!pickOnReturn || onHistory);
   if (seasons.length === 0) return null;
   return (
     <>
@@ -115,13 +129,15 @@ export default function ScopeControl({
             onClick={() => onChange({ scope: "history", season: ALL_SEASONS })}>{historyLabel}</button>
         ) : (
           <button className={onHistory ? "on" : ""}
-            aria-haspopup={seasons.length > 1 ? "dialog" : undefined}
+            aria-haspopup={sheetNext ? "dialog" : undefined}
             onClick={() => {
-              if (seasons.length === 1) onChange({ scope: "history", season: seasons[0].id });
-              else setPicking(true);
+              if (sheetNext) setPicking(true);
+              else onChange({ scope: "history", season: seasons[0].id });
             }}>
             {onHistory ? (value.season === ALL_SEASONS ? "All-time" : value.season) : historyLabel}
-            {seasons.length > 1 && <span className="caret">▾</span>}
+            {/* the caret promises a sheet, so it appears only on the tap that
+                opens one */}
+            {sheetNext && <span className="caret">▾</span>}
           </button>
         )}
       </div>

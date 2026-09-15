@@ -306,9 +306,11 @@ interface RowBase {
   pid: string;
   name: string;
   pos: string;
-  /** line 2 of the identity cell, before the position rank. Current: the
-   *  franchise that holds him. History: the franchise he STARTED for — the same
-   *  fact the drawer states, derived once. */
+  /** line 2 of the identity cell, before the position rank. WHO HE WAS WITH,
+   *  in the scope the row is stating. Current: the franchise that holds him.
+   *  History: the franchise he started for, falling back to the one that
+   *  rostered him when he was never started, and to "FA" when nobody held him.
+   *  The drawer's "Started for" is the narrower fact and keeps its own dash. */
   affil: string | null;
   f: Partial<Record<Key, number | null>>;
   /** what a key PRINTS, where that is not its sort value — the two records */
@@ -415,8 +417,11 @@ const PHASES: { id: Phase; label: string }[] = [
  * a one-line sub-line can hold.
  *
  * A player who was rostered all year and never started returns nothing, not a
- * franchise with zero starts — the row's sub-line and the drawer both render
- * the em dash for him, and they render the same one because they read this.
+ * franchise with zero starts. The DRAWER renders the em dash for him, because
+ * "Started for" is exactly the fact this answers. The row's sub-line does not
+ * (Max, 2026-09-15): a blank there read as a player nobody could place, when
+ * the truth is that he sat on a named roster all year. It falls back to the
+ * season's teams.json, and to "FA" when no roster held him.
  */
 /**
  * One Both row from its two halves.
@@ -727,6 +732,10 @@ export default function Players() {
       finish.set(r[0], seen[r[1]]);
     }
     const started = startsBy(mwQ.data, hTeamQ.data);
+    /* WHO HELD HIM, for the rows `started` has nothing for. End-of-season
+       rosters in a settled year; the live ones in the year being played, which
+       is the season this fallback was asked for. */
+    const held = ownerOf(hTeamQ.data);
     // WAR is optional in the row tuple and a row missing it arithmetics into
     // NaN, which sorts unpredictably. Drop the row rather than zeroing it.
     const all = sum.filter(r => typeof r[6] === "number").map((r): Row => {
@@ -740,7 +749,9 @@ export default function Players() {
       return {
         kind: "hist",
         pid, name: pInfo(players, pid)[0], pos: p,
-        affil: st?.team ?? null,
+        // never started, still somebody's: the roster, then free agency. Only
+        // the drawer's "Started for" is allowed to come up empty here.
+        affil: st?.team ?? held[pid] ?? "FA",
         sdv: typeof sdv === "number" ? sdv : null,
         warG: gp ? war / gp : null,
         finish: finish.get(pid) ?? 0,
@@ -1042,8 +1053,19 @@ export default function Players() {
         </span>
       </div>
 
+      {/* TWO TABS: VALUE AND STATS (Max, 2026-09-15). The left segment's
+          default label is "Current", which named a TENSE — but neither segment
+          on this board is a tense, they are two kinds of figure, and "Current"
+          against "Stats" read as though the right one were the past. It is the
+          price board, so it says so.
+
+          `pickOnReturn` spends the Stats tap on the season being played
+          (`seasons[0]` — `played` is every season newest first, the current one
+          included) and the tap after it on the picker. Opening a sheet over
+          the price board meant the first tap on Stats showed no stats at
+          all. */}
       <ScopeControl value={scope} onChange={setScope} seasons={seasons}
-        historyLabel="Stats" allTime />
+        currentLabel="Value" historyLabel="Stats" allTime pickOnReturn />
 
       {/* WHICH HALF OF THE SEASON, on its own row and only in the Stats tense.
           It narrows the POPULATION the way the position chips do — it does not

@@ -990,16 +990,21 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
 }
 
 /** One power-rankings row. Everything on it prices the roster season: the
- *  lineup is year-one composite WAR, the record is that lineup run through the
- *  published schedule. Nothing here is a figure from a settled year. */
+ *  lineup is year-one composite WAR, the record is what has already been won
+ *  carried forward through the rest of the published schedule. Nothing here is
+ *  a figure from a settled year. */
 interface PowerRow {
   rid: number; team: string; manager: string;
   /** best legal lineup summed on YEAR-ONE composite WAR — not the three-year
    *  dynasty total the trade machine carries, because this table is about a
    *  season and that figure is about an asset */
   war: number;
-  /** schedule-aware projected wins, and the record they read as. Null — never
-   *  a heuristic 7-7 — when no schedule is published. */
+  /** the settled part of the season — Sleeper's own W-L-T for the roster
+   *  season, the whole numbers the projection is built on top of */
+  w: number; l: number; ti: number;
+  /** wins already banked plus schedule-aware wins over the weeks still to
+   *  come, and the record they read as. Null — never a heuristic 7-7 — before
+   *  anything is played and with no schedule published. */
   wins: number | null; rec: string | null;
   /** projected points per game: the mean of the team's projected weekly
    *  totals in odds.json (the same lines the matchup cards and the season
@@ -1077,6 +1082,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         .flatMap(s => s.player ? [s.player] : []);
       return {
         rid: t.roster_id, team: t.team, manager: t.manager,
+        w: t.wins, l: t.losses, ti: t.ties,
         war: starters.reduce((a, p) => a + p.war, 0),
       };
     });
@@ -1097,14 +1103,31 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
     };
     return built.map(b => {
       const opps = games[b.rid] ?? [];
+      const ppg = ppgOf(b.rid);
+      const gp = b.w + b.l + b.ti;
       // NO SCHEDULE, NO RECORD. Home.tsx falls back to a strength-only estimate
       // here; on this screen the projected record is a column of its own, and a
       // fabricated figure in a column is indistinguishable from a real one. So
-      // it reads —.
-      const ppg = ppgOf(b.rid);
-      if (!opps.length) return { ...b, wins: null, rec: null, ppg };
-      const wins = opps.reduce((a, o) => a + normCdf(z(b.war) - z(warOf.get(o) ?? meanWar)), 0);
-      return { ...b, wins, rec: `${fmt(wins, 1)}-${fmt(opps.length - wins, 1)}`, ppg };
+      // it reads —. Once the last regular-season week has scored there is
+      // nothing left to price and the settled record IS the projection.
+      if (!opps.length) {
+        return gp
+          ? { ...b, wins: b.w + b.ti / 2, rec: `${b.w}-${b.l}${b.ti ? `-${b.ti}` : ""}`, ppg }
+          : { ...b, wins: null, rec: null, ppg };
+      }
+      // THE PROJECTION BUILDS ON THE RECORD (Max, 2026-09-15). `schedule`
+      // carries UNSCORED weeks only — build_site_data drops any week already
+      // in the scored matchups — so pricing it alone read as though week 1
+      // had never happened. Played games are settled: they enter as the whole
+      // numbers they are, and only the weeks still to come are priced.
+      const rest = opps.reduce((a, o) => a + normCdf(z(b.war) - z(warOf.get(o) ?? meanWar)), 0);
+      const wins = b.w + rest;
+      const losses = b.l + (opps.length - rest);
+      return {
+        ...b, wins,
+        rec: `${fmt(wins, 1)}-${fmt(losses, 1)}${b.ti ? `-${b.ti}` : ""}`,
+        ppg,
+      };
     }).sort((a, b) => b.war - a.war);
   }, [teams, proj, mw, lineup, oddsW]);
 
