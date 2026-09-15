@@ -20,6 +20,7 @@ import { buildHistory } from "../../lib/draftHistory";
 import { useSeasonPhase, useStandings } from "../model";
 import { useLiveScores, useNflScoreboard, type LiveSide, type Scoreboard } from "../../lib/liveScores";
 import Moved from "../moved";
+import { playedWeeks, weekFigures, weekRows } from "../week";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
   useDynMovers, useGapRows, useMarketMovers,
@@ -425,50 +426,15 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     }));
   }, [mwQ.data, meta, weeklyNow, sproj, teams, players, board]);
 
-  /* ---- last week -------------------------------------------------------- */
+  /* ---- last week ---------------------------------------------------------
+     The most recent scored regular-season week, read by beta/week.ts — the
+     same computation the Seasons screen runs for any week (Max, 2026-09-15),
+     so the two boards can never disagree about a week's figures. */
   const lastWeek = useMemo(() => {
-    if (!mwR) return null;
-    const ps = mwR.playoff_start || 15;
-    let wk = 0;
-    for (const list of Object.values(mwR.teams))
-      for (const e of list) if (e[0] < ps && e[0] > wk) wk = e[0];
-    if (!wk) return null;
-    const rows: { rid: number; pts: number; opp: number | null; oppPts: number | null; starters: string[] }[] = [];
-    for (const [rid, list] of Object.entries(mwR.teams)) {
-      const e = list.find(x => x[0] === wk);
-      if (e) rows.push({ rid: Number(rid), pts: e[1], opp: e[2], oppPts: e[3], starters: e[4] ?? [] });
-    }
-    if (!rows.length) return null;
-    const top = rows.reduce((m, r) => (r.pts > m.pts ? r : m));
-    const low = rows.reduce((m, r) => (r.pts < m.pts ? r : m));
-    // THE UPSET: the winner the pregame line liked least. Ties are not upsets.
-    const line = oddsR?.weeks[String(wk)] ?? {};
-    const winners = rows.filter(r => r.oppPts != null && r.pts > r.oppPts && line[String(r.rid)]?.wp != null);
-    const upset = winners.length
-      ? winners.reduce((m, r) => (line[String(r.rid)].wp! < line[String(m.rid)].wp! ? r : m))
-      : null;
-    // THE CLOSEST SCORE (Max, 2026-09-08): the week's narrowest margin, each
-    // game counted once from its winner's side. A tie is a margin of zero.
-    let closest: { rid: number; pts: number; opp: number; oppPts: number } | null = null;
-    for (const r of rows) {
-      if (r.opp == null || r.oppPts == null || r.pts < r.oppPts) continue;
-      if (!closest || r.pts - r.oppPts < closest.pts - closest.oppPts)
-        closest = { rid: r.rid, pts: r.pts, opp: r.opp, oppPts: r.oppPts };
-    }
-    // THE WEEK'S TOP SCORE AT EACH POSITION, bench or starter (Max,
-    // 2026-09-08): weekly.json scores every rostered player, so a 40 left on
-    // a bench counts — it is a fact about the week, whoever sat him.
-    const posTop: Record<string, { pid: string; pts: number } | null> = {};
-    if (weeklyR) {
-      for (const [pid, wrows] of Object.entries(weeklyR)) {
-        const w = wrows.find(x => x[0] === wk);
-        if (!w) continue;
-        const pos = pInfo(players, pid)[1];
-        const cur = posTop[pos];
-        if (!cur || w[1] > cur.pts) posTop[pos] = { pid, pts: w[1] };
-      }
-    }
-    return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, closest, posTop };
+    const weeks = playedWeeks(mwR);
+    const wk = weeks.length ? weeks[weeks.length - 1] : null;
+    if (wk == null) return null;
+    return weekFigures(weekRows(mwR, wk), wk, oddsR, weeklyR, players);
   }, [mwR, oddsR, weeklyR, players]);
 
   const seasonsRoute = (season: string, wk: number) => betaPath(`/seasons/${season}/${wk}`);
@@ -663,11 +629,11 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
 
 /* ---- the matchup drawer ------------------------------------------------- */
 
-interface SlotSide {
+export interface SlotSide {
   rid: number; name: string;
   slots: SlotEntry[];
 }
-interface SlotEntry {
+export interface SlotEntry {
   slot: string; pid: string | null;
   /** the slot's figure: projection pregame, points so far live, points at the final */
   v: number;
@@ -735,14 +701,15 @@ function gameLine(team: string, board: Scoreboard | null): string {
   return `${who} · ${when}`;
 }
 
-function SlotDrawer({ a, b, played, live = false, players, board, to }: {
+export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
   a: SlotSide; b: SlotSide; played: boolean;
   /** the week in progress: the figures are points so far */
   live?: boolean;
   players: PlayersMin;
   /** the NFL scoreboard, for each man's game under his name */
   board: Scoreboard | null;
-  to: string;
+  /** the full matchup page; absent when this IS that page (Seasons) */
+  to?: string;
 }) {
   const PUSH = 0.5;
   const n = Math.max(a.slots.length, b.slots.length);
@@ -804,7 +771,7 @@ function SlotDrawer({ a, b, played, live = false, players, board, to }: {
     <div className="lgx-drawer">
       <div className="sd-head">
         <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live" : "Slot by slot · projected"}</span>
-        <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>
+        {to && <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>}
       </div>
       {Array.from({ length: n }, (_, i) => {
         const x = a.slots[i], y = b.slots[i];
@@ -1372,7 +1339,7 @@ interface AllTimeRow {
  * a dash is a claim); a null entry once it has is a position with nobody
  * scored yet, and reads `empty(pos)`.
  */
-function PosLeaders({ leaders, settled, empty }: {
+export function PosLeaders({ leaders, settled, empty }: {
   /** per position, in POSITIONS order: the player, his headline figure
    *  already formatted with its unit ("2.31 WAR", "48.6 pts"), and a note */
   leaders: ({ pid: string; value: string; note: string } | null)[] | null;

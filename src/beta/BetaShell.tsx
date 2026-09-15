@@ -6,8 +6,7 @@ import type { Drafts, Team as TeamT } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { CLASSIC_SEG, leagueSeg, useLeague, useLeaguePath } from "../lib/context";
 import { IdentityContext, useIdentityState } from "../lib/identity";
-import { latestSeasonOf, rosterSeasonOf, seasonSeg } from "../lib/league";
-import { useSeasonData } from "../lib/useSeasonData";
+import { rosterSeasonOf } from "../lib/league";
 import ErrorBoundary from "../components/ErrorBoundary";
 import QuickJump from "../components/QuickJump";
 import { RetryScope, Sheet, SheetRow, useBetaPath } from "./ui";
@@ -35,7 +34,7 @@ import "./beta.css";
 const Player = lazy(() => import("../views/Player"));
 const Draft = lazy(() => import("../views/Draft"));
 const DraftDetail = lazy(() => import("../views/DraftDetail"));
-const Weekly = lazy(() => import("../views/Weekly"));
+const Seasons = lazy(() => import("./screens/Seasons"));
 const History = lazy(() => import("../views/History"));
 const Insights = lazy(() => import("../views/Insights"));
 
@@ -290,10 +289,13 @@ function BetaBoard() {
                 <Route path="drafts" element={<Draft />} />
                 <Route path="drafts/:sub" element={<Draft />} />
                 <Route path="drafts/history/:season" element={<DraftDetailRoute />} />
-                <Route path="seasons" element={<SeasonRedirect />} />
-                <Route path="seasons/:season" element={<WeeklyRoute />} />
-                <Route path="seasons/:season/:wk" element={<WeeklyRoute />} />
-                <Route path="seasons/:season/:wk/:mid" element={<WeeklyRoute />} />
+                {/* SEASONS IS A BETA SCREEN NOW (Max, 2026-09-15): the week
+                    floor, rebuilt on League's own modules. /seasons alone is
+                    the roster season's newest played week. */}
+                <Route path="seasons" element={<Seasons />} />
+                <Route path="seasons/:season" element={<Seasons />} />
+                <Route path="seasons/:season/:wk" element={<Seasons />} />
+                <Route path="seasons/:season/:wk/:mid" element={<Seasons />} />
                 <Route path="history" element={<History />} />
                 <Route path="insights" element={<Insights />} />
                 {/* THE CLASSIC BOARD'S OLD BARE ADDRESSES. Every link anyone
@@ -507,26 +509,3 @@ function ToClassic() {
   return <Navigate replace to={{ pathname: `/${seg}/${CLASSIC_SEG}${rest}`, search: loc.search }} />;
 }
 
-function SeasonRedirect() {
-  const { meta, league } = useLeague();
-  return <Navigate replace
-    to={`/${leagueSeg(league)}/seasons/${seasonSeg(latestSeasonOf(meta))}`} />;
-}
-
-function WeeklyRoute() {
-  const { meta, players } = useLeague();
-  const p = useParams();
-  const seg = p.season;
-  const season = seg && meta.seasons.includes(seg) ? seg
-    : seg?.toLowerCase() === "all" ? "ALL" : latestSeasonOf(meta);
-  const data = useSeasonData(season);
-  const int = (s: string | undefined) => {
-    if (s == null) return null;
-    const n = Number(s);
-    return Number.isInteger(n) && n >= 0 ? n : null;
-  };
-  if (!data) return <div className="empty">Loading…</div>;
-  return <Weekly data={data} season={season} players={players}
-    week={int(p.wk)} matchupRid={int(p.mid)}
-    playoffs={p.wk?.toLowerCase() === "playoffs"} />;
-}

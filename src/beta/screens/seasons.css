@@ -1,0 +1,45 @@
+/* ==========================================================================
+   SEASONS (screens/Seasons.tsx) — the week floor.
+
+   Almost nothing of its own: the game cards, the median line, the four-figure
+   strip, the position blocks and the slot-by-slot drawer are League's
+   (league.css, imported alongside), because a week on Seasons IS the week
+   League shows, pointed at any season. Prefixed `ssx-`; defines no tokens.
+   ========================================================================== */
+
+/* THE WEEK STRIP: the LensStrip vocabulary, one segment per week, scrolling
+   sideways on a phone rather than squeezing fifteen segments into 375px. The
+   selected week is the screen's one filled-accent control. */
+.ssx-weeks { overflow-x: auto; scrollbar-width: none; }
+.ssx-weeks::-webkit-scrollbar { display: none; }
+.ssx-weeks button { flex: 0 0 auto; padding: 9px 12px; }
+/* a week not yet played: present, so the strip's shape is the season's, but
+   not a destination */
+.ssx-weeks button:disabled { color: var(--dim3); cursor: default; }
+@media (min-width: 900px) {
+  .ssx-weeks button { padding: 9px 16px; }
+}
+
+/* the two bench tables side by side on a desktop, stacked on a phone —
+   identical structure, so the grid never has to reconcile two heights */
+.ssx-two { display: block; }
+@media (min-width: 900px) {
+  .ssx-two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 26px; }
+}
+
+/* the drawer promoted to a screen: no card behind it to open from, so it
+   loses the accent top rule that says "this belongs to the row above" */
+.ssx-lineups .lgx-drawer { border-top: 0; }
+
+/* the matchup card on its own page is a record, not a control */
+.ssx-solo .lgx-game { cursor: default; }
+.ssx-solo .lgx-game:hover { background: var(--bg); }
+
+/* the fold control on the top-performers band is `.lgx-all` as a button:
+   same face as the link form, none of the button chrome */
+.band button.lgx-all {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--acc);
+}
+.band button.lgx-all:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }

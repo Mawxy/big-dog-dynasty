@@ -2,7 +2,7 @@ import type { CSSProperties } from "react";
 import { useNavigate } from "react-router-dom";
 import type { BracketFile, BracketGame } from "../lib/types";
 import { fmt } from "../lib/stats";
-import { useLeaguePath } from "../lib/context";
+import { useShellPath } from "../lib/context";
 import TScroll from "./TScroll";
 
 /** the round a game decides, which is its card's default caption */
@@ -31,7 +31,7 @@ export function GameCard({ season, bracket, g, cls, caption, style }: {
   style?: CSSProperties;
 }) {
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  const lp = useShellPath();
   const nameOf = (rid: number | null) =>
     rid == null ? "—" : bracket.names[String(rid)] ?? `Roster ${rid}`;
   const seedOf = (rid: number | null) => (rid == null ? null : bracket.seeds[String(rid)] ?? null);
