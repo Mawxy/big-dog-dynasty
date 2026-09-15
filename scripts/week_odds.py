@@ -261,14 +261,18 @@ def season_odds(season, ld, raw_root, sproj):
                 return wproj.get(pid)
             if not is_proj:
                 return None
-            # the week's OWN line, not the season average multiplied out —
-            # rotowire varies lines by matchup, and a bye week has no line at
-            # all (settled with Max, 2026-08-31)
-            sp = sproj.get(pid) or {}
-            wkmap = sp.get("wk")
-            if wkmap:
-                return wkmap.get(str(wk), 0.0)   # weekly-covered, absent = bye
-            return sp.get("ppg")
+            # THE WEEK'S OWN LINE, AND ONLY IT (Max, 2026-09-15). rotowire
+            # varies lines by matchup, so the week is the unit; a player with
+            # no line for this week is not playing it, whether that is a bye,
+            # a roster Sleeper publishes no weekly projection for, or someone
+            # missing from the file entirely. All three are zero for the week.
+            #
+            # This used to fall back to `ppg`. For a src:season row that field
+            # is the season total divided by 17 — neither a week's projection
+            # nor a per-game average, and it never drops to zero on a bye, so
+            # a season number stood in for the one thing this function exists
+            # to report and a benched player kept scoring through his bye.
+            return ((sproj.get(pid) or {}).get("wk") or {}).get(str(wk), 0.0)
 
         def dist(pid):
             """(mean, sd) for one starter, as of before week `wk`.
@@ -313,11 +317,11 @@ def season_odds(season, ld, raw_root, sproj):
                            if (mw.get("set") or {}).get("week") == wk else None)
 
             def week_val(pid):
-                sp = sproj.get(pid) or {}
-                wkmap = sp.get("wk")
-                # week-specific line first: matchup-adjusted, and a bye
-                # week's 0.0 lets best_lineup bench him, as a manager would
-                return wkmap.get(str(wk), 0.0) if wkmap else sp.get("ppg")
+                # the same one rule as `projected` above: this week's line, or
+                # zero. The zero is what lets best_lineup bench a player on
+                # bye, as a manager would, and it is now also what a player
+                # with no weekly coverage gets, rather than a season average.
+                return ((sproj.get(pid) or {}).get("wk") or {}).get(str(wk), 0.0)
 
             for t in teams:
                 rid = t["roster_id"]
@@ -327,10 +331,9 @@ def season_odds(season, ld, raw_root, sproj):
                     for pid in set_l:
                         if not pid or pid == "0":   # empty lineup slot
                             continue
-                        val = week_val(pid)
-                        if val is None:
-                            val = dist(pid)[0]
-                        mus.append(val)
+                        # no positional-prior fallback here either: that was
+                        # ten phantom points for a player nobody projected
+                        mus.append(week_val(pid))
                         vs.append(dist(pid)[1] ** 2)
                 else:
                     cands = []
@@ -338,15 +341,19 @@ def season_odds(season, ld, raw_root, sproj):
                         po = pos_of(pid)
                         if not po:
                             continue
-                        val = week_val(pid)
-                        if val is None:
-                            val = dist(pid)[0]
-                        cands.append((pid, po, val))
+                        cands.append((pid, po, week_val(pid)))
                     for pid, _po, val in best_lineup(cands, slots):
                         mus.append(val)
                         vs.append(dist(pid)[1] ** 2)
                 sides[rid] = (sum(mus), sum(vs), opp.get(rid))
 
+        # A WEEK WITH NO LINES IS NOT A FORECAST. With every starter at zero
+        # both sides price at zero and win_prob returns a flat 50%, which
+        # reads as a prediction rather than as the absence of one — the same
+        # call made above for a week with neither form nor projection. Skip
+        # it and let the week arrive when Sleeper publishes it.
+        if is_proj and not any(mu > 0 for mu, _v, _o in sides.values()):
+            continue
         wkout = {}
         for rid, (mu, var, o) in sides.items():
             rec = {"mu": round(mu, 1), "sd": round(math.sqrt(var), 1), "opp": o}

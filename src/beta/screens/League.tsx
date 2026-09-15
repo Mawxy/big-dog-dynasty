@@ -6,7 +6,7 @@ import type {
 import { useJson } from "../../lib/useJson";
 import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
-import { fmt, mean, normCdf, normInv, ord } from "../../lib/stats";
+import { fmt, mean, normCdf, ord } from "../../lib/stats";
 import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
@@ -991,8 +991,8 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
 
 /** One power-rankings row. Everything on it prices the roster season: the
  *  lineup is year-one composite WAR, the record is what has already been won
- *  carried forward through the rest of the published schedule. Nothing here is
- *  a figure from a settled year. */
+ *  carried forward on the season simulation's own weekly lines. Nothing here
+ *  is a figure from a settled year. */
 interface PowerRow {
   rid: number; team: string; manager: string;
   /** best legal lineup summed on YEAR-ONE composite WAR — not the three-year
@@ -1002,9 +1002,10 @@ interface PowerRow {
   /** the settled part of the season — Sleeper's own W-L-T for the roster
    *  season, the whole numbers the projection is built on top of */
   w: number; l: number; ti: number;
-  /** wins already banked plus schedule-aware wins over the weeks still to
-   *  come, and the record they read as. Null — never a heuristic 7-7 — before
-   *  anything is played and with no schedule published. */
+  /** wins already banked plus the win probabilities odds.json publishes for
+   *  the weeks still to come, summed. Ties are neither, on this field or in
+   *  the string: they carry as their own segment. Null — never a heuristic
+   *  7-7 — before anything is played and with no lines to read. */
   wins: number | null; rec: string | null;
   /** projected points per game: the mean of the team's projected weekly
    *  totals in odds.json (the same lines the matchup cards and the season
@@ -1086,43 +1087,52 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         war: starters.reduce((a, p) => a + p.war, 0),
       };
     });
-    const meanWar = mean(built.map(b => b.war));
-    const warOf = new Map(built.map(b => [b.rid, b.war]));
-    const z = (w: number) => normInv(0.5 + Math.min(0.45, Math.max(-0.45, (w - meanWar) / 13)));
     const ps = mw?.playoff_start || 15;
-    const games: Record<number, number[]> = {};
-    for (const [wk, pairs] of Object.entries(mw?.schedule ?? {})) {
-      if (+wk >= ps) continue;
-      for (const [a, b] of pairs) { (games[a] ??= []).push(b); (games[b] ??= []).push(a); }
-    }
+    /** one franchise's UNPLAYED regular-season lines. Each carries the week's
+     *  projected total and the win probability week_odds.py derived from it
+     *  against that week's opponent, so the record and the points in this row
+     *  come off the same line rather than off two models. */
+    const linesOf = (rid: number) => Object.entries(oddsW?.weeks ?? {})
+      .filter(([wk]) => +wk < ps)
+      .map(([, w]) => w[String(rid)])
+      .filter(x => !!x?.proj);
     // projected ppg: mean projected weekly total across the projected weeks
     const ppgOf = (rid: number): number | null => {
-      const mus = Object.values(oddsW?.weeks ?? {})
-        .map(w => w[String(rid)]).filter(x => x?.proj && x.mu != null).map(x => x.mu);
+      const mus = linesOf(rid).map(x => x.mu).filter(x => x != null);
       return mus.length ? mean(mus) : null;
     };
     return built.map(b => {
-      const opps = games[b.rid] ?? [];
       const ppg = ppgOf(b.rid);
       const gp = b.w + b.l + b.ti;
-      // NO SCHEDULE, NO RECORD. Home.tsx falls back to a strength-only estimate
-      // here; on this screen the projected record is a column of its own, and a
-      // fabricated figure in a column is indistinguishable from a real one. So
-      // it reads —. Once the last regular-season week has scored there is
+      /* ONE MODEL BEHIND THE RECORD AND THE ODDS (Max, 2026-09-15).
+         This column used to run starter WAR through a z-score of its own,
+         which made it a SECOND opinion printed beside the Playoff and Title
+         percentages rather than the record those percentages imply. The two
+         could and did order franchises differently with nothing on screen to
+         say why. It now sums the per-week win probabilities in odds.json,
+         the same lines week_odds.py's season simulation draws from, so the
+         record and the odds are one claim stated two ways.
+
+         Starter WAR still orders the table; it is no longer asked to double
+         as a schedule model. */
+      const wp = linesOf(b.rid)
+        .map(x => x.wp)
+        .filter((p): p is number => p != null);
+      // NO LINES, NO RECORD. Home.tsx falls back to a strength-only estimate
+      // here; on this screen the projected record is a column of its own, and
+      // a fabricated figure in a column is indistinguishable from a real one.
+      // So it reads —. Once the last regular-season week has scored there is
       // nothing left to price and the settled record IS the projection.
-      if (!opps.length) {
+      if (!wp.length) {
         return gp
-          ? { ...b, wins: b.w + b.ti / 2, rec: `${b.w}-${b.l}${b.ti ? `-${b.ti}` : ""}`, ppg }
+          ? { ...b, wins: b.w, rec: `${b.w}-${b.l}${b.ti ? `-${b.ti}` : ""}`, ppg }
           : { ...b, wins: null, rec: null, ppg };
       }
-      // THE PROJECTION BUILDS ON THE RECORD (Max, 2026-09-15). `schedule`
-      // carries UNSCORED weeks only — build_site_data drops any week already
-      // in the scored matchups — so pricing it alone read as though week 1
-      // had never happened. Played games are settled: they enter as the whole
-      // numbers they are, and only the weeks still to come are priced.
-      const rest = opps.reduce((a, o) => a + normCdf(z(b.war) - z(warOf.get(o) ?? meanWar)), 0);
+      // played games are settled and enter as the whole numbers they are;
+      // only the weeks still to come are priced
+      const rest = wp.reduce((a, p) => a + p, 0);
       const wins = b.w + rest;
-      const losses = b.l + (opps.length - rest);
+      const losses = b.l + (wp.length - rest);
       return {
         ...b, wins,
         rec: `${fmt(wins, 1)}-${fmt(losses, 1)}${b.ti ? `-${b.ti}` : ""}`,
@@ -1150,7 +1160,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
       {/* ---- 2. power rankings ------------------------------------------- */}
       <Band label={`Power rankings · ${rosterSeason}`}
-        note="Ordered by projected starter WAR · odds from the season simulation"
+        note="Ordered by projected starter WAR · record and odds from the season simulation"
         right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
       {/* A FAILED FETCH IS NOT A SLOW ONE. Without the error arm the band
           claims to be loading projections that are never coming, for the life
