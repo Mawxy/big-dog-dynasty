@@ -341,7 +341,11 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     for (const pid of ls.starters) {
       if (!pid || pid === "0") continue;
       const wk = thisWeek?.wk ?? 0;
-      const proj = sproj?.players[pid]?.wk?.[String(wk)] ?? sproj?.players[pid]?.ppg ?? 0;
+      // the week's own line or nothing (Max, 2026-09-15). `ppg` on a
+      // src:season row is the season total over 17, which is neither this
+      // week nor a per-game average, and week_odds.py no longer reaches for
+      // it either — the two have to price the same lineup the same way.
+      const proj = sproj?.players[pid]?.wk?.[String(wk)] ?? 0;
       const act = ls.ppts[pid] ?? 0;
       const clock = board[pInfo(players, pid)[2]];
       // no game on the board: a bye, or a code the board does not know —
