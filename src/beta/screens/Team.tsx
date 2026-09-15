@@ -21,6 +21,7 @@ import { ktcOf } from "../../lib/values";
 import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
 import { nearestPick, rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
 import Moved from "../moved";
+import TeamSeasons from "./TeamSeasons";
 import {
   Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, TapRow, useBetaPath,
   type IdTag,
@@ -192,6 +193,7 @@ export default function Team() {
   const refs = {
     roster: useRef<HTMLDivElement>(null),
     moved: useRef<HTMLDivElement>(null),
+    seasons: useRef<HTMLDivElement>(null),
     strengths: useRef<HTMLDivElement>(null),
   };
   const goto = (k: keyof typeof refs) =>
@@ -541,6 +543,7 @@ export default function Team() {
     <>
       <button onClick={() => goto("roster")}>Roster</button>
       <button onClick={() => goto("moved")}>Recent activity</button>
+      <button onClick={() => goto("seasons")}>Seasons</button>
       {shape && <button onClick={() => goto("strengths")}>Strengths</button>}
     </>
   );
@@ -641,18 +644,9 @@ export default function Team() {
               ))}
             </div>
 
-            {mobile && ladderRows && (
-              /* the ladder as a band, under the figures it explains — the
-                 player page's career ladder, in the franchise's vocabulary */
-              <div className="pid-ladder">
-                <div className="band">
-                  <span className="band-label">Seasons</span>
-                  <span className="band-note">Finish and record by year · tap a season to open it</span>
-                </div>
-                {ladderRows}
-                <TeamHonorLegend />
-              </div>
-            )}
+            {/* THE PHONE'S LADDER BAND IS GONE (Max, 2026-09-15): the season
+                ledger below carries every row it did and opens each into its
+                weeks; the desktop rail keeps the ladder as navigation. */}
 
             {insight && (
               /* the verdict panel: prose that interprets the figures, on
@@ -688,6 +682,16 @@ export default function Team() {
                 because a roster read yesterday is not the roster on screen. */}
             <div ref={refs.moved}>
               <Moved rid={rid} teamName={team.team} />
+            </div>
+
+            {/* ---- the seasons ----
+                "How did my season go" (Max, 2026-09-15): the record, one row
+                per season, each opening into its weeks. After what moved and
+                before the strengths: the roster is why the reader came, the
+                history is what he asks second. */}
+            <div ref={refs.seasons}>
+              <TeamSeasons fkey={String(team.fkey ?? rid)} rid={rid} fr={fr}
+                honors={honorBySeason} rosterSeason={rosterSeason} />
             </div>
 
             {/* ---- strengths ----

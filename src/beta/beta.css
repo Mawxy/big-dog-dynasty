@@ -915,6 +915,19 @@
    uppercased into something else and keeps the mark off the name line. */
 .v3-side .asset .idc-s .tg { text-transform: uppercase; white-space: nowrap; }
 
+/* ---- a column the desktop has room for, and the phone's stand-in ----------
+   league.css's `.lgx-desk` / `.lgx-phone`, at shell level so a screen that
+   does not load League's stylesheet (Team) can fold a column onto the
+   identity sub-line the same way. Hiding the HEADER cell removes the column
+   from a fixed layout, so the remaining percentages still hold. */
+.v3-desk { display: none; }
+@media (min-width: 900px) {
+  th.v3-desk, td.v3-desk { display: table-cell; }
+  span.v3-desk { display: inline; }
+  div.v3-desk { display: block; }
+  .v3-phone { display: none; }
+}
+
 /* ---- a band with a note and a control ---------------------------------- */
 .band-side { display: flex; align-items: baseline; gap: 12px; min-width: 0; }
 .band-side .band-note { min-width: 0; }
