@@ -2,9 +2,9 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { fmt, sgn, sgnWar, warInk } from "../lib/stats";
+import { fmt, sgn, sgnWar2 as sgnWar, warInk } from "../lib/stats";
 import { LEAGUE_TEAMS } from "../lib/league";
-import { useLeaguePath } from "../lib/context";
+import { useShellPath } from "../lib/context";
 import { buildHistory, type History } from "../lib/draftHistory";
 import DraftBoardGrid from "../components/DraftBoardGrid";
 import PickTable from "../components/PickTable";
@@ -91,7 +91,7 @@ interface TreeNode {
  */
 export default function Draft() {
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  const lp = useShellPath();
   /** "returns" (the corpus analytics) or "history" (the draft boards) */
   const scope = useParams().sub === "history" ? "history" : "returns";
   // one nested table now: keys are "1" (round), "1E" (tier), "1.01" (slot)
@@ -352,7 +352,9 @@ export default function Draft() {
   );
 
   return (
-    <>
+    /* `.draft-screen` is the hook beta.css uses to set this page's figures in
+       the shell's mono face; the classic board ignores it */
+    <div className="draft-screen">
       <div className="screen-head">
         <span className="screen-title">Draft</span>
         {chip("Returns", "/draft", scope === "returns")}
@@ -604,7 +606,7 @@ export default function Draft() {
         by the seasons it has actually had, and the value tables rank by WAR over the slot's expectation, not raw WAR (Bridge A)
       </div>
       </>}
-    </>
+    </div>
   );
 }
 
@@ -617,7 +619,7 @@ export default function Draft() {
  */
 function DraftBoards({ history }: { history: History }) {
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  const lp = useShellPath();
   // newest draft open, the rest collapsed - the startup is 28 rounds tall
   const [openS, setOpenS] = useState<Record<string, boolean>>(
     () => ({ [history.seasons[0]]: true }));

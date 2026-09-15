@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { sgnWar, warInk } from "../lib/stats";
+import { sgnWar2 as sgnWar, warInk } from "../lib/stats";
 import { POS_COLOR } from "../lib/league";
 import PosBadge from "./PosBadge";
 
@@ -13,8 +13,8 @@ import PosBadge from "./PosBadge";
  * their column budget and their labels, never in the markup, so the markup
  * lives here once and the two surfaces keep their own headers.
  *
- * Every figure is `sgnWar` — the 3dp canonical WAR from lib/stats — which is
- * what both call sites already used, so no figure moves.
+ * Every figure is `sgnWar2` — WAR at the beta board's two places (Max,
+ * 2026-09-15), the same precision the rest of the Draft pages read at.
  *
  * The `.pick-tables` flex wrapper stays at the call site: it is what pairs the
  * two ends of the ranking, and the playoff panel puts a different pair inside
@@ -74,8 +74,7 @@ export default function PickTable<R extends PickRow>({
           {rows.map(r => (
             <tr key={rowKey(r)}>
               {lead.map((c, i) => (i === 0
-                ? <td key={c.label} className="t"
-                  style={{ font: "600 15px/1 var(--cond)", color: "var(--txt2)" }}>{c.of(r)}</td>
+                ? <td key={c.label} className="t lead">{c.of(r)}</td>
                 : <td key={c.label} className="t sub">{c.of(r)}</td>
               ))}
               <td className="who">

@@ -1069,6 +1069,9 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
 .pick-tables.wpa > div { min-width: 520px; }
 .pick-tables.wpa td.fig { overflow: visible; text-overflow: clip; padding-left: 4px; padding-right: 8px; }
 .pick-tables td.vs { border-left: 1px solid var(--rule); font: 700 20px/1 var(--cond); }
+/* the first lead column — the slot or the pick — was an inline style; a class
+   so the beta shell can re-point it with the rest of the figures */
+.pick-tables td.lead { font: 600 15px/1 var(--cond); color: var(--txt2); }
 .pick-tables td.raw { font: 600 16px/1 var(--cond); color: var(--txt2); }
 
 

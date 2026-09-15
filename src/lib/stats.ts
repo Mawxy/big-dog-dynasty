@@ -57,6 +57,19 @@ export const fmtWar = (v: number) => fmt(v, WAR_DP);
 /** a WAR figure, signed with a true minus glyph */
 export const sgnWar = (v: number) => sgn(v, WAR_DP);
 
+/* ---- WAR at the beta board's precision -----------------------------------
+   TWO DECIMALS (Max, 2026-09-02): "1.35", not "1.346" — the third digit is
+   noise a mono column pays width for. beta/ui re-exports these as its own
+   fmtWar/sgnWar. The Draft pages read at this precision in BOTH shells (Max,
+   2026-09-15): they are one component mounted twice, and the classic board is
+   being retired, so they take the survivor's precision rather than carrying
+   two. */
+export const WAR_DP_BETA = 2;
+/** a WAR figure, unsigned, at two places */
+export const fmtWar2 = (v: number) => fmt(v, WAR_DP_BETA);
+/** a WAR figure, signed with a true minus glyph, at two places */
+export const sgnWar2 = (v: number) => sgn(v, WAR_DP_BETA);
+
 /** 1 -> "1st", 12 -> "12th" — teens handled (11th/12th/13th) */
 export const ord = (n: number) => {
   const s = ["th", "st", "nd", "rd"], v = n % 100;

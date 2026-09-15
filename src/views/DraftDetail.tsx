@@ -4,9 +4,9 @@ import type { Drafts, Franchises, SummaryRow, Trade, TradesPayload } from "../li
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { readTrades } from "../lib/trades";
-import { sgnWar, warInk } from "../lib/stats";
+import { sgnWar2 as sgnWar, warInk } from "../lib/stats";
 import { latestSeasonOf, POS_COLOR } from "../lib/league";
-import { useLeague, useLeaguePath } from "../lib/context";
+import { useLeague, useShellPath } from "../lib/context";
 import { buildHistory, pickLabel, type HistRow } from "../lib/draftHistory";
 import DraftBoardGrid from "../components/DraftBoardGrid";
 import PickTable from "../components/PickTable";
@@ -28,7 +28,7 @@ export default function DraftDetail() {
   const season = useParams().season ?? "";
   const { meta, players } = useLeague();
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  const lp = useShellPath();
   const [warBy, setWarBy] = useState<Record<string, Record<string, number>> | null>(null);
   const { sortId, dir, onSort } = useTableSort("pick", 1);
   // every section collapses; the board is the page's face, so it starts open
@@ -175,7 +175,8 @@ export default function DraftDetail() {
   );
 
   return (
-    <>
+    /* `.draft-screen`: beta.css sets this page's figures in the shell's mono face */
+    <div className="draft-screen">
       <div className="screen-head">
         <span className="screen-title">{season} {rookie ? "rookie draft" : "startup draft"}</span>
         <button type="button" className="chip" onClick={() => nav(lp("/draft/history"))}>
@@ -251,6 +252,6 @@ export default function DraftDetail() {
           ? "value ranks WAR against the slot's Bridge A expectation over the pick's finished seasons"
           : "the startup has no slot expectation, so value ranks career WAR against the round's own median"}
       </div>
-    </>
+    </div>
   );
 }

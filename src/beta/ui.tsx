@@ -4,19 +4,19 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { leagueSeg, useLeague } from "../lib/context";
-import { fmt, sgn } from "../lib/stats";
+import { fmtWar2, sgnWar2, WAR_DP_BETA } from "../lib/stats";
 
 /* ---- WAR figures, at this shell's precision ------------------------------
    TWO DECIMALS, not the classic board's three (Max, 2026-09-02): "1.35", not
    "1.346". On a phone the third digit is noise a mono column has to pay width
-   for, and nobody in the league reads WAR to a thousandth. The classic board
-   keeps WAR_DP = 3, so these are the beta shell's own and every beta screen
-   imports them from here rather than from lib/stats. */
-export const WAR_DP_BETA = 2;
+   for, and nobody in the league reads WAR to a thousandth. Every beta screen
+   imports these from here; the pair itself lives in lib/stats now, because the
+   Draft pages (mounted in both shells) read at the same precision. */
+export { WAR_DP_BETA };
 /** a WAR figure, unsigned, at two places */
-export const fmtWar = (v: number) => fmt(v, WAR_DP_BETA);
+export const fmtWar = fmtWar2;
 /** a WAR figure, signed with a true minus glyph, at two places */
-export const sgnWar = (v: number) => sgn(v, WAR_DP_BETA);
+export const sgnWar = sgnWar2;
 
 /**
  * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/team`.

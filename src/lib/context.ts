@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext } from "react";
+import { useLocation } from "react-router-dom";
 import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./types";
 
 /** `leagues` is the whole registry, not just the resolved entry: the router
@@ -41,6 +42,46 @@ export function useLeaguePath() {
   const seg = leagueSeg(useLeague().league);
   return useCallback(
     (p: string) => `/${seg}/${CLASSIC_SEG}${p.startsWith("/") ? p : `/${p}`}`, [seg]);
+}
+
+/**
+ * Which shell a view is mounted in, read off the URL: the classic board lives
+ * under /<league>/classic and the beta shell answers the bare league address.
+ *
+ * The classic views the beta shell mounts as its "everything else" bucket
+ * (Draft, DraftDetail, Weekly, Player…) are rendered by BOTH shells, so a
+ * link they build cannot be a classic link by construction — that is what
+ * dropped a beta reader into /classic on the first tap of a Draft chip.
+ */
+export function useShell(): "classic" | "beta" {
+  const seg = leagueSeg(useLeague().league);
+  const { pathname } = useLocation();
+  const classic = `/${seg}/${CLASSIC_SEG}`;
+  return pathname === classic || pathname.startsWith(`${classic}/`) ? "classic" : "beta";
+}
+
+/** the beta shell's name for a classic view's first path segment; a segment
+ *  not listed keeps its name (player, teams, history, insights…) */
+const BETA_SEG: Record<string, string> = { draft: "drafts", weekly: "seasons" };
+
+/**
+ * `useLeaguePath` for a view that lives in both shells: takes the CLASSIC
+ * path (`/draft/history/2025`, `/weekly/2025/6/3`, `/player/4034`) and lands
+ * it in whichever shell the reader is in — `/big-dog/classic/draft/history/2025`
+ * on the classic board, `/big-dog/drafts/history/2025` in the beta shell.
+ * Views keep writing classic paths, so nothing at a call site changes when
+ * the classic board is retired; only this table does.
+ */
+export function useShellPath() {
+  const seg = leagueSeg(useLeague().league);
+  const shell = useShell();
+  return useCallback((p: string) => {
+    const path = p.startsWith("/") ? p : `/${p}`;
+    if (shell === "classic") return `/${seg}/${CLASSIC_SEG}${path}`;
+    const [, first = "", ...rest] = path.split("/");
+    const head = BETA_SEG[first] ?? first;
+    return `/${seg}/${head}${rest.length ? `/${rest.join("/")}` : ""}`;
+  }, [seg, shell]);
 }
 
 /**

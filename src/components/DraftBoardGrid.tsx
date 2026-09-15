@@ -1,5 +1,5 @@
 import { LEAGUE_TEAMS, POS_COLOR } from "../lib/league";
-import { useLeaguePath } from "../lib/context";
+import { useShellPath } from "../lib/context";
 import { nameSplit, pickLabel, type HistRow } from "../lib/draftHistory";
 import { RouteLink } from "./RouteLink";
 import TScroll from "./TScroll";
@@ -17,7 +17,7 @@ import TScroll from "./TScroll";
  * that stops partway for no reason. Position stays literal on the pick row.
  */
 export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {
-  const lp = useLeaguePath();
+  const lp = useShellPath();
   // The NFL club briefly lived on the pick row, read off players_min[pid][2].
   // It came back out to pay for 90px columns — it was the widest thing on that
   // row and the board fitting a laptop without sideways scroll was worth more.

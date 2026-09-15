@@ -921,3 +921,44 @@
 @media (max-width: 899px) {
   .band-side { flex-direction: column; align-items: flex-start; gap: 3px; }
 }
+
+/* == the Draft pages, mounted in this shell ================================
+   views/Draft.tsx and views/DraftDetail.tsx keep their classic layout (Max,
+   2026-09-15: "it currently looks good") and are mounted in both shells. Under
+   `.v3` they already inherit the condensed and sans re-points; what they did
+   NOT inherit is the third role, because their figures are set with a `font:`
+   shorthand naming --cond directly. Every FIGURE on the page is re-pointed
+   here to --mono, sizes stepped down the way .v3tbl's were (a mono digit is
+   the wider glyph). Labels — "RD 1", the tier rows, the section bands — stay
+   condensed: they are words. Scoped to `.draft-screen`, the root both views
+   render, so nothing else mounted in the shell moves. */
+.v3 .draft-screen .box-row .plot .lab.med { font: 700 12px/1 var(--mono); }
+.v3 .draft-screen .box-row .plot .lab.end { font: 400 10.5px/1 var(--mono); }
+.v3 .draft-screen .box-row .lbl .n { font: 400 10px/1 var(--mono); }
+.v3 .draft-screen .axis .scale span { font: 400 10.5px/1 var(--mono); }
+.v3 .draft-screen .heat2 .cell { font: 600 14.5px/1 var(--mono); }
+.v3 .draft-screen .heat-head span { font: 400 11px/1 var(--mono); letter-spacing: .06em; }
+.v3 .draft-screen .heat-legend span { font: 400 12px/1 var(--mono); letter-spacing: 0; }
+/* the exact-pick rows' labels are slots ("1.07"), which are figures; the
+   round and tier labels above them are words and keep the condensed face */
+.v3 .draft-screen .dtbl tr.lvl2 td.lbl { font: 600 13.5px/1.3 var(--mono); letter-spacing: 0; }
+.v3 .draft-screen .dtbl td .v { font: 600 14px/1.3 var(--mono); }
+.v3 .draft-screen .dtbl td.med .v { font-size: 15.5px; }
+.v3 .draft-screen .pick-tables td.vs { font: 700 17px/1 var(--mono); }
+.v3 .draft-screen .pick-tables td.raw { font: 600 14px/1 var(--mono); }
+.v3 .draft-screen .pick-tables td.sub { font: 400 13px/1 var(--mono); }
+/* PickTable's lead column (slot, year) and the board's pick labels */
+.v3 .draft-screen .pick-tables td.lead { font: 600 13.5px/1.3 var(--mono); }
+.v3 .draft-screen .dcell .pk { font: 600 11px/1 var(--mono); letter-spacing: 0; }
+/* DraftDetail's returns-by-pick table is components/DataTable, whose figure
+   cells are .fig in the sans face */
+.v3 .draft-screen td.fig { font: 500 13.5px/1.4 var(--mono); }
+.v3 .draft-screen .screen-note b { font: 700 13px/1 var(--mono); }
+@media (min-width: 900px) {
+  .v3 .draft-screen .heat2 .cell { font-size: 16px; }
+  .v3 .draft-screen .dtbl td .v { font-size: 15px; }
+  .v3 .draft-screen .dtbl td.med .v { font-size: 17px; }
+  .v3 .draft-screen .pick-tables td.vs { font-size: 18.5px; }
+  .v3 .draft-screen .pick-tables td.raw { font-size: 15px; }
+  .v3 .draft-screen td.fig { font-size: 14.5px; }
+}
