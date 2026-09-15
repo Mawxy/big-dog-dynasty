@@ -36,7 +36,7 @@ import "./league.css";
  * ONE TENSE PER VIEW, and the scope control is the only thing that changes it.
  *
  *   Current  the roster season and nothing else: this week's matchups and
- *            last week's figures, the power rankings, the last seven days,
+ *            last week's figures, the playoff race, the last seven days,
  *            then win-now vs dynasty and the two market reads.
  *   History  one settled season and nothing else: its champion, its final
  *            standings by seed, its WAR leaders.
@@ -938,16 +938,16 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
             <tr>
               <th className="c sp">#</th>
               <th className="t">Franchise</th>
-              {/* ONE GRID WITH THE POWER RANKINGS BELOW (Max, 2026-09-02): the
+              {/* ONE GRID WITH THE PLAYOFF RACE BELOW (Max, 2026-09-02): the
                   last three figure columns sit at 18 / 18 / 20 on every League
                   table, so this table's W-L, Playoff and Title fall exactly
-                  under that one's Proj W-L, Starters WAR and Market. PPG is a
+                  under that one's Proj W-L, Playoff and Title. PPG is a
                   fourth column on desktop, where there is room for it, and
                   stays on the record's sub-line on a phone. */}
               <th className="n lgx-desk" style={{ width: "14%" }}>W-L</th>
               <th className="n" style={{ width: "18%" }}><span className="lgx-desk">PPG</span><span className="lgx-phone">W-L</span></th>
               {/* PF AND MAX PF (Max, 2026-09-09), in place of the odds, which
-                  moved to Power rankings: what the roster scored and what it
+                  moved to the playoff race: what the roster scored and what it
                   could have with its best lineup every week. The gap between
                   them is the lineup-setting tax. */}
               <th className="n" style={{ width: "18%" }}>PF</th>
@@ -1011,9 +1011,10 @@ interface PowerRow {
    *  the string: they carry as their own segment. Null — never a heuristic
    *  7-7 — before anything is played and with no lines to read. */
   wins: number | null; rec: string | null;
-  /** projected points per game: the mean of the team's projected weekly
-   *  totals in odds.json (the same lines the matchup cards and the season
-   *  simulation price). Null before the odds file has a projected week. */
+  /** the season's points per week, results included: what the roster has
+   *  actually scored in the weeks that are final, plus the projected total
+   *  for each week still to come, over the whole regular season. It moves
+   *  every time a week finishes. Null with nothing scored and no lines. */
   ppg: number | null;
 }
 
@@ -1027,7 +1028,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const projQ = useJson<ProjectionsFile>("projections.json");
   const proj = projQ.data;
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
-  // the per-week lines, for projected points per game on the power table
+  // the per-week lines, for projected points per game on the playoff race
   const oddsW = useJson<WeekOdds>(`${rosterSeason}/odds.json`).data;
   // this season's WAR so far, for the four position blocks. A 404 before the
   // first scored week is a season that has not started, not a failure.
@@ -1100,10 +1101,27 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       .filter(([wk]) => +wk < ps)
       .map(([, w]) => w[String(rid)])
       .filter(x => !!x?.proj);
-    // projected ppg: mean projected weekly total across the projected weeks
+    /** what a franchise has actually scored, regular season only. teams.json's
+     *  `fpts` cannot stand in for this: it carries the postseason too, and a
+     *  per-week figure that quietly changes its denominator in January is
+     *  worse than no figure. */
+    const scoredOf = (rid: number) => {
+      const rows = (mw?.teams?.[String(rid)] ?? []).filter(e => e[0] < ps);
+      return { pts: rows.reduce((a, e) => a + e[1], 0), n: rows.length };
+    };
+    /* POINTS PER WEEK WITH THE PLAYED WEEKS BAKED IN (Max, 2026-09-15). This
+       was the mean of the PROJECTED weeks alone, so a franchise that opened
+       with a 166 showed the same figure in week 6 as it did in week 1 and
+       the column sat still all season while the games moved. It is now the
+       whole regular season: points scored where a week is final, the week's
+       projected total where it is not, over every week either way. A week
+       finishing re-weights it on the next build, which is the point. */
     const ppgOf = (rid: number): number | null => {
-      const mus = linesOf(rid).map(x => x.mu).filter(x => x != null);
-      return mus.length ? mean(mus) : null;
+      const mus = linesOf(rid).map(x => x.mu).filter((m): m is number => m != null);
+      const done = scoredOf(rid);
+      const n = done.n + mus.length;
+      if (!n) return null;
+      return (done.pts + mus.reduce((a, m) => a + m, 0)) / n;
     };
     return built.map(b => {
       const ppg = ppgOf(b.rid);
@@ -1142,7 +1160,23 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         rec: `${fmt(wins, 1)}-${fmt(losses, 1)}${b.ti ? `-${b.ti}` : ""}`,
         ppg,
       };
-    }).sort((a, b) => b.war - a.war);
+    }).sort((a, b) => {
+      /* ORDERED BY THE PROJECTED RECORD (Max, 2026-09-15). Starter WAR
+         ordered this table when the table was called Power rankings, which
+         is a claim about roster quality. A playoff race is a claim about who
+         gets in, so it is ordered by the record the season simulation
+         projects, tied on projected points per game — wins then points, the
+         league's own seeding rule.
+
+         A row with no projection sorts last rather than to the top on a
+         null: nothing is known about it, which is not the same as last. */
+      if (a.wins == null || b.wins == null) {
+        return a.wins == null && b.wins == null
+          ? b.war - a.war
+          : a.wins == null ? 1 : -1;
+      }
+      return b.wins - a.wins || (b.ppg ?? 0) - (a.ppg ?? 0);
+    });
   }, [teams, proj, mw, lineup, oddsW]);
 
   const leader = power?.[0] ?? null;
@@ -1162,22 +1196,22 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {/* ---- 1b. standings ----------------------------------------------- */}
       <Standings rosterSeason={rosterSeason} />
 
-      {/* ---- 2. power rankings ------------------------------------------- */}
-      <Band label={`Power rankings · ${rosterSeason}`}
-        note="Ordered by projected starter WAR · record and odds from the season simulation"
+      {/* ---- 2. playoff race --------------------------------------------- */}
+      <Band label={`Playoff race · ${rosterSeason}`}
+        note="Ordered by projected record · record and odds from the season simulation"
         right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
       {/* A FAILED FETCH IS NOT A SLOW ONE. Without the error arm the band
           claims to be loading projections that are never coming, for the life
           of the page. */}
       {teamsQ.error || projQ.error
-        ? <DataError what="Power rankings didn't load" />
+        ? <DataError what="The playoff race didn't load" />
         : !power ? <div className="empty">Loading projections…</div> : (
         <table className="v3tbl lgx-grid lgx-wrap">
           <thead>
             <tr>
               {/* No header on this table is a control. The band above claims one
                   order and the rank spine keeps it — the same call Home.tsx's
-                  power table makes. Re-ranking lives on the rankings board. */}
+                  power table makes. Re-ranking lives on the Teams board. */}
               <th className="c sp">#</th>
               <th className="t">Franchise</th>
               {/* ONE COLUMN GRID for every table on this screen (Max, 2026-09-02):
@@ -1191,9 +1225,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
                   folds under the projected record, as ppg does under W-L. */}
               <th className="n lgx-desk" style={{ width: "14%" }}>Proj W-L</th>
               <th className="n" style={{ width: "18%" }}><span className="lgx-desk">Proj PPG</span><span className="lgx-phone">Proj W-L</span></th>
-              {/* no Starters WAR column (Max, 2026-09-09): the order says
-                  it, and the figure itself lives on the Teams board the band
-                  links to. The odds take the 18 / 20 slots of the grid. */}
+              {/* NO STARTERS WAR COLUMN. It was left out because the ORDER
+                  said it (Max, 2026-09-09); the order is the projected record
+                  now, so WAR is no longer stated anywhere on this screen and
+                  lives only on the Teams board the band links to. The odds
+                  keep the 18 / 20 slots of the grid. */}
               <th className="n" style={{ width: "18%" }}>Playoff</th>
               <th className="n" style={{ width: "20%" }}>Title</th>
             </tr>
