@@ -1,7 +1,7 @@
 import {
   Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode,
 } from "react";
-import { useNavigate } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
 import type {
   Absences, EcrFile, Matchups, MatrixFile, MatrixRow, SummaryRow, Team, Values,
   Weekly, WeeklyRow,
@@ -41,6 +41,11 @@ import ScopeControl, { ALL_SEASONS, useScope } from "../Scope";
 import {
   fmtUsage, loadUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageIndex, type UsageKey,
 } from "../../lib/usage";
+import {
+  filterLabel, filterNeeds, parseFilters, passes, seasonFacts, serializeFilters,
+  type FactsIndex, type Filter,
+} from "../filters";
+import FilterSheet from "../FilterSheet";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
   useBetaPath, useSort,
@@ -605,6 +610,23 @@ export default function Players() {
 
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
+
+  /* ---- ADVANCED SEARCH (Max, 2026-09-16) --------------------------------
+     Numeric criteria over facts the whole site knows — age, KTC, a best
+     season's PPG — applied on top of the chips and the search box in either
+     tense. In the URL like the scope (`?f=age<25,ktc>2500`), so a filtered
+     board is a shareable one and Back undoes a criterion. */
+  const loc = useLocation();
+  const navF = useNavigate();
+  const filters = useMemo(() => parseFilters(new URLSearchParams(loc.search).get("f")), [loc.search]);
+  const setFilters = (fs: Filter[]) => {
+    const qs = new URLSearchParams(loc.search);
+    if (fs.length) qs.set("f", serializeFilters(fs)); else qs.delete("f");
+    const str = qs.toString();
+    navF({ pathname: loc.pathname, search: str ? `?${str}` : "" }, { replace: true });
+  };
+  const [filterOpen, setFilterOpen] = useState(false);
+  const needs = filterNeeds(filters);
   const [open, setOpen] = useState<string | null>(null);
 
   /* WHICH HALF OF THE SEASON. A filter rather than a scope segment: the tense
@@ -715,14 +737,15 @@ export default function Players() {
   }, [phase, hist, played]);
 
   useEffect(() => {
-    if (!allTime || !played.length) return;
+    // the career index: all-time's population, and any season criterion's facts
+    if ((!allTime && !needs.career) || !played.length) return;
     let live = true;
     setCareerErr(false);
     loadCareer(played)
       .then(c => { if (live) setCareer(c); })
       .catch(() => { if (live) setCareerErr(true); });
     return () => { live = false; };
-  }, [allTime, played]);
+  }, [allTime, played, needs.career]);
 
   /* ---- CURRENT: the price board's sources ------------------------------- */
 
@@ -738,9 +761,11 @@ export default function Players() {
      below are: useDvi/useCvi/useProjWar1 have no "don't fetch" form, and forking
      the projection-model logic into this screen to get one would put a second
      publisher on the number the masthead control drives. */
-  const mxQ = useJson<MatrixFile>(hist ? null : "projections_matrix.json");
-  const valsQ = useJson<Values>(hist ? null : "data/values.json", "globalDaily");
-  const ecrQ = useJson<EcrFile>(hist ? null : "data/ecr.json", "globalDaily");
+  /* …unless a filter asks: an age or KTC criterion on the Stats board needs
+     the price board's files, and fetches only the ones it names */
+  const mxQ = useJson<MatrixFile>(hist && !needs.matrix ? null : "projections_matrix.json");
+  const valsQ = useJson<Values>(hist && !needs.market ? null : "data/values.json", "globalDaily");
+  const ecrQ = useJson<EcrFile>(hist && !needs.ecr ? null : "data/ecr.json", "globalDaily");
   const rosQ = useJson<Team[]>(hist ? null : `${rosterSeason}/teams.json`);
 
   const curPop = useMemo<Row[] | null>(() => {
@@ -1107,13 +1132,44 @@ export default function Players() {
      so 21-16 leads 30-15 and nobody has to pick a threshold. A filter would
      have needed a scope-aware set of steps and a rule for resetting them, to do
      worse. */
+  /* THE FACTS INDEX: one row per player, every field a criterion can ask
+     about, from whichever files are in hand. Built only while a filter is
+     set; a board with no criteria never pays for it. */
+  const facts = useMemo<FactsIndex | null>(() => {
+    if (!filters.length) return null;
+    const out: FactsIndex = {};
+    const at = (pid: string) => (out[pid] ??= {});
+    const slug = Object.keys(ecrQ.data?.formats ?? {})[0];
+    for (const [pid, d] of Object.entries(dviQ.data?.players ?? {})) at(pid).dvi = d.dvi;
+    for (const [pid, c] of Object.entries(cviQ.data?.players ?? {})) at(pid).cvi = c.cvi;
+    for (const m of mxQ.data?.players ?? []) if (m.age != null) at(m.pid).age = m.age;
+    for (const [pid, w] of Object.entries(projWar ?? {})) at(pid).pwar = w;
+    for (const [pid, v] of Object.entries(valsQ.data?.players ?? {})) {
+      const k = ktcOf(v, meta.tep);
+      if (k != null) at(pid).ktc = k;
+      if (v.fc != null) at(pid).fc = v.fc;
+    }
+    if (slug) for (const [pid, e] of Object.entries(ecrQ.data?.players ?? {})) {
+      const r = e?.[slug]?.ecr;
+      if (r != null) at(pid).ecr = r;
+    }
+    for (const [pid, rows] of Object.entries(career ?? {})) Object.assign(at(pid), seasonFacts(rows));
+    return out;
+  }, [filters.length, dviQ.data, cviQ.data, mxQ.data, projWar, valsQ.data, ecrQ.data, career, meta.tep]);
+  /* a criterion whose file has not landed yet must not empty the board for a
+     frame and call it "no match" */
+  const factsReady = !filters.length || (
+    (!needs.matrix || !!mxQ.data) && (!needs.market || !!valsQ.data)
+    && (!needs.ecr || !!ecrQ.data) && (!needs.career || !!career));
+
   const rows = useMemo(() => {
     if (!ordered) return null;
     const needle = q.trim().toLowerCase();
     return ordered.sorted.filter(r =>
       (pos === "ALL" || r.pos === pos) &&
-      (!needle || r.name.toLowerCase().includes(needle)));
-  }, [ordered, pos, q]);
+      (!needle || r.name.toLowerCase().includes(needle)) &&
+      (!filters.length || passes(facts?.[r.pid], filters)));
+  }, [ordered, pos, q, filters, facts]);
 
   /* ---- the phone row's demoted keys ------------------------------------ */
 
@@ -1133,9 +1189,9 @@ export default function Players() {
     return other;
   }, [strip, s.sort, hist]);
 
-  const ready = hist
+  const ready = factsReady && (hist
     ? rows != null && (!usage || usg_ != null)
-    : rows != null && ![dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ].some(x => x.loading);
+    : rows != null && ![dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ].some(x => x.loading));
 
   /* A FAILED FETCH IS NOT A SLOW ONE. Without this the board says Loading…
      for the life of the page whenever one of its files drops.
@@ -1226,6 +1282,26 @@ export default function Players() {
         <input type="search" value={q} placeholder="Search players"
           onChange={e => setQ(e.target.value)} />
       </div>
+      {/* THE ACTIVE CRITERIA, as chips a reader can drop one at a time. The
+          sheet is where they are written; this row is where they are seen.
+          Empty, the row is a single "Filter" chip that opens the sheet. */}
+      <div className="v3-filters plx-filters plx-filters3">
+        <button type="button" className={`chip plx-fbtn${filters.length ? " on" : ""}`}
+          onClick={() => setFilterOpen(true)}>
+          {filters.length ? `Filters · ${filters.length}` : "Filter"}
+        </button>
+        {filters.map((f, i) => (
+          <button key={i} type="button" className="chip on plx-fchip"
+            aria-label={`Remove ${filterLabel(f)}`}
+            onClick={() => setFilters(filters.filter((_, j) => j !== i))}>
+            {filterLabel(f)} <span className="x">×</span>
+          </button>
+        ))}
+      </div>
+      {filterOpen && (
+        <FilterSheet filters={filters} onChange={setFilters} onClose={() => setFilterOpen(false)}
+          count={ready && rows ? rows.length : null} />
+      )}
 
       {/* NO "SORT" LABEL (Max, 2026-09-03). The strip is the header row on a
           phone and a header row does not introduce itself — the lit segment and

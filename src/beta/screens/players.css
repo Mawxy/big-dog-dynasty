@@ -118,6 +118,46 @@
    a word in front of them they read as two more things to filter by rather
    than as two states of one switch. */
 .plx-filters2 { padding-top: 0; padding-bottom: 8px; }
+
+/* ---- advanced search (Max, 2026-09-16) ---------------------------------- */
+/* the criteria row: the Filter chip, then one chip per active criterion */
+.plx-filters3 { padding-top: 0; padding-bottom: 8px; }
+.plx-filters3 .plx-fchip .x { margin-left: 5px; color: var(--dim); }
+.plx-filters3 .plx-fchip:hover .x { color: var(--bad); }
+/* the sheet's rows: field · ≤/≥ · value · ×, the definition under them */
+.fsx { padding: 6px var(--v3pad) 14px; }
+.fsx-count { color: var(--acc); letter-spacing: .1em; }
+.fsx-empty, .fsx-note { font: 400 12px/1.5 var(--sans); color: var(--dim); padding: 10px 0; max-width: 60ch; }
+.fsx-note { color: var(--dim3); font-size: 11.5px; }
+.fsx-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto 84px 30px; gap: 6px; align-items: center;
+  padding: 10px 0 8px; border-bottom: 1px solid var(--hair);
+}
+.fsx-row .fsx-def { grid-column: 1 / -1; font: 400 11px/1.4 var(--sans); color: var(--dim3); }
+.fsx-field, .fsx-val {
+  min-width: 0; background: var(--band); border: 1px solid var(--rule); color: var(--txt);
+  font: 400 13px/1.3 var(--sans); padding: 7px 8px;
+}
+.fsx-val { font: 600 13.5px/1.3 var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.fsx-op { display: flex; }
+.fsx-op button {
+  width: 34px; padding: 7px 0; background: var(--band); border: 1px solid var(--rule); margin-left: -1px;
+  color: var(--dim); cursor: pointer; font: 600 13px/1.3 var(--mono);
+}
+.fsx-op button:first-child { margin-left: 0; }
+.fsx-op button.on { background: var(--sel); color: var(--txt); border-color: var(--rule-2); }
+.fsx-x {
+  width: 30px; height: 32px; background: none; border: 1px solid var(--rule); color: var(--dim);
+  cursor: pointer; font: 600 15px/1 var(--sans);
+}
+.fsx-x:hover { color: var(--bad); border-color: var(--bad); }
+.fsx-foot { display: flex; gap: 8px; padding-top: 12px; }
+.fsx-add, .fsx-clear {
+  padding: 8px 14px; background: none; border: 1px solid var(--acc); color: var(--acc); cursor: pointer;
+  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+}
+.fsx-clear { border-color: var(--rule-2); color: var(--dim); }
+.fsx-add:hover { background: var(--acc); color: var(--acc-ink); }
 /* a breath between the two chip groups on the second row (teams.css's
    .tmx-sep), so "Usage Regular season" does not read as one control */
 .plx-filters2 .plx-sep { flex: 0 0 1px; align-self: stretch; margin: 0 5px; background: var(--rule); }
