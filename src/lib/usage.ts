@@ -17,7 +17,13 @@ export type UsageKey =
   | "car_share" | "rb_touch_share";
 
 export type UsageRow = { g: number } & Partial<Record<UsageKey, number>>;
-export type UsageFile = Record<string, UsageRow>;
+/** THE LEAGUE'S WINDOWS (Max, 2026-09-16): the regular season, the bracket
+ *  weeks, and both — summed by usage_stats.py off the league's own
+ *  playoff_start, so a receiver's week-16 catches never sit beside a PPG that
+ *  stopped at week 14. A window he never touched the ball in is absent. */
+export type UsagePhase = "reg" | "post" | "both";
+export type UsagePhases = Partial<Record<UsagePhase, UsageRow>>;
+export type UsageFile = Record<string, UsagePhases>;
 
 /** THE POSITION'S OWN FIVE (Max, 2026-09-16). Expected PPG is common to all
  *  four; the other four are what usage means at that position. */
@@ -72,8 +78,8 @@ export function fmtUsage(k: UsageKey, v: number): string {
   }
 }
 
-/** pid -> season -> row */
-export interface UsageIndex { byPlayer: Record<string, Record<string, UsageRow>> }
+/** pid -> season -> the three windows */
+export interface UsageIndex { byPlayer: Record<string, Record<string, UsagePhases>> }
 
 let pending: Promise<UsageIndex> | null = null;
 
@@ -102,8 +108,10 @@ export function loadUsage(seasons: string[]): Promise<UsageIndex> {
  * over 4 are not the same evidence, and a plain mean of the two would say
  * they were. A key absent from every season stays absent.
  */
-export function usageOf(idx: UsageIndex | null, pid: string, seasons: string[]): UsageRow | null {
-  const rows = seasons.map(s => idx?.byPlayer[pid]?.[s]).filter((r): r is UsageRow => !!r);
+export function usageOf(
+  idx: UsageIndex | null, pid: string, seasons: string[], phase: UsagePhase = "reg",
+): UsageRow | null {
+  const rows = seasons.map(s => idx?.byPlayer[pid]?.[s]?.[phase]).filter((r): r is UsageRow => !!r);
   if (!rows.length) return null;
   if (rows.length === 1) return rows[0];
   const out: UsageRow = { g: rows.reduce((a, r) => a + r.g, 0) };

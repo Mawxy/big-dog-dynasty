@@ -483,7 +483,7 @@ export interface PlayerShard {
   pts?: PointsProj | null;
   /** his usage-and-efficiency rows by season (scripts/usage_stats.py, folded
    *  in by shard_players.py) — absent when nflverse has no line for him */
-  usage?: Record<string, import("./usage").UsageRow>;
+  usage?: Record<string, import("./usage").UsagePhases>;
 }
 
 /** data/insights.json — written per-franchise outlooks, keyed by roster_id */

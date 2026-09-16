@@ -45,6 +45,9 @@
 @media (max-width: 899px) {
   .plx-filters { flex-wrap: wrap; overflow-x: visible; row-gap: 8px; }
   .plx-filters input[type="search"] { flex: 1 1 100%; min-width: 0; }
+  /* the measures-and-phase row keeps scrolling: seven chips and two labels
+     do not fit 375px, and a wrap put "Both" alone on a third line */
+  .plx-filters2 { flex-wrap: nowrap; overflow-x: auto; }
 }
 
 /* ---- the key ------------------------------------------------------------
@@ -262,6 +265,21 @@
   border-bottom: 0;
 }
 .plx-sort .v3-lens button:first-child { border-left: 1px solid var(--rule); }
+/* THE STRIP SCROLLS (Max, 2026-09-16): every column of the lens, sideways,
+   segments sized to their labels rather than squeezed to a fifth of 375px.
+   The lit segment is scrolled into view on change (Players.tsx). */
+.plx-sort .v3-lens { overflow-x: auto; scrollbar-width: none; }
+.plx-sort .v3-lens::-webkit-scrollbar { display: none; }
+.plx-sort .v3-lens button { flex: 0 0 auto; padding: 9px 13px; }
+/* the direction toggle: a fixed cell at the strip's left edge, the same face
+   as a segment, never filled — it is not a key */
+.plx-dir {
+  flex: 0 0 auto; width: 40px;
+  background: none; border: 0; border-right: 1px solid var(--rule);
+  color: var(--acc); cursor: pointer;
+  font: 700 14px/1 var(--mono);
+}
+.plx-dir:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 
 /* ---- the row's figure cell ---------------------------------------------- */
 

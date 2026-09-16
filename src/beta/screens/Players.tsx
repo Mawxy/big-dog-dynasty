@@ -1,5 +1,5 @@
 import {
-  Fragment, useEffect, useMemo, useState, type CSSProperties, type ReactNode,
+  Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
@@ -94,8 +94,10 @@ type Key =
    *  why every figure on this board reaches the cell through `cellOf` rather
    *  than FMT alone, and they sort two ways: by wins, then by losses. */
   | "wls" | "wlr"
-  /** the usage lens's figures — lib/usage, keyed by the nflverse column name */
-  | UsageKey;
+  /** the usage lens's figures — lib/usage, keyed by the nflverse column name —
+   *  and `g`, the NFL games behind them: the denominator of every rate on
+   *  that lens, which league GP is not */
+  | "g" | UsageKey;
 
 /** the keys whose header cycles WINS -> LOSSES rather than flipping direction */
 const RECORD_KEYS = new Set<Key>(["wls", "wlr"]);
@@ -171,7 +173,7 @@ const HIST_GRPS = [
    column. GP leads, because every figure here is a per-game rate and the sample
    is the first thing to read it against. */
 const USAGE_COMMON: Col[] = [
-  { id: "gp", label: "GP", width: "6%", edge: true },
+  { id: "g", label: "G", width: "6%", edge: true },
   { id: "ppg", label: "PPG", width: "8%" },
   { id: "fp_exp_pg", label: "Exp PPG", short: "EXP", width: "9%", edge: true },
   { id: "fp_diff_pg", label: "Vs exp", short: "VS EXP", width: "9%" },
@@ -198,6 +200,14 @@ function usageStrip(pos: string): Key[] {
   const keys: Key[] = ["fp_exp_pg", "fp_diff_pg", ...own, "ppg"];
   return keys.slice(0, own.length ? 4 : 3);
 }
+
+/* THE STRIP SCROLLS (Max, 2026-09-16). Capped at four keys, the phone lost
+   GP and Points on the box score and Car %, RB touch % and G under the usage
+   lens — half of what the desktop header can sort by. So the strip carries
+   EVERY column of the lens in column order and scrolls sideways, the way the
+   Seasons week strip does, with the lit key scrolled into view. The
+   four-key lists above are now only the micro line's preference: which
+   displaced keys the row shows under the lead figure. */
 
 /**
  * THE PHONE SORT STRIP'S KEYS — four is the ceiling at 390px.
@@ -230,6 +240,7 @@ const FMT: Record<Key, (v: number) => string> = {
   // value is a sort key, not a figure — but the map is total over Key so that
   // adding a column cannot silently skip a formatter
   wls: v => String(v), wlr: v => String(v),
+  g: v => String(v),
   fp_exp_pg: v => fmtUsage("fp_exp_pg", v), fp_diff_pg: v => fmtUsage("fp_diff_pg", v),
   att_pg: v => fmtUsage("att_pg", v), car_pg: v => fmtUsage("car_pg", v),
   epa_db: v => fmtUsage("epa_db", v), cpoe: v => fmtUsage("cpoe", v),
@@ -284,6 +295,9 @@ const DEF: Record<Key, string> = {
   wlr: "Won-lost as a ROSTERED player — every week he was owned, started or "
     + "benched. The gap between this and Started is how often he was owned and "
     + "left out.",
+  g: "NFL games with a stat line in the window — an attempt, a carry or a target. The "
+    + "denominator of every per-game figure on this lens, which league GP is not: a "
+    + "dressed week with no touch is a league game and not an NFL one.",
   fp_exp_pg: USAGE_LABEL.fp_exp_pg.def, fp_diff_pg: USAGE_LABEL.fp_diff_pg.def,
   att_pg: USAGE_LABEL.att_pg.def, car_pg: USAGE_LABEL.car_pg.def,
   epa_db: USAGE_LABEL.epa_db.def, cpoe: USAGE_LABEL.cpoe.def,
@@ -601,8 +615,10 @@ export default function Players() {
   const [phase, setPhase] = useState<Phase>("reg");
   /* WHICH MEASURES (Max, 2026-09-16): the box score, or usage and efficiency
      from nflverse. A lens over the same rows, not a filter — so it swaps the
-     figure columns and leaves the population alone. Usage is a regular-season
-     fact (nflverse scores REG only), so the phase chips stand down under it. */
+     figure columns and leaves the population alone. The phase chips apply
+     under it too: usage_stats.py sums the weekly table over the league's own
+     regular season, bracket weeks and both, so the windows line up with the
+     box score's. */
   const [measure, setMeasure] = useState<"box" | "usage">("box");
   const usage = hist && measure === "usage";
   const [keyOpen, setKeyOpen] = useState(false);
@@ -1017,27 +1033,42 @@ export default function Players() {
       : phase === "post" ? postPop
         : allTime ? allPop : histPop)
     : curPop;
-  /* THE USAGE LENS'S ROWS: the regular-season population with each player's
+  /* THE USAGE LENS'S ROWS: every player the season scored, with the phase's
      usage figures merged onto `f` — one season's row as it stands, a
-     games-weighted pool over all-time. Merged here rather than in the three
-     builders above so the lens is one line of difference, not three. */
+     games-weighted pool over all-time. The base is the regular-season
+     population in every phase: the box score's Playoffs board lists bracket
+     starters because that is who has a bracket line, but weeks 15-17 usage is
+     a fact about every player who touched the ball in them. Merged here
+     rather than in the three builders above so the lens is one place. */
   const usagePop = useMemo<Row[] | null>(() => {
     if (!usage) return null;
     const base = allTime ? allPop : histPop;
     if (!base) return null;
     const scope = allTime ? played : oneSeason ? [oneSeason] : [];
     return base.map(r => {
-      const u = usageOf(usg_, r.pid, scope);
-      if (!u) return r;
+      const u = usageOf(usg_, r.pid, scope, phase);
+      // the row's own box-score figures stay, so GP and PPG still read
       const f: Row["f"] = { ...r.f };
-      for (const [k, v] of Object.entries(u)) if (k !== "g") f[k as UsageKey] = v as number;
+      for (const k of Object.keys(f)) if (k in USAGE_LABEL) delete f[k as UsageKey];
+      f.g = u?.g ?? null;
+      if (u) for (const [k, v] of Object.entries(u)) if (k !== "g") f[k as UsageKey] = v as number;
       return { ...r, f };
     });
-  }, [usage, allTime, allPop, histPop, usg_, played, oneSeason]);
+  }, [usage, allTime, allPop, histPop, usg_, played, oneSeason, phase]);
   const population = usage ? usagePop : boxPop;
   const cols = usage ? usageCols(pos) : hist ? HIST_COLS : CUR_COLS;
   const grps = usage ? usageGrps(pos) : hist ? HIST_GRPS : CUR_GRPS;
+  /** the micro line's preferred keys; the strip itself carries every column */
   const strip = usage ? usageStrip(pos) : hist ? HIST_STRIP : CUR_STRIP;
+  const stripAll: Key[] = cols.map(c => c.id);
+  /* the lit segment scrolls into view when the key changes — a sort picked
+     from the desktop header, or a lens change, must not leave the strip
+     showing four keys and lighting none of them */
+  const stripRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    stripRef.current?.querySelector<HTMLElement>(".v3-lens button.on")
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [s.sort, usage, pos, mobile]);
 
   /* Sort the whole population, assign rank within position off that order, THEN
      filter — so RB4 is still RB4 inside the RB-only view. The ranks live in a
@@ -1170,24 +1201,20 @@ export default function Players() {
       {hist && (
         <div className="v3-filters plx-filters plx-filters2">
           {/* THE MEASURES, first: which figures the board carries. Then the
-              phase, which only the box score has — usage is regular-season
-              by construction, so its chips step aside under the lens rather
-              than promising a playoff split that does not exist. */}
+              phase, which both lenses honour: the box score's from the
+              league files, usage's from the weekly nflverse table summed
+              over the same weeks. */}
           <span className="plx-fk">Show</span>
           <button type="button" className={`chip${measure === "box" ? " on" : ""}`}
             onClick={() => setMeasure("box")}>Box score</button>
           <button type="button" className={`chip${measure === "usage" ? " on" : ""}`}
             onClick={() => setMeasure("usage")}>Usage</button>
-          {!usage && (
-            <>
-              <span className="plx-sep" />
-              <span className="plx-fk">Phase</span>
-              {PHASES.map(p => (
-                <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
-                  onClick={() => setPhase(p.id)}>{p.label}</button>
-              ))}
-            </>
-          )}
+          <span className="plx-sep" />
+          <span className="plx-fk">Phase</span>
+          {PHASES.map(p => (
+            <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
+              onClick={() => setPhase(p.id)}>{p.label}</button>
+          ))}
         </div>
       )}
 
@@ -1207,7 +1234,17 @@ export default function Players() {
           fifth is Rostered: without it the phone board could not be ordered by
           the one record a reader is most likely to want. */}
       {mobile && (
-        <div className="plx-sort">
+        <div className="plx-sort" ref={stripRef}>
+          {/* THE DIRECTION, as its own control (Max, 2026-09-16). A phone has
+              no header to click twice, so until now nothing on it could flip a
+              column; this flips the current key and nothing else. Re-tapping
+              the lit segment stays a no-op: a mis-tap that reversed the board
+              silently was the reason it never did. */}
+          <button type="button" className="plx-dir" aria-label={s.dir === -1 ? "Most first" : "Least first"}
+            title={s.dir === -1 ? "Most first — tap for least first" : "Least first — tap for most first"}
+            onClick={() => s.onSort(s.sort)}>
+            {s.dir === -1 ? "▾" : "▴"}
+          </button>
           {/* Picking a key sets the direction from the column's own default
               (descending, except a rank) rather than toggling: the strip is a
               key picker, and a mis-tap on the segment that is already lit
@@ -1224,7 +1261,7 @@ export default function Players() {
                  row here to click twice. */
               else if (RECORD_KEYS.has(k)) s.onSort(k);
             }}
-            options={strip.map(k => {
+            options={stripAll.map(k => {
               const c = colOf(k);
               const lbl = c.short ?? c.label;
               return {
@@ -1237,7 +1274,8 @@ export default function Players() {
 
       <Band
         label={usage
-          ? `Usage · ${allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}${
+          ? `Usage · ${PHASES.find(p => p.id === phase)!.label} · ${
+            allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}${
             pos === "ALL" ? " · pick a position for its own columns" : ""}`
           : hist
           ? `${PHASES.find(p => p.id === phase)!.label} · ${

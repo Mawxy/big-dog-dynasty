@@ -11,7 +11,7 @@ import { fmt, sgn, mean } from "../lib/stats";
 // WAR at the beta shell's two places (Max, 2026-09-10): the player page is a
 // beta screen now, and "0.382" was the one three-place figure left on it
 import { fmtWar, sgnWar } from "../beta/ui";
-import { fmtUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageKey } from "../lib/usage";
+import { fmtUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageKey, type UsagePhase } from "../lib/usage";
 import { splitCurve, useModel } from "../lib/model";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { leagueSeg, useLeague } from "../lib/context";
@@ -103,6 +103,8 @@ export default function Player({ pid }: { pid: string }) {
   const { meta, players, league } = useLeague();
   const nav = useNavigate();
   const [shard, setShard] = useState<PlayerShard | null | undefined>(undefined);
+  /** the usage table's window: the league's regular season, its bracket weeks, or both */
+  const [usagePhase, setUsagePhase] = useState<UsagePhase>("reg");
   const [wks, setWks] = useState<WeeklyRow[] | null>(null);
   const [abs, setAbs] = useState<Record<string, string>>(NO_ABSENCES);
   /** league-season WAR by year — the ladder fallback when there's no shard */
@@ -1091,7 +1093,10 @@ export default function Player({ pid }: { pid: string }) {
             {shard?.usage && (() => {
               const seasons = Object.keys(shard.usage!).sort((a, b) => b.localeCompare(a));
               const keys: UsageKey[] = [...(POS_USAGE[pos] ?? ["fp_exp_pg"]), "fp_diff_pg"];
-              const pooled = usageOf({ byPlayer: { [pid]: shard.usage! } }, pid, seasons);
+              const pooled = usageOf({ byPlayer: { [pid]: shard.usage! } }, pid, seasons, usagePhase);
+              const PH: { id: UsagePhase; label: string }[] = [
+                { id: "reg", label: "Regular season" }, { id: "post", label: "Playoffs" }, { id: "both", label: "Both" },
+              ];
               const cell = (row: Partial<Record<UsageKey, number>>, k: UsageKey, quiet = false) => {
                 const v = row[k];
                 return v == null ? <span className="fig quiet">—</span>
@@ -1101,7 +1106,13 @@ export default function Player({ pid }: { pid: string }) {
                 <div ref={refs.usage}>
                   <div className="band">
                     <span className="band-label">Usage and efficiency</span>
-                    <span className="band-note">NFL regular season · {pos} figures · expected points from ffopportunity</span>
+                    <span className="band-note">
+                      {/* the league's windows, the leaderboard's three chips */}
+                      {PH.map(x => (
+                        <button key={x.id} type="button" className={`chip${usagePhase === x.id ? " on" : ""}`}
+                          onClick={() => setUsagePhase(x.id)}>{x.label}</button>
+                      ))}
+                    </span>
                   </div>
                   <TScroll>
                     <table className="usage-tbl" style={{ tableLayout: "fixed", minWidth: 480 }}>
@@ -1119,11 +1130,14 @@ export default function Player({ pid }: { pid: string }) {
                       </thead>
                       <tbody>
                         {seasons.map((season, i) => {
-                          const r = shard.usage![season];
+                          // a season without this window: the row stays so the
+                          // years line up across the three chips, and reads dashes
+                          const r: Partial<Record<UsageKey, number>> & { g?: number } =
+                            shard.usage![season][usagePhase] ?? {};
                           return (
                             <tr key={season} className={i % 2 ? "zebra" : ""}>
                               <td className="t fig strong">{season}</td>
-                              <td className="n fig quiet">{r.g}</td>
+                              <td className="n fig quiet">{r.g ?? "—"}</td>
                               {keys.map((k, j) => (
                                 <td key={k} className={`n${j === 0 || k === "fp_diff_pg" ? " edge" : ""}`}>
                                   {j === 0 ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{r[k] == null ? "—" : fmtUsage(k, r[k]!)}</span> : cell(r, k)}
@@ -1150,7 +1164,8 @@ export default function Player({ pid }: { pid: string }) {
                   </TScroll>
                   <div className="tnote" style={{ padding: `12px ${gut}px 16px` }}>
                     {keys.map(k => `${USAGE_LABEL[k].short ?? USAGE_LABEL[k].label}: ${USAGE_LABEL[k].def}`).join(" · ")}
-                    {" "}Games are NFL games with a stat line, not league games; the career row is games-weighted.
+                    {" "}Windows are the league's: regular season is weeks 1–14, playoffs the bracket weeks. G is NFL games
+                    with a stat line in the window, not league games; the career row is games-weighted.
                   </div>
                 </div>
               );

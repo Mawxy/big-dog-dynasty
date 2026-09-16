@@ -32,8 +32,9 @@ export type Stream = typeof STREAMS[number];
  *  scalar model cannot express; composite over natural because Sleeper's read
  *  is the only input that knows about this season's depth charts. Mirrors
  *  DEFAULT_CURVE in scripts/curves.py — the pipeline publishes dvi.json on it. */
-/* Points since 2026-09-11 (Max): the points-first model is the site model. */
-export const DEFAULT_CURVE: MatrixCurve = "points_composite";
+/* Points from 2026-09-11 to 2026-09-16; BLEND · COMPOSITE since (Max): the
+   default the price board, DVI/CVI and every proj-WAR figure open on. */
+export const DEFAULT_CURVE: MatrixCurve = "blend_composite";
 
 export const curveOf = (m: Model, s: Stream) => `${m}_${s}` as MatrixCurve;
 export const splitCurve = (c: MatrixCurve) => {

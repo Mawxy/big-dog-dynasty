@@ -49,9 +49,11 @@ CURVES = (
 # play" as a state rather than a low number; composite over natural because
 # Sleeper's read is the only input that knows about THIS season's depth charts,
 # and neither model can see a trade or a rookie ahead of him.
-# Points over blend since 2026-09-11: the points-first model is the site
-# model; the scalar and analog arms are kept as comparison lenses.
-DEFAULT_CURVE = "points_composite"
+# Points over blend from 2026-09-11 to 2026-09-16; back to BLEND · COMPOSITE
+# since (Max, 2026-09-16). The points-first curve stays a comparison lens.
+# Mirrors DEFAULT_CURVE in src/lib/model.ts — the two must agree, or the
+# board opens on one curve while dvi.json was published on another.
+DEFAULT_CURVE = "blend_composite"
 
 MATRIX_FILE = "projections_matrix.json"
 FALLBACK_FILE = "projections.json"

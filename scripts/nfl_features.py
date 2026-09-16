@@ -268,6 +268,84 @@ def season_features(season, nfl):
     return rows
 
 
+# ---- the weekly table (Max, 2026-09-16) ------------------------------------
+# The season file above pools weeks 1-18, which is right for the projection
+# models and wrong beside a league PPG that stops at week 14: a receiver whose
+# only catches came in weeks 15-18 read 0.00 PPG next to a +5 "vs expected".
+# The site wants the SAME figures over the league's windows — regular season,
+# playoffs, both — and those windows are the league's, not nflverse's, so this
+# writes the per-player-week inputs and lets scripts/usage_stats.py sum them
+# over whatever weeks the league says. Touched weeks only: a dressed week with
+# no attempt, carry or target adds nothing to any figure here.
+WEEKLY_COLS = [
+    "player_id", "name", "pos", "team", "season", "week",
+    "att", "cmp", "pass_epa", "sacks", "cpoe",
+    "car", "tgt", "rec", "rec_ay", "tgt_share", "ay_share",
+    "team_car", "team_rb_touch", "fp_ppr", "fp_exp", "fp_act",
+]
+
+
+def weekly_features(season, nfl):
+    """One row per QB/RB/WR/TE per regular-season week he touched the ball."""
+    import polars as pl
+    stats = nfl.load_player_stats([season], summary_level="week")
+    stats = stats.filter(pl.col("season_type") == "REG")
+    reg_last = int(stats["week"].max()) if stats.height else 18
+    team_car = (stats.group_by(["team", "week"])
+                .agg(pl.col("carries").fill_null(0).sum().alias("_team_car")))
+    stats = stats.join(team_car, on=["team", "week"], how="left")
+    rb_touch = (stats.filter(pl.col("position") == "RB")
+                .group_by(["team", "week"])
+                .agg((pl.col("carries").fill_null(0) + pl.col("receptions").fill_null(0))
+                     .sum().alias("_team_rb_touch")))
+    stats = stats.join(rb_touch, on=["team", "week"], how="left")
+    stats = stats.filter(pl.col("position").is_in(list(CORE)))
+    touched = (pl.col("attempts").fill_null(0) + pl.col("carries").fill_null(0)
+               + pl.col("targets").fill_null(0)) > 0
+    stats = stats.filter(touched)
+
+    opp = {}
+    try:
+        o = nfl.load_ff_opportunity([season], stat_type="weekly")
+        o = o.filter(pl.col("week") <= reg_last)
+        for r in o.select(["player_id", "week", "total_fantasy_points_exp",
+                           "total_fantasy_points"]).to_dicts():
+            opp[(r["player_id"], r["week"])] = r
+    except Exception as e:                                  # noqa: BLE001
+        print(f"  ! ff_opportunity unavailable for {season} (weekly): {e}")
+
+    have = set(stats.columns)
+    def g(r, k):
+        v = r.get(k) if k in have else None
+        return v if v is not None and v == v else None
+    rows = []
+    for r in stats.to_dicts():
+        pid = r["player_id"]
+        if not pid:
+            continue
+        o = opp.get((pid, r["week"]))
+        rows.append({
+            "player_id": pid, "name": r["player_display_name"], "pos": r["position"],
+            "team": r["team"], "season": season, "week": r["week"],
+            "att": int(g(r, "attempts") or 0), "cmp": int(g(r, "completions") or 0),
+            "pass_epa": round(g(r, "passing_epa") or 0.0, 3),
+            "sacks": int(g(r, "sacks_suffered") or 0),
+            "cpoe": "" if g(r, "passing_cpoe") is None else round(g(r, "passing_cpoe"), 3),
+            "car": int(g(r, "carries") or 0), "tgt": int(g(r, "targets") or 0),
+            "rec": int(g(r, "receptions") or 0),
+            "rec_ay": round(g(r, "receiving_air_yards") or 0.0, 1),
+            "tgt_share": "" if g(r, "target_share") is None else round(g(r, "target_share"), 4),
+            "ay_share": "" if g(r, "air_yards_share") is None else round(g(r, "air_yards_share"), 4),
+            "team_car": int(r.get("_team_car") or 0),
+            "team_rb_touch": int(r.get("_team_rb_touch") or 0),
+            "fp_ppr": round(g(r, "fantasy_points_ppr") or 0.0, 1),
+            "fp_exp": round(o["total_fantasy_points_exp"] or 0.0, 2) if o else "",
+            "fp_act": round(o["total_fantasy_points"] or 0.0, 2) if o else "",
+        })
+    rows.sort(key=lambda x: (x["player_id"], x["week"]))
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser(description="nflverse -> per-season skill features")
     ap.add_argument("--start", type=int, default=2014)
@@ -291,6 +369,13 @@ def main():
             w.writerows(rows)
         with_opp = sum(1 for r in rows if r["fp_exp"] != "")
         print(f"  {len(rows)} player-seasons · {with_opp} with expected points → {path}")
+        wrows = weekly_features(season, nfl)
+        wpath = out / f"features_weekly_{season}.csv"
+        with open(wpath, "w", newline="", encoding="utf-8") as f:
+            w = csv.DictWriter(f, fieldnames=WEEKLY_COLS)
+            w.writeheader()
+            w.writerows(wrows)
+        print(f"  {len(wrows)} player-weeks → {wpath}")
     print(f"done → {out}")
 
 
