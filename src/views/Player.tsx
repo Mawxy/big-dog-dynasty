@@ -11,6 +11,7 @@ import { fmt, sgn, mean } from "../lib/stats";
 // WAR at the beta shell's two places (Max, 2026-09-10): the player page is a
 // beta screen now, and "0.382" was the one three-place figure left on it
 import { fmtWar, sgnWar } from "../beta/ui";
+import { fmtUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageKey } from "../lib/usage";
 import { splitCurve, useModel } from "../lib/model";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { leagueSeg, useLeague } from "../lib/context";
@@ -255,6 +256,7 @@ export default function Player({ pid }: { pid: string }) {
   const refs = {
     projection: useRef<HTMLDivElement>(null),
     career: useRef<HTMLDivElement>(null),
+    usage: useRef<HTMLDivElement>(null),
     ownership: useRef<HTMLDivElement>(null),
     market: useRef<HTMLDivElement>(null),
     trades: useRef<HTMLDivElement>(null),
@@ -460,6 +462,7 @@ export default function Player({ pid }: { pid: string }) {
     <>
       {proj && <button onClick={() => goto("projection")}>Projection</button>}
       <button onClick={() => goto("career")}>Career</button>
+      {shard?.usage && <button onClick={() => goto("usage")}>Usage</button>}
       {events.length > 0 && <button onClick={() => goto("ownership")}>Ownership</button>}
       {market.length > 0 && <button onClick={() => goto("market")}>Market value</button>}
       {recentQ.data && <button onClick={() => goto("trades")}>Trades</button>}
@@ -1077,6 +1080,81 @@ export default function Player({ pid }: { pid: string }) {
                   </div>
                 </>}
             </div>
+
+            {/* ---- usage and efficiency ----
+                THE NFLVERSE LINE (Max, 2026-09-16): what happened around the
+                points — the position's own five figures, one row per NFL
+                season, dense enough to hold all five at once on a phone
+                (the table scrolls sideways rather than dropping a column).
+                Expected points first, then the four that say how the
+                opportunity came; the career row is games-weighted. */}
+            {shard?.usage && (() => {
+              const seasons = Object.keys(shard.usage!).sort((a, b) => b.localeCompare(a));
+              const keys: UsageKey[] = [...(POS_USAGE[pos] ?? ["fp_exp_pg"]), "fp_diff_pg"];
+              const pooled = usageOf({ byPlayer: { [pid]: shard.usage! } }, pid, seasons);
+              const cell = (row: Partial<Record<UsageKey, number>>, k: UsageKey, quiet = false) => {
+                const v = row[k];
+                return v == null ? <span className="fig quiet">—</span>
+                  : <span className={`fig${quiet ? " quiet" : ""}`}>{fmtUsage(k, v)}</span>;
+              };
+              return (
+                <div ref={refs.usage}>
+                  <div className="band">
+                    <span className="band-label">Usage and efficiency</span>
+                    <span className="band-note">NFL regular season · {pos} figures · expected points from ffopportunity</span>
+                  </div>
+                  <TScroll>
+                    <table className="usage-tbl" style={{ tableLayout: "fixed", minWidth: 480 }}>
+                      <thead>
+                        <tr>
+                          <th scope="col" className="t" style={{ width: "13%" }}>Season</th>
+                          <th scope="col" className="n" style={{ width: "8%" }}>G</th>
+                          {keys.map((k, i) => (
+                            <th key={k} scope="col" className={`n${i === 0 ? " key edge" : k === "fp_diff_pg" ? " edge" : ""}`}
+                              title={USAGE_LABEL[k].def}>
+                              {USAGE_LABEL[k].short ?? USAGE_LABEL[k].label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {seasons.map((season, i) => {
+                          const r = shard.usage![season];
+                          return (
+                            <tr key={season} className={i % 2 ? "zebra" : ""}>
+                              <td className="t fig strong">{season}</td>
+                              <td className="n fig quiet">{r.g}</td>
+                              {keys.map((k, j) => (
+                                <td key={k} className={`n${j === 0 || k === "fp_diff_pg" ? " edge" : ""}`}>
+                                  {j === 0 ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{r[k] == null ? "—" : fmtUsage(k, r[k]!)}</span> : cell(r, k)}
+                                </td>
+                              ))}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                      {pooled && seasons.length > 1 && (
+                        <tfoot>
+                          <tr className="tot">
+                            <td className="t fig strong">Career<span className="tot-yrs">{seasons.length} yrs</span></td>
+                            <td className="n fig">{pooled.g}</td>
+                            {keys.map((k, j) => (
+                              <td key={k} className={`n${j === 0 || k === "fp_diff_pg" ? " edge" : ""}`}>
+                                {j === 0 ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{pooled[k] == null ? "—" : fmtUsage(k, pooled[k]!)}</span> : cell(pooled, k, true)}
+                              </td>
+                            ))}
+                          </tr>
+                        </tfoot>
+                      )}
+                    </table>
+                  </TScroll>
+                  <div className="tnote" style={{ padding: `12px ${gut}px 16px` }}>
+                    {keys.map(k => `${USAGE_LABEL[k].short ?? USAGE_LABEL[k].label}: ${USAGE_LABEL[k].def}`).join(" · ")}
+                    {" "}Games are NFL games with a stat line, not league games; the career row is games-weighted.
+                  </div>
+                </div>
+              );
+            })()}
 
             {events.length > 0 && (
               <div ref={refs.ownership}>

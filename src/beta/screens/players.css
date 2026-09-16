@@ -115,6 +115,9 @@
    a word in front of them they read as two more things to filter by rather
    than as two states of one switch. */
 .plx-filters2 { padding-top: 0; padding-bottom: 8px; }
+/* a breath between the two chip groups on the second row (teams.css's
+   .tmx-sep), so "Usage Regular season" does not read as one control */
+.plx-filters2 .plx-sep { flex: 0 0 1px; align-self: stretch; margin: 0 5px; background: var(--rule); }
 .plx-filters2 .plx-fk {
   flex: 0 0 auto;
   font: 600 9.5px/1 var(--cond);

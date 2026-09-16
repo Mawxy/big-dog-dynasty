@@ -481,6 +481,9 @@ export interface PlayerShard {
   knn?: KnnShard | null;
   /** his row from projections_points.json — absent when that arm has no read */
   pts?: PointsProj | null;
+  /** his usage-and-efficiency rows by season (scripts/usage_stats.py, folded
+   *  in by shard_players.py) — absent when nflverse has no line for him */
+  usage?: Record<string, import("./usage").UsageRow>;
 }
 
 /** data/insights.json — written per-franchise outlooks, keyed by roster_id */

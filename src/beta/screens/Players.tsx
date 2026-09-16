@@ -39,6 +39,9 @@ import WeekGrid from "../../components/WeekGrid";
 import { useMobile } from "../../lib/useWidth";
 import ScopeControl, { ALL_SEASONS, useScope } from "../Scope";
 import {
+  fmtUsage, loadUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageIndex, type UsageKey,
+} from "../../lib/usage";
+import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
   useBetaPath, useSort,
 } from "../ui";
@@ -90,7 +93,9 @@ type Key =
   /** the two won-lost records — see lib/records. They print as "12-2", which is
    *  why every figure on this board reaches the cell through `cellOf` rather
    *  than FMT alone, and they sort two ways: by wins, then by losses. */
-  | "wls" | "wlr";
+  | "wls" | "wlr"
+  /** the usage lens's figures — lib/usage, keyed by the nflverse column name */
+  | UsageKey;
 
 /** the keys whose header cycles WINS -> LOSSES rather than flipping direction */
 const RECORD_KEYS = new Set<Key>(["wls", "wlr"]);
@@ -158,6 +163,42 @@ const HIST_GRPS = [
   { label: "Maxalytics", span: 2 },
 ];
 
+/* THE USAGE LENS (Max, 2026-09-16): the same population, a different set of
+   measures — the lens-control pattern, behind a chip beside the phase chips.
+   Two columns everyone shares (expected PPG, and actual over it), then the
+   POSITION'S OWN FOUR, which exist only once a position chip narrows the board
+   to one: a running back's carry share and a receiver's aDOT are not one
+   column. GP leads, because every figure here is a per-game rate and the sample
+   is the first thing to read it against. */
+const USAGE_COMMON: Col[] = [
+  { id: "gp", label: "GP", width: "6%", edge: true },
+  { id: "ppg", label: "PPG", width: "8%" },
+  { id: "fp_exp_pg", label: "Exp PPG", short: "EXP", width: "9%", edge: true },
+  { id: "fp_diff_pg", label: "Vs exp", short: "VS EXP", width: "9%" },
+];
+function usageCols(pos: string): Col[] {
+  const own = (POS_USAGE[pos] ?? []).filter(k => k !== "fp_exp_pg");
+  return [
+    ...USAGE_COMMON,
+    ...own.map((k, i): Col => ({
+      id: k, label: USAGE_LABEL[k].label, short: USAGE_LABEL[k].short, width: "9%", edge: i === 0,
+    })),
+  ];
+}
+function usageGrps(pos: string) {
+  const own = (POS_USAGE[pos] ?? []).length - 1;
+  return [
+    { label: "Production", span: 2 },
+    { label: "Expected", span: 2 },
+    ...(own > 0 ? [{ label: `${pos} usage`, span: own }] : []),
+  ];
+}
+function usageStrip(pos: string): Key[] {
+  const own = (POS_USAGE[pos] ?? []).filter(k => k !== "fp_exp_pg").slice(0, 2);
+  const keys: Key[] = ["fp_exp_pg", "fp_diff_pg", ...own, "ppg"];
+  return keys.slice(0, own.length ? 4 : 3);
+}
+
 /**
  * THE PHONE SORT STRIP'S KEYS — four is the ceiling at 390px.
  *
@@ -189,6 +230,12 @@ const FMT: Record<Key, (v: number) => string> = {
   // value is a sort key, not a figure — but the map is total over Key so that
   // adding a column cannot silently skip a formatter
   wls: v => String(v), wlr: v => String(v),
+  fp_exp_pg: v => fmtUsage("fp_exp_pg", v), fp_diff_pg: v => fmtUsage("fp_diff_pg", v),
+  att_pg: v => fmtUsage("att_pg", v), car_pg: v => fmtUsage("car_pg", v),
+  epa_db: v => fmtUsage("epa_db", v), cpoe: v => fmtUsage("cpoe", v),
+  tgt_pg: v => fmtUsage("tgt_pg", v), tgt_share: v => fmtUsage("tgt_share", v),
+  ay_share: v => fmtUsage("ay_share", v), adot: v => fmtUsage("adot", v),
+  car_share: v => fmtUsage("car_share", v), rb_touch_share: v => fmtUsage("rb_touch_share", v),
 };
 
 /* ========================================================================
@@ -237,6 +284,12 @@ const DEF: Record<Key, string> = {
   wlr: "Won-lost as a ROSTERED player — every week he was owned, started or "
     + "benched. The gap between this and Started is how often he was owned and "
     + "left out.",
+  fp_exp_pg: USAGE_LABEL.fp_exp_pg.def, fp_diff_pg: USAGE_LABEL.fp_diff_pg.def,
+  att_pg: USAGE_LABEL.att_pg.def, car_pg: USAGE_LABEL.car_pg.def,
+  epa_db: USAGE_LABEL.epa_db.def, cpoe: USAGE_LABEL.cpoe.def,
+  tgt_pg: USAGE_LABEL.tgt_pg.def, tgt_share: USAGE_LABEL.tgt_share.def,
+  ay_share: USAGE_LABEL.ay_share.def, adot: USAGE_LABEL.adot.def,
+  car_share: USAGE_LABEL.car_share.def, rb_touch_share: USAGE_LABEL.rb_touch_share.def,
 };
 
 /** where the postseason means something different by the same name */
@@ -546,6 +599,12 @@ export default function Players() {
      default because it is fourteen weeks against three and because it is the
      only phase in which the board's own WAR is defined league-wide. */
   const [phase, setPhase] = useState<Phase>("reg");
+  /* WHICH MEASURES (Max, 2026-09-16): the box score, or usage and efficiency
+     from nflverse. A lens over the same rows, not a filter — so it swaps the
+     figure columns and leaves the population alone. Usage is a regular-season
+     fact (nflverse scores REG only), so the phase chips stand down under it. */
+  const [measure, setMeasure] = useState<"box" | "usage">("box");
+  const usage = hist && measure === "usage";
   const [keyOpen, setKeyOpen] = useState(false);
 
   /* 900px, not style.css's 640px: the beta shell's own desktop breakpoint is
@@ -560,13 +619,14 @@ export default function Players() {
      drop to a default silently or apply a key the other tense does not have. */
   const cur = useSort<Key>("dvi");
   const hst = useSort<Key>("war");
-  const s = hist ? hst : cur;
+  const usg = useSort<Key>("fp_exp_pg");
+  const s = usage ? usg : hist ? hst : cur;
 
   // The tense changing re-states every figure in the row, so an open drawer
   // would be answering the previous question. Sorting and filtering deliberately
   // do NOT close it: those re-order and narrow the same rows, and a drawer that
   // shut on every keystroke would make the search box unusable next to it.
-  const tense = hist ? `h:${season}:${phase}` : "c";
+  const tense = hist ? `h:${season}:${phase}:${measure}` : "c";
   useEffect(() => { setOpen(null); }, [tense]);
 
   /* ---- the three whole-league indexes the Stats board needs ---------------
@@ -594,6 +654,15 @@ export default function Players() {
 
   const [wins, setWins] = useState<WinShareIndex | null>(null);
   const [wkPts, setWkPts] = useState<WeekPointsIndex | null>(null);
+  /* the usage files, fetched the first time the lens is picked and never on
+     the box-score board: five small files nobody asked for otherwise */
+  const [usg_, setUsg] = useState<UsageIndex | null>(null);
+  useEffect(() => {
+    if (!usage || !played.length) return;
+    let live = true;
+    loadUsage(played).then(u => { if (live) setUsg(u); }).catch(() => {});
+    return () => { live = false; };
+  }, [usage, played]);
 
   /* THE POOLED WEEK SCORES, ON DRAWER OPEN. Half a megabyte across four
      seasons, so it is not fetched with the board and not fetched at all in the
@@ -943,14 +1012,32 @@ export default function Players() {
 
   /* ---- order, rank, filter --------------------------------------------- */
 
-  const population = hist
+  const boxPop = hist
     ? (phase === "both" ? bothPop
       : phase === "post" ? postPop
         : allTime ? allPop : histPop)
     : curPop;
-  const cols = hist ? HIST_COLS : CUR_COLS;
-  const grps = hist ? HIST_GRPS : CUR_GRPS;
-  const strip = hist ? HIST_STRIP : CUR_STRIP;
+  /* THE USAGE LENS'S ROWS: the regular-season population with each player's
+     usage figures merged onto `f` — one season's row as it stands, a
+     games-weighted pool over all-time. Merged here rather than in the three
+     builders above so the lens is one line of difference, not three. */
+  const usagePop = useMemo<Row[] | null>(() => {
+    if (!usage) return null;
+    const base = allTime ? allPop : histPop;
+    if (!base) return null;
+    const scope = allTime ? played : oneSeason ? [oneSeason] : [];
+    return base.map(r => {
+      const u = usageOf(usg_, r.pid, scope);
+      if (!u) return r;
+      const f: Row["f"] = { ...r.f };
+      for (const [k, v] of Object.entries(u)) if (k !== "g") f[k as UsageKey] = v as number;
+      return { ...r, f };
+    });
+  }, [usage, allTime, allPop, histPop, usg_, played, oneSeason]);
+  const population = usage ? usagePop : boxPop;
+  const cols = usage ? usageCols(pos) : hist ? HIST_COLS : CUR_COLS;
+  const grps = usage ? usageGrps(pos) : hist ? HIST_GRPS : CUR_GRPS;
+  const strip = usage ? usageStrip(pos) : hist ? HIST_STRIP : CUR_STRIP;
 
   /* Sort the whole population, assign rank within position off that order, THEN
      filter — so RB4 is still RB4 inside the RB-only view. The ranks live in a
@@ -962,6 +1049,12 @@ export default function Players() {
      picks the by-losses one out of `alt`. Every other column keeps the ordinary
      flip. */
   const byLosses = RECORD_KEYS.has(s.sort) && s.dir === 1;
+  /* A POSITION CHANGE CAN ORPHAN THE USAGE SORT: carry share is an RB column
+     and nothing else's. Sorting by a key the board no longer shows would order
+     the rows invisibly, so the sort falls back to the common key. */
+  useEffect(() => {
+    if (usage && !cols.some(c => c.id === s.sort)) s.onSort("fp_exp_pg");
+  }, [usage, cols, s]);
 
   const ordered = useMemo(() => {
     if (!population) return null;
@@ -1010,7 +1103,7 @@ export default function Players() {
   }, [strip, s.sort, hist]);
 
   const ready = hist
-    ? rows != null
+    ? rows != null && (!usage || usg_ != null)
     : rows != null && ![dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ].some(x => x.loading);
 
   /* A FAILED FETCH IS NOT A SLOW ONE. Without this the board says Loading…
@@ -1076,11 +1169,25 @@ export default function Players() {
           it should not start off-screen. */}
       {hist && (
         <div className="v3-filters plx-filters plx-filters2">
-          <span className="plx-fk">Phase</span>
-          {PHASES.map(p => (
-            <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
-              onClick={() => setPhase(p.id)}>{p.label}</button>
-          ))}
+          {/* THE MEASURES, first: which figures the board carries. Then the
+              phase, which only the box score has — usage is regular-season
+              by construction, so its chips step aside under the lens rather
+              than promising a playoff split that does not exist. */}
+          <span className="plx-fk">Show</span>
+          <button type="button" className={`chip${measure === "box" ? " on" : ""}`}
+            onClick={() => setMeasure("box")}>Box score</button>
+          <button type="button" className={`chip${measure === "usage" ? " on" : ""}`}
+            onClick={() => setMeasure("usage")}>Usage</button>
+          {!usage && (
+            <>
+              <span className="plx-sep" />
+              <span className="plx-fk">Phase</span>
+              {PHASES.map(p => (
+                <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
+                  onClick={() => setPhase(p.id)}>{p.label}</button>
+              ))}
+            </>
+          )}
         </div>
       )}
 
@@ -1129,7 +1236,10 @@ export default function Players() {
       )}
 
       <Band
-        label={hist
+        label={usage
+          ? `Usage · ${allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}${
+            pos === "ALL" ? " · pick a position for its own columns" : ""}`
+          : hist
           ? `${PHASES.find(p => p.id === phase)!.label} · ${
             allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}`
           : `Price · ${rosterSeason} rosters`}

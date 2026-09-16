@@ -115,6 +115,15 @@ def main():
     pts = {pid: {k: r[k] for k in PTS_KEYS if k in r}
            for pid, r in (ptsf.get("players") or {}).items()}
     reachable = set(load(out / "players_min.json") or {})
+    # THE USAGE FIGURES (Max, 2026-09-16): each season's usage.json
+    # (usage_stats.py) folded into the shard as {season: row}, so the player
+    # page's usage-and-efficiency table needs no per-season fetches
+    meta = load(out / "meta.json") or {}
+    usage = {}
+    for season in meta.get("seasons") or []:
+        u = load(out / season / "usage.json") or {}
+        for pid, row in u.items():
+            usage.setdefault(pid, {})[season] = row
 
     pdir = out / "player"
     # The PROJECTION sources decide whether a rebuild is legitimate at all...
@@ -148,6 +157,9 @@ def main():
         pt = pts.get(pid)
         if pt:
             rec["pts"] = pt
+        us = usage.get(pid)
+        if us:
+            rec["usage"] = us
         # same serialization as ever — compact, no trailing newline — only now
         # it lands whole or not at all
         atomic_write(pdir / f"{pid}.json",

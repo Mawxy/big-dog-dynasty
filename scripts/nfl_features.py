@@ -24,6 +24,10 @@ Every rate is a SEASON rate (season totals divided), not a mean of weekly
 rates, so a two-target game does not count as much as a twelve-target one.
 The exceptions are target_share / air_yards_share / WOPR, which nflverse only
 ships per game; those are the mean over the weeks he had a stat line.
+car_share is ours (nflverse has no carry share): his season carries over his
+team's carries in the weeks he had a stat line, all positions in the
+denominator. rb_touch_share (RBs only) is his carries + receptions over the
+carries + receptions of every RB on his team in those same weeks.
 
 AVAILABILITY (Max, 2026-09-11): the history files cannot tell a quarterback
 who lost his job from one who tore a ligament — both show five games. The
@@ -91,6 +95,20 @@ def season_features(season, nfl):
     stats = nfl.load_player_stats([season], summary_level="week")
     stats = stats.filter(pl.col("season_type") == "REG")
     reg_last = int(stats["week"].max()) if stats.height else 18
+    # team carries per game, from EVERY player on the roster (fullbacks and
+    # gadget WRs included) BEFORE the position filter — the denominator for
+    # car_share, which nflverse does not ship the way it ships target_share
+    team_car = (stats.group_by(["team", "week"])
+                .agg(pl.col("carries").fill_null(0).sum().alias("_team_car")))
+    stats = stats.join(team_car, on=["team", "week"], how="left")
+    # RB touches per game: carries + receptions by the team's running backs
+    # (position == RB; fullbacks are not RBs here) — denominator for
+    # rb_touch_share, which is only meaningful for a running back
+    rb_touch = (stats.filter(pl.col("position") == "RB")
+                .group_by(["team", "week"])
+                .agg((pl.col("carries").fill_null(0) + pl.col("receptions").fill_null(0))
+                     .sum().alias("_team_rb_touch")))
+    stats = stats.join(rb_touch, on=["team", "week"], how="left")
     stats = stats.filter(pl.col("position").is_in(list(CORE)))
 
     have = set(stats.columns)
@@ -113,6 +131,17 @@ def season_features(season, nfl):
                  ((pl.col("passing_cpoe") * pl.col("attempts")).sum()
                   / pl.col("attempts").sum()).alias("cpoe")
                  if "passing_cpoe" in have else pl.lit(None).alias("cpoe"),
+                 # season carry share: his carries over his team's carries in
+                 # the weeks he had a stat line (a season rate, unlike the
+                 # weekly-mean tgt_share, because we own the denominator)
+                 (pl.col("carries").fill_null(0).filter(pl.col("_touched")).sum()
+                  / pl.col("_team_car").filter(pl.col("_touched")).sum()).alias("car_share"),
+                 # RB touch share: his carries + receptions over his team's
+                 # RB-room carries + receptions in the weeks he had a stat line
+                 ((pl.col("carries").fill_null(0) + pl.col("receptions").fill_null(0))
+                  .filter(pl.col("_touched")).sum()
+                  / pl.col("_team_rb_touch").fill_null(0).filter(pl.col("_touched")).sum()
+                  ).alias("rb_touch_share"),
                  *[pl.col(c).sum().alias(c) for c in sums],
                  *[pl.col(c).filter(pl.col("_touched")).mean().alias(c) for c in means]]))
 
@@ -170,6 +199,12 @@ def season_features(season, nfl):
             # ---- usage ----
             "att_pg": safe_div(att, r["games"], 2),
             "car_pg": safe_div(car, r["games"], 2),
+            # NaN when his team never ran — polars' 0/0 — and NaN is not a figure
+            "car_share": round(r["car_share"], 4) if r.get("car_share") is not None and r["car_share"] == r["car_share"] else "",
+            # running backs only — a QB's share of the RB room is not a figure
+            "rb_touch_share": (round(r["rb_touch_share"], 4)
+                               if r["pos"] == "RB" and r.get("rb_touch_share") is not None
+                               and r["rb_touch_share"] == r["rb_touch_share"] else ""),
             "tgt_pg": safe_div(tgt, r["games"], 2),
             "tgt_share": round(r["target_share"], 4) if r.get("target_share") is not None else "",
             "ay_share": round(r["air_yards_share"], 4) if r.get("air_yards_share") is not None else "",

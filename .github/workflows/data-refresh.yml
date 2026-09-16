@@ -174,6 +174,25 @@ jobs:
       # Its other inputs all land earlier — projections.json (project_war),
       # proj_sleeper.json (fetch_projections) and players_min.json
       # (build_site_data) — so the move is safe in both directions.
+      # ---- usage and efficiency (Max, 2026-09-16) ---------------------------
+      # The nflverse skill features on the site. Past seasons' CSVs are
+      # war-history.yml's and are not rebuilt here; the ROSTER season's line is
+      # the one that moves every week, so it alone is refreshed nightly (one
+      # season, ~20s) and copied beside the others. A failed nflverse fetch is
+      # a warning, not a failed run: usage_stats.py reads whatever CSVs exist.
+      - name: Install nflreadpy (current-season usage)
+        run: pip install nflreadpy
+      - name: Current-season skill features (usage, efficiency, expected points)
+        run: |
+          Y=$(python -c "import json; r=json.load(open('data/leagues.json')); print(next(l for l in r['leagues'] if l['key']==r['default'])['rosterSeason'])")
+          if python scripts/nfl_features.py --start "$Y" --end "$Y" --out nfl_history_data/features \
+             && [ -s "nfl_history_data/features/features_$Y.csv" ]; then
+            cp "nfl_history_data/features/features_$Y.csv" nfl_history/
+          else
+            echo "::warning title=Usage not refreshed::nfl_features.py failed for $Y — usage.json is built from the last committed CSV"
+          fi
+      - name: Usage and efficiency for the site (usage.json per season)
+        run: python scripts/usage_stats.py --out data
       - name: Shard per-player projections for the site
         run: python scripts/shard_players.py --out data
       # ONE step, not two: index_models.py runs blend_values and contender_index
@@ -207,7 +226,10 @@ jobs:
           # are this pipeline's entire committed surface (verified against its
           # commit history) — data/leagues.json from build_site_data, values.json
           # written back by value_bridge, and the league tree itself.
-          PATHS="data/leagues data/leagues.json data/values.json"
+          # …plus the roster season's features CSV, which the usage step above
+          # refreshes nightly (war-history.yml owns the other years; same
+          # concurrency group, so the two never stage over each other).
+          PATHS="data/leagues data/leagues.json data/values.json nfl_history/features_*.csv"
           # Files under data/ this workflow must never touch: every one is owned
           # by a crawl (crawl-signals, crawl-drafts, crawl-outcomes, or the
           # crawl-trades movers job), which is a different concurrency group and

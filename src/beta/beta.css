@@ -967,6 +967,10 @@
    cells are .fig in the sans face */
 .v3 .draft-screen td.fig { font: 500 13.5px/1.4 var(--mono); }
 .v3 .draft-screen .screen-note b { font: 700 13px/1 var(--mono); }
+/* the player page's usage table, in the shell's figure face — the Draft
+   pages' re-point, one table further */
+.v3 .usage-tbl td.fig, .v3 .usage-tbl .head-fig { font: 600 13.5px/1.3 var(--mono); }
+.v3 .usage-tbl td.fig.quiet { font-weight: 400; }
 @media (min-width: 900px) {
   .v3 .draft-screen .heat2 .cell { font-size: 16px; }
   .v3 .draft-screen .dtbl td .v { font-size: 15px; }
