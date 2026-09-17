@@ -37,7 +37,7 @@ import { boxStats } from "../../components/BoxMarks";
 // two shells cannot disagree about what a bye looks like
 import WeekGrid from "../../components/WeekGrid";
 import { useMobile } from "../../lib/useWidth";
-import ScopeControl, { ALL_SEASONS, useScope } from "../Scope";
+import { ALL_SEASONS, useScope, type ScopeSel } from "../Scope";
 import {
   fmtUsage, loadUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageIndex, type UsageKey,
 } from "../../lib/usage";
@@ -47,8 +47,8 @@ import {
 } from "../filters";
 import FilterSheet from "../FilterSheet";
 import {
-  Band, DataError, fmtWar, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
-  useBetaPath, useSort,
+  Band, DataError, fmtWar, IdCell, LensStrip, NUL, Sheet, SheetRow, Spine, sortBy,
+  TapRow, Th, useBetaPath, useSort,
 } from "../ui";
 import "./players.css";
 
@@ -601,11 +601,6 @@ export default function Players() {
   const allTime = season === ALL_SEASONS;
   /** the single season a per-season query should read, or null in all-time */
   const oneSeason = hist && !allTime ? season : null;
-  /* No champion/record note on the picker rows. It would be the right thing to
-     show there and it costs a 217 KB franchises.json fetch this screen makes
-     for nothing else; the League screen already holds that file and is where
-     the note earns itself. */
-  const seasons = useMemo(() => played.map(id => ({ id })), [played]);
 
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
@@ -645,6 +640,11 @@ export default function Players() {
    *  built; the chip says Maxalytics (Max, 2026-09-17). */
   const usage = hist && measure === "usage";
   const [keyOpen, setKeyOpen] = useState(false);
+  /* THE VIEW SHEET (Max, 2026-09-17): tense, season, phase and lens, behind
+     the band. See the ViewSheet component at the foot of this file. */
+  const [viewOpen, setViewOpen] = useState(false);
+  /* the search box, which is a row only while it is being used */
+  const [findOpen, setFindOpen] = useState(false);
 
   /* 900px, not style.css's 640px: the beta shell's own desktop breakpoint is
      where the nav bar becomes a rail and the tables gain their padding, and a
@@ -1262,77 +1262,69 @@ export default function Players() {
         </span>
       </div>
 
-      {/* TWO TABS: VALUE AND STATS (Max, 2026-09-15). The left segment's
-          default label is "Current", which named a TENSE — but neither segment
-          on this board is a tense, they are two kinds of figure, and "Current"
-          against "Stats" read as though the right one were the past. It is the
-          price board, so it says so.
+      {/* ONE ROW OF CONTROLS, NOT SIX (Max, 2026-09-17).
 
-          `pickOnReturn` spends the Stats tap on the season being played
-          (`seasons[0]` — `played` is every season newest first, the current one
-          included) and the tap after it on the picker. Opening a sheet over
-          the price board meant the first tap on Stats showed no stats at
-          all. */}
-      <ScopeControl value={scope} onChange={setScope} seasons={seasons}
-        currentLabel="Value" historyLabel="Stats" allTime pickOnReturn />
+          This screen had nine rows stacked over it before a reader saw a
+          single player: the tense, the season, Show, Phase, the position
+          chips, the search box, Filter, the sort strip and the band. Eleven
+          controls, every one of them the same bordered chip, and the first row
+          of the table was 350px down a 812px phone.
 
-      {/* WHICH HALF OF THE SEASON, on its own row and only in the Stats tense.
-          It narrows the POPULATION the way the position chips do — it does not
-          re-order anything — so it reads as chips and takes the same `--sel`
-          fill, and the accent stays where it has always been, on the sort. Its
-          own row rather than two more chips appended to the one below: on a
-          375px scroller the position filter is the one every reader uses, and
-          it should not start off-screen. */}
-      {hist && (
-        <>
-          {/* THE MEASURES, first: which figures the board carries. Then the
-              phase on its own row (Max, 2026-09-17: stacked, not side by
-              side), which both lenses honour: the box score's from the
-              league files, Maxalytics' from the weekly nflverse table summed
-              over the same weeks. Two rows with the same key-and-chips shape
-              read as two switches; one row with a divider read as seven
-              things to filter by. */}
-          <div className="v3-filters plx-filters plx-filters2">
-            <span className="plx-fk">Show</span>
-            <button type="button" className={`chip${measure === "box" ? " on" : ""}`}
-              onClick={() => setMeasure("box")}>Box score</button>
-            <button type="button" className={`chip${measure === "usage" ? " on" : ""}`}
-              onClick={() => setMeasure("usage")}>Maxalytics</button>
-          </div>
-          <div className="v3-filters plx-filters plx-filters2">
-            <span className="plx-fk">Phase</span>
-            {PHASES.map(p => (
-              <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
-                onClick={() => setPhase(p.id)}>{p.label}</button>
-            ))}
-          </div>
-        </>
-      )}
+          They were never one family. Some of them change WHICH PLAYERS are
+          listed — position, search, the criteria — and the rest change WHAT
+          THE COLUMNS SAY — the tense, the season, the phase, the lens. Wearing
+          one costume they read as nine things to filter by.
 
-      <div className="v3-filters plx-filters">
+          So the first family keeps a row, and the second collapses into the
+          BAND, which already sat above the table saying what it was looking
+          at. It now says all four of them and opens the sheet that changes
+          them: a control that states where you are, which a row of chips
+          cannot do — chips show you the options and leave you to work out
+          which one is in force. */}
+      <div className="v3-filters plx-filters plx-row1">
         {POS_CHIPS.map(p => (
           <button key={p} type="button" className={`chip${pos === p ? " on" : ""}`}
             onClick={() => setPos(p)}>{p}</button>
         ))}
-        <input type="search" value={q} placeholder="Search players"
-          onChange={e => setQ(e.target.value)} />
-      </div>
-      {/* THE ACTIVE CRITERIA, as chips a reader can drop one at a time. The
-          sheet is where they are written; this row is where they are seen.
-          Empty, the row is a single "Filter" chip that opens the sheet. */}
-      <div className="v3-filters plx-filters plx-filters3">
-        <button type="button" className={`chip plx-fbtn${filters.length ? " on" : ""}`}
-          onClick={() => setFilterOpen(true)}>
-          {filters.length ? `Filters · ${filters.length}` : "Filter"}
+        <span className="plx-spacer" />
+        {/* TEXT, NOT ICONS. The board has none anywhere else, and two glyphs
+            here would be the first — a magnifier and a funnel are exactly the
+            decoration this shell has spent three months not having. */}
+        <button type="button" className={`plx-txtbtn${q ? " on" : ""}`}
+          aria-expanded={findOpen} onClick={() => setFindOpen(v => !v)}>
+          {q ? `Find · ${q}` : "Find"}
         </button>
-        {filters.map((f, i) => (
-          <button key={i} type="button" className="chip on plx-fchip"
-            aria-label={`Remove ${filterLabel(f)}`}
-            onClick={() => setFilters(filters.filter((_, j) => j !== i))}>
-            {filterLabel(f)} <span className="x">×</span>
-          </button>
-        ))}
+        <button type="button" className={`plx-txtbtn${filters.length ? " on" : ""}`}
+          onClick={() => setFilterOpen(true)}>
+          {filters.length ? `Filter · ${filters.length}` : "Filter"}
+        </button>
       </div>
+      {/* the search field is a row only while it is open. It is the rarest
+          thing anyone does to a leaderboard and it was costing a permanent
+          full-width row — and the masthead already carries a search. */}
+      {findOpen && (
+        <div className="v3-filters plx-filters plx-find">
+          <input type="search" value={q} placeholder="Search players" autoFocus
+            onChange={e => setQ(e.target.value)} />
+          <button type="button" className="plx-txtbtn"
+            onClick={() => { setQ(""); setFindOpen(false); }}>Clear</button>
+        </div>
+      )}
+      {/* THE ACTIVE CRITERIA, as chips a reader can drop one at a time — and
+          no row at all when there are none, which is almost always. The
+          "Filter" control that used to live at the head of this row is on the
+          row above with Find, where the other narrowing controls are. */}
+      {filters.length > 0 && (
+        <div className="v3-filters plx-filters plx-filters3">
+          {filters.map((f, i) => (
+            <button key={i} type="button" className="chip on plx-fchip"
+              aria-label={`Remove ${filterLabel(f)}`}
+              onClick={() => setFilters(filters.filter((_, j) => j !== i))}>
+              {filterLabel(f)} <span className="x">×</span>
+            </button>
+          ))}
+        </div>
+      )}
       {filterOpen && (
         <FilterSheet filters={filters} onChange={setFilters} onClose={() => setFilterOpen(false)}
           count={ready && rows ? rows.length : null} />
@@ -1384,14 +1376,20 @@ export default function Players() {
       )}
 
       <Band
-        label={usage
-          ? `Maxalytics · ${PHASES.find(p => p.id === phase)!.label} · ${
-            allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}${
-            pos === "ALL" ? " · pick a position for its own columns" : ""}`
-          : hist
-          ? `${PHASES.find(p => p.id === phase)!.label} · ${
-            allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}`
-          : `Price · ${rosterSeason} rosters`}
+        /* THE LABEL IS THE CONTROL. It reads as the band it has always been
+           and answers "what am I looking at" without being asked; pressing it
+           is how the four things it names get changed. */
+        label={
+          <button type="button" className="plx-state" aria-haspopup="dialog"
+            aria-expanded={viewOpen} onClick={() => setViewOpen(true)}>
+            {hist
+              ? `Stats · ${allTime ? "All-time" : season} · ${
+                PHASES.find(p => p.id === phase)!.label} · ${
+                usage ? "Maxalytics" : "Box score"}`
+              : `Value · ${rosterSeason} rosters`}
+            <span className="cv" aria-hidden="true">▾</span>
+          </button>
+        }
         right={
           /* THE BAND CARRIES BOTH, and the note comes first: it is the thing a
              reader needs without asking, and the Key is the thing they go
@@ -1407,12 +1405,22 @@ export default function Players() {
              that repeats the Key is a second copy to keep in step. The price
              board's "never blended" line went the same way (Max, 2026-09-08). */
           <span className="plx-bandr">
+            {/* the one thing the old band label said that the state line does
+                not, kept where a note belongs and dropped on a phone */}
+            {usage && pos === "ALL" && (
+              <span className="band-note plx-hint">pick a position for its own columns</span>
+            )}
             <button type="button" className={`plx-keybtn${keyOpen ? " on" : ""}`}
               aria-expanded={keyOpen} onClick={() => setKeyOpen(v => !v)}>
               {keyOpen ? "Close" : "Key"}
             </button>
           </span>
         } />
+      {viewOpen && (
+        <ViewSheet scope={scope} setScope={setScope} played={played}
+          phase={phase} setPhase={setPhase} measure={measure} setMeasure={setMeasure}
+          onClose={() => setViewOpen(false)} />
+      )}
 
       {/* EVERY COLUMN, DEFINED — in the order the columns appear, so a reader
           who is looking at one can count across to it. The phase changes what
@@ -1649,6 +1657,85 @@ export default function Players() {
         )}
       </div>
     </>
+  );
+}
+
+/* ========================================================================
+   THE VIEW SHEET
+
+   What the columns say: the tense, the season, the phase and the lens. Four
+   controls that used to be four rows of chips permanently above the table.
+
+   SHEET ROWS, NOT CHIPS. `SheetRow` is what this shell already uses to pick
+   one of a set — it is the season picker's row — and it carries a "Here" mark
+   on the one in force plus room for a line saying what the choice means. A
+   grid of chips in a sheet would have been a fifth chip vocabulary on a
+   screen that already had four.
+
+   Every choice CLOSES the sheet. A reader opens it to change one thing; a
+   sheet that stays open after the board behind it has changed is asking to be
+   dismissed a second time.
+   ======================================================================== */
+
+function ViewSheet({
+  scope, setScope, played, phase, setPhase, measure, setMeasure, onClose,
+}: {
+  scope: ScopeSel;
+  setScope: (s: ScopeSel) => void;
+  /** every season, newest first */
+  played: string[];
+  phase: Phase; setPhase: (p: Phase) => void;
+  measure: "box" | "usage"; setMeasure: (m: "box" | "usage") => void;
+  onClose: () => void;
+}) {
+  const hist = scope.scope === "history";
+  const season = hist ? scope.season : null;
+  const pick = (fn: () => void) => () => { fn(); onClose(); };
+  const here = (on: boolean) => (on ? "Here" : undefined);
+  return (
+    <Sheet label="What this board shows" title="View" onClose={onClose}>
+      <div className="plx-view">
+        <div className="plx-vgrp">Figures</div>
+        <SheetRow name="Value" meta="what they are worth now"
+          on={!hist} mark={here(!hist)}
+          onClick={pick(() => setScope({ scope: "current" }))} />
+        <SheetRow name="Stats" meta="what they did"
+          on={hist} mark={here(hist)}
+          onClick={pick(() => {
+            /* landing on the season being played rather than the picker: the
+               old control spent the first tap opening a sheet over a board
+               with no stats on it */
+            if (!hist) setScope({ scope: "history", season: played[0] });
+          })} />
+
+        {hist && (
+          <>
+            <div className="plx-vgrp">Season</div>
+            <SheetRow name="All-time" meta="every settled season pooled"
+              on={season === ALL_SEASONS} mark={here(season === ALL_SEASONS)}
+              onClick={pick(() => setScope({ scope: "history", season: ALL_SEASONS }))} />
+            {played.map(y => (
+              <SheetRow key={y} name={y} on={season === y} mark={here(season === y)}
+                onClick={pick(() => setScope({ scope: "history", season: y }))} />
+            ))}
+
+            <div className="plx-vgrp">Phase</div>
+            {PHASES.map(p => (
+              <SheetRow key={p.id} name={p.label} on={phase === p.id} mark={here(phase === p.id)}
+                onClick={pick(() => setPhase(p.id))} />
+            ))}
+
+            <div className="plx-vgrp">Measures</div>
+            <SheetRow name="Box score" meta="games, points, the rate, snap share, the two records"
+              on={measure === "box"} mark={here(measure === "box")}
+              onClick={pick(() => setMeasure("box"))} />
+            <SheetRow name="Maxalytics" meta="WAR and win share, expected points, the position's usage"
+              on={measure === "usage"} mark={here(measure === "usage")}
+              onClick={pick(() => setMeasure("usage"))} />
+          </>
+        )}
+      </div>
+    </Sheet>
   );
 }
 
