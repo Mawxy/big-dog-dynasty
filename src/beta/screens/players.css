@@ -480,16 +480,15 @@
      change. The positions are fixed per tense, which is what the tense class on
      the table is for.
 
-     THE STATS POSITIONS MOVED WITH SNAP % (Max, 2026-09-17): the box score
-     gained a column at index 6, so its three group edges — GP, Started, WAR —
-     are now the 3rd, 7th and 9th header cells. They are listed separately
-     from the price board's, which did not move. */
+     THE STATS POSITIONS MOVED TWICE ON 2026-09-17: Snap % added a column at
+     index 6, then WAR and WS left the box score altogether, so it now has two
+     group edges — GP and Started — at the 3rd and 7th header cells. They are
+     listed separately from the price board's, which did not move. */
   .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(3),
   .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(6),
   .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(8),
   .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(3),
-  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(7),
-  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(9) {
+  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(7) {
     border-left: 1px solid var(--rule);
   }
 

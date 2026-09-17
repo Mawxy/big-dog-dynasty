@@ -145,35 +145,29 @@ const CUR_GRPS = [
    them is production — a record is a fact about the roster around him, and
    grouping them under "Production" would have claimed otherwise. */
 const HIST_COLS: Col[] = [
-  { id: "gp", label: "GP", width: "6%", edge: true },
-  { id: "pts", label: "Points", short: "PTS", width: "8%" },
-  { id: "ppg", label: "PPG", width: "7%" },
+  { id: "gp", label: "GP", width: "8%", edge: true },
+  { id: "pts", label: "Points", short: "PTS", width: "12%" },
+  { id: "ppg", label: "PPG", width: "11%" },
   // SNAP % ON THE BOX SCORE (Max, 2026-09-17): the one nflverse figure that
   // belongs beside league production rather than on the Maxalytics lens,
   // because it answers the box score's own question — was he on the field
   // for the points he did or did not score. From usage.json like the rest of
   // the lens, so it fills in a beat after the league figures.
-  { id: "snap_pct", label: "Snap %", short: "SNAP", width: "7%" },
-  { id: "wls", label: "Started", short: "W-L S", width: "10%", edge: true },
-  { id: "wlr", label: "Rostered", short: "W-L R", width: "10%" },
-  { id: "war", label: "WAR", width: "9%", edge: true },
-  // "WS", not "Win share" (Max, 2026-09-03). The long form does not fit a 10%
-  // column at any weight the rest of the header row uses, and shrinking one
-  // label to fit makes the header row two sizes. The Key above the table is
-  // where the word lives.
-  { id: "ws", label: "WS", width: "9%" },
+  { id: "snap_pct", label: "Snap %", short: "SNAP", width: "11%" },
+  { id: "wls", label: "Started", short: "W-L S", width: "12%", edge: true },
+  { id: "wlr", label: "Rostered", short: "W-L R", width: "12%" },
 ];
-/* WINS ADDED — the pair of this board's own inventions: WAR asks what a
-   player was worth against a replacement-level body, win share asks how much
-   of the winning was actually his, and neither is a number any other fantasy
-   site would give you. Everything to the left of them is arithmetic on a box
-   score. The group was "Maxalytics" from 2026-09-03; that name now belongs
-   to the whole second lens (Max, 2026-09-17), and a group inside the box
-   score cannot share it without saying the lens is here. */
+/* NO WAR AND NO WIN SHARE ON THE BOX SCORE (Max, 2026-09-17). They were the
+   "Wins added" group here until today, and they do not belong: everything
+   else on this board is arithmetic the league performed — games, points, the
+   rate, the share of snaps, and what the lineups he was in went on to do.
+   WAR and win share are the board's OWN measures, computed against a
+   replacement level this site chose, and putting them at the end of a box
+   score let them read as two more league figures. They lead the Maxalytics
+   lens instead, which is what that lens is named for. */
 const HIST_GRPS = [
   { label: "Production", span: 4 },
   { label: "Won-lost", span: 2 },
-  { label: "Wins added", span: 2 },
 ];
 
 /* THE MAXALYTICS LENS (Max, 2026-09-16; named 2026-09-17): the same
@@ -663,7 +657,9 @@ export default function Players() {
      anything about how they want 2023 ordered — carrying it across would either
      drop to a default silently or apply a key the other tense does not have. */
   const cur = useSort<Key>("dvi");
-  const hst = useSort<Key>("war");
+  /* POINTS, not WAR (Max, 2026-09-17): WAR left this lens, and the box
+     score's own headline is what he scored. */
+  const hst = useSort<Key>("pts");
   const usg = useSort<Key>("war");
   const s = usage ? usg : hist ? hst : cur;
 
@@ -1201,11 +1197,18 @@ export default function Players() {
      GP fills the last slot when there is one — it is the sample size behind
      every other figure on the Stats row and is never a phone sort key, so it
      can never compete with the picked one. */
-  const micro = useMemo(() => {
-    const other = strip.filter(k => k !== s.sort).slice(0, 2);
-    if (hist && s.sort !== "gp" && other.length < 2) other.push("gp");
-    return other;
-  }, [strip, s.sort, hist]);
+  /* GP AND PPG, ALWAYS, IN THE STATS TENSE (Max, 2026-09-17). The line used
+     to carry whichever strip keys the sort had displaced, so two rows stated
+     different facts depending only on how the board happened to be ordered —
+     and ordering by a record put "W-L S 12-2" under the lead figure, where a
+     record reads as a statistic it is not. These two are the sample and the
+     rate behind whatever is leading, and neither is ever the lead itself, so
+     they never compete with the picked key. */
+  const micro = useMemo<Key[]>(
+    () => (hist
+      ? (["gp", "ppg"] as Key[]).filter(k => k !== s.sort)
+      : strip.filter(k => k !== s.sort).slice(0, 2)),
+    [strip, s.sort, hist]);
 
   const ready = factsReady && (hist
     ? rows != null && (!usage || usg_ != null)
@@ -1233,6 +1236,14 @@ export default function Players() {
      and the one figure cell on a phone. The drawer spans whatever that is. */
   const span = mobile ? 3 : 2 + cols.length;
   const colOf = (id: Key) => cols.find(c => c.id === id)!;
+  /* The micro line names GP and PPG whether or not the lens in force carries
+     them as columns — under Maxalytics it does not — so its label cannot be
+     read out of `cols` the way a column's is. */
+  const MICRO_LABEL: Partial<Record<Key, string>> = { gp: "GP", ppg: "PPG" };
+  const microLabel = (id: Key) => {
+    const c = cols.find(x => x.id === id);
+    return (MICRO_LABEL[id] ?? c?.short ?? c?.label ?? String(id)).toUpperCase();
+  };
 
   return (
     <>
@@ -1526,7 +1537,7 @@ export default function Players() {
                         <div className="plx-micro">
                           {micro.map(k => (
                             <span key={k} className="o">
-                              {(colOf(k).short ?? colOf(k).label).toUpperCase()}
+                              {microLabel(k)}
                               <b>{cellOf(r, k)}</b>
                             </span>
                           ))}
@@ -1599,13 +1610,14 @@ export default function Players() {
           </>
         ) : hist ? (
           <>
-            WAR = wins over the best player left out of the league's 108 startable slots,
-            regular season only. Win share is the other half of Maxalytics and answers the
-            other question: every game a team wins hands out exactly 1.0 among the nine who
-            started it, half by Shapley win-probability contribution and half by points over
-            replacement, so the league's shares sum to the 84 games it actually won and a
-            total reads as "he accounted for 3.2 of his team's 9 wins". WAR is what he was
-            worth; win share is how much of the winning was his. The two records are the
+            WAR and win share are this board's own measures rather than the league's, so
+            they sit under Maxalytics and not on the box score. WAR is wins over the best
+            player left out of the league's 108 startable slots, regular season only; win
+            share divides each won game's 1.0 among the nine who started it, half by Shapley
+            win-probability contribution and half by points over replacement, so the
+            league's shares sum to the 84 games it actually won and a total reads as "he
+            accounted for 3.2 of his team's 9 wins". WAR is what he was worth; win share is
+            how much of the winning was his. The two records are the
             weeks he was there, not what he did:
             STARTED counts the weeks a manager put him in the lineup and how that lineup
             finished; ROSTERED counts every week he was owned, started or benched. Both are
