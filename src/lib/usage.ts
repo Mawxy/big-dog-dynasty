@@ -14,7 +14,10 @@ export type UsageKey =
   | "fp_exp_pg" | "fp_diff_pg"
   | "att_pg" | "car_pg" | "epa_db" | "cpoe"
   | "tgt_pg" | "tgt_share" | "ay_share" | "adot"
-  | "car_share" | "rb_touch_share";
+  | "car_share" | "rb_touch_share"
+  /** every position's, and shown on the BOX SCORE rather than the Maxalytics
+   *  lens (Max, 2026-09-17): the field-time behind the league line */
+  | "snap_pct";
 
 export type UsageRow = { g: number } & Partial<Record<UsageKey, number>>;
 /** THE LEAGUE'S WINDOWS (Max, 2026-09-16): the regular season, the bracket
@@ -63,6 +66,9 @@ export const USAGE_LABEL: Record<UsageKey, { label: string; short?: string; def:
   rb_touch_share: { label: "RB touch %", short: "RB %", def:
     "Share of the RB room's touches: his carries plus receptions over those of every running "
     + "back on his team in the weeks he played." },
+  snap_pct: { label: "Snap %", short: "SNAP", def:
+    "Offensive snap share: his snaps over his team's, summed over the weeks he had a stat "
+    + "line in the window (nflverse snap counts, 2012 on)." },
 };
 
 /** how a figure prints, in a column and on the player page */
@@ -70,7 +76,8 @@ export function fmtUsage(k: UsageKey, v: number): string {
   const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
   const signed = (x: number, d: number) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
   switch (k) {
-    case "tgt_share": case "ay_share": case "car_share": case "rb_touch_share": return pct(v);
+    case "tgt_share": case "ay_share": case "car_share": case "rb_touch_share": case "snap_pct":
+      return pct(v);
     case "fp_diff_pg": return signed(v, 1);
     case "epa_db": return signed(v, 2);
     case "cpoe": return signed(v, 1);

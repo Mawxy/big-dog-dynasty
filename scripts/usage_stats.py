@@ -30,9 +30,11 @@ Per league season on the site (2022 onward for Big Dog), one file:
 A window he never touched the ball in is absent, never a row of zeros. Every
 key is nfl_features.py's own column name, so the Key on the leaderboard and
 the script that computes the figure agree by construction. Each position
-ships its own five (POS_COLS); `fp_diff_pg` is the one derived figure: actual
-minus expected fantasy points per game — finishing plus touchdown luck, the
-regression candidate. The rates are computed the way the season file computes
+ships its own five (POS_COLS), plus two every position carries: `fp_diff_pg`,
+actual minus expected fantasy points per game — finishing plus touchdown luck,
+the regression candidate — and `snap_pct`, his offensive snaps over his team's
+across the window's touched weeks (Max, 2026-09-17; the site shows it on the
+box score, not the Maxalytics lens). The rates are computed the way the season file computes
 them: season totals divided (attempt-weighted CPOE, EPA over dropbacks), with
 the two shares nflverse ships weekly averaged over touched weeks.
 
@@ -140,6 +142,13 @@ def aggregate(pos, weeks):
             out[c] = every[c]
     if have_opp:
         out["fp_diff_pg"] = round((fp_act - fp_exp) / n, 2)
+    # snap share over the window: both sums over the weeks that have a snap
+    # line, so a week the crosswalk missed drops out of numerator and
+    # denominator together rather than reading as zero snaps
+    sn = [(num(w.get("snaps")), num(w.get("team_snaps"))) for w in weeks]
+    sn = [(a, b) for a, b in sn if a is not None and b]
+    if sn:
+        out["snap_pct"] = round(sum(a for a, _ in sn) / sum(b for _, b in sn), 4)
     return out
 
 

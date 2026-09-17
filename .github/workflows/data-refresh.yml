@@ -109,6 +109,12 @@ jobs:
       # production over replacement, credited win or lose; reads bracket.json
       - name: Playoff WAR
         run: python scripts/playoff_war.py
+      # regular-season win share, weeks 1..playoff_start-1; reads only
+      # weekly.json + matchups.json, so it runs on whatever build_site_data
+      # just wrote. Was never in this workflow before 2026-09-17, so the
+      # current season's winshare.json only moved when Max ran it by hand.
+      - name: Regular-season win share (season_wpa)
+        run: python scripts/season_wpa.py
       - name: Fetch Sleeper projections (composite input)
         id: fetch_proj
         run: python scripts/fetch_projections.py
@@ -188,6 +194,7 @@ jobs:
           if python scripts/nfl_features.py --start "$Y" --end "$Y" --out nfl_history_data/features \
              && [ -s "nfl_history_data/features/features_$Y.csv" ]; then
             cp "nfl_history_data/features/features_$Y.csv" nfl_history/
+            cp "nfl_history_data/features/features_weekly_$Y.csv" nfl_history/ 2>/dev/null || echo "::warning title=No weekly table::features_weekly_$Y.csv was not written — usage.json for $Y is built from the last committed one"
           else
             echo "::warning title=Usage not refreshed::nfl_features.py failed for $Y — usage.json is built from the last committed CSV"
           fi

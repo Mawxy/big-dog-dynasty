@@ -1092,7 +1092,7 @@ export default function Player({ pid }: { pid: string }) {
                 opportunity came; the career row is games-weighted. */}
             {shard?.usage && (() => {
               const seasons = Object.keys(shard.usage!).sort((a, b) => b.localeCompare(a));
-              const keys: UsageKey[] = [...(POS_USAGE[pos] ?? ["fp_exp_pg"]), "fp_diff_pg"];
+              const keys: UsageKey[] = [...(POS_USAGE[pos] ?? ["fp_exp_pg"]), "fp_diff_pg", "snap_pct"];
               const pooled = usageOf({ byPlayer: { [pid]: shard.usage! } }, pid, seasons, usagePhase);
               const PH: { id: UsagePhase; label: string }[] = [
                 { id: "reg", label: "Regular season" }, { id: "post", label: "Playoffs" }, { id: "both", label: "Both" },

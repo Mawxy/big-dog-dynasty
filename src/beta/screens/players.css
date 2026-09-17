@@ -45,8 +45,8 @@
 @media (max-width: 899px) {
   .plx-filters { flex-wrap: wrap; overflow-x: visible; row-gap: 8px; }
   .plx-filters input[type="search"] { flex: 1 1 100%; min-width: 0; }
-  /* the measures-and-phase row keeps scrolling: seven chips and two labels
-     do not fit 375px, and a wrap put "Both" alone on a third line */
+  /* the show and phase rows keep scrolling rather than wrapping: three
+     chips and a key fit 375px, and a wrap would put "Both" alone on a line */
   .plx-filters2 { flex-wrap: nowrap; overflow-x: auto; }
 }
 
@@ -109,15 +109,17 @@
   text-wrap: pretty;
 }
 
-/* THE PHASE ROW. Two chips and a key, above the position row rather than
-   appended to it: the position chips are the control every reader reaches for,
-   and on a 375px scroller anything in front of them pushes them off-screen.
+/* THE SHOW ROW AND THE PHASE ROW. Two rows of a key and its chips, stacked
+   (Max, 2026-09-17), above the position row rather than appended to it: the
+   position chips are the control every reader reaches for, and on a 375px
+   scroller anything in front of them pushes them off-screen.
 
-   It carries a LABEL where the position row does not, because "Regular season"
-   and "Playoffs" are not a closed vocabulary the way QB/RB/WR/TE is — without
-   a word in front of them they read as two more things to filter by rather
-   than as two states of one switch. */
-.plx-filters2 { padding-top: 0; padding-bottom: 8px; }
+   Each carries a LABEL where the position row does not, because "Box score"
+   and "Regular season" are not a closed vocabulary the way QB/RB/WR/TE is —
+   without a word in front of them they read as more things to filter by
+   rather than as the two states of one switch. */
+.plx-filters2 { padding-top: 0; padding-bottom: 6px; }
+.plx-filters2 + .plx-filters2 { padding-bottom: 8px; }
 
 /* ---- advanced search (Max, 2026-09-16) ---------------------------------- */
 /* the criteria row: the Filter chip, then one chip per active criterion */
@@ -158,11 +160,11 @@
 }
 .fsx-clear { border-color: var(--rule-2); color: var(--dim); }
 .fsx-add:hover { background: var(--acc); color: var(--acc-ink); }
-/* a breath between the two chip groups on the second row (teams.css's
-   .tmx-sep), so "Usage Regular season" does not read as one control */
-.plx-filters2 .plx-sep { flex: 0 0 1px; align-self: stretch; margin: 0 5px; background: var(--rule); }
+/* the key in front of each row's chips, at a fixed width so the two rows'
+   chips start on one line */
 .plx-filters2 .plx-fk {
   flex: 0 0 auto;
+  min-width: 34px;
   font: 600 9.5px/1 var(--cond);
   letter-spacing: .16em;
   text-transform: uppercase;
@@ -476,13 +478,18 @@
      `.plx-edge` from the markup; the column headers cannot, because ui.tsx's
      `Th` forwards no class of its own and ui.tsx is not this screen's file to
      change. The positions are fixed per tense, which is what the tense class on
-     the table is for. */
+     the table is for.
+
+     THE STATS POSITIONS MOVED WITH SNAP % (Max, 2026-09-17): the box score
+     gained a column at index 6, so its three group edges — GP, Started, WAR —
+     are now the 3rd, 7th and 9th header cells. They are listed separately
+     from the price board's, which did not move. */
   .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(3),
   .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(6),
   .plx-tbl.plx-cur thead tr.plx-cols th:nth-child(8),
   .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(3),
-  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(6),
-  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(8) {
+  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(7),
+  .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(9) {
     border-left: 1px solid var(--rule);
   }
 

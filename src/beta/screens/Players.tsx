@@ -99,10 +99,9 @@ type Key =
    *  why every figure on this board reaches the cell through `cellOf` rather
    *  than FMT alone, and they sort two ways: by wins, then by losses. */
   | "wls" | "wlr"
-  /** the usage lens's figures — lib/usage, keyed by the nflverse column name —
-   *  and `g`, the NFL games behind them: the denominator of every rate on
-   *  that lens, which league GP is not */
-  | "g" | UsageKey;
+  /** the Maxalytics lens's figures — lib/usage, keyed by the nflverse column
+   *  name. `snap_pct` is one of them and sits on the box score. */
+  | UsageKey;
 
 /** the keys whose header cycles WINS -> LOSSES rather than flipping direction */
 const RECORD_KEYS = new Set<Key>(["wls", "wlr"]);
@@ -147,63 +146,71 @@ const CUR_GRPS = [
    grouping them under "Production" would have claimed otherwise. */
 const HIST_COLS: Col[] = [
   { id: "gp", label: "GP", width: "6%", edge: true },
-  { id: "pts", label: "Points", short: "PTS", width: "9%" },
-  { id: "ppg", label: "PPG", width: "8%" },
+  { id: "pts", label: "Points", short: "PTS", width: "8%" },
+  { id: "ppg", label: "PPG", width: "7%" },
+  // SNAP % ON THE BOX SCORE (Max, 2026-09-17): the one nflverse figure that
+  // belongs beside league production rather than on the Maxalytics lens,
+  // because it answers the box score's own question — was he on the field
+  // for the points he did or did not score. From usage.json like the rest of
+  // the lens, so it fills in a beat after the league figures.
+  { id: "snap_pct", label: "Snap %", short: "SNAP", width: "7%" },
   { id: "wls", label: "Started", short: "W-L S", width: "10%", edge: true },
   { id: "wlr", label: "Rostered", short: "W-L R", width: "10%" },
-  { id: "war", label: "WAR", width: "10%", edge: true },
+  { id: "war", label: "WAR", width: "9%", edge: true },
   // "WS", not "Win share" (Max, 2026-09-03). The long form does not fit a 10%
   // column at any weight the rest of the header row uses, and shrinking one
   // label to fit makes the header row two sizes. The Key above the table is
   // where the word lives.
-  { id: "ws", label: "WS", width: "10%" },
+  { id: "ws", label: "WS", width: "9%" },
 ];
-/* MAXALYTICS (Max, 2026-09-03) — the group that was "Wins added", now holding
-   both of this board's own inventions. They are a pair by construction: WAR
-   asks what a player was worth against a replacement-level body, win share asks
-   how much of the winning was actually his, and neither is a number any other
-   fantasy site would give you. Everything to the left of them is arithmetic on
-   a box score. */
+/* WINS ADDED — the pair of this board's own inventions: WAR asks what a
+   player was worth against a replacement-level body, win share asks how much
+   of the winning was actually his, and neither is a number any other fantasy
+   site would give you. Everything to the left of them is arithmetic on a box
+   score. The group was "Maxalytics" from 2026-09-03; that name now belongs
+   to the whole second lens (Max, 2026-09-17), and a group inside the box
+   score cannot share it without saying the lens is here. */
 const HIST_GRPS = [
-  { label: "Production", span: 3 },
+  { label: "Production", span: 4 },
   { label: "Won-lost", span: 2 },
-  { label: "Maxalytics", span: 2 },
+  { label: "Wins added", span: 2 },
 ];
 
-/* THE USAGE LENS (Max, 2026-09-16): the same population, a different set of
-   measures — the lens-control pattern, behind a chip beside the phase chips.
-   Two columns everyone shares (expected PPG, and actual over it), then the
-   POSITION'S OWN FOUR, which exist only once a position chip narrows the board
-   to one: a running back's carry share and a receiver's aDOT are not one
-   column. GP leads, because every figure here is a per-game rate and the sample
-   is the first thing to read it against. */
-const USAGE_COMMON: Col[] = [
-  { id: "g", label: "G", width: "6%", edge: true },
-  { id: "ppg", label: "PPG", width: "8%" },
+/* THE MAXALYTICS LENS (Max, 2026-09-16; named 2026-09-17): the same
+   population, a different set of measures — the lens-control pattern, behind
+   a chip above the phase chips. The board's own two figures lead, WAR and win
+   share, because they are what the lens is named for; then expected PPG and
+   actual over it; then the POSITION'S OWN FOUR, which exist only once a
+   position chip narrows the board to one: a running back's carry share and a
+   receiver's aDOT are not one column. G and PPG are box-score facts and were
+   moved off this lens (Max, 2026-09-17): GP and PPG live on the box score,
+   and the NFL game count behind these rates is in the Key, not a column. */
+const MAXA_COMMON: Col[] = [
+  { id: "war", label: "WAR", width: "9%", edge: true },
+  { id: "ws", label: "WS", width: "8%" },
   { id: "fp_exp_pg", label: "Exp PPG", short: "EXP", width: "9%", edge: true },
   { id: "fp_diff_pg", label: "Vs exp", short: "VS EXP", width: "9%" },
 ];
-function usageCols(pos: string): Col[] {
+function maxaCols(pos: string): Col[] {
   const own = (POS_USAGE[pos] ?? []).filter(k => k !== "fp_exp_pg");
   return [
-    ...USAGE_COMMON,
+    ...MAXA_COMMON,
     ...own.map((k, i): Col => ({
       id: k, label: USAGE_LABEL[k].label, short: USAGE_LABEL[k].short, width: "9%", edge: i === 0,
     })),
   ];
 }
-function usageGrps(pos: string) {
+function maxaGrps(pos: string) {
   const own = (POS_USAGE[pos] ?? []).length - 1;
   return [
-    { label: "Production", span: 2 },
+    { label: "Wins added", span: 2 },
     { label: "Expected", span: 2 },
     ...(own > 0 ? [{ label: `${pos} usage`, span: own }] : []),
   ];
 }
-function usageStrip(pos: string): Key[] {
-  const own = (POS_USAGE[pos] ?? []).filter(k => k !== "fp_exp_pg").slice(0, 2);
-  const keys: Key[] = ["fp_exp_pg", "fp_diff_pg", ...own, "ppg"];
-  return keys.slice(0, own.length ? 4 : 3);
+function maxaStrip(pos: string): Key[] {
+  const own = (POS_USAGE[pos] ?? []).filter(k => k !== "fp_exp_pg").slice(0, 1);
+  return ["war", "ws", "fp_exp_pg", ...own];
 }
 
 /* THE STRIP SCROLLS (Max, 2026-09-16). Capped at four keys, the phone lost
@@ -245,7 +252,7 @@ const FMT: Record<Key, (v: number) => string> = {
   // value is a sort key, not a figure — but the map is total over Key so that
   // adding a column cannot silently skip a formatter
   wls: v => String(v), wlr: v => String(v),
-  g: v => String(v),
+  snap_pct: v => fmtUsage("snap_pct", v),
   fp_exp_pg: v => fmtUsage("fp_exp_pg", v), fp_diff_pg: v => fmtUsage("fp_diff_pg", v),
   att_pg: v => fmtUsage("att_pg", v), car_pg: v => fmtUsage("car_pg", v),
   epa_db: v => fmtUsage("epa_db", v), cpoe: v => fmtUsage("cpoe", v),
@@ -300,9 +307,7 @@ const DEF: Record<Key, string> = {
   wlr: "Won-lost as a ROSTERED player — every week he was owned, started or "
     + "benched. The gap between this and Started is how often he was owned and "
     + "left out.",
-  g: "NFL games with a stat line in the window — an attempt, a carry or a target. The "
-    + "denominator of every per-game figure on this lens, which league GP is not: a "
-    + "dressed week with no touch is a league game and not an NFL one.",
+  snap_pct: USAGE_LABEL.snap_pct.def,
   fp_exp_pg: USAGE_LABEL.fp_exp_pg.def, fp_diff_pg: USAGE_LABEL.fp_diff_pg.def,
   att_pg: USAGE_LABEL.att_pg.def, car_pg: USAGE_LABEL.car_pg.def,
   epa_db: USAGE_LABEL.epa_db.def, cpoe: USAGE_LABEL.cpoe.def,
@@ -642,6 +647,8 @@ export default function Players() {
      regular season, bracket weeks and both, so the windows line up with the
      box score's. */
   const [measure, setMeasure] = useState<"box" | "usage">("box");
+  /** the Maxalytics lens is on. Named "usage" in the code since the day it was
+   *  built; the chip says Maxalytics (Max, 2026-09-17). */
   const usage = hist && measure === "usage";
   const [keyOpen, setKeyOpen] = useState(false);
 
@@ -657,7 +664,7 @@ export default function Players() {
      drop to a default silently or apply a key the other tense does not have. */
   const cur = useSort<Key>("dvi");
   const hst = useSort<Key>("war");
-  const usg = useSort<Key>("fp_exp_pg");
+  const usg = useSort<Key>("war");
   const s = usage ? usg : hist ? hst : cur;
 
   // The tense changing re-states every figure in the row, so an open drawer
@@ -696,11 +703,11 @@ export default function Players() {
      the box-score board: five small files nobody asked for otherwise */
   const [usg_, setUsg] = useState<UsageIndex | null>(null);
   useEffect(() => {
-    if (!usage || !played.length) return;
+    if (!hist || !played.length) return;
     let live = true;
     loadUsage(played).then(u => { if (live) setUsg(u); }).catch(() => {});
     return () => { live = false; };
-  }, [usage, played]);
+  }, [hist, played]);
 
   /* THE POOLED WEEK SCORES, ON DRAWER OPEN. Half a megabyte across four
      seasons, so it is not fetched with the board and not fetched at all in the
@@ -1072,19 +1079,30 @@ export default function Players() {
     const scope = allTime ? played : oneSeason ? [oneSeason] : [];
     return base.map(r => {
       const u = usageOf(usg_, r.pid, scope, phase);
-      // the row's own box-score figures stay, so GP and PPG still read
+      // the row's own box-score figures stay: WAR and WS lead this lens too
       const f: Row["f"] = { ...r.f };
       for (const k of Object.keys(f)) if (k in USAGE_LABEL) delete f[k as UsageKey];
-      f.g = u?.g ?? null;
       if (u) for (const [k, v] of Object.entries(u)) if (k !== "g") f[k as UsageKey] = v as number;
       return { ...r, f };
     });
   }, [usage, allTime, allPop, histPop, usg_, played, oneSeason, phase]);
-  const population = usage ? usagePop : boxPop;
-  const cols = usage ? usageCols(pos) : hist ? HIST_COLS : CUR_COLS;
-  const grps = usage ? usageGrps(pos) : hist ? HIST_GRPS : CUR_GRPS;
+  /* THE BOX SCORE BORROWS ONE FIGURE from the same file: snap share, merged
+     onto the league rows under the phase in force. Until usage.json lands
+     the column reads the em dash and nothing else waits on it. */
+  const snapPop = useMemo<Row[] | null>(() => {
+    if (!hist || usage || !boxPop) return boxPop;
+    if (!usg_) return boxPop;
+    const scope = allTime ? played : oneSeason ? [oneSeason] : [];
+    return boxPop.map(r => {
+      const v = usageOf(usg_, r.pid, scope, phase)?.snap_pct;
+      return v == null ? r : { ...r, f: { ...r.f, snap_pct: v } };
+    });
+  }, [hist, usage, boxPop, usg_, allTime, played, oneSeason, phase]);
+  const population = usage ? usagePop : snapPop;
+  const cols = usage ? maxaCols(pos) : hist ? HIST_COLS : CUR_COLS;
+  const grps = usage ? maxaGrps(pos) : hist ? HIST_GRPS : CUR_GRPS;
   /** the micro line's preferred keys; the strip itself carries every column */
-  const strip = usage ? usageStrip(pos) : hist ? HIST_STRIP : CUR_STRIP;
+  const strip = usage ? maxaStrip(pos) : hist ? HIST_STRIP : CUR_STRIP;
   const stripAll: Key[] = cols.map(c => c.id);
   /* the lit segment scrolls into view when the key changes — a sort picked
      from the desktop header, or a lens change, must not leave the strip
@@ -1109,7 +1127,7 @@ export default function Players() {
      and nothing else's. Sorting by a key the board no longer shows would order
      the rows invisibly, so the sort falls back to the common key. */
   useEffect(() => {
-    if (usage && !cols.some(c => c.id === s.sort)) s.onSort("fp_exp_pg");
+    if (usage && !cols.some(c => c.id === s.sort)) s.onSort("war");
   }, [usage, cols, s]);
 
   const ordered = useMemo(() => {
@@ -1255,23 +1273,29 @@ export default function Players() {
           375px scroller the position filter is the one every reader uses, and
           it should not start off-screen. */}
       {hist && (
-        <div className="v3-filters plx-filters plx-filters2">
+        <>
           {/* THE MEASURES, first: which figures the board carries. Then the
-              phase, which both lenses honour: the box score's from the
-              league files, usage's from the weekly nflverse table summed
-              over the same weeks. */}
-          <span className="plx-fk">Show</span>
-          <button type="button" className={`chip${measure === "box" ? " on" : ""}`}
-            onClick={() => setMeasure("box")}>Box score</button>
-          <button type="button" className={`chip${measure === "usage" ? " on" : ""}`}
-            onClick={() => setMeasure("usage")}>Usage</button>
-          <span className="plx-sep" />
-          <span className="plx-fk">Phase</span>
-          {PHASES.map(p => (
-            <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
-              onClick={() => setPhase(p.id)}>{p.label}</button>
-          ))}
-        </div>
+              phase on its own row (Max, 2026-09-17: stacked, not side by
+              side), which both lenses honour: the box score's from the
+              league files, Maxalytics' from the weekly nflverse table summed
+              over the same weeks. Two rows with the same key-and-chips shape
+              read as two switches; one row with a divider read as seven
+              things to filter by. */}
+          <div className="v3-filters plx-filters plx-filters2">
+            <span className="plx-fk">Show</span>
+            <button type="button" className={`chip${measure === "box" ? " on" : ""}`}
+              onClick={() => setMeasure("box")}>Box score</button>
+            <button type="button" className={`chip${measure === "usage" ? " on" : ""}`}
+              onClick={() => setMeasure("usage")}>Maxalytics</button>
+          </div>
+          <div className="v3-filters plx-filters plx-filters2">
+            <span className="plx-fk">Phase</span>
+            {PHASES.map(p => (
+              <button key={p.id} type="button" className={`chip${phase === p.id ? " on" : ""}`}
+                onClick={() => setPhase(p.id)}>{p.label}</button>
+            ))}
+          </div>
+        </>
       )}
 
       <div className="v3-filters plx-filters">
@@ -1350,7 +1374,7 @@ export default function Players() {
 
       <Band
         label={usage
-          ? `Usage · ${PHASES.find(p => p.id === phase)!.label} · ${
+          ? `Maxalytics · ${PHASES.find(p => p.id === phase)!.label} · ${
             allTime ? `all-time · ${played[played.length - 1]}–${played[0]}` : season}${
             pos === "ALL" ? " · pick a position for its own columns" : ""}`
           : hist

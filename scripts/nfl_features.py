@@ -282,7 +282,39 @@ WEEKLY_COLS = [
     "att", "cmp", "pass_epa", "sacks", "cpoe",
     "car", "tgt", "rec", "rec_ay", "tgt_share", "ay_share",
     "team_car", "team_rb_touch", "fp_ppr", "fp_exp", "fp_act",
+    # SNAP SHARE (Max, 2026-09-17): his offensive snaps and his team's that
+    # week, from nflverse snap counts (Pro Football Reference, 2012 on), so
+    # usage_stats.py can sum both over a window and divide once. Blank when
+    # the snap table has no line for him; never 0.
+    "snaps", "team_snaps",
 ]
+
+
+def snap_table(season, nfl):
+    """(gsis_id, week) -> (offense snaps, team offense snaps), regular season.
+
+    nflverse keys snap counts by PFR id, not gsis; the players table carries
+    both, and a player the crosswalk cannot place is simply absent — the
+    weekly row then has no snap figure, which reads as the em dash on the site
+    rather than as a 0% share he never had."""
+    import polars as pl
+    out = {}
+    try:
+        sc = nfl.load_snap_counts([season])
+        if "game_type" in sc.columns:
+            sc = sc.filter(pl.col("game_type") == "REG")
+        players = nfl.load_players().select(["gsis_id", "pfr_id"]).drop_nulls()
+        pfr_to_gsis = {r["pfr_id"]: r["gsis_id"] for r in players.to_dicts()}
+        for r in sc.select(["pfr_player_id", "week", "offense_snaps", "offense_pct"]).to_dicts():
+            g = pfr_to_gsis.get(r["pfr_player_id"])
+            snaps, pct = r.get("offense_snaps"), r.get("offense_pct")
+            if not g or snaps is None or not pct:
+                continue
+            # the team's snaps are not shipped; the share is, so back them out
+            out[(g, int(r["week"]))] = (int(snaps), int(round(snaps / pct)))
+    except Exception as e:                                  # noqa: BLE001
+        print(f"  ! snap counts unavailable for {season}: {e}")
+    return out
 
 
 def weekly_features(season, nfl):
@@ -314,6 +346,8 @@ def weekly_features(season, nfl):
     except Exception as e:                                  # noqa: BLE001
         print(f"  ! ff_opportunity unavailable for {season} (weekly): {e}")
 
+    snaps = snap_table(season, nfl)
+
     have = set(stats.columns)
     def g(r, k):
         v = r.get(k) if k in have else None
@@ -324,6 +358,7 @@ def weekly_features(season, nfl):
         if not pid:
             continue
         o = opp.get((pid, r["week"]))
+        sn = snaps.get((pid, int(r["week"])))
         rows.append({
             "player_id": pid, "name": r["player_display_name"], "pos": r["position"],
             "team": r["team"], "season": season, "week": r["week"],
@@ -341,6 +376,7 @@ def weekly_features(season, nfl):
             "fp_ppr": round(g(r, "fantasy_points_ppr") or 0.0, 1),
             "fp_exp": round(o["total_fantasy_points_exp"] or 0.0, 2) if o else "",
             "fp_act": round(o["total_fantasy_points"] or 0.0, 2) if o else "",
+            "snaps": sn[0] if sn else "", "team_snaps": sn[1] if sn else "",
         })
     rows.sort(key=lambda x: (x["player_id"], x["week"]))
     return rows
