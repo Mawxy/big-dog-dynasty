@@ -109,6 +109,12 @@ jobs:
       # production over replacement, credited win or lose; reads bracket.json
       - name: Playoff WAR
         run: python scripts/playoff_war.py
+      # regular-season win share, weeks 1..playoff_start-1; reads only
+      # weekly.json + matchups.json, so it runs on whatever build_site_data
+      # just wrote. Was never in this workflow before 2026-09-17, so the
+      # current season's winshare.json only moved when Max ran it by hand.
+      - name: Regular-season win share (season_wpa)
+        run: python scripts/season_wpa.py
       - name: Fetch Sleeper projections (composite input)
         id: fetch_proj
         run: python scripts/fetch_projections.py
