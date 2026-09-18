@@ -1663,7 +1663,7 @@ export default function Players() {
 /* ========================================================================
    THE VIEW SHEET
 
-   What the columns say: the tense, the season, the phase and the lens. Four
+   What the columns say: the tense, the lens, the season and the phase. Four
    controls that used to be four rows of chips permanently above the table.
 
    SHEET ROWS, NOT CHIPS. `SheetRow` is what this shell already uses to pick
@@ -1710,6 +1710,14 @@ function ViewSheet({
 
         {hist && (
           <>
+            <div className="plx-vgrp">Measures</div>
+            <SheetRow name="Box score" meta="games, points, the rate, snap share, the two records"
+              on={measure === "box"} mark={here(measure === "box")}
+              onClick={pick(() => setMeasure("box"))} />
+            <SheetRow name="Maxalytics" meta="WAR and win share, expected points, the position's usage"
+              on={measure === "usage"} mark={here(measure === "usage")}
+              onClick={pick(() => setMeasure("usage"))} />
+
             <div className="plx-vgrp">Season</div>
             <SheetRow name="All-time" meta="every settled season pooled"
               on={season === ALL_SEASONS} mark={here(season === ALL_SEASONS)}
@@ -1724,14 +1732,6 @@ function ViewSheet({
               <SheetRow key={p.id} name={p.label} on={phase === p.id} mark={here(phase === p.id)}
                 onClick={pick(() => setPhase(p.id))} />
             ))}
-
-            <div className="plx-vgrp">Measures</div>
-            <SheetRow name="Box score" meta="games, points, the rate, snap share, the two records"
-              on={measure === "box"} mark={here(measure === "box")}
-              onClick={pick(() => setMeasure("box"))} />
-            <SheetRow name="Maxalytics" meta="WAR and win share, expected points, the position's usage"
-              on={measure === "usage"} mark={here(measure === "usage")}
-              onClick={pick(() => setMeasure("usage"))} />
           </>
         )}
       </div>

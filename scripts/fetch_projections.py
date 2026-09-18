@@ -28,7 +28,7 @@ adjust PROJ_URL / item parsing below — everything else is stable.
 
 Usage: python scripts/fetch_projections.py [--season 2026] [--league-id ...]
 """
-import argparse, json, sys, time
+import argparse, datetime, json, sys, time
 from collections import Counter, defaultdict
 from pathlib import Path
 from ioutil import atomic_write
@@ -96,6 +96,73 @@ def default_league_id():
         return LEAGUE_ID
 
 
+# ---------------------------------------------------------------- archive --
+# WHY THIS EXISTS (Max, 2026-09-18)
+#
+# Sleeper serves TODAY'S projections and nothing else. Ask its endpoint for
+# 2021 and you get whatever it stores for 2021 now, not the number that was
+# live in August 2021. proj_sleeper.json is therefore a single vintage that is
+# overwritten every night, and the four COMPOSITE curves in
+# projections_matrix.json are built on it.
+#
+# That is what made the composites ungradeable. backtest_curves.py can score
+# scalar_natural, analog_natural, blend_natural and points_natural walk-forward
+# over twenty-odd seasons, because those are pure functions of nfl_history. It
+# can say nothing about whether folding Sleeper in helps, because there is no
+# record of what Sleeper said. The fix cannot be retrospective; it can only be
+# to start keeping the record, which is what this does.
+#
+# FIRST WRITE PER SEASON WINS, for the same reason week_odds.py's snapshot is
+# first-write-wins: the pipeline runs nightly, and only the earliest capture of
+# a season is a genuine preseason forecast. A later run would quietly replace a
+# forecast with a number that has already seen games played, which is the exact
+# lookahead the archive exists to prevent.
+#
+# The capture stamps its own vintage (date, and Sleeper's season_type and week
+# when we have them) rather than being assumed preseason. A repo set up in
+# October captures an in-season vintage, and whoever grades it in three years
+# needs to be able to SEE that instead of inferring it.
+ARCHIVE_DIR = "proj_sleeper_history"
+
+
+def archive_vintage(result, season, state=None, overwrite=False,
+                    backfilled=False, names=None):
+    """Keep this season's first projection pull, forever. Returns the path
+    written, or None when the season is already on file."""
+    d = DATA / ARCHIVE_DIR
+    dest = d / f"{season}.json"
+    if dest.exists() and not overwrite:
+        return None
+    d.mkdir(parents=True, exist_ok=True)
+    # only the two fields a composite is built from, per player: pts13 is the
+    # input to project_war's pts_to_war bridge and pos selects the bridge. The
+    # rest of proj_sleeper.json (ppg, raw_pts, the schedule) is week-level
+    # machinery that no projection curve reads, and keeping it would put a
+    # 120 KB file in the repo every season for no gradeable content.
+    names = names or {}
+    snap = {p: {"pos": v["pos"], "pts13": v["pts13"], "src": v["src"],
+                "name": names.get(p)}
+            for p, v in result["players"].items()}
+    doc = {"meta": {**result["meta"],
+                    "captured": datetime.date.today().isoformat(),
+                    "season_type": (state or {}).get("season_type"),
+                    "state_week": (state or {}).get("week"),
+                    "backfilled": backfilled,
+                    "source": "season endpoint only" if backfilled else "weekly lines",
+                    "note": ("BACKFILLED years later from Sleeper's own archive, "
+                             "not captured live. Verified preseason by "
+                             "probe_sleeper_vintage.py (full games for everyone, "
+                             "tracks ADP more tightly than the outcome). Seasons "
+                             "before 2021 do NOT pass that check."
+                             if backfilled else
+                             "FIRST pull of this season, kept so the composite "
+                             "curves can be scored out of sample later. Never "
+                             "overwritten.") + " See backtest_curves.py."},
+           "players": snap}
+    atomic_write(dest, json.dumps(doc, separators=(",", ":")))
+    return dest
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--season", type=int, default=None, help="default: current from /state/nfl")
@@ -115,15 +182,70 @@ def main():
                          "the season endpoint alone.")
     ap.add_argument("--league-id", default=None,
                     help="default: the registry's current-season league id")
+    # BACKFILLING THE ARCHIVE (Max, 2026-09-18).
+    #
+    # Sleeper turns out to serve a real PRESEASON projection for 2021 and
+    # later; 2020 and earlier are a backfill that has seen the season (probe:
+    # projected games correlate 0.83 with games actually played, and within
+    # position the "projection" correlates 0.97 with the outcome). So the
+    # composite curves are gradeable back to 2021 and no further.
+    #
+    # This flag pulls one past season and writes ONLY the archive. It must
+    # never touch data/<league>/proj_sleeper.json: that file is this season's
+    # composite input, and overwriting it with a four-year-old pull would
+    # silently reprice the whole board.
+    ap.add_argument("--archive-only", action="store_true",
+                    help="with --season: write proj_sleeper_history/<season>.json "
+                         "and leave the live proj_sleeper.json alone. A backfill "
+                         "of a PAST season is forced onto the season endpoint — "
+                         "see WHY A BACKFILL CANNOT USE THE WEEKLY LINES.")
+    ap.add_argument("--overwrite-archive", action="store_true",
+                    help="allow --archive-only to replace an existing vintage. "
+                         "Off by default: a vintage captured live in its own "
+                         "August beats one pulled back years later, and this "
+                         "flag is how you avoid clobbering the good one.")
     args = ap.parse_args()
     league_id = args.league_id or default_league_id()
 
-    season = args.season
+    # WHY A BACKFILL CANNOT USE THE WEEKLY LINES (Max, 2026-09-18).
+    #
+    # The weekly pass is the right primary source for a LIVE pull: in August
+    # every one of weeks 1-18 carries a preseason line, and their mean is what
+    # the Sleeper app shows. It is catastrophic for a BACKFILL. Sleeper rewrites
+    # each week's projection shortly before that week is played, so the 2021
+    # rows served today are week 1 as written in September 2021, week 10 as
+    # written in November with nine weeks already in the book, and so on. Their
+    # mean is not a forecast of 2021; it is a running commentary on it.
+    #
+    # Measured, and this is why the guard exists rather than a comment: the
+    # first backfill was built this way, and the resulting "projection" ranked
+    # the season it was predicting at Spearman 0.856 while ranking the PRIOR
+    # season, the only one it could legitimately know, at 0.674. A forecast
+    # cannot know the future better than the past. It scored the composite
+    # curves at MAE 0.278 against their naturals' 0.465, which is not a model
+    # winning, it is a model reading the answer.
+    #
+    # The SEASON endpoint is clean: probe_sleeper_vintage.py clears it for 2021
+    # and later (full games for everyone, tracks its own ADP more tightly than
+    # the outcome, men who played four games still carrying a full year). So a
+    # backfill takes that path and only that path.
+    season, state = args.season, None
+    # fetched even when --season is explicit: the archive below stamps each
+    # capture with Sleeper's own season_type and week, so a vintage taken
+    # mid-season is visible as one rather than passing for a preseason forecast
+    state = get(f"{V1}/state/nfl")
     if season is None:
-        state = get(f"{V1}/state/nfl")
         if not state:
             sys.exit("/state/nfl returned nothing; pass --season")
         season = int(state["season"])
+
+    if args.archive_only and args.weekly_fallback and season is not None:
+        cur = int((state or {}).get("season") or 0)
+        if season < cur or cur == 0:
+            print(f"backfill of {season}: forcing --weekly-fallback 0 "
+                  f"(the weekly lines for a past season were rewritten during it; "
+                  f"see the note in this file)")
+            args.weekly_fallback = 0
 
     league = get(f"{V1}/league/{league_id}")
     # a 404 is now None rather than an HTTPError, so say which it was
@@ -177,6 +299,11 @@ def main():
         return
 
     out = {}
+    # pid -> display name. The ARCHIVE needs it: a vintage is joined to
+    # nfl_history by name, years later, for a season in which none of these
+    # players was on this roster, so players_min.json cannot do the join and
+    # a bare pid is not resolvable once Sleeper drops the player.
+    pname = {}
     # THE NFL SCHEDULE, as a by-product (Max, 2026-09-08): every weekly item
     # names the player's club and its opponent that week, so the pass that
     # prices the lines also learns who plays whom. Kept at TEAM level —
@@ -206,6 +333,10 @@ def main():
                 return
             if not pid or not stats:
                 continue
+            pl = item.get("player") or {}
+            _nm = f"{pl.get('first_name','')} {pl.get('last_name','')}".strip()
+            if _nm:
+                pname[pid] = _nm
             # An ADP-only record is a listing, not a forecast. Writing it as
             # pts13:0 made "no opinion" indistinguishable from "projected to
             # score nothing", and project_war.py reads a 0 as absent and falls
@@ -237,6 +368,11 @@ def main():
                 for item in get(week_proj_url(season, wk, pos)) or []:
                     pid = str(item.get("player_id") or "")
                     st = item.get("stats") or {}
+                    if pid and pid not in pname:
+                        _pl = item.get("player") or {}
+                        _n = f"{_pl.get('first_name','')} {_pl.get('last_name','')}".strip()
+                        if _n:
+                            pname[pid] = _n
                     tm, opp = item.get("team"), item.get("opponent")
                     if tm and opp:
                         schedule[tm][str(wk)] = opp
@@ -292,8 +428,25 @@ def main():
               # club -> week -> opponent, off the same weekly items
               "schedule": {tm: dict(sorted(wks.items(), key=lambda kv: int(kv[0])))
                            for tm, wks in sorted(schedule.items())}}
+    if args.archive_only:
+        if season >= 2021:
+            kept = archive_vintage(result, season, state, names=pname,
+                                   overwrite=args.overwrite_archive, backfilled=True)
+            print(f"archive-only: {kept}" if kept else
+                  f"archive-only: {season} already on file; "
+                  f"pass --overwrite-archive to replace it")
+        else:
+            sys.exit(f"refusing to archive {season}: Sleeper's pre-2021 rows are a "
+                     f"backfill that has already seen the season (see "
+                     f"scripts/probe_sleeper_vintage.py). Archiving one would put a "
+                     f"leaked projection in the corpus a future backtest trusts.")
+        print(f"  live {DATA / 'proj_sleeper.json'} left untouched")
+        return
     atomic_write(dest, json.dumps(result, separators=(",", ":")))
     print(f"wrote {dest}  ({len(out)} players, season {season})")
+    kept = archive_vintage(result, season, state, names=pname)
+    print(f"  vintage archived -> {kept}" if kept
+          else f"  vintage for {season} already on file; not overwritten")
 
 
 if __name__ == "__main__":

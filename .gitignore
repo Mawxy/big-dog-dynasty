@@ -29,6 +29,8 @@ scratch/
 # same, if one lands outside scratch/ by accident
 *-preview.html
 HANDOFF_*.md
+# same again: backtest build output, all of it derived from the saved rows
+bt/
 
 # the Claude desktop app's drop folder — never part of the repo
 Claude outputs/
