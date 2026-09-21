@@ -26,7 +26,7 @@ import {
   isStale, useLiveWeekFeed, useNflBoardFeed, type LiveSide, type Scoreboard,
 } from "../../lib/liveScores";
 import Moved from "../moved";
-import { playedWeeks, weekFigures, weekRows } from "../week";
+import { playedWeeks, weekFigures, weekGames, weekRows } from "../week";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
   useDynMovers, useGapRows, useMarketMovers,
@@ -360,36 +360,63 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     list?.find(t => t.players.includes(pid))?.team ?? null;
 
   /* ---- this week -------------------------------------------------------- */
-  const thisWeek = useMemo(() => {
+  /* THE WEEK IS A PICKER (Max, 2026-09-21). The band defaults to the week in
+     progress, and any regular-season week of the roster season can be chosen
+     from the band label: a scored week reads as its finals (the cards the
+     Seasons screen draws), a week still to come as its pairings and whatever
+     line odds.json holds for it. The pick is kept per season, so switching
+     league or season falls back to the default. */
+  const [pick, setPick] = useState<{ season: string; wk: number } | null>(null);
+  const weekOpts = useMemo(() => {
+    const mw = mwQ.data;
+    if (!mw) return [] as number[];
+    const ps = mw.playoff_start || 15;
+    const s = new Set<number>(playedWeeks(mw));
+    for (const w of Object.keys(mw.schedule ?? {}).map(Number)) if (w < ps) s.add(w);
+    return [...s].sort((x, y) => x - y);
+  }, [mwQ.data]);
+  const defaultWk = useMemo(() => {
     const mw = mwQ.data;
     if (!mw) return null;
     const ps = mw.playoff_start || 15;
     // the week in progress, else the first week anyone is scheduled for
     const scheduled = Object.keys(mw.schedule ?? {}).map(Number).filter(w => w < ps).sort((a, b) => a - b);
-    const wk = phase.week ?? scheduled[0] ?? null;
+    return phase.week ?? scheduled[0] ?? null;
+  }, [mwQ.data, phase.week]);
+  const pickedWk = pick && pick.season === rosterSeason && weekOpts.includes(pick.wk) ? pick.wk : null;
+
+  const thisWeek = useMemo(() => {
+    const mw = mwQ.data;
+    if (!mw) return null;
+    const wk = pickedWk ?? defaultWk;
     if (wk == null) return null;
-    /* THIS WEEK IS NEVER A SCORED WEEK (verified 2026-09-21), and the band no
-       longer pretends it might be. `phase.week` is the first UNPLAYED
-       regular-season week by construction, and the fallback comes out of
-       `mw.schedule`, which build_site_data writes with the weeks still to come
-       — week 1 is gone from it the morning after week 1. So both arms name an
-       unscored week, `scored` was always empty for it, and the branch that
-       read "Final", the weekly.json fetch behind it and the derived-pairings
-       fallback were all unreachable. Removed rather than left as a promise the
-       data cannot keep: the live feed is what covers a week in progress, and
-       once the pipeline scores a week it belongs to Last week and Seasons. */
+    const line = oddsQ.data?.weeks[String(wk)] ?? {};
+    const lineOf = (rid: number) => ({
+      rid, wp: line[String(rid)]?.wp ?? null, mu: line[String(rid)]?.mu ?? null, sd: line[String(rid)]?.sd ?? null,
+    });
+    /* A SCORED WEEK (reachable through the picker): its finals, off the same
+       rows beta/week.ts reads for Last week and Seasons. */
+    const rows = weekRows(mw, wk);
+    if (rows.length) {
+      const games = weekGames(rows).map(g => ({
+        a: { ...lineOf(g.a.rid), pts: g.a.pts as number | null, starters: g.a.starters },
+        b: { ...lineOf(g.b.rid), pts: g.b.pts as number | null, starters: g.b.starters },
+      }));
+      const figs = rows.map(r => r.pts).sort((x, y) => x - y);
+      const median = figs.length % 2 ? figs[(figs.length - 1) / 2] : (figs[figs.length / 2 - 1] + figs[figs.length / 2]) / 2;
+      return { wk, games, median, scored: true };
+    }
     // A COPY, NOT THE CACHED ARRAY: `mw` is lib/data's shared fetch cache, and
     // the derived-pairings fallback used to push into `mw.schedule[wk]` itself
     // — mutating the file every other reader of it holds.
     const pairs: [number, number][] = (mw.schedule?.[String(wk)] ?? []).slice();
-    const line = oddsQ.data?.weeks[String(wk)] ?? {};
 
     // NO STAR TO WATCH (Max, 2026-09-10): the card carried each side's
     // top projected / top scoring starter under the figure; it was noise
     // beside a line and a score, and the drawer has every slot anyway.
     const games = pairs.map(([a, b]) => ({
-      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, sd: line[String(a)]?.sd ?? null },
-      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, sd: line[String(b)]?.sd ?? null },
+      a: { ...lineOf(a), pts: null as number | null, starters: [] as string[] },
+      b: { ...lineOf(b), pts: null as number | null, starters: [] as string[] },
     }));
     // THE LEAGUE MEDIAN (Max, 2026-09-09): the middle of the projected totals.
     // The line a median-win league pays on, and the line every team is over
@@ -400,8 +427,8 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     const median = figs.length
       ? figs.length % 2 ? figs[(figs.length - 1) / 2] : (figs[figs.length / 2 - 1] + figs[figs.length / 2]) / 2
       : null;
-    return { wk, games, median };
-  }, [mwQ.data, oddsQ.data, phase.week]);
+    return { wk, games, median, scored: false };
+  }, [mwQ.data, oddsQ.data, pickedWk, defaultWk]);
 
   /* ---- live (Max, 2026-09-10) --------------------------------------------
      The week in progress, from Sleeper, once a minute: points so far on
@@ -410,7 +437,8 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      week; before anyone has scored the cards stay pregame, and once the
      file carries the week it is the record and nothing is fetched. */
   const leagueId = league.chain?.[rosterSeason] ?? league.currentLeagueId ?? null;
-  const wkNow = thisWeek?.wk ?? null;
+  // live only on the week in progress: a picked past or future week has no feed
+  const wkNow = thisWeek && !thisWeek.scored && thisWeek.wk === defaultWk ? thisWeek.wk : null;
   /* THE SCOREBOARD IS THE POLLER'S STOP CONDITION (2026-09-21), so it is read
      FIRST and handed to the live feed. Without it `useLiveScores` falls back
      to a flat sixty seconds for the whole week — Tuesday, Wednesday, and every
@@ -422,9 +450,9 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      is used. `usePoll` already resets in render on a league or week change, so
      this is belt and braces rather than the fix — but a live figure under the
      wrong heading is the one failure this band cannot survive. */
-  const boardFeed = useNflBoardFeed(rosterSeason, wkNow, !!thisWeek);
+  const boardFeed = useNflBoardFeed(rosterSeason, wkNow, wkNow != null);
   const board = boardFeed.week === wkNow ? boardFeed.data : null;
-  const liveFeed = useLiveWeekFeed(leagueId, wkNow, !!thisWeek, board);
+  const liveFeed = useLiveWeekFeed(leagueId, wkNow, wkNow != null, board);
   const live = liveFeed.week === wkNow ? liveFeed.data : null;
   const isLive = !!live?.started;
   /** the poller has failed or stopped and the running totals have aged out —
@@ -526,6 +554,28 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     }));
   }, [mwQ.data, meta, sproj, teams, players, board]);
 
+  /** a scored week's lineup as it was scored — the Seasons screen's reading:
+   *  one entry per slot in lineup order, each carrying the points it returned */
+  const playedSlotsOf = useCallback((starters: string[], wk: number): SlotEntry[] => {
+    const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
+    const n = Math.max(lineup.length, starters.length);
+    return Array.from({ length: n }, (_, i) => {
+      const pid = starters[i];
+      const real = !!pid && pid !== "0";
+      const v = real ? weeklyR?.[pid]?.find(x => x[0] === wk)?.[1] ?? 0 : 0;
+      return { slot: lineup[i] ?? "FLEX", pid: real ? pid : null, v, over: true, est: v };
+    });
+  }, [meta, weeklyR]);
+
+  /** every starter on this side has finished: his game is final, or he has
+   *  no game on the board (a bye). No board, no verdict. */
+  const sideFinal = (ls: LiveSide | null): boolean =>
+    !!ls && !!board && ls.starters.every(pid => {
+      if (!pid || pid === "0") return true;
+      const g = board[pInfo(players, pid)[2]];
+      return !g || g.state === "post";
+    });
+
   /* ---- last week ---------------------------------------------------------
      The most recent scored regular-season week, read by beta/week.ts — the
      same computation the Seasons screen runs for any week (Max, 2026-09-15),
@@ -543,10 +593,26 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
 
   return (
     <>
-      <Band label={thisWeek ? `This week · ${twSeason} wk ${thisWeek.wk}` : "This week"}
-        note={liveStale ? "Live · the feed has stopped answering, so these totals are the last good read"
+      <Band label={!thisWeek ? "This week" : (
+          <>
+            {thisWeek.wk === defaultWk ? "This week" : "Week"} · {twSeason}{" "}
+            <select className="lgx-wkpick" value={thisWeek.wk} aria-label="Week"
+              onChange={e => {
+                const w = Number(e.target.value);
+                setOpenGame(null);
+                setPick(w === defaultWk ? null : { season: rosterSeason, wk: w });
+              }}>
+              {weekOpts.map(w => (
+                <option key={w} value={w}>{`Wk ${w}${w === defaultWk ? " · now" : ""}`}</option>
+              ))}
+            </select>
+          </>
+        )}
+        note={thisWeek?.scored ? "Final"
+          : liveStale ? "Live · the feed has stopped answering, so these totals are the last good read"
           : isLive ? "Live · points so far, projection and odds moving with the games"
-          : "Pregame line"} />
+          : thisWeek && thisWeek.games.some(g => g.a.wp != null) ? "Pregame line"
+          : "Schedule · no line posted for this week yet"} />
       {mwQ.error ? <DataError what="Schedule didn't load" />
         : !thisWeek ? <div className="empty">{mwQ.loading ? "Loading…" : "No week scheduled."}</div> : (
         <div className="lgx-games">
@@ -558,11 +624,16 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
             </div>
           )}
           {thisWeek.games.map(g => {
-            // while live, the figures are the points so far and the leader
-            // takes the accent the winner takes at the final
+            /* THE ACCENT IS FOR THE WINNER, NOT THE LEADER (Max, 2026-09-21).
+               While live the figures are the points so far and nobody takes
+               the gold; it lands once every starter on both sides is done. A
+               scored week is final by definition. */
             const la = isLive ? liveOf(g.a.rid) : null, lb = isLive ? liveOf(g.b.rid) : null;
-            const aWon = !!la && !!lb && la.pts > lb.pts;
-            const bWon = !!la && !!lb && lb.pts > la.pts;
+            const final = thisWeek.scored || (sideFinal(la) && sideFinal(lb));
+            const ptsA = thisWeek.scored ? g.a.pts : la?.pts ?? null;
+            const ptsB = thisWeek.scored ? g.b.pts : lb?.pts ?? null;
+            const aWon = final && ptsA != null && ptsB != null && ptsA > ptsB;
+            const bWon = final && ptsA != null && ptsB != null && ptsB > ptsA;
             /* THE LINE, THE WAY A BOOK WOULD QUOTE IT (Max, 2026-09-02): each
                side's moneyline is its figure; the spread and the total sit in
                the middle block between them, the way a scoreboard card posts
@@ -581,11 +652,11 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               return (
                 <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
                   <div className="nm">{nameOf(teams, x.rid)}</div>
-                  <div className="fig">{ls ? fmt(ls.pts, 1) : ml ?? DASH}</div>
+                  <div className="fig">{x.pts != null ? fmt(x.pts, 1) : ls ? fmt(ls.pts, 1) : ml ?? DASH}</div>
                   {/* the side's projected total, pregame and live (Max,
                       2026-09-09): the figure the line is made from, under the
                       line it makes — and, once live, the pace to beat. */}
-                  {mu != null && (
+                  {mu != null && x.pts == null && (
                     <div className="proj"><span className="k">Proj</span> {fmt(mu, 1)}</div>
                   )}
                   {/* the moneyline, live (Max, 2026-09-10): the points took
@@ -622,9 +693,27 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
                 <div className="mid">
                   {/* live: the margin so far over the pregame spread, so the
                       read is "up 8, was favored by 3" */}
-                  {lm != null ? (
+                  {thisWeek.scored && g.a.pts != null && g.b.pts != null ? (
                     <>
-                      <span className={`k lgx-live${liveStale ? " stale" : ""}`}>Live</span>
+                      <span className="k">Final</span>
+                      <span className="v edge">
+                        <span className="ar">{aWon ? "◂" : ""}</span>
+                        <span className="n">{fmt(Math.abs(g.a.pts - g.b.pts), 1)}</span>
+                        <span className="ar">{bWon ? "▸" : ""}</span>
+                      </span>
+                      {/* the pregame line, so an upset reads as one */}
+                      {g.a.wp != null && g.b.wp != null && (
+                        <>
+                          <span className="k">Was</span>
+                          <span className="v">{Math.round(g.a.wp * 100)}–{Math.round(g.b.wp * 100)}</span>
+                        </>
+                      )}
+                    </>
+                  ) : lm != null ? (
+                    <>
+                      {final
+                        ? <span className="k">Final</span>
+                        : <span className={`k lgx-live${liveStale ? " stale" : ""}`}>Live</span>}
                       <span className="v edge">
                         <span className="ar">{lm > 0 ? "◂" : ""}</span>
                         <span className="n">{fmt(Math.abs(lm), 1)}</span>
@@ -660,9 +749,11 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               </button>,
               isOpen && (
                 <SlotDrawer key={`${key}-drawer`}
-                  a={{ rid: g.a.rid, name: nameOf(teams, g.a.rid), slots: slotsOf(g.a.rid, thisWeek.wk, la) }}
-                  b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid), slots: slotsOf(g.b.rid, thisWeek.wk, lb) }}
-                  played={false} live={!!la && !!lb} players={players} board={board}
+                  a={{ rid: g.a.rid, name: nameOf(teams, g.a.rid),
+                    slots: thisWeek.scored ? playedSlotsOf(g.a.starters, thisWeek.wk) : slotsOf(g.a.rid, thisWeek.wk, la) }}
+                  b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid),
+                    slots: thisWeek.scored ? playedSlotsOf(g.b.starters, thisWeek.wk) : slotsOf(g.b.rid, thisWeek.wk, lb) }}
+                  played={thisWeek.scored || final} live={!!la && !!lb && !final} players={players} board={board}
                   to={`${seasonsRoute(twSeason, thisWeek.wk)}/${g.a.rid}`} />
               ),
             ];
@@ -806,6 +897,7 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
   to?: string;
 }) {
   const PUSH = 0.5;
+  const betaPath = useBetaPath();
   const n = Math.max(a.slots.length, b.slots.length);
   const totA = a.slots.reduce((t, x) => t + x.v, 0);
   const totB = b.slots.reduce((t, x) => t + x.v, 0);
@@ -822,7 +914,8 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
     const gl = gameLine(team, board);
     return (
       <>
-        <span className="n1">{name}</span>
+        {/* the name is his page (Max, 2026-09-21) */}
+        <RouteLink to={betaPath(`/player/${pid}`)} className="n1">{name}</RouteLink>
         {(team || gl) && (
           <span className="n2">
             {team && <span className="tg">{team}</span>}

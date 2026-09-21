@@ -478,3 +478,16 @@
 
 /* ---- the player's Trades page: the back control in the title row ------- */
 .ptx-back { margin: 0 4px 0 0; background: none; border: 0; padding: 0; flex: 0 0 100%; }
+
+/* THE WEEK PICKER on the This week band (Max, 2026-09-21): the band label's
+   own face and tracking, a hairline box, no radius. */
+.lgx-wkpick {
+  font: inherit; letter-spacing: inherit; text-transform: uppercase;
+  color: var(--txt); background: var(--deep);
+  border: 1px solid var(--rule); border-radius: 0;
+  padding: 2px 4px; margin-left: 2px; cursor: pointer;
+}
+.lgx-wkpick:focus-visible { outline: 1px solid var(--acc); outline-offset: 1px; }
+/* the player's name in the slot drawer is a link to his page */
+.lgx-drawer .sd-side .nm a.n1 { color: inherit; text-decoration: none; }
+.lgx-drawer .sd-side .nm a.n1:hover { text-decoration: underline; text-underline-offset: 2px; }
