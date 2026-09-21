@@ -22,6 +22,7 @@ import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../li
 import { nearestPick, rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
 import Moved from "../moved";
 import TeamSeasons from "./TeamSeasons";
+import TeamRivals from "./TeamRivals";
 import {
   Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, TapRow, useBetaPath,
   type IdTag,
@@ -194,6 +195,7 @@ export default function Team() {
     roster: useRef<HTMLDivElement>(null),
     moved: useRef<HTMLDivElement>(null),
     seasons: useRef<HTMLDivElement>(null),
+    rivals: useRef<HTMLDivElement>(null),
     strengths: useRef<HTMLDivElement>(null),
   };
   const goto = (k: keyof typeof refs) =>
@@ -544,6 +546,7 @@ export default function Team() {
       <button onClick={() => goto("roster")}>Roster</button>
       <button onClick={() => goto("moved")}>Recent activity</button>
       <button onClick={() => goto("seasons")}>Seasons</button>
+      <button onClick={() => goto("rivals")}>Head to head</button>
       {shape && <button onClick={() => goto("strengths")}>Strengths</button>}
     </>
   );
@@ -692,6 +695,14 @@ export default function Team() {
             <div ref={refs.seasons}>
               <TeamSeasons fkey={String(team.fkey ?? rid)} rid={rid} fr={fr}
                 honors={honorBySeason} rosterSeason={rosterSeason} />
+            </div>
+
+            {/* ---- head to head ----
+                "My record against everyone else" (Max, 2026-09-21), filterable
+                by regular season, playoffs, or both. */}
+            <div ref={refs.rivals}>
+              <TeamRivals fkey={String(team.fkey ?? rid)} fr={fr}
+                seasons={meta.seasons} rosterSeason={rosterSeason} />
             </div>
 
             {/* ---- strengths ----
