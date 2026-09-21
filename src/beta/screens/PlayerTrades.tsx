@@ -1,6 +1,7 @@
 import { useNavigate, useParams } from "react-router-dom";
 import type { RecentTrades } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { pInfo } from "../../lib/league";
 import { RECENT_NOTE, RecentFigs, RecentRows } from "../../components/RecentTrades";
@@ -22,8 +23,15 @@ const recentBucket = (pid: string) => (/^\d+$/.test(pid) ? Number(pid) % RECENT_
 export default function PlayerTrades() {
   const pid = useParams().pid!;
   const nav = useNavigate();
-  const { players } = useLeague();
-  const q = useJson<RecentTrades>(`data/recent_trades/${recentBucket(pid)}.json`, "globalDaily");
+  const { players, league } = useLeague();
+  /* THE CORPUS IS A DYNASTY CRAWL. `sleeper_crawl` walks dynasty leagues and
+     `dynasty_movers.py` buckets what it finds, so "what he went for elsewhere"
+     is a statement about dynasty trades — priced in a market a redraft league
+     does not play in. The screen says so rather than listing deals that mean
+     something else. */
+  const caps = useLeagueCaps();
+  const q = useJson<RecentTrades>(
+    caps.market ? `data/recent_trades/${recentBucket(pid)}.json` : null, "globalDaily");
   const recent = q.data?.players[pid] ?? null;
   const [name, pos, nfl] = pInfo(players, pid);
   const label = q.data?.names[pid]?.[0] && !q.data.names[pid][0].startsWith("#") ? q.data.names[pid][0] : name;
@@ -35,7 +43,13 @@ export default function PlayerTrades() {
         <h1>{label}</h1>
         <span className="sub">{[nfl || null, pos].filter(Boolean).join(" · ")} · recent trades</span>
       </div>
-      {q.error ? <DataError what="Trades didn't load" />
+      {!caps.market ? (
+        <div className="tnote screen">
+          Not published for {league.name}. These are trades from the crawled DYNASTY
+          leagues, in the dynasty market's own prices, which say nothing about what a
+          player is worth in a redraft league.
+        </div>
+      ) : q.error ? <DataError what="Trades didn't load" />
         : !q.data ? <div className="empty">Loading…</div>
         : (
           <>

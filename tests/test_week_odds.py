@@ -16,7 +16,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from week_odds import (best_lineup, pos_stats, season_odds,   # noqa: E402
+from week_odds import (best_lineup, first_round_byes, pos_stats,   # noqa: E402
+                       run_bracket, season_odds, season_sim,
                        snapshot_projections, snapshot_week)
 from playoff_wpa import shrink                          # noqa: E402
 
@@ -193,6 +194,25 @@ class TestNoLookahead(unittest.TestCase):
         self.assertTrue(all(int(w) < PLAYOFF_START for w in got["weeks"]))
         self.assertEqual(got["meta"]["projected"], [])
 
+    def test_a_starter_missing_from_the_snapshot_is_priced_at_zero(self):
+        """THE PREGAME LINE OF RECORD MUST NOT MOVE (2026-09-21). A player
+        with no line for the week is zero in the live path (Max, 2026-09-15).
+        A snapshot is a complete record of the lines that were quoted, so
+        absence from it means the same thing — it used to mean the positional
+        mean, ~10 phantom points that appeared the moment the week flipped
+        from upcoming to played."""
+        both = self.odds(proj_history={"3": {"a": 22.0, "b": 8.0}})
+        only_a = self.odds(proj_history={"3": {"a": 22.0}})
+        no_snap = self.odds()
+        self.assertLess(only_a["weeks"]["3"]["2"]["mu"],
+                        both["weeks"]["3"]["2"]["mu"])
+        # and below the positional-prior fallback, which is what it used to get
+        self.assertLess(only_a["weeks"]["3"]["2"]["mu"],
+                        no_snap["weeks"]["3"]["2"]["mu"])
+        # the player who IS in the snapshot is unaffected by the other's gap
+        self.assertEqual(only_a["weeks"]["3"]["1"]["mu"],
+                         both["weeks"]["3"]["1"]["mu"])
+
 
 class TestSnapshotFirstWriteWins(unittest.TestCase):
     """`--snapshot` archives today's projections under the current NFL week.
@@ -201,7 +221,7 @@ class TestSnapshotFirstWriteWins(unittest.TestCase):
     with numbers taken AFTER its games were played — exactly the lookahead
     proj_history.json exists to prevent."""
 
-    SPROJ = {"a": {"ppg": 18.0}, "b": {"ppg": 9.0}}
+    SPROJ = {"a": {"wk": {"5": 18.0}}, "b": {"wk": {"5": 9.0}}}
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -213,23 +233,24 @@ class TestSnapshotFirstWriteWins(unittest.TestCase):
     def hist(self):
         return json.loads(self.f.read_text(encoding="utf-8"))
 
-    def snap(self, week, sproj=..., teams=TEAMS):
+    def snap(self, week, sproj=...):
         return snapshot_projections(SEASON, self.ld,
-                                    self.SPROJ if sproj is ... else sproj,
-                                    week, teams)
+                                    self.SPROJ if sproj is ... else sproj, week)
 
     def test_the_first_snapshot_of_a_week_is_the_one_that_survives(self):
         self.assertTrue(self.snap(5))
         first = self.hist()
         # Monday's run: the same NFL week, but these numbers now know the
         # results. It must be refused.
-        self.assertFalse(self.snap(5, {"a": {"ppg": 99.0}, "b": {"ppg": 0.5}}))
+        self.assertFalse(self.snap(5, {"a": {"wk": {"5": 99.0}},
+                                       "b": {"wk": {"5": 0.5}}}))
         self.assertEqual(self.hist(), first)
         self.assertEqual(self.hist()["5"]["a"], 18.0)
 
     def test_a_new_week_is_appended_and_the_old_ones_are_left_alone(self):
         self.snap(5)
-        self.assertTrue(self.snap(6, {"a": {"ppg": 21.0}, "b": {"ppg": 7.0}}))
+        self.assertTrue(self.snap(6, {"a": {"wk": {"6": 21.0}},
+                                      "b": {"wk": {"6": 7.0}}}))
         self.assertEqual(sorted(self.hist()), ["5", "6"])
         self.assertEqual(self.hist()["5"]["a"], 18.0)
         self.assertEqual(self.hist()["6"]["a"], 21.0)
@@ -238,22 +259,36 @@ class TestSnapshotFirstWriteWins(unittest.TestCase):
         self.snap(5)
         self.assertFalse(self.snap(5))
 
-    def test_only_rostered_players_are_kept(self):
-        """The unrostered ~2,700 are never starters and cannot affect a line;
-        trimming is what keeps the file small enough to live in the repo."""
-        self.snap(5, {"a": {"ppg": 18.0}, "b": {"ppg": 9.0},
-                      "ghost": {"ppg": 30.0}})
-        self.assertEqual(sorted(self.hist()["5"]), ["a", "b"])
+    def test_every_player_with_a_line_is_kept_rostered_or_not(self):
+        """The snapshot used to be trimmed to the players rostered that
+        Tuesday. A waiver add on Wednesday starts on Sunday and was missing
+        from it — and a hole in a snapshot reads as "no line", which the
+        engine prices at 0 while the week is upcoming and used to price at the
+        positional mean once it was played. The pregame line of record must
+        not move after the fact, so the snapshot records everyone quoted."""
+        self.snap(5, {"a": {"wk": {"5": 18.0}}, "b": {"wk": {"5": 9.0}},
+                      "waiver_add": {"wk": {"5": 11.0}}})
+        self.assertEqual(sorted(self.hist()["5"]), ["a", "b", "waiver_add"])
 
     def test_nothing_to_archive_writes_nothing(self):
         self.assertFalse(self.snap(None))
         self.assertFalse(self.snap(5, {}))
-        self.assertFalse(self.snap(5, {"ghost": {"ppg": 30.0}}))
-        self.assertFalse(self.snap(5, self.SPROJ, teams=[]))
+        self.assertFalse(self.snap(5, {"a": {"wk": {"9": 30.0}}}))  # other week
         self.assertFalse(self.f.exists())
 
-    def test_players_without_a_projection_are_dropped_not_zeroed(self):
-        self.snap(5, {"a": {"ppg": 18.0}, "b": {"ppg": None}})
+    def test_players_without_a_line_for_this_week_are_dropped_not_zeroed(self):
+        self.snap(5, {"a": {"wk": {"5": 18.0}}, "b": {"wk": {}}})
+        self.assertEqual(sorted(self.hist()["5"]), ["a"])
+
+    def test_a_season_row_is_never_archived_as_a_weeks_line(self):
+        """`src:"season"` rows carry `ppg` — the season total over 17 — and no
+        week map. That figure never drops to zero on a bye and is not a
+        projection for any week, so archiving it put a season average where a
+        week's line belongs (Max, 2026-09-15 made the live path say so; the
+        snapshot path kept doing it)."""
+        self.assertFalse(self.snap(5, {"season_only": {"ppg": 12.0}}))
+        self.assertTrue(self.snap(5, {"a": {"wk": {"5": 18.0}},
+                                      "season_only": {"ppg": 12.0}}))
         self.assertEqual(sorted(self.hist()["5"]), ["a"])
 
 
@@ -297,6 +332,141 @@ class TestSnapshotIsRegularSeasonOnly(unittest.TestCase):
     def test_week_zero_or_missing_does_not(self):
         self.assertIsNone(snapshot_week(self.state(week=0), self.SEASONS))
         self.assertIsNone(snapshot_week(self.state(week=None), self.SEASONS))
+
+
+# ---------------------------------------------------------------------------
+# The bracket, and the season simulation that rides it.
+# ---------------------------------------------------------------------------
+class TestBracketShape(unittest.TestCase):
+    """`run_bracket` replaced hand-written 4 / 6 / 8 branches that dropped a
+    survivor at 10, raised a ValueError at 12, and put the 3 seed out of a
+    3-team bracket without ever playing it."""
+
+    @staticmethod
+    def play(n, winner=min):
+        field = list(range(1, n + 1))
+        seed_of = {r: i + 1 for i, r in enumerate(field)}
+        played = []
+
+        def game(a, b):
+            played.append((a, b))
+            return winner(a, b)
+        return run_bracket(field, seed_of, game), played
+
+    def test_the_better_seed_always_winning_puts_one_and_two_in_the_final(self):
+        for n in range(2, 17):
+            self.assertEqual(self.play(n)[0], (1, 2), f"{n}-team bracket")
+
+    def test_the_worse_seed_always_winning_still_returns_two_finalists(self):
+        for n in range(2, 17):
+            f1, f2 = self.play(n, winner=max)[0]
+            self.assertNotEqual(f1, f2, f"{n}-team bracket")
+
+    def test_six_teams_is_exactly_the_bracket_this_league_plays(self):
+        """Byes for 1-2, then 3v6 and 4v5, then the 1 seed against the LOWER
+        of the two winners. Unchanged from the hand-written branch."""
+        self.assertEqual(first_round_byes(6), 2)
+        _, played = self.play(6)
+        self.assertEqual(played, [(3, 6), (4, 5), (1, 4), (2, 3)])
+
+    def test_every_team_that_is_not_on_bye_plays_round_one(self):
+        # from 3 up: a two-team "bracket" is the final, with no round one
+        for n in range(3, 17):
+            byes = first_round_byes(n)
+            _, played = self.play(n)
+            first = played[:(n - byes) // 2]
+            self.assertEqual(sorted(r for g in first for r in g),
+                             list(range(byes + 1, n + 1)), f"{n}-team bracket")
+
+    def test_byes_fill_the_bracket_to_a_power_of_two(self):
+        for n, want in ((2, 0), (3, 1), (4, 0), (5, 3), (6, 2), (7, 1),
+                        (8, 0), (10, 6), (12, 4), (16, 0)):
+            self.assertEqual(first_round_byes(n), want, n)
+
+
+SIM_PS = 4                      # playoffs start week 4: weeks 1-3 are the season
+
+
+def sim_inputs(n_teams=8, played=(1,), upcoming=(2, 3), playoff_teams=6):
+    """A tiny league: `n_teams` franchises, some weeks scored and some still
+    on the schedule, with a per-week line for each. Team `r` scores 100+r
+    every week, so the seeding is unambiguous."""
+    rids = list(range(1, n_teams + 1))
+    pairs = [[rids[i], rids[i + 1]] for i in range(0, len(rids), 2)]
+    teams = {str(r): [] for r in rids}
+    for wk in played:
+        for a, b in pairs:
+            teams[str(a)].append([wk, 100.0 + a, b, 100.0 + b, [], []])
+            teams[str(b)].append([wk, 100.0 + b, a, 100.0 + a, [], []])
+    mw = {"playoff_start": SIM_PS, "teams": teams,
+          "schedule": {str(wk): pairs for wk in upcoming}}
+    odds = {str(wk): {str(r): {"mu": 100.0 + r, "sd": 20.0, "proj": True}
+                      for r in rids}
+            for wk in upcoming}
+    return mw, odds, {"settings": {"playoff_teams": playoff_teams}}
+
+
+class TestSeasonSim(unittest.TestCase):
+    """The Monte Carlo over the rest of the season. Seeded, so these are
+    exact claims rather than tolerances on a random draw."""
+
+    def test_the_same_seed_gives_the_same_table(self):
+        mw, odds, lg = sim_inputs()
+        self.assertEqual(season_sim(mw, odds, lg, seed=7),
+                         season_sim(mw, odds, lg, seed=7))
+
+    def test_a_different_seed_moves_it(self):
+        mw, odds, lg = sim_inputs()
+        self.assertNotEqual(season_sim(mw, odds, lg, seed=1),
+                            season_sim(mw, odds, lg, seed=2))
+
+    def test_exactly_six_teams_make_it_two_rest_two_reach_the_final(self):
+        """Every simulated season fills the same number of slots, so the
+        probabilities sum to the size of each stage."""
+        got = season_sim(*sim_inputs(), seed=1)
+        for field, want in (("playoff", 6), ("bye", 2), ("final", 2),
+                            ("title", 1)):
+            self.assertAlmostEqual(sum(t[field] for t in got.values()), want,
+                                   places=2, msg=field)
+
+    def test_every_probability_is_a_probability(self):
+        got = season_sim(*sim_inputs(), seed=1)
+        for rid, t in got.items():
+            for k, v in t.items():
+                self.assertGreaterEqual(v, 0.0, f"{rid}.{k}")
+                self.assertLessEqual(v, 1.0, f"{rid}.{k}")
+            # you cannot win a title you did not reach the final of, nor reach
+            # a final without making the field
+            self.assertLessEqual(t["title"], t["final"] + 1e-9, rid)
+            self.assertLessEqual(t["final"], t["playoff"] + 1e-9, rid)
+            self.assertLessEqual(t["bye"], t["playoff"] + 1e-9, rid)
+
+    def test_the_strongest_team_is_the_favorite(self):
+        got = season_sim(*sim_inputs(), seed=1)
+        best = max(got, key=lambda r: got[r]["title"])
+        self.assertEqual(best, "8")            # team 8 scores the most
+        self.assertGreater(got["8"]["playoff"], got["1"]["playoff"])
+
+    def test_a_six_team_league_puts_everyone_in_the_bracket(self):
+        got = season_sim(*sim_inputs(n_teams=6), seed=1)
+        for rid, t in got.items():
+            self.assertEqual(t["playoff"], 1.0, rid)
+
+    def test_the_awkward_bracket_sizes_run_at_all(self):
+        """3, 5, 7, 10 and 12 used to drop a survivor, raise a ValueError, or
+        quietly hand the final to the top two seeds without a game."""
+        for n_po in (2, 3, 4, 5, 6, 7, 8, 10, 12):
+            got = season_sim(*sim_inputs(n_teams=12, playoff_teams=n_po), seed=1)
+            self.assertAlmostEqual(sum(t["playoff"] for t in got.values()),
+                                   n_po, places=2, msg=f"playoff_teams={n_po}")
+            self.assertAlmostEqual(sum(t["title"] for t in got.values()), 1,
+                                   places=2, msg=f"playoff_teams={n_po}")
+
+    def test_a_nonsense_playoff_field_is_clamped_rather_than_crashing(self):
+        for n_po in (0, 1, 99):
+            got = season_sim(*sim_inputs(n_teams=8, playoff_teams=n_po), seed=1)
+            self.assertAlmostEqual(sum(t["title"] for t in got.values()), 1,
+                                   places=2, msg=f"playoff_teams={n_po}")
 
 
 if __name__ == "__main__":

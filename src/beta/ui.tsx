@@ -207,8 +207,9 @@ export function IdCell({ name, sub, tags, to, mark }: {
    *  A tag whose text repeats the position rank beside it (QB in the QB slot)
    *  is the caller's to omit — this renders what it is given. */
   tags?: IdTag[];
-  /** where the NAME goes, when that differs from where the row goes */
-  to?: string;
+  /** where the NAME goes, when that differs from where the row goes. Null is
+   *  "there is no page for this subject" — the name renders as plain text. */
+  to?: string | null;
 }) {
   const nav = useNavigate();
   return (
@@ -285,15 +286,28 @@ export function IdLines({ name, sub, tags }: {
  * A `<tr>` cannot be a `<button>`, so this is the same contract the classic
  * board's clickable rows carry: role, tabIndex, and Enter/Space, so the row is
  * operable from a keyboard as well as a thumb.
+ *
+ * WITH NEITHER `to` NOR `onTap` IT IS A PLAIN ROW (2026-09-21), not a button
+ * that does nothing. The all-time tables have rows for franchises that are no
+ * longer in the league — there is no page to send a reader to, and the beta
+ * shell's franchise page is keyed by the ROSTER season's slot, so linking them
+ * anyway opens whoever holds that slot today. A row that announces itself to a
+ * screen reader as a button and then swallows the press is worse than a row
+ * that never offered.
  */
 export function TapRow({ to, onTap, className = "", children }: {
-  /** where the row goes. Rows navigate; there are no drawers on a phone. */
-  to?: string;
+  /** where the row goes. Rows navigate; there are no drawers on a phone.
+   *  Null / undefined means this row has no destination. */
+  to?: string | null;
   onTap?: () => void;
   className?: string; children: ReactNode;
 }) {
   const nav = useNavigate();
-  const fire = () => { if (onTap) onTap(); else if (to) nav(to); };
+  const fire = onTap ?? (to ? () => nav(to) : null);
+  // `.v3row` is `.tap` less the affordances: the same 44px thumb rhythm, so a
+  // linked row and an unlinked one in the same table are the same height, but
+  // no cursor, no hover fill and no focus ring
+  if (!fire) return <tr className={`v3row ${className}`.trim()}>{children}</tr>;
   return (
     <tr className={`tap ${className}`} role="button" tabIndex={0}
       onClick={fire}
@@ -405,87 +419,17 @@ export function LensStrip<T extends string>({ options, value, onChange, label = 
   );
 }
 
-/* ---- the ledger ---------------------------------------------------------- */
+/* ---- the ledger ----------------------------------------------------------
 
-/**
- * THE LEDGER: a label and N right-aligned figure columns. Nothing else.
- *
- * Decision #14 in component form. There is no winner column, no verdict row and
- * no prose slot, and that is not an omission to be filled in later — DVI and CVI
- * answer different questions and routinely point at different sides, so a single
- * number would be inventing agreement. What the component DOES provide is the
- * guardrail caption, because the design system requires one on this pattern and
- * a caption that each screen writes for itself is a caption that drifts.
- *
- * Composed rather than configured: the Trade screen supplies formatted figures
- * (a market figure carries a thousands separator, an index figure carries one
- * decimal, and no shared formatter should be deciding which). This owns the
- * grammar — column count, alignment, weight, which row is the headline.
- */
-export const LEDGER_GUARDRAIL = "DVI and CVI are index points, not value.";
-
-export function Ledger({ title = "Ledger", columns, caption, children }: {
-  title?: ReactNode;
-  /** the currencies, left to right. Three today (Market · DVI · CVI). */
-  columns: ReactNode[];
-  /** the guardrail, plus whatever else the reader must not misread. Defaults
-   *  to LEDGER_GUARDRAIL alone; pass a fragment to append to it. */
-  caption?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="v3-ledger">
-      <div className="lk">{title}</div>
-      <table>
-        <thead>
-          <tr>
-            <th className="t" style={{ width: "30%" }} />
-            {columns.map((c, i) => <th key={i}>{c}</th>)}
-          </tr>
-        </thead>
-        <tbody>{children}</tbody>
-      </table>
-      <div className="tnote">{caption ?? LEDGER_GUARDRAIL}</div>
-    </div>
-  );
-}
-
-/**
- * One ledger line: a label, an optional qualifier under it, and one figure per
- * column.
- *
- * `tone` is about WEIGHT, not about who won:
- *   - "sub"  the inputs a total is built from (in / out totals)
- *   - "adj"  an adjustment — the consolidation line. Shown, never smuggled into
- *            the total above it, which is the whole reason it is a row.
- *   - "net"  the headline. One per ledger.
- *
- * There is deliberately no "positive/negative" tone. `.pos` / `.neg` exist in
- * the stylesheet for figures elsewhere on the board; a ledger figure keeps
- * neutral ink because coloring "net to Side A" green is declaring a winner in
- * CSS. The sign already carries the direction.
- */
-export function LedgerRow({ label, sub, values, tone = "sub" }: {
-  label: ReactNode;
-  /** the qualifier under the label — "in 8370 · out 8760" */
-  sub?: ReactNode;
-  values: ReactNode[];
-  tone?: "sub" | "adj" | "net";
-}) {
-  return (
-    <tr className={`lr ${tone}`}>
-      <td className="t">
-        {label}
-        {sub != null && <div className="lsub">{sub}</div>}
-      </td>
-      {values.map((v, i) => (
-        <td key={i}>
-          <span className={tone === "net" ? "big" : tone === "adj" ? "adj" : "sm"}>{v}</span>
-        </td>
-      ))}
-    </tr>
-  );
-}
+   REMOVED 2026-09-21. `Ledger`, `LedgerRow` and `LEDGER_GUARDRAIL` were a
+   generic label-and-N-figure-columns table with a built-in guardrail caption,
+   written for the Trade screen and never imported by it or by anything else —
+   `.v3-ledger` had no renderer anywhere in src/. That screen states the same
+   claim as the favor board (`.trx-favor`) instead. Decision #14 — a trade is
+   never reduced to one verdict figure — is enforced where the figures are
+   actually rendered, in screens/Trade.tsx and lib/tradeModel.ts; it did not
+   need an unused component here to hold the line. beta.css's `.v3-ledger*`
+   block went with it. */
 
 /* ---- the bottom sheet ---------------------------------------------------- */
 

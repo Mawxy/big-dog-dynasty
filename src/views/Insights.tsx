@@ -4,6 +4,7 @@ import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { fmt, fmtWar, rate, sgnWar, WAR_DP } from "../lib/stats";
 import { useLeague } from "../lib/context";
+import { ridOf, settledSeasons } from "../lib/seasons";
 import TScroll from "../components/TScroll";
 
 /**
@@ -31,7 +32,11 @@ function Fig({ f, as = "pct", d = 2 }: { f?: BenchFig; as?: "pct" | "num"; d?: n
 
 export default function Insights() {
   const { players, league } = useLeague();
-  const [ours, setOurs] = useState<Record<string, number[]> | null>(null);
+  /** our champions' WAR at each slot, one entry per settled season. `null` is
+   *  a slot the champion had nobody for — dropped from the mean rather than
+   *  averaged in as 0.00, which would read as "our title teams got nothing
+   *  from their TE1". */
+  const [ours, setOurs] = useState<Record<string, (number | null)[]> | null>(null);
 
   // the crawl corpus is global — it belongs to no league
   const bench = useJson<Benchmarks>("data/benchmarks.json", "global");
@@ -44,20 +49,31 @@ export default function Insights() {
   useEffect(() => {
     if (!fr) return;
     let live = true;
-    const played = [...new Set(Object.values(fr)
-      .flatMap(f => f.seasons.filter(s => s.finish).map(s => s.season)))].sort();
+    // SETTLED seasons, not "any finish": this column is about title teams, and
+    // build_site_data writes places 7..12 the moment the first winners-bracket
+    // game is decided (lib/seasons#isSeasonSettled).
+    const played = settledSeasons(fr);
     Promise.all(played.map(s => Promise.all([
       jl<Matchups>(`${s}/matchups.json`), jl<Weekly>(`${s}/weekly.json`),
     ]).then(([m, w]) => [s, m, w] as const).catch(() => null)))
       .then(all => {
         if (!live) return;
-        const acc: Record<string, number[]> = {};
+        const acc: Record<string, (number | null)[]> = {};
         for (const got of all) {
           if (!got) continue;
           const [season, m, w] = got;
-          const champRid = Object.entries(fr).find(([, f]) =>
-            f.seasons.some(s => s.season === season && s.finish === 1))?.[0];
-          if (!champRid) continue;
+          /* THE ROSTER SLOT, NOT THE FRANCHISE KEY. matchups.json is keyed
+             "1".."12"; franchises.json is keyed by the FRANCHISE KEY, which is
+             the roster_id only in a dynasty league — in a redraft one it is the
+             owner's 18-digit user_id. `m.teams[<user_id>]` is undefined, so the
+             champion's roster came back empty and every slot in this column
+             printed 0.000 as if it had been measured. The season row's own
+             `rid` is the join (lib/seasons#ridOf). */
+          const ch = Object.entries(fr).find(([, f]) =>
+            f.seasons.some(s => s.season === season && s.finish === 1));
+          if (!ch) continue;
+          const row = ch[1].seasons.find(s => s.season === season && s.finish === 1);
+          const champRid = String(ridOf(ch[0], row));
           // regular-season WAR per player, then the champion's best at each slot
           const war = new Map<string, number>();
           for (const [pid, rows] of Object.entries(w)) {
@@ -65,7 +81,10 @@ export default function Insights() {
             for (const r of rows) if (r[0] < m.playoff_start) t += r[5];
             war.set(pid, t);
           }
-          const entries = m.teams[champRid] || [];
+          // no rows under that slot is a season this column cannot speak to —
+          // skipped, so the mean is over the seasons it actually measured
+          const entries = m.teams[champRid];
+          if (!entries?.length) continue;
           const roster = new Set<string>();
           for (const e of entries) {
             for (const pid of e[4] ?? []) roster.add(pid);
@@ -83,7 +102,9 @@ export default function Insights() {
             ["WR1", "WR", 1], ["WR2", "WR", 2], ["WR3", "WR", 3], ["TE1", "TE", 1]];
           for (const [key, pos, nth] of slots) {
             const v = byPos.get(pos);
-            (acc[key] ??= []).push(v && v.length >= nth ? v[nth - 1] : 0);
+            // null, never 0: "the champion had no third receiver" is not
+            // "his third receiver returned nothing"
+            (acc[key] ??= []).push(v && v.length >= nth ? v[nth - 1] : null);
           }
         }
         setOurs(acc);
@@ -96,7 +117,8 @@ export default function Insights() {
     if (!ours) return null;
     const m = new Map<string, number>();
     for (const [k, v] of Object.entries(ours)) {
-      if (v.length) m.set(k, v.reduce((a, x) => a + x, 0) / v.length);
+      const got = v.filter((x): x is number => x != null);
+      if (got.length) m.set(k, got.reduce((a, x) => a + x, 0) / got.length);
     }
     return m;
   }, [ours]);
@@ -165,7 +187,9 @@ export default function Insights() {
                       <span className="fig val sm">{ratio ? `${fmt(ratio, 2)}x` : "—"}</span>
                     </div>
                   </td>
-                  <td className="n fig hm last">{ourV == null ? "—" : fmtWar(ourV)}</td>
+                  <td className="n fig hm last">
+                    {ourV == null ? <span className="fig quiet">—</span> : fmtWar(ourV)}
+                  </td>
                 </tr>
               );
             })}
@@ -175,7 +199,8 @@ export default function Insights() {
       <div className="tnote screen">
         Edge is champion minus playoff field in WAR; the bar shows the same as a multiple. The field is the other teams in that season’s bracket — the ones the title team actually had to beat — and excludes the champion itself. The
         {" "}{league.name} column averages this league's own title teams, so a single season
-        moves it — read it as a comparison, not a benchmark.
+        moves it — read it as a comparison, not a benchmark. A slot no champion of ours has
+        ever filled reads <span className="sigma">—</span>, not 0.00.
       </div>
 
       {/* ---- drafted vs acquired, by league year ---- */}

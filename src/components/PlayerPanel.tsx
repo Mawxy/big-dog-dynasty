@@ -4,7 +4,7 @@ import type { Absences, PlayersMin, Team, Weekly, WeeklyRow } from "../lib/types
 import { useJson } from "../lib/useJson";
 import { fmt, sgnWar, sd, mean, quart } from "../lib/stats";
 import { pInfo, ownerOf, REG_WEEKS } from "../lib/league";
-import { useLeaguePath } from "../lib/context";
+import { useShellPath } from "../lib/context";
 import PosBadge from "./PosBadge";
 import WeekGrid from "./WeekGrid";
 
@@ -23,7 +23,9 @@ const NO_ABSENCES: Record<string, string> = {};
  */
 export default function PlayerPanel({ pid, season, teams, players }: Props) {
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  // the drawer opens on boards both shells mount, and the player page exists
+  // in both — a classic-only builder here left the shell on "Full player page"
+  const lp = useShellPath();
 
   const weekly = useJson<Weekly>(`${season}/weekly.json`);
   // a season with no absence file is a legal shape — the strip just carries no

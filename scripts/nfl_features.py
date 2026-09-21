@@ -46,12 +46,33 @@ WAR corpus's window.
 Output: <out>/features_<season>.csv, one row per (gsis_id, season), keyed
 like nfl_history/waa_war_<season>.csv so the two join on player_id.
 
+A SEASON IS WRITTEN WHOLE OR NOT AT ALL (2026-09-21). Every sub-fetch here —
+weekly rosters, ffopportunity, snap counts — used to be caught, printed and
+shrugged off, and the CSV was written anyway. The workflow's `[ -s … ]` check
+then passed on a file with every `fp_exp` blank, and it was copied over
+yesterday's good one: a night when ffopportunity is down silently deletes the
+expected-points column for that season. So a failed sub-fetch, or a season
+that comes back with no expected points where the committed file had them,
+SKIPS THE WRITE and exits non-zero. data-refresh.yml already treats that as a
+warning and keeps the committed CSV; war-history.yml fails before its collect
+step, which is what a manual rebuild should do. The one exception is a source
+that does not reach back to the season being built (`SOURCE_FROM`): snap counts
+begin in 2012 and ffopportunity in 2006, and a full 1999-onward rebuild must
+not fail on a column that never existed.
+
 Requires: pip install nflreadpy. Run on GitHub Actions (war-history.yml) —
 nflverse downloads are blocked in some sandboxes.
 """
 import argparse
 import csv
+import io
+import sys
 from pathlib import Path
+
+from ioutil import atomic_write
+
+ROOT = Path(__file__).resolve().parent.parent
+HIST = ROOT / "nfl_history"
 
 # the stat columns summed over the season, in the order they are written
 SUMS = [
@@ -84,16 +105,81 @@ OPP_SUMS = [
 
 CORE = {"QB", "RB", "WR", "TE"}
 
+# The first season each nflverse source covers. A failure for a season BEFORE
+# its source begins is that source saying "I don't have that year", not a lost
+# download — war-history.yml rebuilds 1999 onward (the pre-2012 years land in
+# nfl_history/early/), and treating those as data loss would fail every full
+# rebuild on a column that never existed.
+SOURCE_FROM = {
+    "snap counts": 2012,            # PFR snap counts, per WEEKLY_COLS below
+    "ff_opportunity": 2006,         # nflverse ffopportunity
+    "ff_opportunity weekly": 2006,
+    "weekly rosters": 2002,
+}
+
+
+def lost_data(season, fails):
+    """The subset of `fails` that means a source this season SHOULD have
+    answered did not. `fails` is [(source, why)]."""
+    return [f"{src} ({why})" for src, why in fails
+            if season >= SOURCE_FROM.get(src, 0)]
+
 
 def safe_div(a, b, nd=4):
     return round(a / b, nd) if b else ""
 
 
-def season_features(season, nfl):
-    """One row per QB/RB/WR/TE with a regular-season stat line."""
+def load_reg_stats(season, nfl):
+    """The weekly player-stats table for one season's regular season.
+
+    Loaded ONCE per season and handed to both feature builders. They each used
+    to call load_player_stats themselves, which downloaded and parsed the same
+    table twice per year — the single heaviest thing this script does."""
     import polars as pl
     stats = nfl.load_player_stats([season], summary_level="week")
-    stats = stats.filter(pl.col("season_type") == "REG")
+    return stats.filter(pl.col("season_type") == "REG")
+
+
+def write_csv(path, fieldnames, rows):
+    """A features CSV, written atomically.
+
+    The old path truncated first, so a cancelled run left a half-written CSV
+    exactly where a committed one belongs — and the workflow's `[ -s … ]`
+    check, which asks whether the file is non-empty rather than whether it
+    parses, would have copied it."""
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fieldnames)
+    w.writeheader()
+    w.writerows(rows)
+    atomic_write(path, buf.getvalue(), newline="")
+
+
+def prior_has_opportunity(season, *dirs):
+    """Did a previously written features CSV for this season carry expected
+    points? The committed file is the only record of what the column SHOULD
+    look like, and losing it silently is the failure this guards."""
+    for d in dirs:
+        p = Path(d) / f"features_{season}.csv"
+        if not p.exists():
+            continue
+        try:
+            with open(p, encoding="utf-8") as f:
+                rd = csv.DictReader(f)
+                if "fp_exp" not in (rd.fieldnames or []):
+                    continue
+                if any((r.get("fp_exp") or "") != "" for r in rd):
+                    return True
+        except OSError:
+            continue
+    return False
+
+
+def season_features(season, nfl, stats, fails):
+    """One row per QB/RB/WR/TE with a regular-season stat line.
+
+    `fails` collects the name of any sub-fetch that did not answer; main()
+    refuses to write the season when it is non-empty."""
+    import polars as pl
     reg_last = int(stats["week"].max()) if stats.height else 18
     # team carries per game, from EVERY player on the roster (fullbacks and
     # gadget WRs included) BEFORE the position filter — the denominator for
@@ -170,6 +256,7 @@ def season_features(season, nfl):
                 d["ina"] += 1
     except Exception as e:                                  # noqa: BLE001
         print(f"  ! weekly rosters unavailable for {season}: {e}")
+        fails.append(("weekly rosters", str(e)))
 
     # ---- expected points: ffopportunity, regular season only ---------------
     opp = {}
@@ -182,6 +269,7 @@ def season_features(season, nfl):
             opp[r["player_id"]] = r
     except Exception as e:                                  # noqa: BLE001
         print(f"  ! ff_opportunity unavailable for {season}: {e}")
+        fails.append(("ff_opportunity", str(e)))
 
     rows = []
     for r in agg.to_dicts():
@@ -290,21 +378,32 @@ WEEKLY_COLS = [
 ]
 
 
-def snap_table(season, nfl):
+def pfr_crosswalk(nfl):
+    """PFR player id -> gsis id, for the whole run.
+
+    nflverse keys snap counts by PFR id, not gsis, and the players table is the
+    only bridge. It is not season-scoped, so loading it inside the per-season
+    snap table meant downloading the same dictionary once a year for no reason.
+    Cached on the function so a caller doesn't have to thread it through."""
+    if not hasattr(pfr_crosswalk, "_cache"):
+        players = nfl.load_players().select(["gsis_id", "pfr_id"]).drop_nulls()
+        pfr_crosswalk._cache = {r["pfr_id"]: r["gsis_id"] for r in players.to_dicts()}
+    return pfr_crosswalk._cache
+
+
+def snap_table(season, nfl, fails):
     """(gsis_id, week) -> (offense snaps, team offense snaps), regular season.
 
-    nflverse keys snap counts by PFR id, not gsis; the players table carries
-    both, and a player the crosswalk cannot place is simply absent — the
-    weekly row then has no snap figure, which reads as the em dash on the site
-    rather than as a 0% share he never had."""
+    A player the crosswalk cannot place is simply absent — the weekly row then
+    has no snap figure, which reads as the em dash on the site rather than as a
+    0% share he never had."""
     import polars as pl
     out = {}
     try:
         sc = nfl.load_snap_counts([season])
         if "game_type" in sc.columns:
             sc = sc.filter(pl.col("game_type") == "REG")
-        players = nfl.load_players().select(["gsis_id", "pfr_id"]).drop_nulls()
-        pfr_to_gsis = {r["pfr_id"]: r["gsis_id"] for r in players.to_dicts()}
+        pfr_to_gsis = pfr_crosswalk(nfl)
         for r in sc.select(["pfr_player_id", "week", "offense_snaps", "offense_pct"]).to_dicts():
             g = pfr_to_gsis.get(r["pfr_player_id"])
             snaps, pct = r.get("offense_snaps"), r.get("offense_pct")
@@ -314,14 +413,13 @@ def snap_table(season, nfl):
             out[(g, int(r["week"]))] = (int(snaps), int(round(snaps / pct)))
     except Exception as e:                                  # noqa: BLE001
         print(f"  ! snap counts unavailable for {season}: {e}")
+        fails.append(("snap counts", str(e)))
     return out
 
 
-def weekly_features(season, nfl):
+def weekly_features(season, nfl, stats, fails):
     """One row per QB/RB/WR/TE per regular-season week he touched the ball."""
     import polars as pl
-    stats = nfl.load_player_stats([season], summary_level="week")
-    stats = stats.filter(pl.col("season_type") == "REG")
     reg_last = int(stats["week"].max()) if stats.height else 18
     team_car = (stats.group_by(["team", "week"])
                 .agg(pl.col("carries").fill_null(0).sum().alias("_team_car")))
@@ -345,8 +443,9 @@ def weekly_features(season, nfl):
             opp[(r["player_id"], r["week"])] = r
     except Exception as e:                                  # noqa: BLE001
         print(f"  ! ff_opportunity unavailable for {season} (weekly): {e}")
+        fails.append(("ff_opportunity weekly", str(e)))
 
-    snaps = snap_table(season, nfl)
+    snaps = snap_table(season, nfl, fails)
 
     have = set(stats.columns)
     def g(r, k):
@@ -392,28 +491,46 @@ def main():
     import nflreadpy as nfl
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)
+    bad = []
     for season in range(args.start, args.end + 1):
         print(f"season {season}…")
-        rows = season_features(season, nfl)
+        # every sub-fetch that fails names itself here; nothing is written for
+        # a season that collected one (see the note at the top of the file)
+        fails = []
+        stats = load_reg_stats(season, nfl)
+        rows = season_features(season, nfl, stats, fails)
         if not rows:
             print("  ! no rows")
+            bad.append(f"{season}: no rows")
+            continue
+        wrows = weekly_features(season, nfl, stats, fails)
+        with_opp = sum(1 for r in rows if r["fp_exp"] != "")
+        lost = lost_data(season, fails)
+        if lost:
+            print(f"  ! NOT WRITING {season}: {'; '.join(lost)} — the committed "
+                  "CSV is better than one missing those columns")
+            bad.append(f"{season}: {'; '.join(lost)}")
+            continue
+        # ffopportunity can answer with an empty frame rather than raise. A
+        # season that HAD expected points and now has none is the same loss by
+        # a quieter route, so it is refused the same way.
+        if with_opp == 0 and prior_has_opportunity(season, out, HIST):
+            print(f"  ! NOT WRITING {season}: 0 rows with expected points, but "
+                  "the existing CSV has them — ffopportunity returned nothing")
+            bad.append(f"{season}: expected points vanished")
             continue
         path = out / f"features_{season}.csv"
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-            w.writeheader()
-            w.writerows(rows)
-        with_opp = sum(1 for r in rows if r["fp_exp"] != "")
+        write_csv(path, list(rows[0].keys()), rows)
         print(f"  {len(rows)} player-seasons · {with_opp} with expected points → {path}")
-        wrows = weekly_features(season, nfl)
         wpath = out / f"features_weekly_{season}.csv"
-        with open(wpath, "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=WEEKLY_COLS)
-            w.writeheader()
-            w.writerows(wrows)
+        write_csv(wpath, WEEKLY_COLS, wrows)
         print(f"  {len(wrows)} player-weeks → {wpath}")
+    if bad:
+        print(f"FAILED for {len(bad)} season(s): {'; '.join(bad)}")
+        return 1
     print(f"done → {out}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

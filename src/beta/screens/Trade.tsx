@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import type {
-  PickValues, PicksOwned, Team, Trade as TradeT, TradeAsset, TradeSide,
+  PicksOwned, Team, Trade as TradeT, TradeAsset, TradeSide,
   TradesPayload, Values,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useCurrentPickClass, useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { fmt } from "../../lib/stats";
-import { latestSeasonOf, POS_COLOR, rosterSeasonOf } from "../../lib/league";
+import { POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
 import { readTrades } from "../../lib/trades";
 import { useMobile } from "../../lib/useWidth";
@@ -15,7 +16,7 @@ import {
   makePickIndexer, tradeLedger,
   type PickIndexer, type SideLedger, type ValueBridge,
 } from "../../lib/tradeModel";
-import { tierOf, useAssets, usePickTiers, type Asset } from "../model";
+import { tierOf, useAssets, usePickTiers, useSeasonPhase, type Asset } from "../model";
 import ScopeControl, { ALL_SEASONS, seasonSet, useScope, type ScopeSeason } from "../Scope";
 import {
   Band, DataError, fmtWar, IdLines, NUL,
@@ -209,7 +210,15 @@ function warEdge(sides: TradeSide[], played: boolean):
    ======================================================================== */
 
 export default function Trade() {
-  const file = useJson<TradesPayload>("trades.json");
+  const { league } = useLeague();
+  /* BOTH TENSES ARE PIPELINE OUTPUT. History reads trades.json, which
+     `trade_analysis.py` writes for the default league only; Build prices a
+     package in DVI, CVI and KTC, none of which exist for a league the index
+     runs skip. In Pineapple Pizza the fetch 404d and "Trades didn't load"
+     replaced the entire screen — a dropped-connection message over a file that
+     was never going to exist. Both branches say which it is now. */
+  const caps = useLeagueCaps();
+  const file = useJson<TradesPayload>(caps.trades ? "trades.json" : null);
   // readTrades, not an inline Array.isArray: a trades.json written without its
   // `trades` key left the classic ledger stuck on "Loading" forever.
   const trades = useMemo(
@@ -272,7 +281,19 @@ export default function Trade() {
           the league is in. */}
       <ScopeControl value={scope} onChange={setScope} seasons={seasons} currentLabel="Build" all />
 
-      {file.error
+      {!caps.trades && !caps.indices ? (
+        /* A LEAGUE THE MACHINE HAS NO CURRENCIES FOR. Said once, for both
+           tenses: there is no ledger because nothing scores this league's
+           trades, and there is no builder because a package is priced in DVI,
+           CVI and a dynasty market this league does not play in. */
+        <div className="tnote screen">
+          The trade machine and the ledger are not published for {league.name}. Both price a
+          package in this board's own currencies — DVI, CVI and projected WAR from the
+          nightly model runs, plus the dynasty market — and those runs cover the home league
+          only. The trades this league has made are in its transaction log, on each
+          franchise's own page under the last seven days.
+        </div>
+      ) : file.error
         ? <DataError what="Trades didn't load" />
         : file.loading
           ? <div className="empty">Loading trades…</div>
@@ -398,10 +419,14 @@ function Build() {
   // the labels `useAssets()` gives picks. Without it the pick-index estimator
   // declines and picks stay out of the index columns.
   const bridge = useJson<ValueBridge>("value_bridge.json", "leagueDaily").data;
-  // only for the calendar — which rookie class drafts now, i.e. which year is
-  // lag 0. The same expression `model.ts` uses to LABEL the current class, so
-  // the two cannot drift apart.
-  const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
+  /* ONLY FOR THE CALENDAR — which rookie class drafts now, i.e. which year is
+     lag 0. The same helper `useAssets` LABELS the current class with, so the
+     two cannot drift apart, and off drafts.json rather than off
+     `pick_values.meta.generated_for_season + 1`: that expression says when the
+     pick-value script last ran, and on the data as shipped it made 2026 — a
+     class drafted in May — the class the indexer priced at lag 0, so every
+     future pick was discounted one year too few. */
+  const currentClass = useCurrentPickClass();
   // where every franchise's own picks project to land (tier, and the exact
   // slot for the class drafting now)
   const tiers = usePickTiers();
@@ -430,11 +455,8 @@ function Build() {
     const players = assets.filter(
       (x): x is Asset & { ktc: number; dvi: number; cvi: number } =>
         x.kind === "player" && x.ktc != null && x.dvi != null && x.cvi != null);
-    return makePickIndexer({
-      players, bridge,
-      currentClass: pv ? pv.meta.generated_for_season + 1 : null,
-    });
-  }, [assets, bridge, pv]);
+    return makePickIndexer({ players, bridge, currentClass });
+  }, [assets, bridge, currentClass]);
 
   /* ---- what each franchise actually holds --------------------------------
      Used once a side NAMES a franchise: then a player offered to the other
@@ -538,8 +560,16 @@ function Build() {
   }, [holdings, pool]);
 
   const offer = st.offers.find(o => o.id === st.active) ?? st.offers[0];
-  const viewA = resolve(st.b, offer.a);      // what A gets comes off B's roster
-  const viewB = resolve(st.a, offer.b);
+  /* MEMOIZED, and it has to be. These two feed `fixes` below, whose whole
+     point is a memo — and `resolve` returns a fresh object every call, so the
+     dependency compared unequal on every render and the memo never once hit.
+     ~450 candidates × 4 measures × one `tradeLedger` each ran on every
+     keystroke, every hover, every re-render of the Build screen. The inputs
+     are the resolver, the two named franchises and the offer's own arrays. */
+  const viewA = useMemo(                     // what A gets comes off B's roster
+    () => resolve(st.b, offer.a), [resolve, st.b, offer.a]);
+  const viewB = useMemo(
+    () => resolve(st.a, offer.b), [resolve, st.a, offer.b]);
 
   const upd = (f: (o: Offer) => Offer) => set(p => ({
     ...p, offers: p.offers.map(o => (o.id === p.active ? f(o) : o)),
@@ -585,18 +615,22 @@ function Build() {
   const loadOffer = (id: number) => { setAllView(false); set(p => ({ ...p, active: id })); };
 
   /* ---- the ledger --------------------------------------------------------
-     Computed straight, not memoized: a basket is a handful of assets and the
-     expensive half (the estimator's monotone fit over ~370 players) is already
-     behind its own memo. A memo here would need every input to the two baskets
-     in its dependency list, and a stale ledger is exactly the failure the
-     "deltas are derived" rule exists to prevent.
+     A basket is a handful of assets, so this is cheap on its own; it is
+     memoized because it is a DEPENDENCY of the even-up search, which is not.
+     Its inputs are the two resolved baskets and the estimator — exactly the
+     three things that can change the answer — so "deltas are derived, never
+     authored" still holds: nothing here is stored, it is recomputed whenever
+     an input moves and at no other time.
 
      `Asset` is structurally a `LedgerAsset`, which is the point of that
      interface: the trade math takes what `useAssets()` already produces and
      never imports it. */
-  const led = tradeLedger(
-    viewA.rows.map(h => h.asset), viewB.rows.map(h => h.asset), indexer);
-  const warA = sumWar(viewA.rows), warB = sumWar(viewB.rows);
+  const led = useMemo(
+    () => tradeLedger(
+      viewA.rows.map(h => h.asset), viewB.rows.map(h => h.asset), indexer),
+    [viewA, viewB, indexer]);
+  const warA = useMemo(() => sumWar(viewA.rows), [viewA]);
+  const warB = useMemo(() => sumWar(viewB.rows), [viewB]);
 
   /* ---- evening up -------------------------------------------------------
      (Max, 2026-09-08.) One candidate per measure: the CHEAPEST single asset
@@ -837,15 +871,58 @@ function Panel({ gets, named, from, rows, lost, led, onTeam, onAdd, onRemove }: 
 
 /* ---- the favor board ----------------------------------------------------- */
 
-/** Inside this band a row says EVEN. Measured as |A − B| ÷ max(A, B), so a
+/** Inside this band a row says EVEN. Measured as |A − B| ÷ max(|A|, |B|), so a
  *  4,603-vs-4,335 KTC gap (5.8%) is even and 56.6-vs-0.7 CVI (99%) is not. */
 const EVEN = 0.10;
 
-/** which side a pair favors, and by how much. The one definition the board,
- *  the verdicts and the even-up search all read, so they cannot disagree. */
-function favor(a: number, b: number): { pct: number; side: Side | "even" } {
-  const pct = Math.max(a, b) > 0 ? (a - b) / Math.max(a, b) : 0;
-  return { pct, side: Math.abs(pct) <= EVEN ? "even" : pct > 0 ? "a" : "b" };
+export interface Favor {
+  /** A minus B over the larger MAGNITUDE. Positive favors A. Bounded by ±2,
+   *  and only a pair straddling zero can exceed ±1. */
+  pct: number;
+  side: Side | "even";
+  /** whether that margin can honestly be READ as a percentage — true when
+   *  neither figure is negative, so the denominator is a quantity somebody
+   *  actually has. See below. */
+  asPct: boolean;
+}
+
+/**
+ * WHICH SIDE A PAIR FAVORS, AND BY HOW MUCH. The one definition the board, the
+ * verdicts and the even-up search all read, so they cannot disagree.
+ *
+ * THE DENOMINATOR IS A MAGNITUDE (2026-09-21). It was `Math.max(a, b)`, guarded
+ * by `> 0` and otherwise zero, which is right for the three currencies that
+ * cannot go negative and wrong for the fourth. 255 of the 365 projected players
+ * carry a NEGATIVE three-year WAR total — that is what a replacement baseline
+ * means, not a data fault — so the 3yr WAR row hit the broken branch constantly:
+ *
+ *   −0.5 vs −3.0   max is negative, so pct was 0 and the row read EVEN over a
+ *                  two-and-a-half-win gap, which is the largest gap this board
+ *                  can print.
+ *   +1.0 vs −0.5   max is 0.5 short of the true scale, so pct was 1.5 — and the
+ *                  marker `0.5 − pct/2` landed at −0.25, drawing itself and its
+ *                  fill outside the track.
+ *
+ * `max(|a|, |b|)` is the scale in both cases; the epsilon is only there so two
+ * empty baskets divide by something. The marker is clamped at the call site,
+ * because a margin past ±100% is real and has to be SAID rather than drawn.
+ *
+ * AND A PERCENTAGE IS NOT ALWAYS THE HONEST WORD FOR IT. "+83%" means "83% of
+ * the bigger one", which a reader can hold when both sides are quantities. When
+ * one of them is negative the bigger one is a hole, and the verdict says the
+ * gap in the row's own units instead — "+2.50" wins, not "+83%". Same
+ * arithmetic, same even window; only the sentence changes. This is the
+ * presentation rule PROJECT_NOTES #10 already sets for the deltas: signed, per
+ * currency, never rolled into one verdict.
+ */
+function favor(a: number, b: number): Favor {
+  const scale = Math.max(Math.abs(a), Math.abs(b), 1e-9);
+  const pct = (a - b) / scale;
+  return {
+    pct,
+    side: Math.abs(pct) <= EVEN ? "even" : pct > 0 ? "a" : "b",
+    asPct: a >= 0 && b >= 0,
+  };
 }
 
 type Measure = "market" | "dvi" | "cvi" | "war";
@@ -868,9 +945,9 @@ interface Fix {
   m: Measure;
   /** the side an asset would be added to — the trailing one — or "even" */
   side: Side | "even";
-  was: ReturnType<typeof favor>;
+  was: Favor;
   /** cheapest first; empty when no single asset gets there */
-  picks: { h: Holding; cost: number; after: ReturnType<typeof favor> }[];
+  picks: { h: Holding; cost: number; after: Favor }[];
 }
 
 interface FavorRow {
@@ -928,11 +1005,25 @@ function FavorBoard({ nameA, nameB, rows, fixes, onAdd }: {
           <span className="v" role="columnheader">Verdict</span>
         </div>
         {rows.map((r, i) => {
-          const { pct, side } = favor(r.a, r.b);
+          const { pct, side, asPct } = favor(r.a, r.b);
+          /* THE MARGIN IN A UNIT THE READER CAN CHECK. A percentage is a share
+             of the larger figure, which only means something when both figures
+             are quantities; where one side's basket projects NEGATIVE WAR the
+             larger figure is a hole, so the verdict states the gap in the row's
+             own units and the two figures either side of the bar are what it is
+             a gap between. */
           const verdict = side === "even" ? "Even"
-            : `${side === "a" ? nameA : nameB} +${Math.round(Math.abs(pct) * 100)}%`;
-          // marker position: center, pushed toward the favored side by the margin
-          const at = 0.5 - pct / 2;
+            : `${side === "a" ? nameA : nameB} +${asPct
+              ? `${Math.round(Math.abs(pct) * 100)}%`
+              : r.f(Math.abs(r.a - r.b))}`;
+          /* marker position: center, pushed toward the favored side by the
+             margin — and CLAMPED to the track. A pair straddling zero has a
+             margin past ±100% (mixed signs put `pct` as high as 2), which is a
+             true statement about the gap and an impossible position on a bar
+             running 0 to 1. The verdict carries the magnitude; the marker
+             saturates at the end of the track, which is what "off the scale"
+             looks like. */
+          const at = Math.min(1, Math.max(0, 0.5 - pct / 2));
           const fill = at < 0.5
             ? { left: `${at * 100}%`, width: `${(0.5 - at) * 100}%` }
             : { left: "50%", width: `${(at - 0.5) * 100}%` };
@@ -1183,10 +1274,15 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
   setSeason: (id: string) => void;
   open: string | null; setOpen: (k: string | null) => void;
 }) {
-  const { meta, league } = useLeague();
+  const { league } = useLeague();
   const atTrade = useAtTrade();
   // the current market, for the drawer's change-since read
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  /* THE PICK LADDER AS A MAP, ONCE PER FEED. `marketNow` built `new Map(
+     vals.picks.ktc)` on every call — once per SIDE per CARD, so a 150-trade
+     ledger allocated ~300 copies of an 84-entry map on every render of the
+     screen. It depends on the feed and nothing else. */
+  const pickKtc = useMemo(() => new Map(vals?.picks?.ktc ?? []), [vals]);
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   /** franchises in force — empty is every team. MULTI-SELECT like the season
    *  filter: a trade shows if ANY picked franchise was a side of it.
@@ -1222,10 +1318,35 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
     el?.scrollIntoView({ block: "center" });
   }, []);
 
-  /** WHETHER ANY FOOTBALL HAS BEEN PLAYED SINCE. A trade made in the roster
-   *  season has no realized WAR yet, and 0.000 in that column would read as
-   *  "returned nothing" rather than as "has not happened". */
-  const latest = latestSeasonOf(meta);
+  /**
+   * WHETHER ANY FOOTBALL HAS BEEN PLAYED SINCE — AT THE WEEK, NOT THE SEASON.
+   *
+   * A trade with no scored week behind it has no realized WAR, and 0.00 in
+   * that column reads as "returned nothing" rather than as "has not happened".
+   * The test was `Number(t.season) <= Number(latest)`, which is true of every
+   * trade made this season including one made this morning: a deal struck in
+   * week 2 with week 1 the last scored week printed "WAR edge 0.00", the one
+   * thing the comment above `warEdge` says this column must never do.
+   *
+   * `useSeasonPhase` reads the roster season's matchups file — the same file
+   * the League screen and More already hold — and states which week is in
+   * progress. The last SCORED week is the one before it; in the playoffs every
+   * regular week is scored, and in the offseason none of the roster season's
+   * are. A season older than the newest one with results is played outright,
+   * and a season newer than it is not; only the current one needs the week.
+   */
+  const phase = useSeasonPhase();
+  const lastScored = phase.offseason ? 0
+    : phase.playoffs ? phase.playoffStart - 1
+      : (phase.week ?? 1) - 1;
+  const played = (t: TradeT) => {
+    const s = Number(t.season), newest = Number(phase.latest);
+    if (s !== newest) return s < newest;
+    // the week test only speaks for the season the phase was read from; while
+    // the file is in flight, or if the two disagree, the season answer stands
+    if (phase.loading || phase.rosterSeason !== phase.latest) return true;
+    return Number(t.week) <= lastScored;
+  };
 
   const rows = useMemo(() => trades
     .filter(t => (allSeasons || picked.has(t.season)) && t.sides.length >= 2)
@@ -1274,7 +1395,7 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
           const k = snapKey(t);
           const at = atTrade(t);
           const sides = ordered(t);
-          const edge = warEdge(sides, Number(t.season) <= Number(latest));
+          const edge = warEdge(sides, played(t));
           return (
             <article className={`trx-card${open === k ? " on" : ""}`} key={k}
               ref={open === k ? scrollTo : undefined}>
@@ -1297,7 +1418,7 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
                     </>}
                 </span>
               </div>
-              <Sides t={t} at={at} vals={vals} nameOf={nameOf} />
+              <Sides t={t} at={at} vals={vals} pickKtc={pickKtc} nameOf={nameOf} />
             </article>
           );
         })}
@@ -1376,8 +1497,10 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
  * `AtTrade` record the card built; this is handed it rather than deriving its
  * own.
  */
-function Sides({ t, at, vals, nameOf }: {
+function Sides({ t, at, vals, pickKtc, nameOf }: {
   t: TradeT; at: AtTrade; vals: Values | null;
+  /** the feed's pick ladder, built once by the caller */
+  pickKtc: Map<string, number>;
   /** a franchise's current name, for "whose pick" */
   nameOf: (rid: number) => string;
 }) {
@@ -1386,7 +1509,7 @@ function Sides({ t, at, vals, nameOf }: {
         <div className="trx-drin">
           {ordered(t).map(s => {
             const then = at.side(s.rid).mkt;
-            const now = marketNow(s, vals);
+            const now = marketNow(s, vals, pickKtc);
             const real = sideRealized(s);
             return (
               <div className="trx-drside" key={s.rid}>
@@ -1485,9 +1608,10 @@ function Sides({ t, at, vals, nameOf }: {
  *  - ONE UNPRICEABLE ASSET VOIDS THE SIDE, which is the writer's rule too: it
  *    sets the running total to None the moment a source can't price an asset.
  */
-function marketNow(s: TradeSide, vals: Values | null): number | null {
+function marketNow(
+  s: TradeSide, vals: Values | null, pickKtc: Map<string, number>,
+): number | null {
   if (!vals) return null;
-  const pickKtc = new Map(vals.picks?.ktc ?? []);
   let sum = 0;
   for (const a of s.got) {
     if (a.kind === "faab") continue;

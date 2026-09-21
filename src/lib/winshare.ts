@@ -1,4 +1,4 @@
-import { jl } from "./data";
+import { indexKey, jl } from "./data";
 
 /**
  * REGULAR-SEASON WIN SHARE — `<season>/winshare.json`, built by
@@ -42,10 +42,12 @@ export interface WinShareIndex {
   seasons: string[];
 }
 
-let pending: Promise<WinShareIndex> | null = null;
+const cache = new Map<string, Promise<WinShareIndex>>();
 
 /**
- * Build the index once per page load.
+ * Build the index once per (league, season list) per page load — see
+ * `lib/data.ts#indexKey` for why the cache is keyed rather than a bare module
+ * promise.
  *
  * A missing season is skipped rather than fatal: `winshare.json` is newer than
  * the seasons around it, and a deploy whose 2022 file has not been generated
@@ -53,9 +55,11 @@ let pending: Promise<WinShareIndex> | null = null;
  * not an empty board.
  */
 export function loadWinShare(seasons: string[]): Promise<WinShareIndex> {
-  if (pending) return pending;
+  const ck = indexKey(seasons);
+  const hit = cache.get(ck);
+  if (hit) return hit;
 
-  pending = (async () => {
+  const pending = (async () => {
     const files = await Promise.all(seasons.map(s =>
       jl<WinShareFile>(`${s}/winshare.json`).catch(() => null)));
 
@@ -71,7 +75,8 @@ export function loadWinShare(seasons: string[]): Promise<WinShareIndex> {
     return { byPlayer, seasons: got };
   })();
 
-  pending.catch(() => { pending = null; });
+  cache.set(ck, pending);
+  pending.catch(() => cache.delete(ck));
   return pending;
 }
 

@@ -1,8 +1,21 @@
-/** toFixed, with the ASCII hyphen swapped for a true minus (−) — the same
- *  glyph `sgn` emits, so signed and unsigned figures agree site-wide */
+/** a rendered figure whose digits are all zero — "0", "0.00", "0.000" */
+const ROUNDS_TO_ZERO = /^0(\.0*)?$/;
+
+/**
+ * toFixed, with the ASCII hyphen swapped for a true minus (−) — the same
+ * glyph `sgn` emits, so signed and unsigned figures agree site-wide.
+ *
+ * THE SIGN IS DECIDED AFTER ROUNDING. `(-0.0004).toFixed(3)` is `"-0.000"`,
+ * and a minus sign in front of a figure whose every digit is zero is a claim
+ * the figure does not support — the board printed "−0.000" WAR for a week a
+ * player was four ten-thousandths under. The rounded magnitude is what is
+ * shown, so it is what decides the sign.
+ */
 export const fmt = (n: number, d = 2) => {
   const s = n.toFixed(d);
-  return s.startsWith("-") ? "−" + s.slice(1) : s;
+  if (!s.startsWith("-")) return s;
+  const mag = s.slice(1);
+  return ROUNDS_TO_ZERO.test(mag) ? mag : "−" + mag;
 };
 
 /**
@@ -47,9 +60,15 @@ export function normInv(p: number): number {
 }
 /** signed figure with a true minus sign (−, not the ASCII hyphen toFixed
  *  emits). The ONE sgn — Draft, DraftDetail and PlayoffPanel carried local
- *  copies that disagreed on glyph and decimals. */
-export const sgn = (v: number, d = WAR_DP) =>
-  (v > 0 ? "+" : v < 0 ? "−" : "") + fmt(Math.abs(v), d);
+ *  copies that disagreed on glyph and decimals.
+ *
+ *  Sign after rounding, as in `fmt`: a value that renders as all zeros prints
+ *  unsigned, so neither "−0.000" nor "+0.000" reaches a column. */
+export const sgn = (v: number, d = WAR_DP) => {
+  const s = fmt(Math.abs(v), d);
+  if (ROUNDS_TO_ZERO.test(s)) return s;
+  return (v > 0 ? "+" : v < 0 ? "−" : "") + s;
+};
 
 /** a WAR figure, unsigned */
 export const fmtWar = (v: number) => fmt(v, WAR_DP);

@@ -1,5 +1,5 @@
 import type { BracketFile, Weekly } from "./types";
-import { jl } from "./data";
+import { indexKey, jl } from "./data";
 
 /**
  * EVERY WEEK A PLAYER SCORED, across every season — the source for the
@@ -35,12 +35,15 @@ export interface WeekPointsIndex {
   seasons: string[];
 }
 
-let pending: Promise<WeekPointsIndex> | null = null;
+/** one index per (league, season list) — see `lib/data.ts#indexKey` */
+const cache = new Map<string, Promise<WeekPointsIndex>>();
 
 export function loadWeekPoints(seasons: string[]): Promise<WeekPointsIndex> {
-  if (pending) return pending;
+  const ck = indexKey(seasons);
+  const hit = cache.get(ck);
+  if (hit) return hit;
 
-  pending = (async () => {
+  const pending = (async () => {
     const [weeklies, brackets] = await Promise.all([
       Promise.all(seasons.map(s => jl<Weekly>(`${s}/weekly.json`).catch(() => null))),
       Promise.all(seasons.map(s => jl<BracketFile>(`${s}/bracket.json`).catch(() => null))),
@@ -72,7 +75,8 @@ export function loadWeekPoints(seasons: string[]): Promise<WeekPointsIndex> {
     return { byPlayer, seasons: got };
   })();
 
-  pending.catch(() => { pending = null; });
+  cache.set(ck, pending);
+  pending.catch(() => cache.delete(ck));
   return pending;
 }
 

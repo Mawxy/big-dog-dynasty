@@ -1,5 +1,5 @@
 import type { BracketFile, Matchups } from "./types";
-import { jl } from "./data";
+import { indexKey, jl } from "./data";
 import { emptyWL, wlSum, type WL } from "./records";
 
 /**
@@ -57,16 +57,25 @@ export interface PostSeasonIndex {
   seasons: string[];
 }
 
-let pending: Promise<PostSeasonIndex> | null = null;
+/** one index per (league, season list) — see `lib/data.ts#indexKey` */
+const cache = new Map<string, Promise<PostSeasonIndex>>();
 
 /** the games playoff WAR counts: winners bracket, placement games dropped */
 const counted = (b: BracketFile) =>
   b.winners.filter(g => !(g.p && g.p > 1) && g.w != null && g.l != null);
 
-export function loadPostseason(seasons: string[]): Promise<PostSeasonIndex> {
-  if (pending) return pending;
+/** every SEAT in the winners bracket, decided or not — the same placement
+ *  filter, without the "has a result" one. `counted` answers "which games have
+ *  been played"; this answers "who is in the bracket", and while a round is
+ *  still in flight those are different sets. */
+const seats = (b: BracketFile) => b.winners.filter(g => !(g.p && g.p > 1));
 
-  pending = (async () => {
+export function loadPostseason(seasons: string[]): Promise<PostSeasonIndex> {
+  const ck = indexKey(seasons);
+  const hit = cache.get(ck);
+  if (hit) return hit;
+
+  const pending = (async () => {
     const [brackets, mus] = await Promise.all([
       Promise.all(seasons.map(s => jl<BracketFile>(`${s}/bracket.json`).catch(() => null))),
       Promise.all(seasons.map(s => jl<Matchups>(`${s}/matchups.json`).catch(() => null))),
@@ -141,13 +150,21 @@ export function loadPostseason(seasons: string[]): Promise<PostSeasonIndex> {
          bracket rather than from a matchups row with no opponent, because that
          same shape also describes a team that is simply finished: four rosters
          sit out the final week every year and none of them earned anything. */
-      const firstRound = Math.min(...games.map(g => g.r));
-      const byeWeek = Math.min(...games.filter(g => g.r === firstRound).map(g => g.week));
+      /* MEMBERSHIP COMES OFF THE SEATS, NOT OFF THE RESULTS. A bye is visible
+         only as "in the bracket and not in round one", and the only place a
+         bye team appears is its round-TWO game — so reading membership off the
+         DECIDED games credited nobody until round two was in the books. For a
+         finished season the two sets are identical and nothing moves; for the
+         fortnight the bracket is live, the top seeds' byes now land the week
+         they actually happened. */
+      const all = seats(b);
+      const firstRound = Math.min(...all.map(g => g.r));
+      const byeWeek = Math.min(...all.filter(g => g.r === firstRound).map(g => g.week));
       const inRound1 = new Set<number>();
-      for (const g of games.filter(g => g.r === firstRound))
+      for (const g of all.filter(g => g.r === firstRound))
         for (const t of [g.t1, g.t2]) if (t != null) inRound1.add(t);
       const inBracket = new Set<number>();
-      for (const g of games) for (const t of [g.t1, g.t2]) if (t != null) inBracket.add(t);
+      for (const g of all) for (const t of [g.t1, g.t2]) if (t != null) inBracket.add(t);
 
       for (const rid of inBracket) {
         if (inRound1.has(rid)) continue;
@@ -172,7 +189,8 @@ export function loadPostseason(seasons: string[]): Promise<PostSeasonIndex> {
     return { byPlayer, seasons: played };
   })();
 
-  pending.catch(() => { pending = null; });
+  cache.set(ck, pending);
+  pending.catch(() => cache.delete(ck));
   return pending;
 }
 
@@ -182,16 +200,22 @@ export function postseasonOf(
 ): PostSeasonRow | null {
   const bag = idx?.byPlayer[pid];
   if (!bag) return null;
-  const rows = seasons.map(s => bag[s]).filter(Boolean) as PostSeasonRow[];
-  if (!rows.length) return null;
+  const got = seasons
+    .map(s => [s, bag[s]] as const)
+    .filter((e): e is [string, PostSeasonRow] => !!e[1]);
+  if (!got.length) return null;
+  const rows = got.map(e => e[1]);
   if (rows.length === 1) return rows[0];
   const war = rows.some(r => r.war != null)
     ? rows.reduce((a, r) => a + (r.war ?? 0), 0) : null;
   const ws = rows.some(r => r.ws != null)
     ? rows.reduce((a, r) => a + (r.ws ?? 0), 0) : null;
-  // the most recent season's franchise; a career has no single one, and the
-  // caller prints a seasons count in that slot rather than a team
-  const last = rows[rows.length - 1];
+  /* The most recent season's franchise; a career has no single one, and the
+     caller prints a seasons count in that slot rather than a team.
+     BY SEASON, not by position in the list: this took `rows[rows.length - 1]`
+     and every caller passes its seasons NEWEST FIRST, so the "most recent"
+     franchise was reliably the OLDEST one he played for. */
+  const last = got.reduce((a, b) => (Number(b[0]) > Number(a[0]) ? b : a))[1];
   return {
     rid: last.rid, team: last.team,
     gp: rows.reduce((a, r) => a + r.gp, 0),

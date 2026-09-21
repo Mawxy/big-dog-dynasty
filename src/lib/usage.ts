@@ -1,4 +1,4 @@
-import { jl } from "./data";
+import { indexKey, jl } from "./data";
 
 /**
  * USAGE AND EFFICIENCY — the nflverse figures scripts/usage_stats.py puts on
@@ -74,7 +74,12 @@ export const USAGE_LABEL: Record<UsageKey, { label: string; short?: string; def:
 /** how a figure prints, in a column and on the player page */
 export function fmtUsage(k: UsageKey, v: number): string {
   const pct = (x: number) => `${(x * 100).toFixed(0)}%`;
-  const signed = (x: number, d: number) => (x > 0 ? "+" : x < 0 ? "−" : "") + Math.abs(x).toFixed(d);
+  // sign decided AFTER rounding — the same rule `lib/stats.ts#sgn` follows.
+  // -0.04 vs exp at one place is "0.0", not the "−0.0" this column printed.
+  const signed = (x: number, d: number) => {
+    const s = Math.abs(x).toFixed(d);
+    return (/^0(\.0*)?$/.test(s) ? "" : x > 0 ? "+" : "−") + s;
+  };
   switch (k) {
     case "tgt_share": case "ay_share": case "car_share": case "rb_touch_share": case "snap_pct":
       return pct(v);
@@ -88,14 +93,17 @@ export function fmtUsage(k: UsageKey, v: number): string {
 /** pid -> season -> the three windows */
 export interface UsageIndex { byPlayer: Record<string, Record<string, UsagePhases>> }
 
-let pending: Promise<UsageIndex> | null = null;
+/** one index per (league, season list) — see `lib/data.ts#indexKey` */
+const cache = new Map<string, Promise<UsageIndex>>();
 
 /** every season's usage.json once per page load — the loadHonors shape. A
  *  season without the file (the one being played, before its first features
  *  run) is simply absent. */
 export function loadUsage(seasons: string[]): Promise<UsageIndex> {
-  if (pending) return pending;
-  pending = (async () => {
+  const ck = indexKey(seasons);
+  const hit = cache.get(ck);
+  if (hit) return hit;
+  const pending = (async () => {
     const files = await Promise.all(seasons.map(s => jl<UsageFile>(`${s}/usage.json`).catch(() => null)));
     const byPlayer: UsageIndex["byPlayer"] = {};
     seasons.forEach((season, i) => {
@@ -105,7 +113,8 @@ export function loadUsage(seasons: string[]): Promise<UsageIndex> {
     });
     return { byPlayer };
   })();
-  pending.catch(() => { pending = null; });
+  cache.set(ck, pending);
+  pending.catch(() => cache.delete(ck));
   return pending;
 }
 

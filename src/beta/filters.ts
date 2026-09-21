@@ -34,39 +34,93 @@ export interface FilterFieldDef {
   fmt: (v: number) => string;
   /** the input's step */
   step: number;
+  /**
+   * WHERE THIS CRITERION STARTS — the comparison and the number a fresh one
+   * opens on.
+   *
+   * Every new criterion used to open as `{ field: "age", op: "<", value: 0 }`,
+   * whatever field it landed on: the chip read "Age ≤ 0", the board went to
+   * zero rows, and the reader's first interaction with the feature was an
+   * empty table. A threshold control has to open somewhere PLAUSIBLE — near
+   * the middle of the interesting range — so the board narrows and the reader
+   * drags it from there. These are the round numbers a manager would have
+   * said out loud: under 25, over 2,500 KTC, at least 10 PPG.
+   */
+  op: FilterOp;
+  start: number;
   def: string;
 }
 
 export const FILTER_FIELDS: Record<FilterField, FilterFieldDef> = {
-  age: { label: "Age", group: "now", step: 1, fmt: v => String(v),
+  age: { label: "Age", group: "now", step: 1, fmt: v => String(v), op: "<", start: 25,
     def: "Age on September 1 of the roster season." },
-  ktc: { label: "KTC", group: "now", step: 100, fmt: v => v.toLocaleString(),
+  ktc: { label: "KTC", group: "now", step: 100, fmt: v => v.toLocaleString(), op: ">", start: 2500,
     def: "KeepTradeCut dynasty value, on this league's TE ladder." },
-  fc: { label: "FantasyCalc", group: "now", step: 100, fmt: v => v.toLocaleString(),
+  fc: { label: "FantasyCalc", group: "now", step: 100, fmt: v => v.toLocaleString(), op: ">", start: 2500,
     def: "FantasyCalc dynasty value." },
-  dvi: { label: "DVI", group: "now", step: 1, fmt: v => String(v),
+  dvi: { label: "DVI", group: "now", step: 1, fmt: v => String(v), op: ">", start: 50,
     def: "Dynasty Value Index, 0–100." },
-  cvi: { label: "CVI", group: "now", step: 1, fmt: v => String(v),
+  cvi: { label: "CVI", group: "now", step: 1, fmt: v => String(v), op: ">", start: 50,
     def: "Contender Value Index, 0–100." },
-  pwar: { label: "Proj WAR", group: "now", step: 0.1, fmt: v => v.toFixed(2),
-    def: "Projected WAR for the coming season, on the curve the board is read under." },
-  ecr: { label: "ECR", group: "now", step: 1, fmt: v => String(v),
+  pwar: { label: "Proj WAR", group: "now", step: 0.1, fmt: v => v.toFixed(2), op: ">", start: 0.5,
+    def: "Projected WAR for the coming season, on the curve the board is read under — "
+      + "and, once that season is being played, the outlook the board prints instead: "
+      + "WAR banked to date plus the rest of the projection. The criterion always cuts "
+      + "on the figure in the cell." },
+  ecr: { label: "ECR", group: "now", step: 1, fmt: v => String(v), op: "<", start: 50,
     def: "FantasyPros redraft consensus rank, 1 is best." },
   ppg_best: { label: "PPG, best season", group: "seasons", step: 0.5, fmt: v => v.toFixed(1),
+    op: ">", start: 10,
     def: "His highest points per game in any league season." },
   ppg_last: { label: "PPG, last season", group: "seasons", step: 0.5, fmt: v => v.toFixed(1),
+    op: ">", start: 10,
     def: "Points per game in the most recent season he was scored." },
   war_best: { label: "WAR, best season", group: "seasons", step: 0.1, fmt: v => v.toFixed(2),
+    op: ">", start: 0.5,
     def: "His highest single-season WAR." },
   war_career: { label: "WAR, career", group: "seasons", step: 0.1, fmt: v => v.toFixed(2),
+    op: ">", start: 1,
     def: "WAR summed over every league season." },
   gp_career: { label: "Games, career", group: "seasons", step: 1, fmt: v => String(v),
+    op: ">", start: 10,
     def: "League games with a score, all seasons." },
   seasons: { label: "Seasons scored", group: "seasons", step: 1, fmt: v => String(v),
+    op: ">", start: 2,
     def: "How many league seasons he has a stat line in." },
 };
 
 export const FILTER_ORDER = Object.keys(FILTER_FIELDS) as FilterField[];
+
+/**
+ * The criteria THIS league can actually answer — see lib/caps.
+ *
+ * Every "Now" field comes out of a file the pipeline writes for the default
+ * league and no other, so in a second league the sheet offered six thresholds
+ * that could only ever match nobody: `passes` fails a criterion the index has
+ * no fact for, so picking "DVI ≥ 50" in a league with no dvi.json emptied the
+ * board and said "no match". The season fields are built from summary.json,
+ * which every league has, and are always offered.
+ */
+export function filterFieldsFor(
+  caps: { indices: boolean; market: boolean; projections: boolean },
+): FilterField[] {
+  return FILTER_ORDER.filter(k => {
+    switch (k) {
+      case "dvi": case "cvi": return caps.indices;
+      // KTC and FantasyCalc price a dynasty asset and ECR ranks a redraft one;
+      // `market` is what says either describes this league at all
+      case "ktc": case "fc": case "ecr": return caps.market;
+      // both ride projections_matrix.json
+      case "age": case "pwar": return caps.projections;
+      default: return true;
+    }
+  });
+}
+
+/** a criterion on `field`, as it should open */
+export const newFilter = (field: FilterField): Filter => ({
+  field, op: FILTER_FIELDS[field].op, value: FILTER_FIELDS[field].start,
+});
 
 /* ---- the URL form ---------------------------------------------------------
    `age<25,ktc>2500` — field, one of > or <, a number. Anything that does not

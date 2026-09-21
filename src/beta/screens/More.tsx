@@ -1,10 +1,12 @@
 import { Fragment, useMemo, useState, type ReactNode } from "react";
-import type { Drafts, Insights, Team, TradesPayload, Values } from "../../lib/types";
+import type { Drafts, Insights, Team, Values } from "../../lib/types";
 import { MATRIX_CURVES, type MatrixCurve } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
+import { rookieDraftRecorded } from "../../lib/seasons";
 import { hardRefresh } from "../../lib/data";
 import { CLASSIC_SEG, leagueSeg, useLeague } from "../../lib/context";
-import { rosterSeasonOf } from "../../lib/league";
+import { latestSeasonOf, rosterSeasonOf } from "../../lib/league";
 import { useIdentity } from "../../lib/identity";
 import { MODEL_NOTE, splitCurve, STREAM_NOTE, useModel } from "../../lib/model";
 import { useIndexModels } from "../../lib/useIndices";
@@ -108,13 +110,15 @@ const GLOSSARY: { term: string; body: string }[] = [
 
 export default function More() {
   const { meta, league, leagues } = useLeague();
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const ident = useIdentity();
   const phase = useSeasonPhase();
   const model = useModel();
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   // the market's freshness, for the Trends row's state figure
-  const movers = useMarketMovers(useJson<Values>("data/values.json", "globalDaily").data);
+  const movers = useMarketMovers(useJson<Values>(
+    caps.market ? "data/values.json" : null, "globalDaily").data);
   const [openModel, setOpenModel] = useState(false);
   const [openMeth, setOpenMeth] = useState(false);
 
@@ -152,15 +156,17 @@ export default function More() {
      gitignored and never deployed. A day count would have to be invented, so
      the row states the phase and the closing note says the date is absent
      rather than letting a reader assume there isn't one to show. */
-  const drafts = useJson<Drafts>("drafts.json").data;
+  const drafts = useJson<Drafts>(caps.drafts ? "drafts.json" : null).data;
   const draftState = useMemo<ReactNode>(() => {
+    // a redraft league has no rookie draft to record, and no file to fetch
+    if (!caps.drafts) return "Not published";
     if (!drafts) return NUL;
-    const recorded = Object.values(drafts)
-      .some(picks => picks.some(p => p.season === phase.rosterSeason));
-    return recorded
+    // `lib/seasons.rookieDraftRecorded` — the same test the shell's seasonal
+    // Draft tab rides and the trade machine's pick calendar reads
+    return rookieDraftRecorded(drafts, phase.rosterSeason)
       ? `${phase.rosterSeason} recorded`
       : `${phase.rosterSeason} not yet recorded`;
-  }, [drafts, phase.rosterSeason]);
+  }, [caps.drafts, drafts, phase.rosterSeason]);
 
   /* SETTLED SEASONS — the ones that finished, which is every season before the
      one whose rosters are live. The roster season is the boundary in both
@@ -180,13 +186,19 @@ export default function More() {
      the rows should tell, not a difference invented to make them look
      distinct. */
   const idx = useIndexModels().data;
-  const rated: ReactNode = idx ? `${Object.keys(idx.players).length} players` : NUL;
+  const rated: ReactNode = !caps.indices ? "Not published"
+    : idx ? `${Object.keys(idx.players).length} players` : NUL;
 
-  /* The ledger's own size. trades.json is the Trade screen's file, so a reader
-     one tap from the ledger has it warm either way. */
-  const trades = useJson<TradesPayload>("trades.json").data;
-  const tradeState: ReactNode = !trades ? NUL
-    : `${(Array.isArray(trades) ? trades : trades.trades).length} trades`;
+  /* WHAT THE LEDGER COVERS, off the registry — NOT a count off trades.json.
+     This row downloaded that whole 98 KB file to print one integer, on a
+     screen whose entire job is to state where a destination stands before you
+     open it; the reader who wants the count is one tap from a screen whose
+     band is the count. The seasons are the fact the row can state for free,
+     they are what a reader wants to know before opening a ledger ("how far
+     back does this go"), and they come from the league registry this screen
+     already holds. */
+  const tradeState: ReactNode = !caps.trades ? "Not published"
+    : `${meta.seasons[0]}–${latestSeasonOf(meta)}`;
 
   const franchiseState: ReactNode = mine ? mine.team
     : ident.user ? "No match here"
@@ -220,15 +232,19 @@ export default function More() {
             is the one fact about it that never changes and therefore the one
             that tells a reader what they are opening. */}
         <Row to={betaPath("/teams")} name="Teams"
-          sub="Every roster ranked on DVI, CVI, projected WAR and both market prices"
-          state={teams ? `${teams.length} franchises` : NUL} />
+          sub={caps.indices || caps.market
+            ? "Every roster ranked on DVI, CVI, projected WAR and both market prices"
+            : "Ranked on DVI, CVI, projected WAR and the dynasty market — none of them published for this league"}
+          state={!caps.indices && !caps.market ? "Not published"
+            : teams ? `${teams.length} franchises` : NUL} />
         {/* THE MOVER HUB (Max, 2026-09-08). League shows the top five of each
             of its three mover modules; Trends opens the whole lists. It sits
             in this band because all three reprice nightly, and it is the
             rail's Explore entry on desktop. */}
         <Row to={betaPath("/trends")} name="Trends"
           sub="Win now vs dynasty, dynasty movers, market movers — the full lists"
-          state={movers ? (movers.asOf ? `market as of ${movers.asOf.slice(5).replace("-", "/")}` : "market fresh today") : NUL} />
+          state={!caps.indices && !caps.market ? "Not published"
+            : movers ? (movers.asOf ? `market as of ${movers.asOf.slice(5).replace("-", "/")}` : "market fresh today") : NUL} />
       </div>
 
       <Band label="The long view" note="What the board has already settled" />
@@ -244,8 +260,16 @@ export default function More() {
             they are one screen under two scopes. The row stays because More is
             where a reader looks for "every trade ever"; only its address
             changed. */}
+        {/* WHAT THE LEDGER ACTUALLY DOES. The sub-line said "re-priced at
+            today's values" and the ledger does the opposite on purpose: each
+            side's market is FROZEN by the first nightly run that saw the deal
+            (trade_snapshots.json) and shown against today's as "then → now",
+            beside the WAR those assets have really returned since. Re-pricing
+            is the BUILDER's job — it draws from current rosters at current
+            values — and the two tenses of this screen were described by one
+            sentence that belonged to the other one. */}
         <Row to={betaPath("/trade?scope=history")} name="Transaction ledger"
-          sub="Every trade in league history, re-priced at today's values"
+          sub="Every trade in league history, priced on the day and scored since"
           state={tradeState} />
         {/* THE TWO INDEX PAGES STAY ON THE CLASSIC BOARD, and the sub-line says
             so rather than letting the tap surprise anyone. They carry the

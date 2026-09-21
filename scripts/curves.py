@@ -6,9 +6,10 @@ to read a player's WAR out of it.
 WHY THIS EXISTS
 
 DVI and CVI were both built on one number: `projections.json`'s
-`composite[0]`, the scalar model's year-1 composite. That made the choice of
-projection model invisible — the site published a single dynasty value and a
-single win-now value and never said which of the six curves in
+`composite[0]`, which at the time WAS the scalar model's year-1 composite (it
+is the points-first model's file now — see the fallback note below). That made
+the choice of projection model invisible — the site published a single dynasty
+value and a single win-now value and never said which of the curves in
 projections_matrix.json produced them.
 
 Both indices now compute under EVERY curve, so the site can be read under any
@@ -29,9 +30,9 @@ explicit and easy to find. See the note in blend_values.py.
 """
 import json
 
-# The six curves, in the order project_matrix.py publishes them: two models
-# (scalar, analog) plus their blend, each read with and without Sleeper's
-# depth-chart opinion folded in. Mirrors MATRIX_CURVES in src/lib/types.ts —
+# The eight curves, in the order project_matrix.py publishes them: two models
+# (scalar, analog) plus their blend, then the points-first model, each read
+# with and without Sleeper's depth-chart opinion folded in. Mirrors MATRIX_CURVES in src/lib/types.ts —
 # keep the two lists in step.
 CURVES = (
     "scalar_natural", "scalar_composite",
@@ -56,32 +57,64 @@ CURVES = (
 DEFAULT_CURVE = "blend_composite"
 
 MATRIX_FILE = "projections_matrix.json"
-FALLBACK_FILE = "projections.json"
+# THE FALLBACK FILE DEPENDS ON THE CURVE (2026-09-21).
+#
+# projections.json used to BE the scalar model, so one fallback served every
+# curve and reading `composite[0]` off it genuinely reproduced the pre-matrix
+# number. Since 2026-09-11 it is the POINTS-FIRST model's file — project_points
+# parks the scalar arm at projections_scalar.json and rewrites this one — so the
+# old single fallback quietly answered every scalar_* query with the points
+# model's figure, under a heading that says scalar.
+#
+# So: scalar_* falls back to the scalar model's own file, points_* to the
+# points model's own file, and analog_*/blend_* to the scalar file too, because
+# that is exactly what the matrix itself does for a player with no cohort.
+SCALAR_FILE = "projections_scalar.json"
+POINTS_FILE = "projections.json"
+# what to read when SCALAR_FILE is absent (a data dir the points model has never
+# written, or one that predates the split): projections.json is the scalar model
+# there, which is the old behaviour and still correct for such a tree.
+FALLBACK_FILE = POINTS_FILE
+
+
+def _fallback_file(curve):
+    return POINTS_FILE if curve.startswith("points_") else SCALAR_FILE
 
 
 def war_reader(data_dir, curve=DEFAULT_CURVE):
     """pid -> year-1 WAR under `curve`, as a plain dict.
 
-    Falls back to projections.json's own `composite[0]` for any player the
-    matrix does not carry. Today that set is empty — the matrix is built from
-    the same 393 players — but the fallback is what keeps a curve switch from
-    silently zeroing someone if the two files ever diverge, and zero is a
-    meaningful WAR rather than an obviously missing one.
+    Falls back to the curve's OWN model file for any player the matrix does not
+    carry — projections_scalar.json for the scalar, analog and blend curves,
+    projections.json for the points-first pair (see the note above). Today that
+    set is empty — the matrix is built from the same players — but the fallback
+    is what keeps a curve switch from silently zeroing someone if the two files
+    ever diverge, and zero is a meaningful WAR rather than an obviously missing
+    one.
+
+    A `*_natural` curve falls back to the file's `proj` stream and a
+    `*_composite` one to its `composite`, so a fallback never folds Sleeper's
+    read into a curve whose whole definition is that it has none.
     """
     if curve not in CURVES:
         raise ValueError(f"unknown curve {curve!r}; expected one of {', '.join(CURVES)}")
 
+    src = _fallback_file(curve)
+    if not (data_dir / src).exists():
+        src = FALLBACK_FILE
+    stream = "composite" if curve.endswith("_composite") else "proj"
     base = {}
-    with open(data_dir / FALLBACK_FILE, encoding="utf-8") as fh:
+    with open(data_dir / src, encoding="utf-8") as fh:
         for p in json.load(fh)["players"]:
-            base[p["pid"]] = (p.get("composite") or [0])[0]
+            row = p.get(stream) or p.get("composite") or [0]
+            base[p["pid"]] = row[0]
 
     mxf = data_dir / MATRIX_FILE
     if not mxf.exists():
-        # A deploy whose data predates the matrix still builds, on the scalar
-        # composite that was the only curve then. Loud, because every curve
-        # silently collapsing to one is the failure this module exists to stop.
-        print(f"  ! no {MATRIX_FILE} — every curve falls back to {FALLBACK_FILE}")
+        # A deploy whose data predates the matrix still builds, on the model
+        # files themselves. Loud, because every curve silently collapsing to
+        # one is the failure this module exists to stop.
+        print(f"  ! no {MATRIX_FILE} — every curve falls back to its own model file")
         return base
 
     with open(mxf, encoding="utf-8") as fh:

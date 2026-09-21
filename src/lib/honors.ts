@@ -1,6 +1,7 @@
 import type { BracketFile, Franchises, Matchups, SummaryRow, Team, Weekly } from "./types";
-import { jl } from "./data";
+import { indexKey, jl } from "./data";
 import { REG_WEEKS } from "./league";
+import { isSeasonSettled, ridOf } from "./seasons";
 
 /**
  * Career honor marks — the five things a player season can earn.
@@ -68,7 +69,7 @@ function p98(sorted: number[]): number {
   return sorted[Math.min(sorted.length - 1, Math.round(0.98 * (sorted.length - 1)))];
 }
 
-let pending: Promise<HonorIndex> | null = null;
+const cache = new Map<string, Promise<HonorIndex>>();
 
 /**
  * Build the whole-league honor index once per page load.
@@ -78,12 +79,36 @@ let pending: Promise<HonorIndex> | null = null;
  * percentile — it would collapse into "the best one or two", which is already
  * what `king` means. Pooling every season also keeps the bar stable as
  * seasons accumulate instead of moving under a player's feet each year.
+ *
+ * SETTLED SEASONS ONLY, ON BOTH SIDES (2026-09-21). An honor is a claim about
+ * a finished season, and there was no guard: after week one of 2026 Derrick
+ * Henry carried an "MVP season" mark for 0.249 WAR and every week-1 position
+ * leader carried a "Positional king". Worse, the 298 one-game rows went into
+ * the POOL, which is what the elite bar is a percentile of — 298 near-zero
+ * seasons dragged QB's p98 from 1.923 to 1.769 and WR's from 1.200 to 1.147,
+ * and seven seasons that were settled years ago quietly gained "Elite season"
+ * marks they had never earned. A bar that moves under a retired player's feet
+ * is not a bar.
+ *
+ * `champ` and `pmvp` were already safe — one needs a `finish === 1` and the
+ * other a scored bracket — but they run through the same filter now so there
+ * is one answer to "is this season over" rather than three.
  */
 export function loadHonors(seasons: string[]): Promise<HonorIndex> {
-  if (pending) return pending;
+  const ck = indexKey(seasons);
+  const hit = cache.get(ck);
+  if (hit) return hit;
 
-  pending = (async () => {
-    const sums = await Promise.all(seasons.map(s =>
+  const pending = (async () => {
+    /* franchises.json decides which seasons count, so it is fetched FIRST and
+     * not inside the championship block it used to live in. A league whose
+     * file is missing has no settled seasons and therefore no honors at all —
+     * which is the right answer: without it there is no way to tell a finished
+     * season from one game of the next. */
+    const fr = await jl<Franchises>("franchises.json").catch(() => ({} as Franchises));
+    const done = seasons.filter(s => isSeasonSettled(fr, s));
+
+    const sums = await Promise.all(done.map(s =>
       jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[])));
 
     // pooled position distributions -> the elite bar
@@ -101,7 +126,7 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
       if (!bag.includes(k)) bag.push(k);
     };
 
-    seasons.forEach((season, i) => {
+    done.forEach((season, i) => {
       const rows = sums[i].filter(r => typeof r[6] === "number");
       if (!rows.length) return;
 
@@ -136,12 +161,16 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
      * season against 9 for the lineup-only rule. That is the intended
      * meaning, not an oversight. */
     try {
-      const fr = await jl<Franchises>("franchises.json");
+      /* THE ROSTER SLOT, NOT THE FRANCHISE KEY. `matchups.json` is keyed
+       * "1".."12" and franchises.json is keyed by the franchise key, which is
+       * the roster_id only in a dynasty league — in Pineapple Pizza it is the
+       * owner's 18-digit user_id, so `m.teams[key]` missed every time and the
+       * redraft league had never awarded a single championship mark. */
       const champRid: Record<string, string> = {};
-      for (const [rid, f] of Object.entries(fr))
-        for (const s of f.seasons) if (s.finish === 1) champRid[s.season] = rid;
+      for (const [key, f] of Object.entries(fr))
+        for (const s of f.seasons) if (s.finish === 1) champRid[s.season] = String(ridOf(key, s));
 
-      const wanted = seasons.filter(s => champRid[s]);
+      const wanted = done.filter(s => champRid[s]);
       const mus = await Promise.all(wanted.map(s =>
         jl<Matchups>(`${s}/matchups.json`).catch(() => null)));
 
@@ -156,7 +185,7 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
         if (!final) return;
         for (const pid of [...(final[4] ?? []), ...(final[5] ?? [])]) add(pid, season, "champ");
       });
-    } catch { /* no franchises.json — the other tiers still stand */ }
+    } catch { /* no matchups for a settled season — the other tiers still stand */ }
 
     /* Playoff MVP — THE BRACKET'S OWN AWARD. Each season's bracket.json scores
      * every postseason starter's win probability added (playoff_wpa.py) and
@@ -164,9 +193,9 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
      * off the file rather than recomputed here, so the mark on his page and
      * the name on League → History are the same fact. A season with no
      * bracket, or one scored before `mvp` existed, awards nobody. */
-    const brs = await Promise.all(seasons.map(s =>
+    const brs = await Promise.all(done.map(s =>
       jl<BracketFile>(`${s}/bracket.json`).catch(() => null)));
-    seasons.forEach((season, i) => {
+    done.forEach((season, i) => {
       const wpa = brs[i]?.wpa;
       if (!wpa) return;
       let best: [string, number] | null = null;
@@ -179,7 +208,8 @@ export function loadHonors(seasons: string[]): Promise<HonorIndex> {
     return { byPlayer, eliteBar };
   })();
 
-  pending.catch(() => { pending = null; });
+  cache.set(ck, pending);
+  pending.catch(() => cache.delete(ck));
   return pending;
 }
 
@@ -210,14 +240,22 @@ export interface CareerSeason {
   /** rank overall that season */
   rank: number | null;
   /** every franchise that rostered him that season, in the order they held him.
-   *  `team` is what the franchise was CALLED that season; `rid` and `manager`
+   *  `team` is what the franchise was CALLED that season; `fkey` and `manager`
    *  are what it actually is. Names change annually — Crustufer's roster has
-   *  been London Has Fallen, The Drake Snake, Point Drake and Drake Mungo. */
-  owners: { rid: string; team: string; manager: string; from: number; to: number }[];
+   *  been London Has Fallen, The Drake Snake, Point Drake and Drake Mungo.
+   *
+   *  `rid` is the ROSTER SLOT that season and `fkey` is the FRANCHISE. They are
+   *  the same string in a dynasty league and diverge in a redraft one, where a
+   *  slot is reassigned every year — Pineapple Pizza's rid 5 was three
+   *  different managers. `fkey` is the identity: group on it, key React rows on
+   *  it, and link to `/franchise/<fkey>` with it. */
+  owners: {
+    rid: string; fkey: string; team: string; manager: string; from: number; to: number;
+  }[];
   keys: HonorKey[];
 }
 
-let careerPending: Promise<Record<string, CareerSeason[]>> | null = null;
+const careerCache = new Map<string, Promise<Record<string, CareerSeason[]>>>();
 
 /**
  * Every player's league seasons, newest first — the career table's source.
@@ -227,9 +265,11 @@ let careerPending: Promise<Record<string, CareerSeason[]>> | null = null;
  * `mvp` is exactly rank 1. Two different sources would eventually disagree.
  */
 export function loadCareer(seasons: string[]): Promise<Record<string, CareerSeason[]>> {
-  if (careerPending) return careerPending;
+  const ck = indexKey(seasons);
+  const hit = careerCache.get(ck);
+  if (hit) return hit;
 
-  careerPending = (async () => {
+  const careerPending = (async () => {
     const [sums, teamSets, mus] = await Promise.all([
       Promise.all(seasons.map(s => jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[]))),
       Promise.all(seasons.map(s => jl<Team[]>(`${s}/teams.json`).catch(() => [] as Team[]))),
@@ -242,8 +282,12 @@ export function loadCareer(seasons: string[]): Promise<Record<string, CareerSeas
       const rows = sums[i].filter(r => typeof r[6] === "number");
       if (!rows.length) return;
 
-      const named: Record<string, { team: string; manager: string }> = {};
-      for (const t of teamSets[i]) named[String(t.roster_id)] = { team: t.team, manager: t.manager };
+      /* rid -> who that slot WAS this season. `fkey` is carried alongside the
+       * name because a roster slot is not a franchise in a redraft league and
+       * the splits below have to group on the franchise. */
+      const named: Record<string, { fkey: string; team: string; manager: string }> = {};
+      for (const t of teamSets[i]) named[String(t.roster_id)] =
+        { fkey: t.fkey ?? String(t.roster_id), team: t.team, manager: t.manager };
 
       /* Who held him, week by week.
        *
@@ -268,8 +312,8 @@ export function loadCareer(seasons: string[]): Promise<Record<string, CareerSeas
           const run: CareerSeason["owners"] = [];
           for (const w of Object.keys(byWk).map(Number).sort((a, b) => a - b)) {
             const rid = byWk[w];
-            const { team, manager } = named[rid]
-              ?? { team: `Roster ${rid}`, manager: `Roster ${rid}` };
+            const { fkey, team, manager } = named[rid]
+              ?? { fkey: rid, team: `Roster ${rid}`, manager: `Roster ${rid}` };
             const tail = run[run.length - 1];
             /* Same team as the stint before it extends that stint, even across
              * a gap in weeks. Requiring consecutive weeks split one owner into
@@ -278,7 +322,7 @@ export function loadCareer(seasons: string[]): Promise<Record<string, CareerSeas
              * in a row. A gap under one owner is a roster move, not a change
              * of hands, and the arrow means a change of hands. */
             if (tail && tail.rid === rid) tail.to = w;
-            else run.push({ rid, team, manager, from: w, to: w });
+            else run.push({ rid, fkey, team, manager, from: w, to: w });
           }
           /* Every stint, including one-week ones. A bye-week waiver stash is
            * still someone who owned him, and filtering short holds meant the
@@ -290,7 +334,10 @@ export function loadCareer(seasons: string[]): Promise<Record<string, CareerSeas
       // fall back to the end-of-season roster when a season has no matchups
       if (!m) for (const t of teamSets[i])
         for (const pid of t.players)
-          spans[pid] = [{ rid: String(t.roster_id), team: t.team, manager: t.manager, from: 0, to: 0 }];
+          spans[pid] = [{
+            rid: String(t.roster_id), fkey: t.fkey ?? String(t.roster_id),
+            team: t.team, manager: t.manager, from: 0, to: 0,
+          }];
 
       const byWar = rows.slice().sort((a, b) => b[6] - a[6]);
       const rank = new Map(byWar.map((r, k) => [r[0], k + 1]));
@@ -313,12 +360,18 @@ export function loadCareer(seasons: string[]): Promise<Record<string, CareerSeas
     return out;
   })();
 
-  careerPending.catch(() => { careerPending = null; });
+  careerCache.set(ck, careerPending);
+  careerPending.catch(() => careerCache.delete(ck));
   return careerPending;
 }
 
 /** one franchise's share of a player's career */
 export interface OwnerSplit {
+  /** THE IDENTITY, and the React key: roster_id in a dynasty league, the
+   *  owner's user_id in a redraft one. `rid` below is the roster SLOT of the
+   *  newest stint, which is not unique across managers in a redraft league. */
+  fkey: string;
+  /** the roster slot of the most recent season this franchise held him */
   rid: string;
   /** the manager — the only label that holds still across seasons */
   manager: string;
@@ -359,10 +412,18 @@ export function yearSpan(years: string[]): string {
 /**
  * Career split by the franchise that held him — the "DET (6 Yrs)" rows.
  *
- * Grouped by roster_id and labeled with the manager, never by team name. A
+ * Grouped by FRANCHISE KEY and labeled with the manager, never by team name. A
  * franchise renames itself most years: roster 1 has been London Has Fallen,
  * The Drake Snake, Point Drake and Drake Mungo, so grouping on the name gave
  * Justin Jefferson three one-year owners where he has had one for four years.
+ *
+ * The key rather than the roster slot (2026-09-21), because a slot is not a
+ * franchise outside a dynasty league: in Pineapple Pizza roster 5 belonged to
+ * three different managers across three seasons, and grouping on it merged all
+ * three stints into one row under whichever manager held the slot most
+ * recently — a split that named the wrong person and summed his WAR to
+ * somebody else's. Big Dog's keys ARE its roster ids, so its output is
+ * unchanged, byte for byte.
  *
  * A season with one owner is attributed whole from the summary row and costs
  * nothing. A season he changed hands in is allocated week by week, which needs
@@ -389,17 +450,18 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
   };
   const acc = new Map<string, Acc>();
   const bump = (
-    o: { rid: string; team: string; manager: string },
+    o: CareerSeason["owners"][number],
     season: string, gp: number, pts: number, war: number,
   ) => {
-    const e = acc.get(o.rid)
-      ?? { rid: o.rid, manager: o.manager, team: o.team, seasons: 0, years: [], gp: 0, pts: 0, war: 0,
+    const e = acc.get(o.fkey)
+      ?? { fkey: o.fkey, rid: o.rid, manager: o.manager, team: o.team,
+        seasons: 0, years: [], gp: 0, pts: 0, war: 0,
         finish: null, keys: [], yrs: new Set<string>(), last: season,
         ranks: [], marks: [] };
     e.gp += gp; e.pts += pts; e.war += war; e.yrs.add(season);
-    // keep the newest name and manager we have seen for this roster
-    if (season >= e.last) { e.last = season; e.team = o.team; e.manager = o.manager; }
-    acc.set(o.rid, e);
+    // keep the newest name, manager and roster slot we have seen for this key
+    if (season >= e.last) { e.last = season; e.team = o.team; e.manager = o.manager; e.rid = o.rid; }
+    acc.set(o.fkey, e);
   };
 
   /**
@@ -423,7 +485,7 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
     // a span but no weeks and never entered the accumulator — and picking him
     // here would silently drop that season's finish and its championship mark,
     // which is exactly the season a title is most likely to be sitting in.
-    const held = r.owners.filter(o => acc.has(o.rid));
+    const held = r.owners.filter(o => acc.has(o.fkey));
     if (!held.length) return null;
     return held.reduce((a, b) => (b.to - b.from > a.to - a.from ? b : a));
   };
@@ -467,7 +529,7 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
   // finish and honors, attributed whole to the season's primary owner
   for (const r of rows) {
     const p = primary(r);
-    const e = p && acc.get(p.rid);
+    const e = p && acc.get(p.fkey);
     if (!e) continue;
     if (r.posRank != null) e.ranks.push(r.posRank);
     e.marks.push(...r.keys);

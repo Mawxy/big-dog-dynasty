@@ -28,10 +28,20 @@ import json
 import sys
 from pathlib import Path
 
+from ioutil import atomic_write
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / "data"
 OUT = DATA / "espn_ids.json"
 SLEEPER_MAP = ROOT / "sleeper_data" / "players.json"
+# A REBUILD MAY NOT SHRINK THE MAP (2026-09-21). Both joins here are
+# best-effort: nflverse's ff_playerids is a community table that has been
+# served short before, and the Sleeper map is restored from a cache that can
+# miss. Either coming back thin writes a smaller file over a good one, and
+# every headshot it dropped turns into a blank on the site until the next
+# weekly run. Ids only accumulate, so a real rebuild is never much smaller
+# than the last; 80% leaves room for genuine churn and none for a failed join.
+SHRINK_FLOOR = 0.80
 
 
 def as_int(v):
@@ -94,8 +104,20 @@ def main() -> int:
     else:
         print("no sleeper_data/players.json — nflverse only", file=sys.stderr)
 
-    OUT.write_text(json.dumps(dict(sorted(by_sleeper.items())), separators=(",", ":")),
-                   encoding="utf-8")
+    prev = 0
+    if OUT.exists():
+        try:
+            prev = len(json.loads(OUT.read_text(encoding="utf-8")))
+        except ValueError:
+            prev = 0                       # unparseable: nothing to protect
+    if prev and len(by_sleeper) < prev * SHRINK_FLOOR:
+        print(f"refusing to write {OUT.relative_to(ROOT)}: {len(by_sleeper)} ids "
+              f"is under {SHRINK_FLOOR:.0%} of the committed {prev} — a join came "
+              f"back short; the existing map is better than a thinner one",
+              file=sys.stderr)
+        return 1
+    atomic_write(OUT, json.dumps(dict(sorted(by_sleeper.items())),
+                                 separators=(",", ":")))
     print(f"wrote {OUT.relative_to(ROOT)} ({len(by_sleeper)} ids)")
 
     if args.no_patch:
@@ -111,7 +133,7 @@ def main() -> int:
             if espn:
                 row.append(espn)
                 hit += 1
-        f.write_text(json.dumps(pm, separators=(",", ":")), encoding="utf-8")
+        atomic_write(f, json.dumps(pm, separators=(",", ":")))
         print(f"patched {f.relative_to(ROOT)}: {hit}/{len(pm)} rows with espn_id")
     return 0
 

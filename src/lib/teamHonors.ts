@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import type { BracketFile, Franchises } from "./types";
-import { jl } from "./data";
+import { indexKey, jl } from "./data";
+import { isSeasonSettled, ridOf } from "./seasons";
 
 /**
  * Franchise honor marks — the four things a franchise season can earn (Max,
@@ -51,11 +52,12 @@ export interface TeamHonorIndex {
   byKey: Record<string, Record<string, TeamHonorKey[]>>;
 }
 
-/** how many seeds make the bracket when a season's bracket file is missing —
- *  this league's setting; only a fallback, the bracket itself is the record */
+/** how many seeds make the bracket when a SETTLED season's bracket file is
+ *  missing — this league's setting; only a fallback, the bracket itself is the
+ *  record, and it is never reached for a season still being played */
 const PLAYOFF_SEEDS_FALLBACK = 6;
 
-let pending: Promise<TeamHonorIndex> | null = null;
+const cache = new Map<string, Promise<TeamHonorIndex>>();
 
 /**
  * Build the whole-league franchise honor index once per page load.
@@ -64,10 +66,22 @@ let pending: Promise<TeamHonorIndex> | null = null;
  * in the playoffs if it played a winners'-bracket game (a bye still lands it in
  * round two), which stays right if the league ever changes how many teams
  * qualify. A season whose bracket has not been written falls back to the seed.
+ *
+ * SETTLED SEASONS ONLY (2026-09-21). The guard was "somebody has played a
+ * game", which is true of the season in progress: after one week of 2026 the
+ * league leader carried a "Most points" gem, whoever sorted top carried the
+ * No. 1 seed's crown, and — because a live season has no bracket to read — the
+ * seed fallback handed a Playoffs star to six franchises on a one-game
+ * standings table. Every one of the four marks is a claim about a FINISHED
+ * season, so all four wait for one. See `lib/seasons.ts#isSeasonSettled` for
+ * why `finish` alone does not say a season is finished.
  */
 export function loadTeamHonors(seasons: string[]): Promise<TeamHonorIndex> {
-  if (pending) return pending;
-  pending = (async () => {
+  const ck = indexKey(seasons);
+  const hit = cache.get(ck);
+  if (hit) return hit;
+
+  const pending = (async () => {
     const [fr, brackets] = await Promise.all([
       jl<Franchises>("franchises.json").catch(() => ({} as Franchises)),
       Promise.all(seasons.map(s =>
@@ -81,15 +95,19 @@ export function loadTeamHonors(seasons: string[]): Promise<TeamHonorIndex> {
       if (!bag.includes(k)) bag.push(k);
     };
 
-    // every franchise's row for each season, so "most points" has the whole
-    // league to compare against
+    // every franchise's row for each SETTLED season, so "most points" has the
+    // whole league to compare against
     const bySeason: Record<string, { key: string; rid: number; fpts: number; seed: number | null; finish: number | null }[]> = {};
+    const settled = new Map<string, boolean>();
     for (const [key, f] of Object.entries(fr)) {
       for (const s of f.seasons) {
         // a season nobody has played yet has nothing to award
         if (s.wins + s.losses + s.ties === 0) continue;
+        let ok = settled.get(s.season);
+        if (ok === undefined) settled.set(s.season, ok = isSeasonSettled(fr, s.season));
+        if (!ok) continue;
         (bySeason[s.season] ??= []).push({
-          key, rid: s.rid ?? Number(key), fpts: s.fpts, seed: s.seed, finish: s.finish,
+          key, rid: ridOf(key, s), fpts: s.fpts, seed: s.seed, finish: s.finish,
         });
       }
     }
@@ -114,6 +132,12 @@ export function loadTeamHonors(seasons: string[]): Promise<TeamHonorIndex> {
     }
     return { byKey };
   })();
+
+  cache.set(ck, pending);
+  // a rejected build is evicted so the next caller retries rather than
+  // inheriting the rejection for the life of the page — the eviction every
+  // other loader in lib/ has and this one did not
+  pending.catch(() => cache.delete(ck));
   return pending;
 }
 
@@ -133,13 +157,18 @@ export function teamHonorTotals(rows: TeamSeasonHonors[]): [TeamHonorKey, number
   return TEAM_HONOR_ORDER.filter(k => n[k]).map(k => [k, n[k] as number]);
 }
 
-/** the index, for a component: null until it lands */
+/** the index, for a component: null until it lands.
+ *
+ *  The effect keys on the season list's CONTENTS, not on the array's identity:
+ *  a caller that builds `seasons` inline hands a new array every render, and
+ *  depending on that re-ran the effect on every one of them. */
 export function useTeamHonors(seasons: string[]): TeamHonorIndex | null {
   const [idx, setIdx] = useState<TeamHonorIndex | null>(null);
+  const key = seasons.join(",");
   useEffect(() => {
     let live = true;
-    loadTeamHonors(seasons).then(i => { if (live) setIdx(i); }).catch(() => {});
+    loadTeamHonors(key ? key.split(",") : []).then(i => { if (live) setIdx(i); }).catch(() => {});
     return () => { live = false; };
-  }, [seasons]);
+  }, [key]);
   return idx;
 }

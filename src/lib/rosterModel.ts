@@ -84,12 +84,18 @@ function pickTable(pv: PickValues): Map<string, number[]> {
 export const pickStream = (pv: PickValues, tier: string, round: number): number[] =>
   pickTable(pv).get(`${tier} ${ROUND_ORD[round - 1]}`) ?? [0, 0, 0];
 
-interface PoolP { id: string; pos: string; comp: number[]; age?: number }
+/* `comp` — the player's three-year composite WAR stream — was carried on every
+   pooled player and read by nobody: the two valuations below are `cviOf(p.id)`
+   and `dviOf(p.id)`, which look their figure up by id, and the raw WAR streams
+   this once held were retired when CVI replaced projected WAR in the grids
+   (see the note on `rosterShapes`). It was the only reason `poolOf` touched
+   `p.composite`. */
+interface PoolP { id: string; pos: string; age?: number }
 
 const poolOf = (t: Team, byPid: Map<string, Projection>): PoolP[] =>
   t.players.map(pid => byPid.get(pid))
     .filter((p): p is Projection => !!p)
-    .map(p => ({ id: p.pid, pos: p.pos, comp: p.composite, age: p.age }));
+    .map(p => ({ id: p.pid, pos: p.pos, age: p.age }));
 
 const STRENGTH_POS = ["QB", "RB", "WR", "TE"];
 

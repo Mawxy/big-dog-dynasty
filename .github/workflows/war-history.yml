@@ -1,15 +1,27 @@
 name: WAR history (nflverse)
-# One-off / occasional: rebuild historical WAR (2014+) from nflverse data,
-# shaped to the league's exact scoring, pool and played rules, computed by the
-# unchanged sleeper_war.py engine. Commits CSVs to nfl_history/.
+# One-off / occasional: rebuild historical WAR from nflverse data, shaped to the
+# league's exact scoring, pool and played rules, computed by the unchanged
+# sleeper_war.py engine. Commits CSVs to nfl_history/.
+#
+# RANGE. The defaults below are 1999-2025 and the header used to claim "2014+",
+# which was wrong in both directions: the corpus reaches back to 1999, and
+# PROJECT_NOTES is explicit that a partial rebuild must start at 2012 or earlier
+# or it splices two different played rules. Seasons before 2012 (WAR) and 2014
+# (features) are filed under nfl_history/early/ by the collect step below;
+# only project_points.py reads those.
+#
+# END IS CLAMPED — see the validation step. A dispatch with end >= the
+# in-progress season would drop a PARTIAL waa_war_<season>.csv into
+# nfl_history/, and project_points.py would then fit against a three-week
+# season as though it were a full one.
 on:
   workflow_dispatch:
     inputs:
       start:
-        description: "First season"
+        description: "First season (use 2012 or earlier — played rule changes at 2012)"
         default: "1999"
       end:
-        description: "Last season"
+        description: "Last season — must be a COMPLETED season, refused otherwise"
         default: "2025"
 permissions:
   contents: write
@@ -24,8 +36,79 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install nflreadpy
-        run: pip install nflreadpy
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
+      # GUARD THE RANGE BEFORE FETCHING ANYTHING. nfl_history.py will happily
+      # shape a season that is three weeks old, sleeper_war.py will happily
+      # compute WAR over those three weeks, and the collect step below will
+      # happily copy waa_war_<season>.csv into nfl_history/ — where
+      # project_points.py reads it as a full season and fits a model on it.
+      # Nothing downstream can tell a partial season from a complete one, so
+      # the check has to happen here.
+      #
+      # "Complete" is defined on the CALENDAR, deliberately, rather than on
+      # anything in the data: an NFL season Y runs Sep Y -> Feb Y+1, so Y is
+      # complete once we are in March of Y+1 or later. That makes the newest
+      # allowed END today's year minus one (minus two in Jan/Feb), needs no
+      # league file, and does not depend on the September ritual having been
+      # done. data/leagues.json's rosterSeason is printed alongside it as a
+      # sanity read, not used as the rule.
+      - name: Validate the season range
+        env:
+          START: ${{ github.event.inputs.start }}
+          END: ${{ github.event.inputs.end }}
+        run: |
+          python - <<'PY'
+          import datetime, json, os, pathlib, sys
+
+          # ::error on STDOUT, then exit 1 — sys.exit(msg) would write it to
+          # stderr, where the runner does not pick workflow commands up and the
+          # annotation would be lost.
+          def die(msg):
+              print(msg, flush=True)
+              sys.exit(1)
+
+          def season(name):
+              raw = (os.environ.get(name) or "").strip()
+              if not raw.isdigit():
+                  die(f"::error title=Bad {name}::{name}={raw!r} is not a season year")
+              return int(raw)
+
+          start, end = season("START"), season("END")
+          today = datetime.date.today()
+          newest = today.year - (1 if today.month >= 3 else 2)
+
+          p = pathlib.Path("data/leagues.json")
+          if p.exists():
+              r = json.loads(p.read_text())
+              rs = next((l.get("rosterSeason") for l in r["leagues"]
+                         if l.get("key") == r.get("default")), "?")
+              print(f"data/leagues.json rosterSeason = {rs} (in progress)")
+          print(f"newest COMPLETED season as of {today}: {newest}")
+
+          if end > newest:
+              die(f"::error title=End season not complete::end={end} but the "
+                  f"{end} season has not finished (a season is complete in "
+                  f"March of the following year). Rebuilding it now would "
+                  f"commit a partial waa_war_{end}.csv to nfl_history/ and "
+                  f"project_points.py would fit on a fraction of a season. "
+                  f"Re-run with end={newest} or lower.")
+          if start > end:
+              die(f"::error title=Empty range::start={start} > end={end}")
+          if start < 1999:
+              die(f"::error title=Before nflverse::start={start}; "
+                  f"nflverse data begins in 1999")
+          if start > 2012:
+              print(f"::warning title=Partial rebuild::start={start}. The played "
+                    f"rule changes at 2012 (snap counts begin), so a corpus that "
+                    f"starts later splices two rules. PROJECT_NOTES says use 2012.")
+          print(f"range OK: {start}-{end}")
+          PY
+      # PINNED — see requirements-ci.txt. `-c` applies that file's pins to
+      # nflreadpy and what it pulls in (polars, numpy) without installing the
+      # scikit-learn stack this job never imports.
+      - name: Install nflreadpy (pinned via requirements-ci.txt)
+        run: pip install -c requirements-ci.txt nflreadpy
       - name: Shape nflverse data to league form
         # inputs go through env, never interpolated straight into the shell —
         # a crafted dispatch input would otherwise be command injection
@@ -64,11 +147,19 @@ jobs:
           git config user.email "actions@users.noreply.github.com"
           # heal a stale conflicted rebase (detached HEAD) before staging anything
           git rebase --abort 2>/dev/null || true
-          # RE-PARENT, never rebase — see crawl-signals.yml. The simplest case of
-          # the three: nfl_history/ is written by this workflow and nothing else,
-          # so a directory add is already an exact allow-list and there is no
-          # crawl-ownership question to guard. The CSVs are rebuilt whole from
-          # nflverse, so ours-wins is the only sensible resolution anyway.
+          # RE-PARENT, never rebase — see crawl-signals.yml. Still the simplest
+          # case: a directory add over nfl_history/ is already an exact
+          # allow-list and there is no crawl-ownership question to guard, and
+          # the CSVs are rebuilt whole from nflverse, so ours-wins is the only
+          # sensible resolution anyway.
+          #
+          # NOT the sole writer any more, though: since 2026-09-16 data-refresh
+          # also commits nfl_history/features_<rosterSeason>.csv nightly (its
+          # allow-list names exactly that glob). Safe because both workflows
+          # share the `data-push` concurrency group, so they can never stage or
+          # push over each other — and safe in content because the range guard
+          # above refuses an END that reaches the in-progress season, so this
+          # job never writes the year the nightly owns.
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD

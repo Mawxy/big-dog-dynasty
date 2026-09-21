@@ -3,11 +3,16 @@
   "private": true,
   "version": "2.0.0",
   "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.test.json",
+    "typecheck:src": "tsc --noEmit",
+    "typecheck:config": "tsc -p tsconfig.test.json",
     "test": "node --test tests/tradeModel.test.ts"
   },
   "dependencies": {

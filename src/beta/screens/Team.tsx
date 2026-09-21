@@ -10,6 +10,7 @@ import { HonorSprite } from "../../components/HonorMarks";
 import TeamHonorMarks, { TeamHonorLegend } from "../../components/TeamHonorMarks";
 import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamHonors";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useProjWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
@@ -19,7 +20,7 @@ import {
 } from "../../lib/league";
 import { ktcOf } from "../../lib/values";
 import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
-import { nearestPick, rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
+import { rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
 import Moved from "../moved";
 import TeamSeasons from "./TeamSeasons";
 import TeamRivals from "./TeamRivals";
@@ -114,8 +115,6 @@ interface RosterRow {
   idx: number | null;
   war: number | null;
   market: number | null;
-  /** picks only: the current-year slot this price is worth */
-  equiv?: string | null;
   /** LINEUP ONLY: the seat this row sits in, which takes the spine's ordinal
    *  slot. Straight out of meta.rosterPositions through SLOT_LABEL. */
   seat?: string;
@@ -144,6 +143,15 @@ interface RosterBand {
 
 export default function Team() {
   const { meta, league, players } = useLeague();
+  /* WHAT THIS LEAGUE HAS. My Team is the landing screen for a claimed reader,
+     and it used to gate its whole body on dvi + cvi + projected WAR — three
+     files `index_models.py` and `project_war.py` write for the DEFAULT league
+     and no other. In Pineapple Pizza all three 404 and the screen sat on
+     "Loading…" for the life of the page: no roster, no seasons, no head to
+     head, no way out but the tab bar. The roster is a fact about every league
+     on the board, so it renders either way and the figures the pipeline never
+     computed read as em dashes. */
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const ident = useIdentity();
   const ridSeg = useParams().rid;
@@ -156,12 +164,15 @@ export default function Team() {
   const teamsQ = useJson<TeamT[]>(`${rosterSeason}/teams.json`);
   const teams = teamsQ.data;
   const fr = useJson<Franchises>("franchises.json").data;
-  const owned = useJson<PicksOwned>("picks_owned.json").data;
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  // a redraft league has no rookie picks to hold, so there is no Draft capital
+  // band and no file to fetch for one
+  const owned = useJson<PicksOwned>(caps.picks ? "picks_owned.json" : null).data;
+  const vals = useJson<Values>(caps.market ? "data/values.json" : null, "globalDaily").data;
   // the strengths grids' population: rosterShapes seats every projected player
   // on every roster, so it needs the projection file the classic board's
   // TeamStrengths reads for the same purpose
-  const proj = useJson<ProjectionsFile>("projections.json").data;
+  const proj = useJson<ProjectionsFile>(
+    caps.projections ? "projections.json" : null).data;
   const dvi = useDvi();
   const cvi = useCvi();
   // YEAR-ONE composite, matching the League screen and the price board: a
@@ -206,19 +217,27 @@ export default function Team() {
   const rid = bogus ? null : routeRid ?? ident.rid;
   const team = teams?.find(t => t.roster_id === rid) ?? null;
 
-  const roster = useMemo<{ bands: RosterBand[]; lineupWar: number } | null>(() => {
-    if (!team || !dvi || !cvi || !war) return null;
-    const idxFile = lens === "dvi" ? dvi.players : cvi.players;
+  const roster = useMemo<{
+    bands: RosterBand[]; lineupWar: number | null; asSet: boolean;
+  } | null>(() => {
+    if (!team) return null;
+    /* The index files are OPTIONAL now, not a precondition. `idxFile`
+       undefined means "this league has no such index", which every figure
+       below resolves to the em dash — the same answer a player the index does
+       not cover already got. */
+    const idxFile = lens === "dvi" ? dvi?.players : cvi?.players;
     const idxOf = (pid: string) => {
-      const r = idxFile[pid] as { dvi?: number; cvi?: number } | undefined;
+      const r = idxFile?.[pid] as { dvi?: number; cvi?: number } | undefined;
       return r ? (lens === "dvi" ? r.dvi ?? null : r.cvi ?? null) : null;
     };
-    const posRankOf = (pid: string) => idxFile[pid]?.pos_rank ?? null;
+    const posRankOf = (pid: string) => idxFile?.[pid]?.pos_rank ?? null;
     // DVI's position, not the featured lens's — the two files agree, and
     // reading ONE of them is what stops the lineup re-seating itself when the
     // reader flips the lens. The seats are won on projected WAR; the lens
-    // changes which figure is featured beside them and nothing else.
-    const posOf = (pid: string) => dvi.players[pid]?.pos ?? players[pid]?.[1] ?? "?";
+    // changes which figure is featured beside them and nothing else. With no
+    // index at all, players_min's position is the fallback: it is what the
+    // roster rows need the position FOR, which is the spine's colour.
+    const posOf = (pid: string) => dvi?.players[pid]?.pos ?? players[pid]?.[1] ?? "?";
 
     const taxi = new Set(team.taxi), ir = new Set(team.reserve);
 
@@ -249,14 +268,19 @@ export default function Team() {
         // is wins added by a STARTER, and he cannot be started until he is
         // activated. An em dash says that; the figure he would post if he could
         // play would be a lineup contribution the league does not allow.
-        war: o?.taxi ? null : war[pid] ?? null,
+        war: o?.taxi ? null : war?.[pid] ?? null,
         // THIS LEAGUE'S KTC COLUMN (lib/values.ktcOf, off meta.tep), never the
         // base `row.ktc`: this is a TE-premium league and the two ladders are
         // materially apart for a tight end. Reading the base column here priced
         // one roster row in a market the league does not play in while the
         // strip above it, the leaderboard and the trade machine all quoted the
         // premium one.
-        market: ktcOf(vals?.players?.[pid], meta.tep),
+        //
+        // AND ONLY WHERE THE MARKET DESCRIBES THIS LEAGUE. KTC and FantasyCalc
+        // publish DYNASTY prices; in a redraft league the same numbers price a
+        // player nobody there can keep, so the column is the em dash rather
+        // than a figure from the wrong format.
+        market: caps.market ? ktcOf(vals?.players?.[pid], meta.tep) : null,
       };
     };
 
@@ -265,12 +289,38 @@ export default function Team() {
        which player may fill which, and returns them in that same order with the
        bench slots dropped. Taxi and IR players are not in the pool at all —
        neither can be fielded, so seating one would be describing a lineup the
-       league would reject. */
+       league would reject.
+
+       WITH NO PROJECTION THERE IS NOTHING TO OPTIMISE, so the band shows the
+       LINEUP AS SET — Sleeper's own `starters`, which is parallel to the
+       starting slots of meta.rosterPositions. Running the optimiser over a
+       pool where every player scores 0 seats the roster in file order and
+       calls it the best legal lineup, which is a claim rather than a
+       fallback; the band's note says which of the two is on screen. */
     const lineup = lineupOf(meta);
     const pool = team.players
       .filter(pid => !taxi.has(pid) && !ir.has(pid))
-      .map(pid => ({ id: pid, pos: posOf(pid), war: war[pid] ?? 0 }));
-    const { slots, starters } = optimalLineup(pool, lineup);
+      .map(pid => ({ id: pid, pos: posOf(pid), war: war?.[pid] ?? 0 }));
+    // the seat list itself, straight out of league.ts's own filter rather than
+    // a second copy of "which slots are not starting slots"
+    const seats = optimalLineup<{ id: string; pos: string; war: number }>([], lineup).slots;
+    const set = (team.starters ?? []).filter(p => p && p !== "0");
+    /** the lineup AS SET is usable only when it lines up with the seats it is
+     *  supposed to fill — otherwise the indices are meaningless and the
+     *  optimiser's arbitrary-but-legal seating is the better answer */
+    const asSet = war == null && team.starters?.length === seats.length;
+    const { slots, starters } = asSet
+      ? {
+        slots: seats.map((s, i) => {
+          const pid = team.starters[i];
+          return {
+            slot: s.slot,
+            player: pid && pid !== "0" ? { id: pid, pos: posOf(pid), war: 0 } : null,
+          };
+        }),
+        starters: new Set(set),
+      }
+      : optimalLineup(pool, lineup);
 
     const startRows: RosterRow[] = slots.map((s, i) => {
       const seat = SLOT_LABEL[s.slot] ?? s.slot;
@@ -363,23 +413,34 @@ export default function Team() {
           // projected worst team prices Early and one from the projected
           // champion prices Late. A pick that is gone carries no price at all
           // — it is not this franchise's to be worth anything.
-          market: held
+          market: held && caps.market
             ? ktcPicks.get(`${p.season} ${tierOf(tiers, p.orig)} ${roundOrd(p.round)}`) ?? null
             : null,
-          equiv: held ? nearestPick(vals, p.season, p.round, tierOf(tiers, p.orig)) : null,
           gone: !held,
         };
       });
 
     const sum = (rows: RosterRow[], k: (r: RosterRow) => number | null) =>
       rows.reduce((a, r) => a + (k(r) ?? 0), 0);
-    const lineupWar = sum(startRows, r => r.war);
+    const lineupWar = war == null ? null : sum(startRows, r => r.war);
+    /** A BAND TOTALS IN A CURRENCY IT ACTUALLY CARRIES. WAR where the league
+     *  has a projection, the lens index where it has one of those instead, and
+     *  no total at all where it has neither — "0.00 WAR" for a roster nobody
+     *  ever projected is the zero this board spends its em dashes avoiding. */
+    const bandTotal = (rows: RosterRow[]): ReactNode => {
+      if (!rows.length) return undefined;
+      if (war != null) return `${sgnWar(sum(rows, r => r.war))} WAR`;
+      if (idxFile) return `${Math.round(sum(rows, r => r.idx))} ${lens.toUpperCase()}`;
+      return undefined;
+    };
 
     const bands: RosterBand[] = [
       {
         key: "lu", label: "Lineup", cls: "mtx-lineup", spLabel: "Seat",
-        note: "Seats in league order · best legal lineup by projected WAR, not the lineup as set",
-        rows: startRows, total: `${sgnWar(lineupWar)} WAR`,
+        note: asSet
+          ? "Seats in league order · the lineup as set — this league has no published projection to optimise one from"
+          : "Seats in league order · best legal lineup by projected WAR, not the lineup as set",
+        rows: startRows, total: bandTotal(startRows),
         empty: "No lineup.",
       },
       {
@@ -392,8 +453,8 @@ export default function Team() {
           ? `${benchRows.length - onIr} of ${benchSlots} slots`
           : `${benchRows.length - onIr} behind the lineup`)
           + (onIr ? ` · ${onIr} on IR` : "")
-          + " · sums negative because WAR is measured against replacement",
-        rows: benchRows, total: `${sgnWar(sum(benchRows, r => r.war))} WAR`,
+          + (war != null ? " · sums negative because WAR is measured against replacement" : ""),
+        rows: benchRows, total: bandTotal(benchRows),
         empty: "Nobody behind the lineup.",
       },
     ];
@@ -407,7 +468,7 @@ export default function Team() {
       // currency its rows actually carry, and names it. An EMPTY taxi squad
       // gets no total at all rather than "0 DVI" — four unused slots are not
       // four worthless players.
-      total: taxiRows.length
+      total: taxiRows.length && idxFile
         ? `${Math.round(sum(taxiRows, r => r.idx))} ${lens.toUpperCase()}`
         : undefined,
       empty: "Taxi squad empty.",
@@ -416,11 +477,15 @@ export default function Team() {
       key: "pk", label: "Draft capital", spLabel: "#",
       note: "Held and traded away · each pick tiered Early / Mid / Late by its original owner's projected finish this season",
       rows: pickRows,
-      total: `≈ ${Math.round(sum(pickRows, r => r.market)).toLocaleString()}`,
+      // the "≈" is the estimate mark and the figure is a market one — both
+      // gone in a league whose format the dynasty market does not price
+      total: caps.market
+        ? `≈ ${Math.round(sum(pickRows, r => r.market)).toLocaleString()}`
+        : undefined,
       empty: "No picks on the books.",
     });
-    return { bands, lineupWar };
-  }, [team, dvi, cvi, war, vals, owned, players, meta, lens, rid, teams, tiers]);
+    return { bands, lineupWar, asSet };
+  }, [team, dvi, cvi, war, vals, owned, players, meta, lens, rid, teams, tiers, caps.market]);
 
   /* ---- strengths --------------------------------------------------------
      rosterShapes' own output, unchanged: the optimal starting eight and the
@@ -473,7 +538,16 @@ export default function Team() {
   );
   if (!roster) return <div className="empty">Loading…</div>;
 
-  const season = fr?.[String(rid)]?.seasons.slice().reverse()
+  /* THE FRANCHISE KEY, not the roster id. franchises.json is keyed by the
+     roster_id in a dynasty league and by the owner's 18-digit Sleeper user_id
+     in a redraft one, so `fr[String(rid)]` resolved to nothing at all in
+     Pineapple Pizza: the record figure read "—", the rail's season ladder was
+     empty, and the honors and the seasons table two sections below — which
+     already used the key — disagreed with both. One expression, used
+     everywhere on the screen. */
+  const fkey = String(team.fkey ?? rid);
+  const franchise = fr?.[fkey];
+  const season = franchise?.seasons.slice().reverse()
     .find(s => s.wins + s.losses + s.ties > 0);
   const idxRank = tvals
     ? rankMap(tvals, t => (lens === "dvi" ? t.dvi : t.cvi), t => t.rid).get(rid) ?? null
@@ -493,9 +567,13 @@ export default function Team() {
     {
       key: "rk", label: `${lens.toUpperCase()} rank`,
       value: idxRank ?? "—", acc: true,
+      /* THE STRIP FIGURE AND THE BOARD READ ONE NUMBER (2026-09-21). Both are
+         `model.starterSum` — each index over its OWN best legal lineup, the
+         classic Value board's rule — where the Teams board used to sum DVI
+         over the projected-WAR lineup and land 50 points away from this. */
       sub: mine
         ? `${Math.round(lens === "dvi" ? mine.dvi : mine.cvi)} index pts, starters`
-        : undefined,
+        : caps.indices ? undefined : "not published for this league",
     },
     {
       // THE BAND'S OWN NUMBER, not the rankings model's. Both are "best legal
@@ -503,12 +581,17 @@ export default function Team() {
       // lineup card does, and a strip figure that disagreed with the total two
       // bands below it would be a bug the reader can see.
       key: "war", label: "Proj WAR",
-      value: sgnWar(roster.lineupWar), sub: `best legal lineup, ${rosterSeason}`,
+      value: roster.lineupWar == null ? "—" : sgnWar(roster.lineupWar),
+      sub: roster.lineupWar == null
+        ? "not published for this league"
+        : `best legal lineup, ${rosterSeason}`,
     },
     {
       key: "mkt", label: "Market",
-      value: mine ? Math.round(mine.market).toLocaleString() : "—",
-      sub: marketRank ? `${marketRank} of ${tvals?.length} · KTC, picks included` : undefined,
+      value: caps.market && mine ? Math.round(mine.market).toLocaleString() : "—",
+      sub: !caps.market
+        ? "dynasty prices — not this league's format"
+        : marketRank ? `${marketRank} of ${tvals?.length} · KTC, picks included` : undefined,
     },
   ];
 
@@ -517,7 +600,7 @@ export default function Team() {
   const insight = insights?.teams[String(rid)] ?? null;
   /** the franchise's honors: totals for the identity block, per season for
    *  the ladder. Keyed by franchise key — the roster id, in a dynasty league. */
-  const honorRows = franchiseHonors(honorIdx, String(team.fkey ?? rid));
+  const honorRows = franchiseHonors(honorIdx, fkey);
   const honorBySeason = new Map(honorRows.map(r => [r.season, r.keys]));
   const honorCareer = teamHonorTotals(honorRows);
 
@@ -556,7 +639,7 @@ export default function Team() {
    *  season on the League screen; the roster season reads "live". The accent
    *  marks a title, the one honour a franchise ladder has to carry. */
   const ladderRows = (() => {
-    const seasons = fr?.[String(rid)]?.seasons ?? [];
+    const seasons = franchise?.seasons ?? [];
     if (!seasons.length) return null;
     return (
       <div className="rail-ladder">
@@ -669,12 +752,35 @@ export default function Team() {
                 segments instead of four, but provably one control rather than
                 two lookalikes. */}
             <div ref={refs.roster}>
-              <LensStrip options={LENSES} value={lens} onChange={setLens} label="Index" />
+              {/* A CONTROL WITH NOTHING TO SWITCH BETWEEN IS NOT A CONTROL.
+                  Where the pipeline publishes neither index, the two segments
+                  select between two empty columns. */}
+              {caps.indices && (
+                <LensStrip options={LENSES} value={lens} onChange={setLens} label="Index" />
+              )}
 
               {roster.bands.map(b => (
                 <RosterTable key={b.key} band={b} lens={lens} betaPath={betaPath} />
               ))}
 
+              {/* SAID ONCE, UNDER THE TABLES THAT SHOW IT. Three columns of em
+                  dashes is a question, and the answer is not "the data didn't
+                  load" — it is that these figures are computed for one league
+                  and this is the other one. */}
+              {(!caps.indices || !caps.projections || !caps.market) && (
+                <div className="tnote screen">
+                  {[
+                    caps.indices ? null : "DVI and CVI",
+                    caps.projections ? null : "projected WAR",
+                    caps.market ? null : "the dynasty market",
+                  ].filter(Boolean).join(", ").replace(/, ([^,]*)$/, " and $1")}
+                  {" "}
+                  {caps.indices && caps.projections ? "is" : "are"} not published for {league.name} —
+                  the nightly projection and index runs cover the home league only, and the dynasty
+                  market prices a format this league does not play. The roster, the seasons and the
+                  head-to-head record below are this league's own.
+                </div>
+              )}
             </div>
 
             {/* ---- what moved ----
@@ -684,7 +790,7 @@ export default function Team() {
                 pre-filtered to it. Between the roster and its strengths,
                 because a roster read yesterday is not the roster on screen. */}
             <div ref={refs.moved}>
-              <Moved rid={rid} teamName={team.team} />
+              <Moved rid={rid} fkey={fkey} teamName={team.team} />
             </div>
 
             {/* ---- the seasons ----
@@ -693,7 +799,7 @@ export default function Team() {
                 before the strengths: the roster is why the reader came, the
                 history is what he asks second. */}
             <div ref={refs.seasons}>
-              <TeamSeasons fkey={String(team.fkey ?? rid)} rid={rid} fr={fr}
+              <TeamSeasons fkey={fkey} rid={rid} fr={fr}
                 honors={honorBySeason} rosterSeason={rosterSeason} />
             </div>
 
@@ -701,7 +807,7 @@ export default function Team() {
                 "My record against everyone else" (Max, 2026-09-21), filterable
                 by regular season, playoffs, or both. */}
             <div ref={refs.rivals}>
-              <TeamRivals fkey={String(team.fkey ?? rid)} fr={fr}
+              <TeamRivals fkey={fkey} fr={fr}
                 seasons={meta.seasons} rosterSeason={rosterSeason} />
             </div>
 
@@ -778,7 +884,6 @@ function RosterTable({ band, lens, betaPath }: {
                 </td>
                 <td className="n">
                   <span className="f">{r.market == null ? NUL : r.market.toLocaleString()}</span>
-                  {r.equiv && <div className="idc-s r">≈ {r.equiv}</div>}
                 </td>
               </>
             );

@@ -9,7 +9,11 @@ on:
     # values.json, data/leagues/**) still deploys: a commit deploys unless
     # EVERY changed path is listed here.
     paths-ignore:
+      # trade_corpus* / outcome_corpus* are .gitignore'd and therefore can never
+      # appear in a push diff at all. The entries are kept as documentation of
+      # intent (and in case one is ever un-ignored), not because they do work.
       - "data/trade_corpus*.json"
+      - "data/outcome_corpus*.json"
       - "data/tep_map.json"
       - "data/rookie_pick_corpus.json"
       - "data/crawl_leagues.json"
@@ -19,9 +23,17 @@ on:
       - "data/draft_signals.json"
       - "data/draft_index.json"
       - "data/outcome_signals_*.json"
-      - "data/outcome_corpus*.json"
       - "data/values_history.json"
       - "data/values_history_deep.json"
+      # Added 2026-09-21 alongside the strip step below — LOCKSTEP, see there.
+      # espn_ids.json is players-refresh.yml's weekly commit; the site never
+      # fetches it (build_site_data.py folds the id into players_min.json, which
+      # is what src/lib/league.ts reads). The two per-league files are pipeline
+      # relics with no fetch anywhere in src/.
+      - "data/espn_ids.json"
+      - "data/leagues/*/projections_knn.json"
+      - "data/leagues/*/projections_scalar.json"
+      - "data/leagues/*/proj_sleeper_history/*.json"
   workflow_dispatch:
   workflow_call:      # lets the data-refresh workflow trigger a deploy when it commits new data
 permissions:
@@ -49,7 +61,13 @@ jobs:
         run: git pull --ff-only
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          # 22, matching tests.yml. Node 20 went end-of-life, so the shipping
+          # build was on an unsupported runtime while CI typechecked on 22 —
+          # two toolchains, and the one that ships was the older one. Unified
+          # here rather than pinning tests.yml back: that job NEEDS >= 22.18
+          # for `node --test` type stripping (see its comment), and package.json
+          # now declares `engines.node: >=22.18` so both agree with the manifest.
+          node-version: "22"
           cache: npm
       - run: npm ci
       - name: Typecheck (vite build does NOT typecheck — this is the only gate)
@@ -57,27 +75,32 @@ jobs:
       - run: npm run build
       - name: Bundle league data into the site
         run: cp -r data dist/data
-      # `cp -r data` is a blunt copy of a 16.4 MB tracked directory, but ~12.8 MB
-      # of it is crawler/research corpora with zero readers in src/ — they are
-      # inputs to the Python pipeline, not to the site. Publishing them costs
-      # every visitor nothing (nothing fetches them) and the Pages artifact
-      # everything, so strip them from dist/data AFTER the copy. The tree in
-      # data/ is untouched; only what ships changes.
+      # `cp -r data` is a blunt copy of the whole tracked directory, and a large
+      # share of it is crawler/research corpora with zero readers in src/ — they
+      # are inputs to the Python pipeline, not to the site. Publishing them
+      # costs every visitor nothing (nothing fetches them) and the Pages
+      # artifact everything, so strip them from dist/data AFTER the copy. The
+      # tree in data/ is untouched; only what ships changes.
       #
       # This list is the paths-ignore block at the top of this file, same
       # rationale: a file the site never fetches should neither trigger a
       # deploy nor ride along in one. KEEP THE TWO IN LOCKSTEP — if you add a
-      # corpus to one, add it to the other.
+      # file to one, add it to the other.
       #
-      # It is currently a strict SUBSET of paths-ignore: trade_corpus*.json and
-      # outcome_corpus*.json are ignored for deploy triggering but still ship,
-      # pending their own read-audit. trade_corpus.json alone is ~4.9 MB, so
-      # closing that gap is most of the remaining win.
+      # trade_corpus*.json / outcome_corpus*.json are NOT here and do not need
+      # to be: both are .gitignore'd, so a CI checkout never has them and there
+      # is nothing to strip. (This block used to claim they "still ship" and
+      # quote a 16.4 MB data tree; both were out of date.)
       #
-      # Do NOT add to this list anything the site actually reads:
-      #   leagues.json, benchmarks.json, values.json, and per-league
-      #   projections.json / projections_knn_hybrid.json / pick_values.json /
-      #   proj_sleeper.json, plus the player/ shards.
+      # BEFORE ADDING A FILE HERE, grep src/ for it. Do NOT add anything the
+      # site actually reads: leagues.json, benchmarks.json, values.json,
+      # vig_model.json, dynasty_movers.json, ecr.json, recent_trades/, and
+      # per-league projections.json / projections_matrix.json /
+      # projections_knn_hybrid.json / pick_values.json / picks_owned.json /
+      # proj_sleeper.json / dvi.json / cvi.json / index_models.json /
+      # insights.json / drafts.json / trades.json / trade_snapshots.json /
+      # franchises.json / value_bridge.json, the <season>/ files, and the
+      # player/ shards.
       - name: Strip pipeline-only corpora from the published artifact
         run: |
           cd dist/data
@@ -93,6 +116,34 @@ jobs:
                 values_history_deep.json \
                 outcome_signals_*.json
           rm -f leagues/*/projections_check.json
+          # ---- added 2026-09-21, each verified to have NO fetch in src/ ------
+          # espn_ids.json — players-refresh.yml's weekly Sleeper->ESPN id join.
+          #   build_site_data.py folds the id into players_min.json's fourth
+          #   slot, which is what src/lib/league.ts reads; the join file itself
+          #   is a pipeline input. (~128 KB)
+          rm -f espn_ids.json
+          # projections_knn.json — the pre-`--space` relic. The site fetches
+          #   projections_knn_hybrid.json (src/views/Value.tsx) and ONLY that;
+          #   this exact name has no reader. The glob below deliberately is not
+          #   one: `projections_knn*.json` would take the hybrid file with it.
+          #   (~168 KB/league)
+          rm -f leagues/*/projections_knn.json
+          # projections_scalar.json — project_points.py --site parks the scalar
+          #   arm here as a comparison lens for hand analysis. Zero src/ hits.
+          #   (~236 KB/league)
+          rm -f leagues/*/projections_scalar.json
+          # proj_sleeper_history/ — week_odds.py --snapshot's archive of past
+          #   weeks' Sleeper projections. Read by the pipeline when pricing a
+          #   week that is now in the past; never fetched. (~48 KB/league)
+          rm -rf leagues/*/proj_sleeper_history
+          # NOT STRIPPED, on purpose, though neither has a fetch call site:
+          #   leagues/*/projections_points.json (~256 KB) and
+          #   leagues/*/<season>/proj_history.json (~8 KB). Both are NAMED in
+          #   src/ — types.ts documents PointsProj as "data/projections_points
+          #   .json" and caps.ts lists proj_history.json under the `odds`
+          #   capability — so a reader may be intended or in flight. Strip them
+          #   only after confirming the reference is documentation and nothing
+          #   more; add them to paths-ignore above at the same time.
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

@@ -32,6 +32,8 @@ import sys
 from pathlib import Path
 from statistics import median
 
+from ioutil import atomic_write
+
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "data" / "vig_model.json"
 MIN_N = 25
@@ -124,7 +126,7 @@ def main() -> int:
         },
         "bins": table,
     }
-    OUT.write_text(json.dumps(out, separators=(",", ":")), encoding="utf-8")
+    atomic_write(OUT, json.dumps(out, separators=(",", ":")))
     print(f"{games} games -> {OUT.relative_to(ROOT)}; median hold "
           f"{(out['meta']['hold_median'] or 0) * 100:.2f}%")
     for t in table[::7]:

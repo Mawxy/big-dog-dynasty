@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import type { Team, Values } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { rosterSeasonOf } from "../../lib/league";
 import { RouteLink } from "../../components/RouteLink";
@@ -20,13 +21,20 @@ import "./more.css";
  */
 export default function Trends() {
   const { league } = useLeague();
+  /* The hub states where each module stands, so it has to state "this league
+     has none" too — a row whose figure sits on the em dash for ever reads as a
+     fetch that never finished. See screens/Movers for which cap owns which. */
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
-  const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const teams = useJson<Team[]>(
+    caps.indices ? `${rosterSeasonOf(league)}/teams.json` : null).data;
+  const vals = useJson<Values>(
+    caps.market ? "data/values.json" : null, "globalDaily").data;
   const gap = useGapRows(teams);
-  const dyn = useDynMovers();
+  const dyn = useDynMovers(caps.market);
   const movers = useMarketMovers(vals);
-  const n = (a?: number, b?: number) => (a == null || b == null ? NUL : `${a + b} players`);
+  const n = (has: boolean, a?: number, b?: number) =>
+    !has ? "Not published" : a == null || b == null ? NUL : `${a + b} players`;
 
   return (
     <>
@@ -35,13 +43,13 @@ export default function Trends() {
       <div className="v3-more">
         <Row to={betaPath("/movers/value")} name="Win now vs dynasty"
           sub="Rostered players where CVI and DVI disagree most — contender assets one way, stashes the other"
-          state={n(gap?.now.length, gap?.later.length)} />
+          state={n(caps.indices, gap?.now.length, gap?.later.length)} />
         <Row to={betaPath("/movers/dynasty")} name="Dynasty movers"
           sub={`Who the wider dynasty market is paying over and under value for${dynNote(dyn) ? ` · ${dynNote(dyn)}` : ""}`}
-          state={n(dyn?.overpaid.length, dyn?.underpaid.length)} />
+          state={n(caps.market, dyn?.overpaid.length, dyn?.underpaid.length)} />
         <Row to={betaPath("/movers/market")} name="Market movers"
           sub={`${marketNote(movers)} — risers and fallers`}
-          state={n(movers?.up.length, movers?.down.length)} />
+          state={n(caps.market, movers?.up.length, movers?.down.length)} />
       </div>
       <div className="tnote screen">
         The League tab shows the top five of each. These are the whole lists.

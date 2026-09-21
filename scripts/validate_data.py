@@ -7,7 +7,14 @@ gutted output (missing inputs, empty API responses) must not be committed and
 deployed. Floors sit far below current values — they fire on catastrophic
 emptiness, never on normal drift (2026-07: players_min 812, projections 390,
 values 550, trades 144, shards 812; 2026-08: proj_sleeper 573, pick slots 48,
-pick bands 12, priced odds weeks 66 across five seasons).
+pick bands 12, priced odds weeks 66 across five seasons; 2026-09: matrix rows
+365, points-model rows 300, roster-season usage 354 / winshare 108).
+
+Not every check here is a floor. The projection chain's files have to agree
+with EACH OTHER about which season they project from — see
+check_projection_coherence, added after the 2026-09-15 seed rollover, when
+every file still parsed and every floor still cleared while two of the arms
+had quietly moved a year apart.
 
 A floor read off a current value is only valid while the file means the same
 thing. proj_sleeper went 3103 -> 573 not because anything broke but because
@@ -29,6 +36,13 @@ from crawl_schema import LEAGUE_YEAR_CAP, SLOT_NAMES
 # points-first model legitimately added its two. A count restated here is a
 # count that goes stale the next time a model is added.
 from curves import CURVES
+# and "which season actually finished", from the module every projection arm
+# now seeds off — restating the rule here is how the arms drifted apart
+from seasons import last_completed_season
+# the in-season block's own arithmetic, from the module that writes it. Same
+# rule: a validator that restated "how many weeks have been played" would agree
+# with itself and not with the pipeline.
+import inseason
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -73,6 +87,17 @@ FLOORS = {
     # slot_values.json is hand-run (no workflow writes it), so it is validated
     # only when present. Its own corpus is the same one benchmarks merges.
     "slot_value_seasons": 500,
+    # the eight-curve matrix, same population as projections (currently 365)
+    "matrix": 200,
+    # rows the points-first model actually priced from a player's own history;
+    # currently 300 of 365 (the rest are 56 rookies and 9 unjoined names)
+    "points_players": 200,
+    # roster-season nflverse features and win shares. Both are checked only
+    # once the season has a scored week — before kickoff they are legitimately
+    # thin or absent. Currently usage 354, winshare 108 (9 starters x 12 teams
+    # after one week; it grows as lineups change).
+    "usage_players": 100,
+    "winshare_players": 50,
 }
 
 # Sane bounds for a published WAR figure. A lineup slot's median WAR runs 0.46
@@ -333,6 +358,283 @@ def check_odds(sd, weeks_seen, scored):
     return weeks_seen + len(weeks)
 
 
+# The projection chain, and how each file stamps the season it projects FROM.
+# They are written by four different scripts at four different points in the
+# nightly and agree only by construction — which is why nothing noticed when one
+# of them moved on 2026-09-15 and the others did not.
+PROJECTION_FILES = (
+    ("projections.json", True),             # the site model (points-first)
+    ("projections_scalar.json", False),     # per-13 rate model (project_war.py)
+    ("projections_points.json", False),     # the points model's own file, hand-run
+    ("projections_matrix.json", False),     # the eight curves
+    ("projections_knn_hybrid.json", False),  # the analog arm
+)
+
+
+def _seed_and_first(meta):
+    """(seed season, first projected year), however this file spells them.
+
+    `seed_season` on most of them, `as_of` on projections_points.json; the knn
+    writer publishes a seed and no year list, so year one is seed + 1 there.
+    """
+    seed = meta.get("seed_season")
+    if seed is None:
+        seed = meta.get("as_of")
+    years = meta.get("years") or []
+    first = years[0] if years else (seed + 1 if seed is not None else None)
+    return seed, first
+
+
+def _roster_season():
+    """The default league's rosterSeason, from the registry the site reads."""
+    reg = jload(DATA / "leagues.json")
+    key = reg.get("default")
+    for lg in reg.get("leagues") or []:
+        if lg.get("key") == key and str(lg.get("rosterSeason", "")).isdigit():
+            return int(lg["rosterSeason"])
+    meta = jload(DATA / "meta.json")
+    rs = str(meta.get("rosterSeason") or "")
+    return int(rs) if rs.isdigit() else None
+
+
+def check_projection_coherence():
+    """Every arm of the projection chain must project from the SAME season.
+
+    This is the check that would have caught 2026-09-15. meta.json's `latest`
+    flips to the new season the moment week 1 freezes, project_war.py seeded off
+    it, and the scalar arm jumped to seed 2026 / years [2027, 2028, 2029] while
+    the analog and points arms (seeded off the nfl_history corpus) stayed on
+    2025 / [2026, 2027, 2028]. Every file still parsed, every floor still
+    cleared, and the default blend_composite curve averaged a 2027 number with a
+    2026 one under one column heading.
+
+    Three assertions, in the order a reader needs them:
+
+      1. the files agree with each other;
+      2. the seed is the last season with a DECIDED CHAMPION (seasons.py) and
+         year one is the season after it;
+      3. year one lines up with the roster the site shows it beside.
+
+    (3) is deliberately a two-value window rather than an equality. Year one IS
+    the roster season while that season is being played, but between the title
+    game and September's league rollover the roster season is finished and year
+    one is the one after it. Pinning equality would fire every January.
+    """
+    done = last_completed_season(DATA)
+    roster = _roster_season()
+
+    seen = {}
+    for name, required in PROJECTION_FILES:
+        f = DATA / name
+        if not f.exists():
+            if required:
+                fail(f"{f} is missing")
+            continue
+        seed, first = _seed_and_first(jload(f).get("meta") or {})
+        if seed is None and first is None:
+            # tolerated: a file written before its producer stamped a seed.
+            # Required files are not — projections.json has always carried one.
+            if required:
+                fail(f"{name} stamps no seed season / projected years")
+            continue
+        seen[name] = (seed, first)
+    if not seen:
+        fail("no projection file stamps a seed season")
+
+    where = "; ".join(f"{n} seed {s} -> year {y}" for n, (s, y) in sorted(seen.items()))
+    if len({s for s, _ in seen.values()}) > 1 or len({y for _, y in seen.values()}) > 1:
+        fail(f"the projection arms disagree about which season they project "
+             f"from — {where}")
+    seed, first = next(iter(seen.values()))
+    if seed is not None and first is not None and first != seed + 1:
+        fail(f"projections seed from {seed} but publish year one as {first}")
+    if done is not None and seed is not None and seed != done:
+        fail(f"projections seed from {seed}, but the last season with a decided "
+             f"champion is {done} — an in-progress season is not a seed "
+             f"(scripts/seasons.py). {where}")
+    if roster is not None and first is not None and not roster <= first <= roster + 1:
+        fail(f"projections publish year one as {first} beside a {roster} roster "
+             f"— the two are more than a rollover apart. {where}")
+
+
+def check_points_model():
+    """projections.json's own population count, when it is the points model's.
+
+    project_points.py --site rewrites projections.json in place and stamps how
+    many rows IT priced. A run that fit nothing still writes a full-shaped file
+    (every row kept on the scalar, `src: scalar`), which parses, clears the
+    projections floor, and publishes the previous model under this one's name.
+    The count is the only thing that says so out loud — so it has to be both
+    present and true.
+    """
+    pj = jload(DATA / "projections.json")
+    meta, rows = pj.get("meta") or {}, pj.get("players") or []
+    if not str(meta.get("model") or "").startswith("points-first"):
+        return                      # the scalar model's file; nothing to count
+    n = meta.get("points_players")
+    if n is None:
+        fail("projections.json says model points-first but stamps no "
+             "points_players count")
+    actual = sum(1 for r in rows if r.get("src") == "points")
+    if n != actual:
+        fail(f"projections.json meta.points_players {n} but {actual} rows carry "
+             f"src:points")
+    floor("points_players", n)
+
+
+def check_matrix():
+    """projections_matrix.json — the file every curve on the site is read from.
+
+    Floors plus NO NULLS: a curve is an array of numbers per horizon year, and
+    a null in one is not a missing figure the site can print a dash for — the
+    picker would hand the index models a None and price the player at nothing.
+    """
+    mx = jload(DATA / "projections_matrix.json")
+    rows = mx.get("players") or []
+    meta = mx.get("meta") or {}
+    floor("matrix", len(rows))
+    if list(meta.get("curves") or []) != list(CURVES):
+        fail(f"projections_matrix.json lists {list(meta.get('curves') or [])}, "
+             f"expected curves.py's {list(CURVES)}")
+    H = meta.get("horizon") or 3
+    for r in rows:
+        who = r.get("name") or r.get("pid")
+        for c in CURVES:
+            v = r.get(c)
+            if not isinstance(v, list) or len(v) != H or any(x is None for x in v):
+                fail(f"projections_matrix.json {who}: {c} is {v!r}, expected "
+                     f"{H} non-null numbers")
+            for i, x in enumerate(v):
+                _num(x, *WAR_RANGE, what=f"projections_matrix.json {who} {c}[{i}]")
+
+
+def check_inseason():
+    """projections_matrix.json's `meta.inseason`, when it has one.
+
+    The block is how the site knows that year 1 of every curve is a season
+    already partly played, and `outlook = banked + year1 * remaining_frac` is
+    computed from it in the browser (src/lib/outlook.ts). Three ways for that
+    to go wrong silently, all of them arithmetic rather than emptiness:
+
+      * a fraction outside [0, 1] — a negative one turns a projection into a
+        subtraction and prints an outlook BELOW what the player has already
+        banked;
+      * a week count that does not match the season's own matchups.json, which
+        is what a block carried over from a previous run looks like. The
+        matchups file is the only source of "played" in the pipeline
+        (build_site_data writes a week once it has points), so it is the
+        arbiter here too;
+      * a row missing `banked`. The site reads a null as 0 and would publish a
+        star's outlook as his remaining projection alone.
+
+    ABSENT IS NORMAL and passes: out of season there is nothing to prorate,
+    and a file written before this existed simply has no block.
+    """
+    mx = jload(DATA / "projections_matrix.json")
+    meta = mx.get("meta") or {}
+    blk = meta.get("inseason")
+    if not blk:
+        return
+    for k in inseason.BLOCK_KEYS:
+        if blk.get(k) is None:
+            fail(f"projections_matrix.json meta.inseason has no {k}: {blk}")
+    frac, played, reg = blk["remaining_frac"], blk["weeks_played"], blk["reg_weeks"]
+    _num(frac, 0.0, 1.0, what="projections_matrix.json meta.inseason.remaining_frac")
+    if not 1 <= played <= reg:
+        fail(f"projections_matrix.json meta.inseason plays {played} of {reg} "
+             f"regular-season weeks")
+    want = inseason.frac_of(played, reg)
+    if abs(frac - want) > 1e-6:
+        fail(f"projections_matrix.json meta.inseason remaining_frac {frac} is not "
+             f"({reg} - {played}) / {reg} = {want}")
+    mw = inseason.load_matchups(DATA, blk["season"])
+    if not mw:
+        fail(f"projections_matrix.json has an inseason block for {blk['season']} "
+             f"but that season has no matchups.json")
+    scored = inseason.weeks_played(mw)
+    if scored != played:
+        fail(f"projections_matrix.json meta.inseason says {played} weeks played "
+             f"but {blk['season']}/matchups.json scores {scored}")
+    if inseason.reg_weeks(mw) != reg:
+        fail(f"projections_matrix.json meta.inseason reg_weeks {reg} but "
+             f"{blk['season']}/matchups.json makes it {inseason.reg_weeks(mw)}")
+    for r in mx.get("players") or []:
+        _num(r.get("banked"), *WAR_RANGE,
+             what=f"projections_matrix.json {r.get('name') or r.get('pid')}.banked")
+        if r.get("banked") is None:
+            fail(f"projections_matrix.json {r.get('name') or r.get('pid')} has no "
+                 f"banked WAR, but the file carries an inseason block")
+
+
+def check_current_season_features(season, scored):
+    """<season>/usage.json and <season>/winshare.json for the roster season.
+
+    Both are written only for the default league (nflverse skill features and
+    playoff-style win shares), so ABSENT IS NORMAL and skipped — the redraft
+    league has neither. They are also skipped until the season has a scored
+    week: before kickoff there is nothing to summarise and a floor would fire
+    on an empty September rather than on a gutted run.
+    """
+    if not scored:
+        return
+    uf = DATA / str(season) / "usage.json"
+    if uf.exists():
+        usage = jload(uf)
+        floor("usage_players", len(usage))
+        for pid, rec in usage.items():
+            if not isinstance(rec, dict) or not rec:
+                fail(f"{uf} {pid} has no usage scopes")
+            for scope, cell in rec.items():
+                if not isinstance(cell, dict) or not cell:
+                    fail(f"{uf} {pid}.{scope} is empty")
+                for k, x in cell.items():
+                    if x is None:
+                        fail(f"{uf} {pid}.{scope}.{k} is null")
+    wf = DATA / str(season) / "winshare.json"
+    if wf.exists():
+        players = jload(wf).get("players") or {}
+        floor("winshare_players", len(players))
+        for pid, rec in players.items():
+            if rec.get("ws") is None or rec.get("gs") is None:
+                fail(f"{wf} {pid} has no win share / games started")
+            _num(rec["ws"], 0, 20, what=f"{wf} {pid}.ws")
+
+
+def check_record_vs_matchups(season):
+    """teams.json W+L+T must equal the scored regular-season weeks in
+    matchups.json.
+
+    Sleeper's roster record and its matchup rows are pulled separately and land
+    out of step mid-week: the record updates when a week is finalised, the
+    matchup rows the moment scoring starts. A team showing 1-0 beside two
+    scored weeks means the two halves of the season page disagree about how
+    much of it has happened — WAR is summed off the matchups, records off the
+    rosters, and nothing downstream would notice.
+
+    Regular season only: the record Sleeper keeps excludes the bracket, and
+    matchups.json carries playoff weeks too.
+    """
+    sd = DATA / str(season)
+    mf = sd / "matchups.json"
+    if not mf.exists():
+        return
+    m = jload(mf)
+    rows = m.get("teams") or {}
+    ps = m.get("playoff_start") or 99
+    for t in jload(sd / "teams.json"):
+        rid = str(t.get("roster_id"))
+        played = 0
+        for g in rows.get(rid) or []:
+            wk = g[0] if isinstance(g, list) else (g or {}).get("week")
+            if wk is not None and int(wk) < ps:
+                played += 1
+        rec = (t.get("wins") or 0) + (t.get("losses") or 0) + (t.get("ties") or 0)
+        if rec != played:
+            fail(f"{sd}/teams.json roster {rid} is {t.get('wins')}-"
+                 f"{t.get('losses')}-{t.get('ties')} ({rec} games) but "
+                 f"matchups.json scores {played} regular-season weeks")
+
+
 def check_full():
     meta = jload(DATA / "meta.json")
     seasons = meta.get("seasons") or []
@@ -340,6 +642,7 @@ def check_full():
         fail("meta.json has no seasons")
     if not meta.get("latest"):
         fail("meta.json latest is null — no season produced summary data")
+    roster_season = meta.get("rosterSeason")
     odds_weeks = 0
     for s in seasons:
         sd = DATA / s
@@ -348,6 +651,11 @@ def check_full():
         # a season with scored matchups must have non-empty summary + weekly
         mf = sd / "matchups.json"
         scored = mf.exists() and bool(jload(mf).get("teams"))
+        # rosters and matchups must agree about how much of the season has
+        # been played — the one that goes wrong mid-week
+        check_record_vs_matchups(s)
+        if str(s) == str(roster_season):
+            check_current_season_features(s, scored)
         if scored:
             if not jload(sd / "summary.json"):
                 fail(f"{sd}/summary.json is empty but the season has scored matchups")
@@ -391,6 +699,10 @@ def check_full():
     floor("shards", len(list((DATA / "player").glob("*.json"))))
     floor("dvi", len(jload(DATA / "dvi.json").get("players") or {}))
     floor("cvi", len(jload(DATA / "cvi.json").get("players") or {}))
+    check_projection_coherence()
+    check_points_model()
+    check_matrix()
+    check_inseason()
     check_index_models()
     floor("odds_weeks", odds_weeks)
     check_pick_values()

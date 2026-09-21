@@ -62,9 +62,15 @@ def _knn_row(pid, name):
     }
 
 
+#: the roster season's meta block, as project_matrix.py publishes it while the
+#: season is being played (scripts/inseason.py). None out of season.
+INSEASON = {"season": 2026, "weeks_played": 4, "reg_weeks": 14,
+            "remaining_frac": 0.714286}
+
+
 def _fixture(d, *, reachable=("1", "2", "3", "4"),
              proj_ids=("1", "2"), sproj_ids=("1", "3"),
-             mx_ids=("1",), knn_ids=("1", "4")):
+             mx_ids=("1",), knn_ids=("1", "4"), inseason=None, banked=0.249):
     """A data root shaped like the real one, minus leagues.json.
 
     Without a registry DataDir's league key is "", so every path resolves
@@ -79,9 +85,14 @@ def _fixture(d, *, reachable=("1", "2", "3", "4"),
     w("proj_sleeper.json", {
         "meta": {}, "players": {p: {"pos": "QB", "pts13": 200.0, "ppg": 15.4,
                                     "raw_pts": 200.0} for p in sproj_ids}})
+    mx_rows = [_mx_row(p, f"P{p}") for p in mx_ids]
+    if inseason:
+        for r in mx_rows:
+            r["banked"], r["gp"] = banked, 1
     w("projections_matrix.json", {
-        "meta": {"curves": CURVES, "blend_w": [0.9, 0.5, 0.1]},
-        "players": [_mx_row(p, f"P{p}") for p in mx_ids]})
+        "meta": {"curves": CURVES, "blend_w": [0.9, 0.5, 0.1],
+                 "inseason": inseason},
+        "players": mx_rows})
     w("projections_knn_hybrid.json", {
         "meta": {"space": "hybrid"},
         # a corpus row that never joined to a Sleeper id — nothing can link to
@@ -195,6 +206,68 @@ class ShardContents(unittest.TestCase):
             self.assertNotIn(", ", raw)
             self.assertNotIn('": ', raw)
             self.assertFalse(raw.endswith("\n"))
+
+
+class InSeasonFields(unittest.TestCase):
+    """The in-season outlook needs three things on a player page: the league's
+    week count, his banked WAR, and his year-1 projection. The third is already
+    in `mx`; the first two are copied here so the page still fetches one file.
+
+        outlook = banked + year1 * remaining_frac
+
+    (scripts/inseason.py, src/lib/outlook.ts — the shard is what the browser
+    reads them out of.)
+    """
+
+    def test_the_block_and_the_banked_figure_ride_along(self):
+        with tempfile.TemporaryDirectory() as t:
+            d = _fixture(Path(t), inseason=INSEASON)
+            _run(d)
+            s = _shards(d)["1"]
+            self.assertEqual(s["inseason"], INSEASON)
+            self.assertEqual(s["banked"], 0.249)
+            self.assertEqual(s["gp"], 1)
+            # and the matrix row still carries them, because the shard copies
+            # the row whole — one producer, two places to read it
+            self.assertEqual(s["mx"]["banked"], 0.249)
+
+    def test_a_player_who_has_not_played_carries_a_real_zero(self):
+        """0.0 is a figure, not an absence: he has dressed for nobody. Written
+        with `is not None` rather than truthiness, or every unplayed player's
+        outlook would silently lose its banked term."""
+        with tempfile.TemporaryDirectory() as t:
+            d = _fixture(Path(t), inseason=INSEASON, banked=0.0)
+            _run(d)
+            s = _shards(d)["1"]
+            self.assertIn("banked", s)
+            self.assertEqual(s["banked"], 0.0)
+
+    def test_out_of_season_the_shard_is_what_it_always_was(self):
+        """No block, no banked, no gp — and the page shows the projection."""
+        with tempfile.TemporaryDirectory() as t:
+            d = _fixture(Path(t))
+            _run(d)
+            s = _shards(d)["1"]
+            for k in ("inseason", "banked", "gp"):
+                self.assertNotIn(k, s)
+
+    def test_a_shard_with_no_matrix_row_carries_neither(self):
+        """Nothing to prorate: without a year-1 curve there is no outlook, and
+        a block alone would only be a label with no figure under it."""
+        with tempfile.TemporaryDirectory() as t:
+            d = _fixture(Path(t), inseason=INSEASON)
+            _run(d)
+            s = _shards(d)["2"]
+            self.assertNotIn("inseason", s)
+            self.assertNotIn("banked", s)
+
+    def test_the_shard_carries_the_fields_the_frontend_reads(self):
+        """`InSeason` in src/lib/outlook.ts is the consumer of this block; the
+        four keys ARE the contract between the pipeline and the page."""
+        ts = (ROOT / "src" / "lib" / "outlook.ts").read_text(encoding="utf-8")
+        block = ts.split("export type InSeason = {", 1)[1].split("};", 1)[0]
+        for k in INSEASON:
+            self.assertIn(k, block, k)
 
 
 class Rebuild(unittest.TestCase):

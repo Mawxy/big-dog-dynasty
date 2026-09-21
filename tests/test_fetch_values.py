@@ -23,16 +23,15 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from fetch_values import update_history                            # noqa: E402
+from fetch_values import DELTA_DAYS, HISTORY_DAYS, update_history   # noqa: E402
 
 
 TODAY = "2026-09-01"
-CUTOFFS = {7: "2026-08-25", 14: "2026-08-18", 30: "2026-08-02"}
 
 
-def run(hist, vals, ktc_seen=(), fc_seen=(), today=TODAY, cutoffs=None):
+def run(hist, vals, ktc_seen=(), fc_seen=(), today=TODAY, deltas=DELTA_DAYS):
     update_history(hist, vals, {"ktc": set(ktc_seen), "fc": set(fc_seen)},
-                   today, CUTOFFS if cutoffs is None else cutoffs)
+                   today, deltas)
     return hist, vals
 
 
@@ -69,11 +68,31 @@ class TestWhoGetsRecorded(unittest.TestCase):
         self.assertEqual(hist["p1"], [[TODAY, 5100, 4000]])
 
     def test_history_is_trimmed_to_the_recent_window(self):
-        hist = {"p1": [[f"2026-0{1 + i // 28}-{1 + i % 28:02d}", 100 + i, None]
+        """Sixty consecutive days up to today: only the window survives, and
+        today's observation is the last row."""
+        from datetime import date, timedelta
+        d0 = date.fromisoformat(TODAY)
+        hist = {"p1": [[(d0 - timedelta(days=59 - i)).isoformat(), 100 + i, None]
                        for i in range(60)]}
         run(hist, {"p1": {"ktc": 9000}}, ktc_seen=["p1"])
-        self.assertEqual(len(hist["p1"]), 45)
+        self.assertLessEqual(len(hist["p1"]), HISTORY_DAYS)
         self.assertEqual(hist["p1"][-1][:2], [TODAY, 9000])
+        oldest = (d0 - timedelta(days=HISTORY_DAYS)).isoformat()
+        self.assertTrue(all(r[0] >= oldest for r in hist["p1"]))
+
+    def test_a_delisted_players_rows_age_out_instead_of_living_forever(self):
+        """THE OTHER HALF OF THE TRIM. `del h[:-45]` kept the 45 most recent
+        ROWS, and a player nobody quotes any more never gets a 46th — so his
+        last handful sat in values_history.json for good and the file only
+        grew. Trimming by DATE retires him."""
+        hist = {"gone": [["2026-06-01", 5000, None], ["2026-06-02", 5100, None]]}
+        run(hist, {"gone": {"ktc": 5100}})        # no source listed him today
+        self.assertNotIn("gone", hist)
+
+    def test_a_row_inside_the_window_survives_a_missed_day(self):
+        hist = {"quiet": [["2026-08-28", 5000, None]]}
+        run(hist, {"quiet": {"ktc": 5000}})
+        self.assertEqual(hist["quiet"], [["2026-08-28", 5000, None]])
 
 
 class TestDeltas(unittest.TestCase):
@@ -120,8 +139,7 @@ class TestDeltas(unittest.TestCase):
         run(hist, vals)                                  # missed today
         self.assertNotIn("ktcT", vals["p1"])
         vals["p1"]["ktc"] = 5600
-        run(hist, vals, ktc_seen=["p1"], today="2026-09-02",
-            cutoffs={7: "2026-08-26", 14: "2026-08-19", 30: "2026-08-03"})
+        run(hist, vals, ktc_seen=["p1"], today="2026-09-02")
         self.assertEqual(vals["p1"]["ktcT"]["7"], 600)
 
 

@@ -17,7 +17,8 @@ committed data/players_min.json (full sleeper_data/players.json also works).
 Usage:
   python scripts/fetch_values.py --players data/players_min.json --out data/values.json
 """
-import argparse, json, re, urllib.request
+import argparse, json, re, time, urllib.error, urllib.request
+from datetime import date as _dt_date, timedelta as _dt_td
 from pathlib import Path
 
 from ioutil import atomic_write
@@ -33,11 +34,40 @@ CORE = {"QB", "RB", "WR", "TE"}
 # how long a source may go unanswered before its trends are dropped rather
 # than shown "as of" the last day it answered
 STALE_DAYS = 10
+# the delta windows the board shows, in days. Only the SPAN matters — the
+# cutoff dates are derived per player from his own last observation, not from
+# a table computed here (see update_history).
+DELTA_DAYS = (7, 14, 30)
+# how far back values_history.json keeps a row. Long enough for the widest
+# delta window above with room for missed days, and for trade_analysis's
+# "price it as of the trade day" backfill, which tolerates a 45-day gap.
+HISTORY_DAYS = 45
+
+# Two attempts and a short backoff. One tries; the second covers the transient
+# — a reset connection, a 502 from KTC's CDN, a DNS blip — which is otherwise a
+# whole day with no market observation for that source, and a hole in the
+# history that no later run can fill. A 4xx is not retried: a moved page or a
+# blocked scrape will say the same thing a second later.
+RETRIES = 3
+BACKOFF = 2.0
+
 
 def get(url):
     req = urllib.request.Request(url, headers=UA)
-    with urllib.request.urlopen(req, timeout=45) as r:
-        return r.read().decode("utf-8")
+    for attempt in range(1, RETRIES + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=45) as r:
+                return r.read().decode("utf-8")
+        except urllib.error.HTTPError as e:
+            if e.code < 500 or attempt == RETRIES:
+                raise
+            why = f"HTTP {e.code}"
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            if attempt == RETRIES:
+                raise
+            why = str(e)
+        print(f"  retry {attempt}/{RETRIES - 1} for {url.split('?')[0]}: {why}")
+        time.sleep(BACKOFF * attempt)
 
 def norm(name):
     # The suffix set must match the one pick_value.py, project_war.py and
@@ -183,12 +213,33 @@ def fetch_ktc(out, picks, players):
         print("WARNING: no tep/tepp/teppp values parsed — KTC payload layout "
               "may have changed; TEP-aware consumers will fall back to base ktc")
 
-def update_history(hist, vals, seen_today, today, cutoffs):
+def trim_history(hist, today, days=HISTORY_DAYS, max_rows=HISTORY_DAYS):
+    """Age rows out of `hist`, and drop keys that empty.
+
+    The old trim was `del h[:-45]` — the 45 most recent ROWS. For a player
+    quoted every day that is 45 days; for one who stopped being quoted it is
+    forever, because no new row ever arrives to push the old ones off the
+    front. A delisted player (retired, renamed, a name that stopped matching)
+    therefore kept his last handful of rows in values_history.json for good,
+    and the file only ever grew. Trimming by DATE ages him out; the row cap
+    stays as a backstop against a day with several runs."""
+    cut = (_dt_date.fromisoformat(today) - _dt_td(days=days)).isoformat()
+    for key in list(hist):
+        rows = [r for r in hist[key] if r and r[0] >= cut][-max_rows:]
+        if rows:
+            hist[key] = rows
+        else:
+            del hist[key]
+
+
+def update_history(hist, vals, seen_today, today, deltas=DELTA_DAYS):
     """Record TODAY'S OBSERVATIONS into `hist`, then refresh each player's
     7/14/30-day deltas off it. Mutates `hist` and the rows of `vals`.
 
     `seen_today[src]` is the set of pids that source actually LISTED on this
-    run — not every pid that ends up carrying a number for it.
+    run — not every pid that ends up carrying a number for it. `deltas` is the
+    windows to report, in DAYS: each one's baseline is derived per player from
+    his own last observation, so a caller has nothing to compute.
 
     THAT DISTINCTION IS THE WHOLE FUNCTION. main() carries the previous run's
     numbers forward into `vals` so the site still shows a price for a player who
@@ -208,7 +259,7 @@ def update_history(hist, vals, seen_today, today, cutoffs):
     never against a carried-forward copy of itself. Past STALE_DAYS the
     deltas are dropped rather than shown as a move nobody has seen lately.
     """
-    from datetime import date as _date, timedelta as _td
+    _date, _td = _dt_date, _dt_td
     for pid, e in vals.items():
         ktc = e.get("ktc") if pid in seen_today.get("ktc", ()) else None
         fc = e.get("fc") if pid in seen_today.get("fc", ()) else None
@@ -225,10 +276,6 @@ def update_history(hist, vals, seen_today, today, cutoffs):
                 h[-1] = entry
             else:
                 h.append(entry)
-            del h[:-45]                      # keep ~45 most recent days; the
-                                             # years-deep KTC/FC backfill lives
-                                             # in values_history_deep.json,
-                                             # written once and never trimmed
         for name, idx in (("ktc", 1), ("fc", 2)):
             fresh = pid in seen_today.get(name, ()) and e.get(name) is not None
             # the source's own native trend (KTC's 7-day) is the labeled
@@ -254,7 +301,7 @@ def update_history(hist, vals, seen_today, today, cutoffs):
             if age > STALE_DAYS:
                 continue
             trends = dict(native)
-            for d in cutoffs:
+            for d in deltas:
                 cutoff = (_date.fromisoformat(as_of) - _td(days=d)).isoformat()
                 base = None
                 for row in h:                # most recent snapshot >= d days before as_of
@@ -266,6 +313,9 @@ def update_history(hist, vals, seen_today, today, cutoffs):
                 e[name + "T"] = trends
                 if age > 0:
                     e[name + "AsOf"] = as_of
+    # the rows that just aged past the window, plus any left behind by a player
+    # nobody quotes any more — see trim_history
+    trim_history(hist, today)
 
 def main():
     ap = argparse.ArgumentParser()
@@ -317,8 +367,6 @@ def main():
         picks.setdefault(src, old)
     for src in picks:
         picks[src].sort(key=lambda x: -x[1])
-    import time
-    from datetime import date, timedelta
     # aligned 7-day trends for BOTH sources, derived from our own daily
     # snapshots (FantasyCalc has no native 7-day; KTC's field spelling can
     # drift). Native trends (KTC 7-day, FC 30-day) remain as labeled
@@ -330,13 +378,12 @@ def main():
             hist = json.loads(hist_path.read_text(encoding="utf-8"))
         except Exception:
             pass
-    today = date.today().isoformat()
-    cutoffs = {d: (date.today() - timedelta(days=d)).isoformat() for d in (7, 14, 30)}
+    today = _dt_date.today().isoformat()
     # A VALUE NOBODY QUOTED TODAY IS NOT AN OBSERVATION — not when the source
     # failed outright, and not when the source answered but stopped listing this
     # player. Both are carried forward into values.json (the site should still
     # show a price) and neither is written into the history. See update_history.
-    update_history(hist, vals, seen_today, today, cutoffs)
+    update_history(hist, vals, seen_today, today)
     # canonical PICK history rows, keyed "pick:<season> <Early|Mid|Late> <round>".
     # Mid is what a slotless pick was worth until 2026-09-02; the ledger now
     # prices a pick at the tier its original owner's finish puts it in, so
@@ -367,7 +414,9 @@ def main():
             h[-1] = entry
         else:
             h.append(entry)
-        del h[:-45]
+    # the pick ladders age out on the same rule as the players above; a tier
+    # KTC stops publishing must not sit in the file forever either
+    trim_history(hist, today)
     atomic_write(hist_path, json.dumps(hist, separators=(",", ":")))
     atomic_write(out_path, json.dumps({
         "fetched": time.strftime("%Y-%m-%d", time.gmtime()),

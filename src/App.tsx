@@ -362,7 +362,12 @@ function Shell() {
                 you are looking at was built; the picker says under which
                 assumptions. */}
             <ModelPicker />
-            <span className="mast-updated">Rebuilt nightly, 06:00 UTC · {meta.updated}</span>
+            {/* NO CLOCK TIME. The cron fires at 06:17 UTC and GitHub starts a
+                scheduled run hours late under load, so the stamp beside it
+                routinely read a different hour than the sentence claimed.
+                "Nightly" is the part that is true every night; `meta.updated`
+                is the part that is a fact. */}
+            <span className="mast-updated">Rebuilt nightly · {meta.updated}</span>
             {/* THE WAY ACROSS. The beta shell is the board now and this is
                 the classic one, kept at /classic; a plain link in the
                 masthead's own label vocabulary, not a toggle — the two shells
@@ -495,9 +500,16 @@ function TabBar({ children }: { children: ReactNode }) {
  */
 function PlayersRedirect() {
   const { league } = useLeague();
+  const loc = useLocation();
   const seg = useParams().season;
   const to = !seg || seg === "market" ? "/value" : `/stats/${seg}`;
-  return <Navigate replace to={`/${leagueSeg(league)}${to}`} />;
+  // CLASSIC_SEG, and the query string. This route is mounted INSIDE the
+  // classic shell, so the bare `/<league>/value` it used to build was the beta
+  // address: the Players tab bounced out through the beta chunk, hit
+  // BetaShell's ClassicFallback and came back — and dropped `?m=`, the
+  // site-wide model the reader had chosen, on the way.
+  return <Navigate replace
+    to={{ pathname: `/${leagueSeg(league)}/${CLASSIC_SEG}${to}`, search: loc.search }} />;
 }
 
 /** /standings/<season> moved onto the Teams page's season spine.

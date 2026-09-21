@@ -2,12 +2,12 @@ import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Team, Values } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { useCviQuery, useDviQuery, useProjWar1 } from "../../lib/useIndices";
 import { ktcOf } from "../../lib/values";
-import {
-  lineupOf, optimalLineup, pInfo, POS_CHIPS, rosterSeasonOf,
-} from "../../lib/league";
+import { lineupOf, pInfo, POS_CHIPS, rosterSeasonOf } from "../../lib/league";
+import { starterSet } from "../model";
 import { useMobile } from "../../lib/useWidth";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
@@ -33,13 +33,19 @@ import "./teams.css";
  * on this roster", and depth is part of that answer. It is also the only
  * reading under which KTC on this screen matches KTC on the Team screen.
  *
- * ONE STARTERS SET, PRICED FIVE WAYS. The optimal lineup is currency-specific —
- * the best DVI lineup and the best projected-WAR lineup are not the same nine
- * players — so if each column chose its own the row would be summing five
- * different sets of people under one label, and "Starters" would mean something
- * different in every column. The set is chosen ONCE, by projected WAR, which is
- * the rule the League screen's power rankings already state, and the other four
- * currencies are summed over that same set.
+ * EACH CURRENCY PRICES ITS OWN BEST LEGAL LINEUP (2026-09-21) — `model.ts`'s
+ * `starterSet`, the one definition, which the Team screen's figure strip also
+ * reads and which the classic Value board has always used.
+ *
+ * This board used to choose the set ONCE, by projected WAR, and sum the other
+ * four currencies over it, on the argument that five different sets under one
+ * label is five things called "Starters". The argument is real and it loses to
+ * a worse one: the Team screen's own DVI figure is the DVI-optimal lineup, so
+ * roster 9 read 661 there and 611 here, four franchises swapped rank between
+ * the two screens, and the comment that used to sit here said the two "have to
+ * agree". They do now. The best dynasty nine and the best win-now nine are
+ * different nine players — that is the fact the Team screen, the classic board
+ * and this one now all state, and the band note says so.
  *
  * NO ECR COLUMN, unlike Players. ECR is a rank, and ranks do not add: the sum
  * of twelve consensus ranks is not a franchise's consensus rank, it is a number
@@ -81,10 +87,13 @@ const COLS: Col[] = [
   { id: "ktc", label: "KTC", width: "12%", edge: true },
   { id: "fc", label: "FantasyCalc", short: "FC", width: "13%" },
 ];
-const GRPS = [
-  { label: "Our model", span: 3 },
-  { label: "Dynasty market", span: 2 },
-];
+
+/** which group a currency belongs to, and therefore which capability decides
+ *  whether this league has a column for it at all */
+const GROUP_OF: Record<Key, "model" | "market"> = {
+  dvi: "model", cvi: "model", war: "model", ktc: "market", fc: "market",
+};
+const GROUP_LABEL = { model: "Our model", market: "Dynasty market" } as const;
 
 /** four is the ceiling at 390px — see players.css. FantasyCalc stays on the
  *  desktop header and in the drawer, where there is room to sort by it. */
@@ -127,8 +136,8 @@ const SLICES: { id: Slice; label: string }[] = [
 
 const SLICE_NOTE: Record<Slice, string> = {
   all: "Every rostered player, taxi and IR included — draft picks are not priced here",
-  start: "The best legal lineup by projected WAR, not the lineup as set",
-  bench: "Everyone the best legal lineup leaves out, taxi and IR included",
+  start: "Each column prices its own best legal lineup, not the lineup as set",
+  bench: "Everyone that column's own best legal lineup leaves out, taxi and IR included",
 };
 
 /* ========================================================================
@@ -140,8 +149,6 @@ interface Asset {
   pid: string;
   name: string;
   pos: string;
-  /** projected year-1 WAR, and the ONLY currency the lineup optimiser reads */
-  war: number;
   f: Record<Key, number | null>;
 }
 
@@ -183,6 +190,11 @@ function total(assets: Asset[], k: Key): number | null {
 
 export default function Teams() {
   const { meta, players, league } = useLeague();
+  /* Every column on this board is a figure one league's pipeline computes:
+     three from the nightly index and projection runs, two from the dynasty
+     market. A league with neither has no board here, and it says so rather
+     than spinning on "Loading…" over files that are never coming. */
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const rosterSeason = rosterSeasonOf(league);
 
@@ -193,29 +205,49 @@ export default function Teams() {
   /* 900px, not style.css's 640px: the beta shell's own desktop breakpoint is
      where the nav bar becomes a rail and the tables gain their padding. */
   const mobile = useMobile("(max-width: 899px)");
+
+  /** the columns this league HAS. Each is one pipeline's output, and a column
+   *  of em dashes twelve rows deep is not a column. */
+  const cols = useMemo(
+    () => COLS.filter(c => GROUP_OF[c.id] === "model" ? caps.indices : caps.market),
+    [caps.indices, caps.market]);
+  const groups = useMemo(() => (["model", "market"] as const)
+    .map(g => ({ label: GROUP_LABEL[g], span: cols.filter(c => GROUP_OF[c.id] === g).length }))
+    .filter(g => g.span > 0), [cols]);
+  const strip = useMemo(
+    () => STRIP.filter(k => cols.some(c => c.id === k)), [cols]);
+
   const s = useSort<Key>("dvi");
+  // a sort key this league has no column for orders the board invisibly
+  useEffect(() => {
+    if (cols.length && !cols.some(c => c.id === s.sort)) s.onSort(cols[0].id);
+  }, [cols, s]);
 
   const dviQ = useDviQuery();
   const cviQ = useCviQuery();
   // YEAR-1 projected WAR, the same figure the Players board's Proj WAR column
   // carries and the same one the League screen's power rankings sum.
   const projWar = useProjWar1();
-  const valsQ = useJson<Values>("data/values.json", "globalDaily");
+  const valsQ = useJson<Values>(
+    caps.market ? "data/values.json" : null, "globalDaily");
   const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
 
   /* ---- every roster, priced ---------------------------------------------- */
 
-  /** THE SLICE IS COMPUTED ONCE PER ROSTER, not per render of a row: the
-   *  optimiser runs over the whole roster and the two slices fall out of the
-   *  one starters set, so Starters and Bench are provably complementary. */
+  /** THE STARTERS ARE COMPUTED ONCE PER ROSTER PER CURRENCY, not per render of
+   *  a row: `starterSet` runs over the whole roster in each currency, and both
+   *  slices fall out of that currency's own set, so Starters and Bench are
+   *  provably complementary in every column. */
   const priced = useMemo(() => {
     const dvi = dviQ.data, cvi = cviQ.data, teams = teamsQ.data;
-    if (!dvi || !cvi || !teams || !projWar) return null;
+    if (!teams) return null;
+    if (caps.indices && (!dvi || !cvi || !projWar)) return null;
+    if (caps.market && !valsQ.data) return null;
     const lineup = lineupOf(meta);
     return teams.map(t => {
       const assets: Asset[] = t.players.map(pid => {
-        const d = dvi.players[pid];
-        const v = valsQ.data?.players?.[pid];
+        const d = dvi?.players[pid];
+        const v = caps.market ? valsQ.data?.players?.[pid] : undefined;
         return {
           pid,
           name: pInfo(players, pid)[0],
@@ -223,11 +255,10 @@ export default function Teams() {
           // figure was computed for, so a pool built from it cannot seat a
           // player in a slot his price was never measured in
           pos: d?.pos ?? players[pid]?.[1] ?? "?",
-          war: projWar[pid] ?? 0,
           f: {
             dvi: d?.dvi ?? null,
-            cvi: cvi.players[pid]?.cvi ?? null,
-            war: projWar[pid] ?? null,
+            cvi: cvi?.players[pid]?.cvi ?? null,
+            war: projWar?.[pid] ?? null,
             // through ktcOf, never row.ktc: KTC publishes four ladders and this
             // league sits on one of them (meta.tep). Reading the base column
             // prices a TE-premium league's tight ends in the wrong market.
@@ -236,27 +267,40 @@ export default function Teams() {
           },
         };
       });
-      const { starters } = optimalLineup(
-        assets.map(a => ({ id: a.pid, pos: a.pos, war: a.war })), lineup);
+      /* ONE `starterSet` PER CURRENCY. A player that currency never priced is
+         out of its pool rather than seated at zero, which is why a column can
+         seat eight where another seats nine, and why the drawer states the
+         count it is summing over. */
+      const seatable = assets.map(a => ({ id: a.pid, pos: a.pos, f: a.f }));
+      const startersBy = {} as Record<Key, Set<string>>;
+      for (const k of Object.keys(ZERO()) as Key[])
+        startersBy[k] = starterSet(seatable, a => a.f[k], lineup);
       return {
         rid: t.roster_id, team: t.team, manager: t.manager,
-        all: assets,
-        start: assets.filter(a => starters.has(a.pid)),
-        bench: assets.filter(a => !starters.has(a.pid)),
+        all: assets, startersBy,
       };
     });
-  }, [dviQ.data, cviQ.data, teamsQ.data, valsQ.data, projWar, players, meta]);
+  }, [dviQ.data, cviQ.data, teamsQ.data, valsQ.data, projWar, players, meta, caps]);
 
   const rows = useMemo<Row[] | null>(() => {
     if (!priced) return null;
     return priced.map(p => {
-      const inSlice = p[slice];
-      const kept = pos === "ALL" ? inSlice : inSlice.filter(a => a.pos === pos);
+      /** the slice IN ONE CURRENCY — "starters" is that currency's own best
+       *  legal lineup, and "bench" is exactly what it left out */
+      const sliceOf = (k: Key) => slice === "all" ? p.all
+        : slice === "start" ? p.all.filter(a => p.startersBy[k].has(a.pid))
+          : p.all.filter(a => !p.startersBy[k].has(a.pid));
       const f = ZERO();
-      for (const k of Object.keys(f) as Key[]) f[k] = total(kept, k);
+      for (const k of Object.keys(f) as Key[]) {
+        const in_ = sliceOf(k);
+        f[k] = total(pos === "ALL" ? in_ : in_.filter(a => a.pos === pos), k);
+      }
+      // the drawer reads the SORTED currency, so its sample is that one's
+      const lead = sliceOf(s.sort);
+      const kept = pos === "ALL" ? lead : lead.filter(a => a.pos === pos);
       const byPos: Record<string, number | null> = {};
       for (const q of ["QB", "RB", "WR", "TE"])
-        byPos[q] = total(inSlice.filter(a => a.pos === q), s.sort);
+        byPos[q] = total(lead.filter(a => a.pos === q), s.sort);
       let top: Row["top"] = null;
       for (const a of kept) {
         const v = a.f[s.sort];
@@ -282,9 +326,11 @@ export default function Teams() {
   /* ---- the phone row's demoted keys ------------------------------------- */
 
   const micro = useMemo(
-    () => STRIP.filter(k => k !== s.sort).slice(0, 3), [s.sort]);
+    () => strip.filter(k => k !== s.sort).slice(0, 3), [strip, s.sort]);
 
-  const queries = [dviQ, cviQ, valsQ, teamsQ];
+  /* The queries this league actually issues. `useJson(null)` never loads and
+     never errors, so a league with no market feed does not wait on one. */
+  const queries = [...(caps.indices ? [dviQ, cviQ] : []), valsQ, teamsQ];
   const ready = ordered != null && !queries.some(x => x.loading);
   /* A FAILED FETCH IS NOT A SLOW ONE. Stated as "everything settled and there
      is still no board" rather than as "something errored": useDviQuery reports
@@ -293,10 +339,10 @@ export default function Teams() {
   const failed = ordered == null
     && !queries.some(x => x.loading) && queries.some(x => x.error);
 
-  const colOf = (id: Key) => COLS.find(c => c.id === id)!;
+  const colOf = (id: Key) => cols.find(c => c.id === id) ?? COLS.find(c => c.id === id)!;
   /* Two identity columns plus the figure columns on desktop; spine, identity
      and the one figure cell on a phone. The drawer spans whatever that is. */
-  const span = mobile ? 3 : 2 + COLS.length;
+  const span = mobile ? 3 : 2 + cols.length;
 
   return (
     <>
@@ -334,7 +380,7 @@ export default function Teams() {
               anyone can read. Re-tapping the lit segment is a no-op. */}
           <LensStrip label="Sort" value={s.sort}
             onChange={k => { if (k !== s.sort) s.onSort(k); }}
-            options={STRIP.map(k => {
+            options={strip.map(k => {
               const c = colOf(k);
               return { id: k, label: c.short ?? c.label };
             })} />
@@ -344,7 +390,18 @@ export default function Teams() {
       <Band label={`${SLICES.find(x => x.id === slice)!.label} · ${rosterSeason}`}
         note={SLICE_NOTE[slice]} />
 
-      {failed ? <DataError what="The board didn't load" />
+      {/* NOT A DROPPED FETCH — A LEAGUE THE FIGURES ARE NOT COMPUTED FOR. Every
+          column here comes from the nightly index, projection or market runs,
+          and all three cover the home league only. */}
+      {!cols.length ? (
+        <div className="tnote screen">
+          Not published for {league.name}. Every column on this board is a dynasty figure —
+          DVI, CVI and projected WAR from the nightly model runs, KeepTradeCut and
+          FantasyCalc from the dynasty market — and the model runs cover the home league
+          while the market prices a format this league does not play. What each franchise
+          has actually done is on League, and its roster is on its own page.
+        </div>
+      ) : failed ? <DataError what="The board didn't load" />
         : !ready || !ordered ? <div className="empty">Loading…</div> : (
         <table className="v3tbl plx-tbl plx-cur">
           {!mobile && (
@@ -352,14 +409,14 @@ export default function Teams() {
               <tr className="plx-grp">
                 <th className="sp" />
                 <th className="t" />
-                {GRPS.map(g => (
+                {groups.map(g => (
                   <th key={g.label} className="plx-edge" colSpan={g.span}>{g.label}</th>
                 ))}
               </tr>
               <tr className="plx-cols">
                 <th className="c sp">#</th>
                 <th className="t">Franchise</th>
-                {COLS.map(c => (
+                {cols.map(c => (
                   <Th key={c.id} id={c.id} label={c.label} align="n" width={c.width}
                     sort={s.sort} onSort={s.onSort} />
                 ))}
@@ -398,8 +455,8 @@ export default function Teams() {
                         </div>
                       )}
                     </td>
-                  ) : COLS.map(c => (
-                    <td key={c.id} className={`n${c.edge ? " plx-edge" : ""}`}>
+                  ) : cols.map((c, ci) => (
+                    <td key={c.id} className={`n${ci === 0 || GROUP_OF[c.id] !== GROUP_OF[cols[ci - 1].id] ? " plx-edge" : ""}`}>
                       <span className={`f${c.id === s.sort ? " hd" : ""}`}>
                         {figOf(c.id, r.f[c.id])}
                       </span>
@@ -422,15 +479,18 @@ export default function Teams() {
 
       <div className="tnote screen">
         Every figure is a SUM over the slice above — depth counts, so a Roster figure and
-        a Starters figure are different questions and not two readings of one. The starters
-        set is chosen once, by projected WAR, and then priced in all five currencies: the
-        best DVI lineup and the best projected-WAR lineup are not the same nine players, and
-        a row whose columns each picked their own would be summing five different sets under
-        one label. DVI and CVI are index points, not value, and the two markets are in their
-        own currencies — none of the five are blended. Draft picks are not counted anywhere
-        on this board: a pick has a price and a WAR stream but no index of its own, so three
-        columns could carry it and two could not. What each player is worth on his own is
-        under Players.
+        a Starters figure are different questions and not two readings of one. Under
+        Starters each column prices ITS OWN best legal lineup: the best dynasty nine and
+        the best win-now nine are not the same nine players, so DVI sums the lineup DVI
+        would field and KTC sums the one KTC would, which is the same rule the Team screen's
+        figure strip and the classic Value board state. Bench is exactly what that column's
+        own lineup left out. A player a currency never priced is out of its lineup rather
+        than seated at zero, so two columns can seat different numbers of people — the
+        drawer states the count behind the figure you sorted by. DVI and CVI are index
+        points, not value, and the two markets are in their own currencies — none of the
+        five are blended. Draft picks are not counted anywhere on this board: a pick has a
+        price and a WAR stream but no index of its own, so three columns could carry it and
+        two could not. What each player is worth on his own is under Players.
       </div>
     </>
   );

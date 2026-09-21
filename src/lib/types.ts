@@ -1,3 +1,5 @@
+import type { BankedRow, InSeason } from "./outlook";
+
 /** One row of data/<season>/summary.json:
  *  [player_id, pos, gp, pts, ppg, WAA, WAR, sigma?, VoWP?]
  *  VoWP (value over waiver player) is null for seasons pulled before the
@@ -260,6 +262,19 @@ export interface PickValues {
      *  meta comment in pick_value.py */
     picks_used: number; picks_analyzed?: number; picks_distinct?: number;
     vets_excluded: number; unmatched: number; source: string;
+    /** the franchise-player bar per position the hit rate was measured
+     *  against — the same four numbers as honors.ts FRANCHISE_BAR, published
+     *  so a board can name its own threshold instead of hard-coding it */
+    franchise_bars?: Record<string, number>;
+    /** how many finished seasons a pick has to clear that bar in before it
+     *  counts as a franchise-player hit (franchise_players.MIN_SEASONS) */
+    franchise_seasons?: number;
+    /** which population the rows came from: "crawl corpus", or
+     *  "curated CSV (no crawl corpus)" when the crawl is unavailable */
+    population?: string;
+    /** curated-CSV observations, the half of `picks_analyzed` that is not
+     *  crawled */
+    curated_available?: number;
   };
   /** every slot individually: 1.01 … 4.12 */
   picks: PickBucket[];
@@ -273,7 +288,18 @@ export interface Projection {
   /** age on Sep 1 of meta.roster_season — the FIRST projected year, so the
    *  player page's per-year column is `age + i`, not `age + 1 + i` */
   age: number; pick: number; exp: number | null;
+  /** where `age` came from: a matched birthday, the draft class it was
+   *  inferred from, or the position's default. Anything but "matched" is an
+   *  assumption the aging curve is being applied to. */
+  age_src?: "matched" | "class" | "default";
   war25: number; level: number;
+  /** how many career seasons cleared project_war's ELITE_WAR bar — the
+   *  "he has done it before" count the availability model leans on */
+  elite?: number;
+  /** the per-player availability adjustment, in [0,1] share of a season,
+   *  added to the position/age curve before it is clamped. 0 for a player
+   *  with no injury history to read. */
+  availAdj?: number;
   /** full-career WAR by season [season, war] (real league + NFL history) */
   career: [number, number][];
   proj: number[]; nat_low: number[]; nat_high: number[];      // Natural (if-healthy)
@@ -288,16 +314,26 @@ export interface Projection {
   /** year-1 WAR implied by Sleeper's projected points alone (pts_to_war fit) */
   proj_ext: number | null;
   total: number; total_exp: number; total_comp: number;
-  /** which model wrote the streams: the points-first model, or the per-13
-   *  rate model it falls back to for a player it cannot read (rookies) */
-  src?: "points" | "scalar";
+  /** which arm wrote the streams: the points-first model on a veteran's own
+   *  history, the same model on an incoming rookie's draft capital, or the
+   *  per-13 rate model for a row neither could price (unjoined names).
+   *  BOTH points arms are the points-first model — see the note above
+   *  `sleeper_scale` in project_matrix.py; reading only "points" dropped all
+   *  56 rookies onto the scalar pair. */
+  src?: "points" | "rookie" | "scalar";
   /** points-first rows only: projected ppg per year, natural and composite,
    *  and expected games */
   ppg_nat?: number[]; ppg_comp?: number[]; games?: number[];
 }
 export interface ProjectionsFile {
   meta: { seed_season: number; roster_season: number; horizon: number;
-    years: number[]; players: number; model: string; generated: string };
+    years: number[]; players: number; model: string; generated: string;
+    /** which engine wrote the file, once the pipeline names it. Optional
+     *  because every committed projections.json predates the field. */
+    engine?: string;
+    /** per-arm row counts (points-first model) */
+    points_players?: number; rookie_players?: number; scalar_players?: number;
+  };
   players: Projection[];
 }
 /** data/<league>/projections_knn_*.json — the EXPERIMENTAL analog projection.
@@ -376,8 +412,10 @@ export interface KnnFile {
  *  weight scales with `trust` rather than sitting at the scalar model's flat
  *  0.9. At a flat 0.9 the scalar and analog composites agree to a mean of
  *  0.020 WAR — the same curve twice, not two curves. */
-// The last pair is the points-first model (Max, 2026-09-11), the site's
-// default. No comments INSIDE the literal: tests/test_curves.py tokenizes it.
+// The last pair is the points-first model (Max, 2026-09-11). It was the site's
+// default for five days; `blend_composite` has been the default since
+// 2026-09-16 — see DEFAULT_CURVE in lib/model.ts, which is the one place that
+// answers it. No comments INSIDE the literal: tests/test_curves.py tokenizes it.
 export const MATRIX_CURVES = [
   "scalar_natural", "scalar_composite",
   "analog_natural", "analog_composite",
@@ -412,18 +450,33 @@ export type MatrixRow = {
    *  the pts13 floor means every composite is its own natural. Both have to be
    *  said out loud or the table shows agreement that was never measured. */
   has_analog: boolean; has_sleeper: boolean;
-  /** the points-first model priced him; false means its two curves are the
-   *  scalar's (a rookie with no NFL season, an unjoined name) */
+  /** the points-first model priced him. It has TWO arms (project_matrix.py's
+   *  POINTS_SRC): `src:"points"` prices a player from his own history, and
+   *  `src:"rookie"` prices an incoming rookie from draft capital — both are
+   *  the points-first model, so both read true. False means only `src:
+   *  "scalar"`, a row neither arm could price at all, whose two `points_*`
+   *  curves are the scalar pair. (It used to be documented as false for every
+   *  rookie, which was true of the first arm alone and handed all 56 of them
+   *  the scalar pair under a points heading.) */
   has_points?: boolean;
   sleeper_war: number | null;
   pts13: number;
+  /** the share of Sleeper's weight this row earned, in [0,1]
+   *  (project_matrix.sleeper_scale). 1.0 for everyone while SLEEPER_GATE is
+   *  "none" — it is the knob the retired 25-point floor turned. */
+  sleeper_scale?: number;
   /** how much the analog's cohort is worth, in [0,1] — drives both the blend
    *  of the two naturals and the analog composite's Sleeper weight */
   trust: number | null;
   w_sleeper: number | null;
   d_med: number | null; padded: boolean | null;
   totals: Record<MatrixCurve, number>;
-} & Record<MatrixCurve, number[]>;
+  /* `banked` and `gp` ride along from BankedRow: his realized regular-season
+   *  WAR in the roster season and the games behind it, written by
+   *  scripts/inseason.py ONLY while that season is in progress. Absent
+   *  everywhere else — and in every file built before the field existed, which
+   *  is why nothing may read them without `meta.inseason` beside them. */
+} & BankedRow & Record<MatrixCurve, number[]>;
 
 export interface MatrixFile {
   meta: {
@@ -432,12 +485,27 @@ export interface MatrixFile {
     pts13_floor: number; d_ref: Record<string, number>;
     players: number; with_analog: number; with_sleeper: number;
     note: string;
+    /** the top of the Sleeper-weight ramp, and which gate shape is in force
+     *  ("none" today — the floor was measured and removed) */
+    pts13_full?: number; sleeper_gate?: string;
+    /** HOW MUCH OF THE ROSTER SEASON IS STILL TO BE PLAYED — see lib/outlook.
+     *  Published only while year 1 of every curve IS the roster season and
+     *  that season is underway but unfinished; null or absent otherwise, and
+     *  absent in every file built before 2026-09-21. Its presence is the ONLY
+     *  licence to prorate a year-1 figure for display, and it never changes
+     *  the curve values themselves, which stay full-season model inputs. */
+    inseason?: InSeason | null;
   };
   players: MatrixRow[];
 }
 
 export interface SleeperProj {
   pos: string; pts13: number; ppg: number; raw_pts: number;
+  /** which Sleeper endpoint the row was summed from: the WEEKLY projection
+   *  lines (the app's own number, and what `ppg` means) or, when he has none,
+   *  the season product divided by 17. Absent in files built before the
+   *  weekly path (2026-08-31). */
+  src?: "weekly" | "season";
   /** week -> that week's own projected line (league-scored). Absent week =
    *  bye/absence — a fact, not missing data. Absent map = season-only row. */
   wk?: Record<string, number>;
@@ -467,8 +535,14 @@ export type KnnShard = Pick<KnnProjection, "n" | "sim_med" | "low" | "high" | "n
  *  enrichment does not carry them, and ABSENT rather than null when the player
  *  has no row in that source — the page reads `shard?.mx ?? null` either way,
  *  and the distinction keeps the shards that carry only an analog read small. */
-export interface PlayerShard {
+export interface PlayerShard extends BankedRow {
   years: number[];
+  /** projections_matrix.json's `meta.inseason`, copied down by
+   *  shard_players.py alongside `banked`/`gp` so the player page needs no
+   *  second fetch to know how much of the roster season is already played.
+   *  Absent = the offseason, a shard built before the field, or a player with
+   *  no `mx` row — every one of which means "the outlook IS the projection". */
+  inseason?: InSeason | null;
   proj: Projection | null;
   sproj: SleeperProj | null;
   /** his row from projections_matrix.json. Absent = the matrix does not price
@@ -651,7 +725,13 @@ export interface TradeSide {
 }
 export interface Trade { season: string; week: number; ts: number; sides: TradeSide[]; }
 export interface TradesFile {
-  meta: { delta: number; proj_season: number; note: string };
+  meta: {
+    delta: number; proj_season: number; note: string;
+    /** the share of the roster season still ahead when the file was written —
+     *  what trade_analysis.py prorated each side's remaining year-1 stream by
+     *  (lib/outlook's `remaining_frac`). Absent in files built before it. */
+    year1_remaining?: number;
+  };
   trades: Trade[];
 }
 /** trades.json was a bare array before mark-to-market; accept either shape so

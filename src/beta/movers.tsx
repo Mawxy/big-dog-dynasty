@@ -121,8 +121,13 @@ export function GapTable({ rows, limit, half = "both" }: {
 
 /* ---- dynasty movers ------------------------------------------------------ */
 
-export function useDynMovers() {
-  return useJson<DynastyMovers>("data/dynasty_movers.json", "globalDaily").data;
+/** `enabled` is false where the dynasty market does not describe this league's
+ *  assets (`caps.market`): the corpus is a crawl of dynasty leagues, so its
+ *  over/under-pay board says nothing about a redraft roster and the 200 KB is
+ *  not worth fetching to prove it. */
+export function useDynMovers(enabled = true) {
+  return useJson<DynastyMovers>(
+    enabled ? "data/dynasty_movers.json" : null, "globalDaily").data;
 }
 
 export const dynNote = (dyn: DynastyMovers | null | undefined) => dyn

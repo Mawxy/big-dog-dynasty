@@ -164,8 +164,9 @@
 .pid-ladder .rail-season { padding: 8px var(--pad) 9px; }
 .pid-ladder .rail-season.mark::before { left: 0; }
 
-/* the identity escape hatch, under the manager: outlined and quiet, the same
-   control the old title row carried as `.hact` */
+/* the identity escape hatch, under the manager: outlined and quiet. It used to
+   sit in the screen title row; that slot's rule went with it (see the note in
+   beta.css where `.v3-head .hact` was). */
 .rail-claim {
   display: inline-block; margin-top: 10px; padding: 5px 11px;
   background: none; border: 1px solid var(--rule); color: var(--dim);

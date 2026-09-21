@@ -1,7 +1,11 @@
 name: Market values refresh
 on:
   schedule:
-    - cron: "0 11 * * *"   # daily 11:00 UTC = 6/7 AM ET; touches NO Sleeper endpoints
+    # daily 11:23 UTC = 6/7 AM ET; touches NO Sleeper endpoints.
+    # Minute :23, not :00 — see the cron comment in data-refresh.yml. Hour
+    # unchanged. Running after the 06:17 nightly is a scheduling convenience,
+    # not a guarantee; what orders the two is the `data-push` group below.
+    - cron: "23 11 * * *"
   workflow_dispatch:
 permissions:
   contents: write
@@ -24,8 +28,20 @@ jobs:
       # pull, and it scrapes an embedded payload that FantasyPros can restyle
       # without warning. A layout change must not block the values commit.
       - name: Fetch FantasyPros ECR
+        id: ecr
         continue-on-error: true
         run: python scripts/fetch_ecr.py
+      # continue-on-error alone is SILENT: the step goes yellow in a run nobody
+      # opens and data/ecr.json quietly ages. Every other soft step in this repo
+      # pairs it with a ::warning (see data-refresh.yml's Pizza and projections
+      # blocks); this one didn't until 2026-09-21.
+      - name: Flag a failed ECR fetch
+        if: steps.ecr.outcome == 'failure'
+        run: |
+          echo "::warning title=ECR not refreshed::fetch_ecr.py failed — \
+          data/ecr.json is unchanged and is now at least a day stale. It \
+          scrapes an embedded payload FantasyPros can restyle without warning, \
+          so check the parser before assuming a transient error."
       - name: Bridge B (market value -> WAR, needs data/projections.json)
         run: python scripts/value_bridge.py
       - name: Validate values before committing

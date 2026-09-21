@@ -7,7 +7,8 @@ name: Crawl - drafts (startup/rookie ADP)
 # Commits data/draft_signals.json; state persists via cache with a 7-day window.
 on:
   schedule:
-    - cron: "0 2,8,14,20 * * *"   # two hours after signals
+    # two hours after signals (:11). Minute :47, not :00 — see data-refresh.yml.
+    - cron: "47 2,8,14,20 * * *"
   workflow_dispatch:
 permissions:
   contents: write

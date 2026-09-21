@@ -2,6 +2,7 @@ import { useCallback, useId, useMemo, useRef, useState } from "react";
 import type { PicksOwned, PickValues, ProjectionsFile, Values } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi, useProjWar } from "../lib/useIndices";
+import { useCurrentPickClass, useLeagueCaps } from "../lib/caps";
 import { fmt, sgn, sgnWar, warInk, WAR_DP } from "../lib/stats";
 import {
   makePickIndexer, tradeLedger,
@@ -121,18 +122,38 @@ export default function TradeCalc() {
   const [active, setActive] = useState(1);
   const nextId = useRef(2);
 
-  const proj = useJson<ProjectionsFile>("projections.json").data;
+  // what this league's pipeline publishes — the machine needs projections at
+  // minimum, and rookie picks only exist where `caps.picks` says they do
+  const caps = useLeagueCaps();
+  const projQ = useJson<ProjectionsFile>(caps.projections ? "projections.json" : null);
+  const proj = projQ.data;
   // the daily scope, NOT the plain one: Draft.tsx reads this file on the daily
   // cache-bust and the cache keys on the finished path — a mismatch here made
   // two 1.4 MB downloads
-  const pv = useJson<PickValues>("pick_values.json", "leagueDaily").data;
-  const owned = useJson<PicksOwned>("picks_owned.json").data;
+  const pv = useJson<PickValues>(caps.picks ? "pick_values.json" : null, "leagueDaily").data;
+  const owned = useJson<PicksOwned>(caps.picks ? "picks_owned.json" : null).data;
   // per-band, per-year market-implied WAR streams, keyed by exactly the pick
   // labels the options list builds. This is what lets a pick carry an index at
   // all; without it the estimator declines and picks stay em-dashed.
-  const bridge = useJson<ValueBridge>("value_bridge.json", "leagueDaily").data;
+  const bridge = useJson<ValueBridge>(
+    caps.projections ? "value_bridge.json" : null, "leagueDaily").data;
   // global, not league-scoped: a market price is a property of the format
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const vals = useJson<Values>(caps.market ? "data/values.json" : null, "globalDaily").data;
+  /**
+   * THE CLASS DRAFTING NEXT, off drafts.json (`lib/seasons#currentPickClass`).
+   *
+   * `pv.meta.generated_for_season + 1` is a fact about when pick_value.py last
+   * ran, not about the calendar: on the data as shipped it reads 2025 + 1 =
+   * 2026, a class that drafted in May, so the pool carried 48 phantom "2026
+   * Pick 1.01–4.12" assets nobody can trade and priced them at lag 0. The
+   * recorded rookie drafts answer it — 2026's is on file, so the class is
+   * 2027, which is also the first year picks_owned.json has holdings for.
+   *
+   * Null while drafts.json is in flight, and in a league with no rookie draft
+   * at all. Picks are simply absent from the pool until it resolves, which is
+   * the same shape a missing pick_values.json already produced.
+   */
+  const pickClass = useCurrentPickClass();
   // model-aware: these follow the masthead's projection-model control
   const dvi = useDvi();
   const cvi = useCvi();
@@ -158,8 +179,8 @@ export default function TradeCalc() {
         war: projWar?.[p.pid] ?? p.total_comp,
       });
     }
-    if (pv) {
-      const cur = pv.meta.generated_for_season + 1;   // current rookie class
+    if (pv && pickClass != null) {
+      const cur = pickClass;                          // the class drafting next
       const sum = (s: number[]) => s.reduce((a, x) => a + x, 0);
       // current-year picks: every exact slot; Bridge A knows each one
       for (let r = 0; r < 4; r++)
@@ -186,7 +207,7 @@ export default function TradeCalc() {
             });
     }
     return out;
-  }, [proj, pv, owned, dvi, cvi, projWar, vals, meta]);
+  }, [proj, pv, owned, pickClass, dvi, cvi, projWar, vals, meta]);
 
   /**
    * The pick index estimator, fit once per data load rather than once per
@@ -206,12 +227,12 @@ export default function TradeCalc() {
         x.kind === "player" && x.ktc != null && x.dvi != null && x.cvi != null);
     return makePickIndexer({
       players, bridge,
-      // the same expression the options list uses to LABEL the current class,
-      // so the calendar the estimator discounts by cannot drift from the one
-      // the labels assert
-      currentClass: pv ? pv.meta.generated_for_season + 1 : null,
+      // the same value the options list uses to LABEL the current class, so
+      // the calendar the estimator discounts by cannot drift from the one the
+      // labels assert
+      currentClass: pickClass,
     });
-  }, [options, bridge, pv]);
+  }, [options, bridge, pickClass]);
 
   const optByKey = useMemo(() => new Map(options.map(o => [o.key, o])), [options]);
   const resolve = useCallback(
@@ -308,6 +329,19 @@ export default function TradeCalc() {
      figures to restate. Column headers and the row keys carry the units. */
   const empty = "Pin what you're shopping on the left, then build an offer on the right. Add more offers to compare them against the same outgoing side.";
 
+  // THE CAPS GATE FIRST, THEN THE ERROR, THEN LOADING (lib/caps). The machine
+  // prices assets in DVI, CVI and projected WAR; a league whose pipeline
+  // writes none of them 404s every fetch here, and `!proj` was a permanent
+  // "Loading…" — as was a transient failure, which had no branch at all.
+  if (!caps.projections) return (
+    <div className="empty">
+      The trade machine prices assets in DVI, CVI and projected WAR — none of which
+      are published for this league.
+    </div>
+  );
+  if (projQ.error) return (
+    <div className="empty">Couldn't load the projections the machine prices with.</div>
+  );
   if (!proj) return <div className="empty">Loading…</div>;
 
   const basket = (i: "out" | "in") => {

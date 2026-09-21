@@ -1,0 +1,42 @@
+{
+  // Second project, for the TypeScript that tsconfig.json's `include: ["src"]`
+  // leaves outside the program entirely. `npm run typecheck` runs both, so a
+  // type error in a config file is a red build rather than a surprise at
+  // runtime. Nothing here is built or shipped; noEmit is inherited.
+  //
+  // TODAY THIS COVERS vite.config.ts ONLY, and that is a deliberate stopping
+  // point rather than the whole job.
+  //
+  // tests/tradeModel.test.ts is the other unchecked file. Adding it needs
+  // "@types/node" (it imports node:test, node:assert/strict, node:fs,
+  // node:path, node:url) — a new devDependency, which also means regenerating
+  // package-lock.json, and `npm ci` in BOTH deploy.yml and tests.yml fails hard
+  // on a lockfile that disagrees with package.json. The test file's own header
+  // records the call as owner policy: "Wiring this in would cost @types/node
+  // and an entry in package.json; it is deliberately not taken, and stated so
+  // nobody assumes coverage that is not there." Left as it stands.
+  //
+  // TO TAKE IT (all of these, in this order, or CI goes red):
+  //   1. npm i -D @types/node          # updates package.json AND the lockfile
+  //   2. add "tests/**/*.ts" to `include` below
+  //   3. add "types": ["node"] to `compilerOptions` below
+  //   4. add "allowImportingTsExtensions": true to `compilerOptions` below —
+  //      the test imports "../src/lib/tradeModel.ts" WITH the extension,
+  //      because Node's resolver needs it; tsc rejects that without the flag
+  //   5. amend the "NOT TYPECHECKED" paragraph in tests/tradeModel.test.ts
+  // Probed on 2026-09-21 with those flags: the only errors are the five
+  // "cannot find module 'node:*'" that @types/node fixes, plus ONE real find —
+  // an implicitly-any callback parameter around line 314. So the cost is one
+  // devDependency and one annotation, not a cleanup project.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    // vite.config.ts is Node-side config, not browser code, and pulls no DOM.
+    // Left on the base `lib` anyway: overriding it here would diverge the two
+    // projects for no gain, and skipLibCheck keeps vite's own .d.ts out of it.
+    //
+    // noUnusedLocals / noUncheckedIndexedAccess are NOT flipped on here. They
+    // are off in the base config on purpose and turning them on for a second
+    // project would make the two disagree about what valid code is.
+  },
+  "include": ["vite.config.ts"]
+}

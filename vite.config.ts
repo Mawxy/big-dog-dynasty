@@ -1,7 +1,9 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-// base "./" so the built site works at https://<user>.github.io/<repo>/
+// base "./" so the built site works wherever Pages serves it — today the
+// custom domain https://www.bigdogdynasty.app, and still the project path
+// https://<user>.github.io/<repo>/ it was written for.
 // Data cache-busting comes from meta.updated (src/lib/data.ts setVersion),
 // NOT a per-build id: a build-time id inlined into the bundle changed the JS
 // content hash on every deploy — ~30/day from crawl commits — so returning

@@ -1,5 +1,7 @@
 /**
- * Locks the trade math — `src/lib/tradeModel.ts`.
+ * Locks the trade math — `src/lib/tradeModel.ts` — and, in a second section at
+ * the bottom, the pure shared helpers in `src/lib/seasons.ts` and
+ * `src/lib/projRecord.ts`.
  *
  * Four behaviors the model doc asserts and the ledger would be wrong without,
  * plus the invariant that makes the consolidation row honest:
@@ -13,6 +15,8 @@
  *     DVI and almost everything under CVI.
  *  4. FLOOR — throw-ins never push a side's adjusted value down. `u ≥ u_min`
  *     is what makes "add a scrub" unable to make a package look worse.
+ *  5. THE CONVERSION SEAM — a converted pick contributes its haircut figure
+ *     but is read on the utilization curve at what it converts to.
  *
  * WHAT PINS WHAT. The lens PARAMETERS are v1 hand-tuned figures and will move
  * when the empirical start-share fit lands (`TRADE_MACHINE_MODEL.md` §1 v2), so
@@ -20,30 +24,35 @@
  * SIGN — the properties any replacement curve must also have.
  *
  * RUNNER. Everything else in tests/ is Python (`unittest`, run under pytest)
- * because everything else it tests is Python. This one tests a TypeScript
- * module, so it runs on Node's built-in test runner with native type
- * stripping — no framework, no build step, nothing added to package.json, no
- * new dependency. FROM THE REPO ROOT:
+ * because everything else it tests is Python. This one tests TypeScript
+ * modules, so it runs on Node's built-in test runner with native type
+ * stripping — no framework, no build step, no new dependency. `npm test` is
+ * the one line of package.json it needed, and is how CI runs it. FROM THE
+ * REPO ROOT, either of:
  *
+ *     npm test
  *     node --test tests/tradeModel.test.ts
  *
  * Needs Node ≥ 22.18 (type stripping unflagged; 22.22 in this workspace).
  *
- * That is also why `src/lib/tradeModel.ts` has no runtime imports: Node resolves
- * specifiers its own way, and one extensionless relative import would drag the
- * React tree into the test run.
+ * THAT RUNNER IS WHY THE MODULES UNDER TEST HAVE NO RUNTIME IMPORTS. Node
+ * resolves specifiers its own way, and one extensionless relative import would
+ * drag the React tree into the test run. `tradeModel.ts` imports nothing at
+ * all; `seasons.ts` and `projRecord.ts` import only types, which stripping
+ * erases. Their React wrappers live in `lib/caps.ts`, which is NOT importable
+ * here and deliberately holds no logic of its own.
  *
  * NOT TYPECHECKED BY `npx tsc --noEmit`. tsconfig's `include` is `["src"]`, so
  * this file is outside the program, and type stripping erases annotations
  * without checking them — the types here are documentation that Node ignores.
- * The module under test IS in the program and is checked there. Wiring this in
- * would cost `@types/node` and an entry in package.json; it is deliberately not
- * taken, and stated so nobody assumes coverage that is not there.
+ * The modules under test ARE in the program and are checked there. Wiring this
+ * in would cost `@types/node`; it is deliberately not taken, and stated so
+ * nobody assumes coverage that is not there.
  *
  * The pick-timing tests read committed league data (value_bridge.json,
  * dvi.json, cvi.json, data/values.json) rather than a fixture, and SKIP if a
  * clone is missing it — the same gating `test_slot_value.py` uses for its
- * corpus test.
+ * corpus test. Everything in the second section is synthetic and never skips.
  */
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, existsSync } from "node:fs";
@@ -53,10 +62,15 @@ import test from "node:test";
 
 import {
   CVI_TIMING, DVI_TIMING, UTIL_CURVES,
-  CVI_CONVERSION, makePickIndexer, monotoneFit, packageValue, parsePick, timingMultiplier,
-  tradeLedger, utilization,
+  CVI_CONVERSION, makePickIndexer, monotoneFit, packageValue, parsePick, priceAsset,
+  sideLedger, timingMultiplier, tradeLedger, utilization,
   type LedgerAsset, type PickIndexer, type ValueBridge,
 } from "../src/lib/tradeModel.ts";
+import {
+  currentPickClass, isSeasonSettled, lastSettledSeason, ridOf, seasonRow,
+  settledSeasons,
+} from "../src/lib/seasons.ts";
+import { playedWeeks, projectedRecord } from "../src/lib/projRecord.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -400,4 +414,320 @@ test("picks in the ledger: consolidating picks beats splitting them, and the "
   assert.ok(led.a.raw.dvi > 0 && led.a.raw.cvi > 0,
     "a pick must no longer contribute zero to the index columns");
   assert.ok(led.adjNet.cvi > 0, "one 1st should beat two 3rds for a contender");
+});
+
+/* ========================================================================
+   5. THE CONVERSION SEAM — `packageValue(values, c, at)` and `utilAt`
+
+   The third argument to packageValue and the `utilAt` field that feeds it
+   existed with no test at all, and they are the one place in the file where
+   what an asset CONTRIBUTES and where its curve is READ are different
+   numbers. Synthetic throughout: a fixed field and a two-band bridge, so
+   these never depend on what the market did last night.
+   ======================================================================== */
+
+/** a monotone KTC→index field wide enough for `monotoneFit` (needs 20) */
+const synthField = () => {
+  const out: { ktc: number; dvi: number; cvi: number }[] = [];
+  for (let i = 0; i < 40; i++) {
+    const ktc = 400 + i * 240;                     // 400 … 9760
+    out.push({ ktc, dvi: Math.min(100, ktc / 98), cvi: Math.min(100, ktc / 100) });
+  }
+  return out;
+};
+
+/** two bands, one drafting now and one three classes out */
+const synthBridge = (): ValueBridge => ({
+  picks: { ktc: [
+    ["2026 Early 1st", 6000, 1.97, [0.82, 0.68, 0.59]],
+    ["2029 Early 1st", 5000, 1.80, [0.75, 0.62, 0.54]],
+  ] },
+});
+
+const synthIndexer = (): PickIndexer => makePickIndexer({
+  players: synthField(), bridge: synthBridge(), currentClass: 2026,
+})!;
+
+test("packageValue reads the curve at `at` and still contributes the value", () => {
+  const c = UTIL_CURVES.cvi;
+  // 48 contributed, but the curve read at 68 — the shape a converted pick has
+  const at = packageValue([48], c, [68]);
+  assert.equal(at.raw, 48, "`at` must not change what the asset contributes");
+  assert.ok(Math.abs(at.effective - 48 * utilization(68, c)) < 1e-12);
+
+  // and it is strictly kinder than reading the curve at the haircut figure,
+  // which is the whole reason the argument exists
+  const naive = packageValue([48], c);
+  assert.ok(at.effective > naive.effective,
+    `reading at 68 must beat reading at 48 (${at.effective} vs ${naive.effective})`);
+
+  // a null entry, a short array and no array at all all mean "read at value"
+  assert.equal(packageValue([48], c, [null]).effective, naive.effective);
+  assert.equal(packageValue([48], c, []).effective, naive.effective);
+  assert.equal(packageValue([48], c, undefined).effective, naive.effective);
+
+  // negatives clamp on BOTH sides — a negative `at` must not read below the
+  // floor any more than a negative value may be rewarded
+  assert.equal(packageValue([48], c, [-999]).effective, 48 * utilization(0, c));
+});
+
+test("a converted pick carries utilAt, and sideLedger honours it", () => {
+  const idx = synthIndexer();
+  const e = idx("2029 Early 1st", 5000)!;
+  assert.ok(e.converted, "three classes out must land on the conversion floor");
+  assert.ok(Math.abs(e.cvi - e.baseCvi * CVI_CONVERSION) < 1e-12);
+
+  const priced = priceAsset(
+    { kind: "pick", label: "2029 Early 1st", ktc: 5000, dvi: null, cvi: null }, idx);
+  assert.equal(priced.estimated, true);
+  assert.ok(Math.abs((priced.utilAt?.cvi ?? 0) - e.baseCvi) < 1e-12,
+    "the CVI curve must be read at what the pick converts to");
+  assert.equal(priced.utilAt?.dvi, undefined, "DVI takes no conversion floor");
+
+  const led = sideLedger(
+    [{ kind: "pick", label: "2029 Early 1st", ktc: 5000, dvi: null, cvi: null }], idx);
+  assert.equal(led.picks, 1);
+  assert.equal(led.estimated, 1);
+  assert.ok(Math.abs(led.raw.cvi - e.cvi) < 1e-12);
+  assert.ok(Math.abs(led.effective.cvi - e.cvi * utilization(e.baseCvi, UTIL_CURVES.cvi)) < 1e-12,
+    "effective CVI must be the haircut value scaled at the BASE utilization");
+  // the bug this guards: reading the curve at the haircut figure would say a
+  // 48 never starts about a pick that buys a 68
+  assert.ok(led.effective.cvi > e.cvi * utilization(e.cvi, UTIL_CURVES.cvi));
+  // DVI has no `at`, so its effective is the plain curve at its own value
+  assert.ok(Math.abs(led.effective.dvi - e.dvi * utilization(e.dvi, UTIL_CURVES.dvi)) < 1e-12);
+});
+
+test("a converted pick beats a player priced at the same CVI, through the ledger", () => {
+  const idx = synthIndexer();
+  const e = idx("2029 Early 1st", 5000)!;
+  // Side A sends the pick; side B sends a PLAYER whose CVI is exactly the
+  // pick's contributed figure. Raw nets to zero in that column; the pick wins
+  // on the adjusted line, because it is read at what it converts to.
+  const led = tradeLedger(
+    [{ kind: "pick", label: "2029 Early 1st", ktc: 5000, dvi: null, cvi: null }],
+    [player("same-cvi", 5000, e.dvi, e.cvi)],
+    idx,
+  );
+  assert.ok(Math.abs(led.net.cvi) < 1e-9, "raw CVI net is zero by construction");
+  assert.ok(led.adjNet.cvi > 0, "the conversion read must favour the pick");
+  // the invariant still holds with `at` in play
+  for (const lens of ["market", "dvi", "cvi"] as const)
+    assert.ok(Math.abs(led.adjNet[lens] - (led.net[lens] + led.adj[lens])) < 1e-9,
+      `${lens}: adjusted net is not net + adj`);
+});
+
+test("the class drafting now takes no conversion floor and no utilAt", () => {
+  const idx = synthIndexer();
+  const now = idx("2026 Pick 1.03", 6000)!;
+  assert.equal(now.lag, 0);
+  assert.equal(now.converted, false);
+  const priced = priceAsset(
+    { kind: "pick", label: "2026 Pick 1.03", ktc: 6000, dvi: null, cvi: null }, idx);
+  assert.equal(priced.utilAt, undefined,
+    "an undiscounted pick contributes and is read at the same figure");
+});
+
+/* ========================================================================
+   ========================================================================
+   SECTION TWO â€” THE SHARED SEASON HELPERS
+
+   A SEPARATE SUBJECT IN THE SAME FILE, on purpose. `npm test` names exactly
+   one path (`node --test tests/tradeModel.test.ts`), so a second file would
+   not be run by CI and would rot unnoticed; package.json is not this file's
+   to edit. When that command grows a glob, lift everything below into
+   `tests/lib.test.ts` unchanged â€” nothing here depends on the trade math.
+
+   Subjects: `src/lib/seasons.ts` and `src/lib/projRecord.ts`. Both are pure
+   and dependency-free; their React wrappers in `lib/caps.ts` add no logic.
+   ========================================================================
+   ======================================================================== */
+
+/** a franchises.json row, with the fields these helpers actually read */
+const fsn = (season: string, rid: number, finish: number | null) => ({
+  season, rid, name: `T${rid}`, manager: `M${rid}`,
+  wins: 7, losses: 7, ties: 0, fpts: 1500, ppg: 107, war: 5,
+  seed: rid, finish,
+});
+
+/** Big Dog's scheme: the franchise key IS the roster id */
+const DYNASTY = {
+  "1": { seasons: [fsn("2025", 1, 1), fsn("2026", 1, null)], tx: [] },
+  "2": { seasons: [fsn("2025", 2, 2), fsn("2026", 2, null)], tx: [] },
+  "3": { seasons: [fsn("2024", 3, 1), fsn("2025", 3, 7), fsn("2026", 3, null)], tx: [] },
+};
+
+/** Pineapple Pizza's scheme: the key is an 18-digit owner id and the roster
+ *  slot is reassigned every season â€” slot 5 has been three different people */
+const REDRAFT = {
+  "1001613650664165376": { seasons: [fsn("2024", 5, 1)], tx: [] },
+  "1261020801683947520": { seasons: [fsn("2025", 5, 2), fsn("2026", 3, null)], tx: [] },
+  "1047524386078744576": { seasons: [fsn("2025", 7, 1), fsn("2026", 5, null)], tx: [] },
+};
+
+test("a season is settled only once somebody has finished first", () => {
+  assert.equal(isSeasonSettled(DYNASTY, "2025"), true);
+  assert.equal(isSeasonSettled(DYNASTY, "2024"), true);
+  // 2026 has rows, records and seeds â€” and no champion. That is the whole
+  // bug: `finish` is assigned to places 7-12 the moment the first bracket
+  // game is decided, so "has finishes" is not "is over".
+  assert.equal(isSeasonSettled(DYNASTY, "2026"), false);
+  assert.equal(isSeasonSettled(DYNASTY, "2099"), false);
+  assert.equal(isSeasonSettled(null, "2025"), false);
+
+  // places 7-12 assigned, nobody first yet â€” still not settled
+  const midBracket = {
+    "1": { seasons: [fsn("2026", 1, null)], tx: [] },
+    "2": { seasons: [fsn("2026", 2, 9)], tx: [] },
+  };
+  assert.equal(isSeasonSettled(midBracket, "2026"), false);
+});
+
+test("settled seasons come back ascending, and narrow to the caller's list", () => {
+  assert.deepEqual(settledSeasons(DYNASTY), ["2024", "2025"]);
+  // the caller's own order must not leak out: "the last one" has to be newest
+  assert.deepEqual(settledSeasons(DYNASTY, ["2026", "2025", "2024"]), ["2024", "2025"]);
+  assert.deepEqual(settledSeasons(DYNASTY, ["2026"]), []);
+  assert.equal(lastSettledSeason(DYNASTY), "2025");
+  assert.equal(lastSettledSeason(DYNASTY, ["2024"]), "2024");
+  assert.equal(lastSettledSeason(DYNASTY, ["2026"]), null);
+  assert.equal(lastSettledSeason(null), null);
+  assert.deepEqual(settledSeasons(REDRAFT), ["2024", "2025"]);
+});
+
+test("seasonRow matches on the row's own rid, in both key schemes", () => {
+  assert.equal(seasonRow(DYNASTY, "2025", 2)?.key, "2");
+  assert.equal(seasonRow(DYNASTY, "2026", 3)?.row.season, "2026");
+
+  // THE BUG THIS EXISTS FOR. `fr[String(rid)]` is right for the dynasty
+  // league and finds nothing at all in the redraft one, where the key is an
+  // owner id â€” and `Number(key)` on an 18-digit id loses precision.
+  assert.equal(seasonRow(REDRAFT, "2025", 5)?.key, "1261020801683947520");
+  assert.equal(seasonRow(REDRAFT, "2024", 5)?.key, "1001613650664165376");
+  // the same slot, one season later, is a different franchise entirely
+  assert.equal(seasonRow(REDRAFT, "2026", 5)?.key, "1047524386078744576");
+  assert.equal(seasonRow(REDRAFT, "2026", 11), null);
+  assert.equal(seasonRow(null, "2025", 1), null);
+});
+
+test("ridOf prefers the row's rid and falls back to the key", () => {
+  assert.equal(ridOf("7", { rid: 3 }), 3);
+  assert.equal(ridOf("7"), 7);          // pre-`rid` dynasty data: key IS the rid
+  assert.equal(ridOf("7", null), 7);
+});
+
+/* ---- the rookie class drafting next -------------------------------------- */
+
+const draftsWith = (rows: { season: string; kind: string }[]) => ({ "1": rows });
+
+test("currentPickClass reads drafts.json, not a guess about the calendar", () => {
+  // the roster season's rookie draft is in the books -> the NEXT class is live
+  assert.equal(
+    currentPickClass("2026", draftsWith([{ season: "2026", kind: "rookie" }])), 2027);
+  // it is not -> this season's class is still the one being traded
+  assert.equal(
+    currentPickClass("2026", draftsWith([{ season: "2025", kind: "rookie" }])), 2026);
+  // a STARTUP draft is not a rookie class and must not advance the year
+  assert.equal(
+    currentPickClass("2026", draftsWith([{ season: "2026", kind: "startup" }])), 2026);
+  // no drafts.json at all (in flight, or a league that has none) declines to
+  // answer rather than inventing a calendar
+  assert.equal(currentPickClass("2026", null), null);
+  assert.equal(currentPickClass("2026", undefined), null);
+  assert.equal(currentPickClass("2026", {}), 2026);
+  assert.equal(currentPickClass(null, draftsWith([])), null);
+  assert.equal(currentPickClass(2026, draftsWith([])), 2026);
+});
+
+test("currentPickClass, wired to the pick indexer, dates a pick correctly", () => {
+  // The shipped failure: `generated_for_season + 1` says 2026, a class that
+  // has already drafted, so a 2029 pick is dated three years out when it is
+  // in fact two. Feeding the real answer moves the lag by exactly one.
+  const drafted = currentPickClass("2026", draftsWith([{ season: "2026", kind: "rookie" }]))!;
+  const idx = makePickIndexer({
+    players: synthField(), bridge: synthBridge(), currentClass: drafted,
+  })!;
+  assert.equal(idx("2029 Early 1st", 5000)!.lag, 2);
+  assert.equal(synthIndexer()("2029 Early 1st", 5000)!.lag, 3);
+});
+
+/* ---- the projected record ------------------------------------------------ */
+
+/** a WeekOdds with one line for roster 1 in each of `weeks` */
+const odds = (weeks: number[], wp: number, mu = 130) => ({
+  meta: { playoff_start: 15, model: "test", played: [], projected: weeks },
+  weeks: Object.fromEntries(weeks.map(w => [String(w), { "1": { mu, sd: 24, opp: 2, wp } }])),
+});
+
+test("the projected record banks what happened and projects only what has not", () => {
+  // one week played and won, thirteen ahead at a coin flip each
+  const ahead = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14];
+  const r = projectedRecord({
+    rid: 1,
+    record: { wins: 1, losses: 0, ties: 0 },
+    odds: odds([1, ...ahead], 0.5) as never,
+    played: [1],
+    playoffStart: 15,
+  });
+  assert.equal(r.ahead, 13, "week 1 is played and must not be projected again");
+  assert.ok(Math.abs(r.expWins - 6.5) < 1e-9);
+  // THE BUG: Home sums over the unplayed weeks only and never banks the win,
+  // so a 1-0 team read 6.5-6.5 out of THIRTEEN. The season is fourteen games.
+  assert.ok(Math.abs(r.wins + r.losses + r.ties - 14) < 1e-9,
+    `a fourteen-game season must project fourteen games, got ${r.wins + r.losses}`);
+  assert.ok(Math.abs(r.wins - 7.5) < 1e-9);
+  assert.equal(r.text, "7.5-6.5");
+  assert.equal(r.projPts.length, 13);
+});
+
+test("an unpriced week is not a projected loss, and the playoffs are not projected", () => {
+  // week 1 has a mu and NO wp â€” deliberately unpriced (week_odds.py leaves
+  // week 1 without a snapshot unpriced). It must not enter the game count.
+  const file = odds([2, 3], 0.6);
+  file.weeks["1"] = { "1": { mu: 140, sd: 24, opp: 2 } } as never;
+  file.weeks["15"] = { "1": { mu: 140, sd: 24, opp: 2, wp: 0.9 } } as never;
+  const r = projectedRecord({
+    rid: 1, record: { wins: 0, losses: 0, ties: 0 },
+    odds: file as never, played: [], playoffStart: 15,
+  });
+  assert.equal(r.ahead, 2, "only the two priced regular-season weeks count");
+  assert.ok(Math.abs(r.wins - 1.2) < 1e-9);
+});
+
+test("ties stay a third figure and no unplayed week can add to them", () => {
+  const r = projectedRecord({
+    rid: 1, record: { wins: 6, losses: 6, ties: 2 },
+    odds: odds([13, 14], 0.5) as never, played: [], playoffStart: 15,
+  });
+  assert.equal(r.ties, 2);
+  assert.ok(Math.abs(r.losses - 7) < 1e-9,
+    "losses are played losses plus the complement, never games minus wins");
+  assert.equal(r.text, "7.0-7.0-2");
+});
+
+test("with nothing to project the record is the played one, and says so", () => {
+  const r = projectedRecord({
+    rid: 1, record: { wins: 10, losses: 4, ties: 0 },
+    odds: null, played: [1], playoffStart: 15,
+  });
+  assert.equal(r.projected, false);
+  assert.equal(r.ahead, 0);
+  assert.equal(r.text, "10-4");
+  // a roster with no line of its own in a file that has lines for others
+  const other = projectedRecord({
+    rid: 9, record: { wins: 0, losses: 0, ties: 0 },
+    odds: odds([2, 3], 0.5) as never, played: [], playoffStart: 15,
+  });
+  assert.equal(other.projected, false);
+  assert.equal(other.text, "0-0");
+});
+
+test("playedWeeks counts a week only once it has an opponent score", () => {
+  const rows = [
+    [1, 144.8, 11, 109.1, [], []],
+    [2, 0, 3, null, [], []],        // scheduled, not played
+    [15, 150, 4, 120, [], []],      // playoffs
+  ];
+  assert.deepEqual(playedWeeks(rows as never, 15), [1]);
+  assert.deepEqual(playedWeeks(undefined, 15), []);
 });

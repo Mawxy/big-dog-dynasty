@@ -7,7 +7,8 @@ import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { fmt, fmtWar, ord, rate } from "../lib/stats";
 import { pInfo } from "../lib/league";
-import { useLeague, useLeaguePath } from "../lib/context";
+import { useLeague, useShellPath } from "../lib/context";
+import { settledSeasons } from "../lib/seasons";
 import { readTrades } from "../lib/trades";
 import { PlayerLink } from "../components/PlayerLink";
 import { RouteLink } from "../components/RouteLink";
@@ -89,7 +90,11 @@ type SeasonStory = {
 export default function History() {
   const { meta, players, league } = useLeague();
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  // BetaShell mounts this view, so its links cannot be classic by construction
+  // (lib/context — the bug class useShellPath exists for). Franchise pages
+  // rebase to the beta Team screen where the key is a roster id, the bracket
+  // to /seasons/<year>/playoffs, and the Dashboard button to /league.
+  const lp = useShellPath();
   const [play, setPlay] = useState<Record<string, { m: Matchups; w: Weekly }> | null>(null);
 
   const frFile = useJson<Franchises>("franchises.json");
@@ -103,14 +108,28 @@ export default function History() {
       : tradesFile.error ? [] : null),
     [tradesFile.data, tradesFile.error]);
 
-  /** seasons that have actually been played out (a finish exists) */
-  const played = useMemo(() => {
+  /**
+   * SEASONS THAT ARE OVER — `finish === 1`, not "a finish exists".
+   *
+   * FINISH is the split column (PROJECT_NOTES §11): build_site_data assigns
+   * places 7..12 off the regular-season standings the moment the FIRST
+   * winners-bracket game is decided. So from week 15 a season in progress has
+   * finishes — six of them, all of them consolation places — and this page
+   * read `rows[0]` (7th) as the champion, put its name in the Champion panel
+   * and counted it in `totals`. Nobody is first until the title game is
+   * played, which is what `lib/seasons` gates on.
+   */
+  const played = useMemo(() => settledSeasons(fr), [fr]);
+
+  /** a season with finishes but no winner: the bracket is under way. Named in
+   *  a note rather than given a story — it has no champion to write one about */
+  const inProgress = useMemo(() => {
     if (!fr) return [];
-    const s = new Set<string>();
+    const some = new Set<string>(), done = new Set(played);
     for (const f of Object.values(fr))
-      for (const sn of f.seasons) if (sn.finish) s.add(sn.season);
-    return [...s].sort();
-  }, [fr]);
+      for (const sn of f.seasons) if (sn.finish && !done.has(sn.season)) some.add(sn.season);
+    return [...some].sort();
+  }, [fr, played]);
 
   /** starters + weekly WAR, only for seasons that were played */
   useEffect(() => {
@@ -339,7 +358,15 @@ export default function History() {
   if (err) return <div className="empty">No league history yet.</div>;
   // trades gate the story too: it counts them per season, and painting before
   // they land would show every year as having had none
-  if (!fr || !trades || !stories.length) return <div className="empty">Loading league history…</div>;
+  if (!fr || !trades) return <div className="empty">Loading league history…</div>;
+  // franchises.json HAS landed and nothing is settled — a first season still
+  // being played. Saying "Loading…" here claimed a story was on its way.
+  if (!stories.length) return (
+    <div className="empty">
+      No completed season yet
+      {inProgress.length ? ` — ${inProgress.join(", ")} is still being played.` : "."}
+    </div>
+  );
 
   return (
     <>
@@ -383,6 +410,15 @@ export default function History() {
           <div className="stat-v">{totals.picks}</div>
         </div>
       </div>
+      {inProgress.length > 0 && (
+        /* the bracket is under way: the season has placings but no winner, so
+           it has no story yet. Said once, here, rather than rendered as a
+           thirteenth section with an empty Champion panel. */
+        <div className="tnote screen">
+          {inProgress.join(", ")} {inProgress.length === 1 ? "is" : "are"} still being played —
+          a season joins the story once its title game is decided.
+        </div>
+      )}
       <div className="tnote screen">
         {totals.repeat.length
           ? `${totals.repeat.map(([m, n]) => `${m} has ${n}`).join(", ")} of the ${totals.seasons} titles; every other champion has one.`

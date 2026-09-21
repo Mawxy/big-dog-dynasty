@@ -56,7 +56,7 @@ jobs:
           # that unflagged type stripping). tsc doesn't care which of the two
           # it runs under, and nothing else in this job pinned 20 — so the
           # whole job moves rather than growing a second setup-node. deploy.yml
-          # still builds on 20; that is the shipping toolchain, untouched.
+          # builds on 22 too (2026-09-21).
           node-version: "22"
           cache: npm
       - run: npm ci

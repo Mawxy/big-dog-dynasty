@@ -134,13 +134,30 @@ def pos_stats(scores_by_pos):
     return out
 
 
-def snapshot_projections(season, ld, sproj, week, teams):
-    """Archive the CURRENT projections under `week`, trimmed to rostered players.
+def snapshot_projections(season, ld, sproj, week):
+    """Archive THE WEEK'S OWN LINES under `week`, for every player who has one.
 
     Sleeper only serves today's projections, so pricing a past week off them
-    later requires having kept them. Trimming to rostered players keeps the
-    file small enough to live in the repo — the unrostered 2,700 are never
-    starters and can't affect a line."""
+    later requires having kept them.
+
+    EVERY PLAYER WITH A LINE, NOT EVERY ROSTERED PLAYER (2026-09-21). This
+    used to trim to the players rostered on snapshot day, on the grounds that
+    nobody else can be a starter. Two things are wrong with that. A player
+    added off waivers on Wednesday IS a starter that Sunday and is missing
+    from Tuesday's snapshot; and a snapshot with a hole in it is read by
+    `projected()` below as "no line", which used to mean the positional mean —
+    eight to twelve phantom points, appearing only once the week flipped from
+    upcoming to played, so the PREGAME line of record changed after the fact.
+    proj_sleeper.json carries ~600 rows with weekly lines; keeping them all
+    costs a few kilobytes a week and makes the snapshot a complete record of
+    what was quoted, which is the only thing that can be read back honestly.
+
+    A SEASON ROW IS NOT A WEEK'S LINE. `src:"season"` players have no `wk` map
+    — the field this used to fall back to, `ppg`, is that player's season total
+    over 17, which never drops to zero on a bye and is not a projection for any
+    particular week. It is not archived: absent means "no line for this week",
+    which is what `projected()` now prices at 0.0, matching the live path's one
+    rule (Max, 2026-09-15)."""
     if not week or not sproj:
         return False
     f = ld / season / "proj_history.json"
@@ -153,17 +170,9 @@ def snapshot_projections(season, ld, sproj, week, teams):
     # became current, which is safely pregame.
     if str(week) in hist:
         return False
-    rostered = {str(p) for t in (teams or []) for p in (t.get("players") or [])}
-    # THIS week's own line where one exists (a bye/absence has none and is
-    # snapshotted as absent, which is the truth), else the season-average ppg
     snap = {}
     for p, v in sproj.items():
-        if p not in rostered:
-            continue
-        wkmap = v.get("wk")
-        val = wkmap.get(str(week)) if wkmap else v.get("ppg")
-        if val is None and not wkmap:
-            continue
+        val = (v.get("wk") or {}).get(str(week))
         if val is not None:
             snap[p] = round(val, 2)
     if not snap:
@@ -258,7 +267,16 @@ def season_odds(season, ld, raw_root, sproj):
 
         def projected(pid):
             if wproj is not None:
-                return wproj.get(pid)
+                # ONE RULE IN BOTH PATHS (2026-09-21). The snapshot is a
+                # complete record of the lines quoted for this week (see
+                # snapshot_projections), so a player who isn't in it had no
+                # line — a bye, an absence, or a waiver add the snapshot
+                # predates — and that is zero, exactly as the live branch
+                # below reads it. Returning None here instead sent him to the
+                # positional mean, so the same player was priced 0 while the
+                # week was upcoming and ~10 once it flipped to played: the
+                # pregame line of record changed after the fact.
+                return wproj.get(pid, 0.0)
             if not is_proj:
                 return None
             # THE WEEK'S OWN LINE, AND ONLY IT (Max, 2026-09-15). rotowire
@@ -377,6 +395,42 @@ def season_odds(season, ld, raw_root, sproj):
 SIMS = 10000
 
 
+def first_round_byes(n_po):
+    """How many top seeds sit out round one of an `n_po`-team bracket.
+
+    A bracket is a power of two; a field that isn't one fills the gap with
+    byes for the best seeds. Six teams in an eight-slot bracket is two byes,
+    which is what this league runs. Every other size falls out of the same
+    arithmetic rather than needing its own branch — 3 -> 1 bye, 5 -> 3,
+    10 -> 6 — and only 4, 8, 16 have none."""
+    size = 1
+    while size < n_po:
+        size *= 2
+    return size - n_po
+
+
+def run_bracket(field, seed_of, game):
+    """Play a Sleeper bracket down to its two finalists. `field` is in seed
+    order, best first.
+
+    RESEEDING EVERY ROUND, which is what this league's brackets have actually
+    done: the survivors are re-sorted by seed, so the 1 seed always draws the
+    lowest one left. Generalized from the hand-written 4 / 6 / 8 branches this
+    replaces (2026-09-21) — those dropped a survivor at 10, raised a
+    ValueError at 12, and quietly put the 3 seed out of a 3-team bracket
+    without a game. Nothing about the six-team path moves: two byes, then
+    1-v-lowest and 2-v-higher, the same games in the same order."""
+    alive = list(field)
+    byes = first_round_byes(len(alive))
+    while len(alive) > 2:
+        resting, playing = alive[:byes], alive[byes:]
+        winners = [game(playing[i], playing[len(playing) - 1 - i])
+                   for i in range(len(playing) // 2)]
+        alive = sorted(resting + winners, key=lambda r: seed_of[r])
+        byes = 0                                  # byes are a round-one thing
+    return alive[0], alive[1]
+
+
 def season_sim(mw, odds_weeks, league, seed=1):
     """Monte-Carlo the rest of the season off the same per-week lines.
 
@@ -384,12 +438,12 @@ def season_sim(mw, odds_weeks, league, seed=1):
     regular-season matchup is drawn from the two sides' (mu, sd) in the odds
     table — the projected lineups, priced with no lookahead — and the final
     table is seeded the way the league seeds (wins, then points). The top
-    `playoff_teams` play a Sleeper bracket: with six, seeds 1-2 rest in the
-    first round and the second round RESEEDS (1 plays the lowest survivor),
-    which is what this league's brackets have actually done; with four or
-    eight it is the straight 1-v-last ladder. Playoff strength is a team's
-    mean projected week over the remaining schedule, since no lineup exists
-    for a week that far out.
+    `playoff_teams` play a Sleeper bracket (`run_bracket`): the best seeds
+    rest through round one until the field fills a power of two, and every
+    round RESEEDS, so the 1 seed always draws the lowest survivor. With six —
+    this league — that is byes for seeds 1-2, then 3v6 and 4v5, then 1 against
+    the lower winner. Playoff strength is a team's mean projected week over
+    the remaining schedule, since no lineup exists for a week that far out.
 
     Returns {rid: {"playoff": p, "bye": p, "title": p, "final": p}}, or None
     when the regular season is over (the bracket page owns that story).
@@ -402,6 +456,9 @@ def season_sim(mw, odds_weeks, league, seed=1):
                   | {r for pairs in (mw.get("schedule") or {}).values() for pr in pairs for r in pr})
     if not rids:
         return None
+    # a bracket needs two teams and cannot hold more than the league has
+    n_po = max(2, min(n_po, len(rids)))
+    n_bye = first_round_byes(n_po)
     wins = {r: 0.0 for r in rids}
     pts = {r: 0.0 for r in rids}
     played = set()
@@ -462,21 +519,9 @@ def season_sim(mw, odds_weeks, league, seed=1):
         for r in field:
             made[r] += 1
         seed_of = {r: i + 1 for i, r in enumerate(field)}
-        if n_po == 6:
-            bye[field[0]] += 1; bye[field[1]] += 1
-            s3, s4, s5, s6 = field[2], field[3], field[4], field[5]
-            w1, w2 = game(s3, s6), game(s4, s5)
-            lo, hi = (w1, w2) if seed_of[w1] > seed_of[w2] else (w2, w1)
-            f1, f2 = game(field[0], lo), game(field[1], hi)
-        elif n_po == 4:
-            f1, f2 = game(field[0], field[3]), game(field[1], field[2])
-        elif n_po >= 8:
-            q = [game(field[i], field[n_po - 1 - i]) for i in range(n_po // 2)]
-            while len(q) > 2:
-                q = [game(q[i], q[len(q) - 1 - i]) for i in range(len(q) // 2)]
-            f1, f2 = q
-        else:                                        # 2: straight final
-            f1, f2 = field[0], field[1]
+        for r in field[:n_bye]:
+            bye[r] += 1
+        f1, f2 = run_bracket(field, seed_of, game)
         final[f1] += 1; final[f2] += 1
         title[game(f1, f2)] += 1
     return {str(r): {"playoff": round(made[r] / SIMS, 4), "bye": round(bye[r] / SIMS, 4),
@@ -510,7 +555,7 @@ def main():
         got = snapshot_week(state, seasons)
         if got:
             sn, wk = got
-            if snapshot_projections(sn, ld, sproj, wk, load(ld / sn / "teams.json")):
+            if snapshot_projections(sn, ld, sproj, wk):
                 print(f"  archived {sn} week {wk} projections")
         else:
             wk, sn = state.get("week"), str(state.get("season") or "")

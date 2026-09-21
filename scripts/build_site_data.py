@@ -584,7 +584,11 @@ def main():
             for g in wgames:
                 # An upcoming season has a bracket but no played weeks, so the
                 # dump has no week file. Unplayed game = no starter points.
-                mf = sdir / "matchups" / f"week_{g['week']}.json"
+                # :02d — sleeper_pull writes week_01.json, and every other
+                # reader here globs week_*.json rather than naming one. This
+                # only ever worked because the playoffs start in week 15;
+                # a league with an earlier bracket found no file at all.
+                mf = sdir / "matchups" / f"week_{g['week']:02d}.json"
                 if not mf.exists():
                     continue
                 wf = load(mf) or []

@@ -4,7 +4,7 @@ import type {
   DraftPick, Drafts, Franchise, FranchiseSeason, FranchiseTx, Franchises, Insights, PlayersMin, ProjectionsFile, SleeperProjFile, SummaryRow, Team, Trade, TradesPayload,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { useCvi, useDvi } from "../lib/useIndices";
+import { useCvi, useDvi, useProjWar1 } from "../lib/useIndices";
 import { fmt, fmtWar, sgnWar, clsOf, ord } from "../lib/stats";
 import { lineupOf, optimalLineup, pInfo, POS_COLOR, pricedLineup, rosterSeasonOf, SLOT_LABEL } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
@@ -336,12 +336,18 @@ export default function FranchisePage({ fkey, players, tab }:
     return new Map(summaryFile.data.map(r => [r[0], { war: r[6], ppg: r[4] }]));
   }, [onRosterSeason, summaryFile.data, summaryFile.error]);
 
+  /** year-one projected WAR under the picked curve, joined to the age off
+   *  projections.json. `useProjWar1`, not `composite[0]`: that field is the
+   *  SCALAR composite and nothing else, so the roster's WAR column sat still
+   *  while the DVI and CVI columns on the same rows repriced under the
+   *  masthead's model control. */
+  const war1 = useProjWar1();
   const proj = useMemo<Map<string, { war: number; age: number }> | null>(() => {
     if (projFile.error) return new Map();
     if (!projFile.data) return null;
     return new Map(projFile.data.players.map(
-      r => [r.pid, { war: r.composite?.[0] ?? 0, age: r.age }]));
-  }, [projFile.data, projFile.error]);
+      r => [r.pid, { war: war1?.[r.pid] ?? 0, age: r.age }]));
+  }, [projFile.data, projFile.error, war1]);
 
   /** a missing sleeper projection file is an empty map, not an error state */
   const sppg = useMemo(

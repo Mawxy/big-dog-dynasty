@@ -2,12 +2,14 @@ import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
   DynastyMovers, DynastyMoverRow, Franchises, Matchups, ProjectionsFile, Team,
-  Trade, TradesPayload, Values,
+  Trade, TradesPayload, Values, WeekOdds,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { useCvi, useDvi } from "../lib/useIndices";
-import { fmt, fmtWar, sgn, mean, normCdf, normInv } from "../lib/stats";
-import { LEAGUE_TEAMS, lineupOf, optimalLineup, pInfo, REG_WEEKS, rosterSeasonOf, starterTotal } from "../lib/league";
+import { useCvi, useDvi, useProjWar1 } from "../lib/useIndices";
+import { useLeagueCaps, useSettledSeasons } from "../lib/caps";
+import { playedWeeks, projectedRecord } from "../lib/projRecord";
+import { fmt, fmtWar, sgn } from "../lib/stats";
+import { LEAGUE_TEAMS, lineupOf, optimalLineup, pInfo, rosterSeasonOf, starterTotal } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
 import { readTrades, tradeWhen } from "../lib/trades";
 import { useMobile } from "../lib/useWidth";
@@ -66,75 +68,100 @@ export default function Home() {
   const mobile = useMobile();
 
   const rosterSeason = rosterSeasonOf(league);
+  /** what this league's pipeline actually publishes (lib/caps) */
+  const caps = useLeagueCaps();
 
   const fr = useJson<Franchises>("franchises.json").data;
-  const proj = useJson<ProjectionsFile>("projections.json").data;
+  const proj = useJson<ProjectionsFile>(caps.projections ? "projections.json" : null).data;
   const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
+  /** the pregame lines — the ONLY source for a week that has not been played.
+   *  Absent in a league week_odds.py never runs for, and the record then reads
+   *  as the plain played one. */
+  const odds = useJson<WeekOdds>(caps.odds ? `${rosterSeason}/odds.json` : null).data;
   // model-aware: these follow the masthead's projection-model control
   const dvi = useDvi();
   const cvi = useCvi();
+  /** year-one projected WAR under the picked curve. Read through useProjWar1
+   *  rather than off `projections.json`'s `composite[0]`, which is the scalar
+   *  composite and only that one: the starter-age weighting sat still while
+   *  DVI and CVI on the same rows repriced. */
+  const war1 = useProjWar1();
   // the market prices a format, not a league
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const vals = useJson<Values>(caps.market ? "data/values.json" : null, "globalDaily").data;
   // cross-league trade market: who is going for more/less than his value
-  const dyn = useJson<DynastyMovers>("data/dynasty_movers.json", "globalDaily").data;
-  const tradesFile = useJson<TradesPayload>("trades.json").data;
+  const dyn = useJson<DynastyMovers>(
+    caps.market ? "data/dynasty_movers.json" : null, "globalDaily").data;
+  const tradesFile = useJson<TradesPayload>(caps.trades ? "trades.json" : null).data;
   const trades = useMemo<Trade[]>(
     () => (tradesFile ? readTrades(tradesFile).trades : []), [tradesFile]);
 
   const lineup = lineupOf(meta);
 
+  /**
+   * THE SEASON THE HERO IS ABOUT — the newest one that is OVER, not
+   * `league.latest`.
+   *
+   * `latest` is the newest season with games played, which from week one of
+   * September is the season under way: every `finish` in it is null, so the
+   * champion lookup found nobody and the block read "Reigning champion · 2026 —
+   * No completed season yet" until the title game in December. The reigning
+   * champion is last year's, and he is the champion of the last settled season
+   * (lib/seasons — `finish === 1`, never "a finish exists").
+   */
+  const settled = useSettledSeasons();
+  const champSeason = settled.last;
+
   /** the reigning champion's full season row */
   const champ = useMemo(() => {
-    if (!fr || !league.latest) return null;
+    if (!fr || !champSeason) return null;
     for (const [fkey, f] of Object.entries(fr)) {
-      const sn = f.seasons.find(s => s.season === league.latest && s.finish === 1);
+      const sn = f.seasons.find(s => s.season === champSeason && s.finish === 1);
       if (sn) return { fkey, s: sn };
     }
     return null;
-  }, [fr, league]);
+  }, [fr, champSeason]);
 
   /**
-   * Per-franchise projected strength, record and starter age for the roster
-   * season: optimal lineup on year-one composite WAR, win probabilities from
-   * the published schedule via the same z-score conversion the standings
-   * page uses (byes ignored — this is a front-page read, not the model).
+   * THE PROJECTED RECORD, from `lib/projRecord` — the same call the Standings
+   * board makes, so the two screens cannot print different figures.
+   *
+   * This page used to run its own z-score model over `mw.schedule`, which
+   * carries only the weeks still to COME: banked results never entered it, so
+   * a projection shrank by a game every week and a 1-0 team read 6.9-6.1 out of
+   * thirteen while Teams showed 8.4-5.6. Banked record plus Σ`wp` over the
+   * unplayed priced weeks is the honest shape, and with no odds file (a league
+   * week_odds.py does not run for) it falls back to the plain played record.
    */
   const power = useMemo(() => {
-    if (!teams || !proj) return null;
+    if (!teams || !mw) return null;
+    const ps = mw.playoff_start || 15;
+    return new Map(teams.map(t => [t.roster_id, projectedRecord({
+      rid: t.roster_id,
+      record: { wins: t.wins, losses: t.losses, ties: t.ties },
+      odds,
+      played: playedWeeks(mw.teams[String(t.roster_id)], ps),
+      playoffStart: ps,
+    })]));
+  }, [teams, mw, odds]);
+
+  /** WAR-weighted average age of each roster's best legal lineup — the one
+   *  thing the old `power` memo produced that the record calculation does not */
+  const ages = useMemo(() => {
+    if (!teams || !proj || !war1) return null;
     const byPid = new Map(proj.players.map(p => [p.pid, p]));
-    const built = teams.map(t => {
+    return new Map(teams.map(t => {
       const pool = t.players.map(p => byPid.get(p))
         .filter((p): p is NonNullable<typeof p> => !!p)
-        .map(p => ({ id: p.pid, pos: p.pos, war: p.composite?.[0] ?? 0, age: p.age }));
+        .map(p => ({ id: p.pid, pos: p.pos, war: war1[p.pid] ?? 0, age: p.age }));
       const { slots } = optimalLineup(pool, lineup);
       const starters = slots.flatMap(s => s.player ? [s.player] : []);
-      const war = starters.reduce((a, p) => a + p.war, 0);
       const wsum = starters.reduce((a, p) => a + Math.max(p.war, 0.01), 0);
-      const age = wsum ? starters.reduce((a, p) => a + p.age * Math.max(p.war, 0.01), 0) / wsum : null;
-      return { rid: t.roster_id, war, age };
-    });
-    const meanWar = mean(built.map(b => b.war));
-    const warOf = new Map(built.map(b => [b.rid, b.war]));
-    const z = (w: number) => normInv(0.5 + Math.min(0.45, Math.max(-0.45, (w - meanWar) / 13)));
-    const ps = mw?.playoff_start || 15;
-    const games: Record<number, number[]> = {};
-    for (const [wkS, pairs] of Object.entries(mw?.schedule ?? {})) {
-      if (+wkS >= ps) continue;
-      for (const [a, b] of pairs) {
-        (games[a] ??= []).push(b);
-        (games[b] ??= []).push(a);
-      }
-    }
-    return new Map(built.map(b => {
-      const opps = games[b.rid] ?? [];
-      const wins = opps.length
-        ? opps.reduce((a, o) => a + normCdf(z(b.war) - z(warOf.get(o) ?? meanWar)), 0)
-        : Math.min(REG_WEEKS, Math.max(0, REG_WEEKS / 2 + (b.war - meanWar) * (REG_WEEKS / 13)));
-      const n = opps.length || REG_WEEKS;
-      return [b.rid, { ...b, wins, rec: `${fmt(wins, 1)}-${fmt(n - wins, 1)}` }];
+      const age = wsum
+        ? starters.reduce((a, p) => a + p.age * Math.max(p.war, 0.01), 0) / wsum : null;
+      return [t.roster_id, age] as [number, number | null];
     }));
-  }, [teams, proj, mw, lineup]);
+  }, [teams, proj, war1, lineup]);
 
   /** starters totals per franchise in each index currency */
   const indexRows = useMemo(() => {
@@ -143,7 +170,8 @@ export default function Home() {
       const key = t.fkey ?? String(t.roster_id);
       const f = fr[key];
       const cur = f?.seasons[f.seasons.length - 1];
-      const lastSn = f?.seasons.find(s => s.season === league.latest);
+      // the last SETTLED season's row, matching the column header below
+      const lastSn = f?.seasons.find(s => s.season === champSeason);
       return {
         rid: t.roster_id, fkey: key,
         name: cur?.name ?? t.team, manager: cur?.manager ?? t.manager,
@@ -153,7 +181,7 @@ export default function Home() {
         lastFin: lastSn?.finish ?? null,
       };
     }).sort((a, b) => b.sDvi - a.sDvi);
-  }, [teams, dvi, cvi, fr, league, lineup]);
+  }, [teams, dvi, cvi, fr, champSeason, lineup]);
 
   const titleRace = useMemo(() => {
     if (!indexRows) return null;
@@ -165,11 +193,10 @@ export default function Home() {
    *  and the projections file, and the board still ranks without them. */
   const powerRows = useMemo<PowerRow[] | null>(() => {
     if (!indexRows) return null;
-    return indexRows.map(r => {
-      const p = power?.get(r.rid);
-      return { ...r, rec: p?.rec ?? "—", age: p?.age ?? null };
-    });
-  }, [indexRows, power]);
+    return indexRows.map(r => ({
+      ...r, rec: power?.get(r.rid)?.text ?? "—", age: ages?.get(r.rid) ?? null,
+    }));
+  }, [indexRows, power, ages]);
 
   /** rostered owner per pid, for movers and value plays */
   const ownerOfPid = useMemo(() => {
@@ -275,8 +302,8 @@ export default function Home() {
       + (top && s.top ? `. ${top} carried the biggest share at ${fmtWar(s.top.war)} WAR.` : ".");
   })() : null;
 
-  /** last played season's column header, and its key on a records line */
-  const lastKey = league.latest ?? "Last";
+  /** last SETTLED season's column header, and its key on a records line */
+  const lastKey = champSeason ?? "Last";
 
   /**
    * The power rankings as one registry.
@@ -336,7 +363,7 @@ export default function Home() {
       role: "micro", microKey: lastKey,
       cell: r => (
         <span style={r.lastFin === 1 ? { color: "var(--acc)" } : undefined}
-          title={r.lastFin === 1 ? `${league.latest} champion` : undefined}>
+          title={r.lastFin === 1 ? `${lastKey} champion` : undefined}>
           {r.lastRec}
         </span>
       ),
@@ -356,7 +383,7 @@ export default function Home() {
         </span>
       ),
     },
-  ], [lp, lastKey, league.latest, rosterSeason]);
+  ], [lp, lastKey, rosterSeason]);
 
   /* Starters carries the key figure and takes the accent; the two records are
      read against it. Starter age keeps a band of its own rather than joining
@@ -387,12 +414,16 @@ export default function Home() {
               of its own, which would sit above the power rankings band and
               read as two headers with nothing between them */}
           <div className="chart-label" style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-            <span>Reigning champion · {league.latest ?? "—"}</span>
+            <span>Reigning champion · {champSeason ?? "—"}</span>
             <button type="button" className="dlink" onClick={() => nav(lp("/history"))}>
               League summary
             </button>
           </div>
-          {!champ ? <div className="empty">No completed season yet.</div> : <>
+          {/* `ready` separates "franchises.json hasn't landed" from "nobody has
+              won yet" — without it a slow first paint claimed the league had
+              never finished a season. */}
+          {!settled.ready ? <div className="empty">Loading…</div>
+            : !champ ? <div className="empty">No completed season yet.</div> : <>
             {/* the champion's name opens his franchise — a real anchor, so it
                 is reachable by keyboard and openable in a new tab */}
             <RouteLink to={lp(`/franchise/${champ.fkey}`)} className="blocklink"
@@ -428,7 +459,12 @@ export default function Home() {
 
         <div className="panel" style={{ margin: 0, borderTopColor: "var(--rule-2)" }}>
           <div className="chart-label">Title race · {rosterSeason} · top 4 by starter CVI</div>
-          {!titleRace ? <div className="empty">Loading indices…</div> : titleRace.map((r, i) => (
+          {/* THE CAPS GATE COMES FIRST (lib/caps): a league whose pipeline
+              never writes index_models.json 404s, the state stays null, and
+              "Loading indices…" was a permanent claim that something was on
+              its way. */}
+          {!caps.indices ? <div className="empty">Not published for this league.</div>
+            : !titleRace ? <div className="empty">Loading indices…</div> : titleRace.map((r, i) => (
             // the whole row is the link to that franchise, so it is an anchor
             // rather than a div with a click handler no keyboard could reach
             <RouteLink key={r.rid} to={lp(`/franchise/${r.fkey}`)} className="blocklink"
@@ -440,7 +476,7 @@ export default function Home() {
               </div>
               <div style={{ textAlign: "right" }}>
                 <div style={{ font: "600 15px/1.3 var(--cond)", fontVariantNumeric: "tabular-nums" }}>
-                  {power?.get(r.rid)?.rec ?? "—"}
+                  {power?.get(r.rid)?.text ?? "—"}
                 </div>
                 <div style={{ font: "400 11.5px/1.4 var(--sans)", color: "var(--dim)" }}>proj record</div>
               </div>
@@ -463,7 +499,8 @@ export default function Home() {
             Standings
           </button>
         </div>
-        {!powerRows ? <div className="empty">Loading indices…</div> : (
+        {!caps.indices ? <div className="empty">Not published for this league.</div>
+          : !powerRows ? <div className="empty">Loading indices…</div> : (
           /* records at ≤640px (MOBILE.md M5): the same registry, re-read as
              two-line records rather than a second hand-rolled copy of it */
           <DataTable cols={powerCols} groups={powerGroups} rows={powerRows} ctx={NO_CTX}
@@ -479,6 +516,7 @@ export default function Home() {
           by sign (settled with Max, 2026-08-20): one side per panel, the two
           panels structurally identical twins (§4 — same header treatment,
           same row count, same cell line count). */}
+      {caps.indices && (
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
           ["Value plays · sell high", valuePlays?.sell],
@@ -546,8 +584,14 @@ export default function Home() {
           </div>
         ))}
       </div>
+      )}
 
-      {/* ---- module row 1a: market movers as twin panels ---- */}
+      {/* ---- module row 1a: market movers as twin panels ----
+          MARKET MODULES ARE DYNASTY MODULES (lib/caps `market`). KTC and
+          FantasyCalc price a dynasty asset; in a redraft league the same
+          player's "value" is a number about somebody else's game, so the pair
+          is absent rather than dashed. */}
+      {caps.market && (
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
           ["Market movers · rising", movers?.up],
@@ -618,13 +662,16 @@ export default function Home() {
           </div>
         ))}
       </div>
+      )}
 
       {/* ---- module row 1b: dynasty movers, cross-league trade market ----
           The pattern-setter: twin panels split by sign. Packages are priced by
           the trade machine's market lens (KTC band, consolidation-adjusted),
           and the Δ is a percentage of the player's own value on that same
           scale, so a 2,400-point back and a 9,000-point QB are
-          commensurable. */}
+          commensurable. The corpus is 46k SUPERFLEX DYNASTY leagues, so it
+          says nothing about a redraft league's assets — same gate as above. */}
+      {caps.market && (
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
         {([
           [`Dynasty movers · going over value · last ${dyn?.meta.window_days ?? 7} days`, dyn?.overpaid],
@@ -702,6 +749,7 @@ export default function Home() {
           </div>
         ))}
       </div>
+      )}
 
       {/* ---- module row 2: recent waivers + recent trades ---- */}
       <div className="feeds" style={{ padding: "18px var(--pad) 0" }}>
@@ -785,6 +833,9 @@ export default function Home() {
           )}
         </div>
 
+        {/* trades.json has no producer in a league the trade analysis never
+            runs for — the panel is absent rather than permanently empty */}
+        {caps.trades && (
         <div className="feed-panel">
           <div className="band" style={{ borderTop: "none" }}>
             <span className="band-label">Recent trades</span>
@@ -868,14 +919,21 @@ export default function Home() {
           </table>
           )}
         </div>
+        )}
       </div>
 
-      <div className="footnote">
-        Starter indices price each roster's best legal lineup in that index · value plays (DVI vs CVI, index points) cover rostered players ranked inside the startable top 100 — sell-highs also need a redraft ECR rank, so players known to be out for the year don't read as market inefficiency · market movers (KTC 7-day change) cover rostered players only
-      </div>
-      <div className="footnote">
-        Dynasty movers: trades from the last {dyn?.meta.window_days ?? 7} days across {dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues · face KTC values, TE-premium-matched per league · packages carry the trade model's consolidation adjustment on non-centerpiece assets · centerpiece attribution · min {dyn?.meta.min_n ?? 3} trades
-      </div>
+      {/* each footnote covers modules that may not be on the page — a
+          methodology note for a band nobody can see is noise */}
+      {caps.indices && (
+        <div className="footnote">
+          Starter indices price each roster's best legal lineup in that index · value plays (DVI vs CVI, index points) cover rostered players ranked inside the startable top 100 — sell-highs also need a redraft ECR rank, so players known to be out for the year don't read as market inefficiency{caps.market ? " · market movers (KTC 7-day change) cover rostered players only" : ""}
+        </div>
+      )}
+      {caps.market && (
+        <div className="footnote">
+          Dynasty movers: trades from the last {dyn?.meta.window_days ?? 7} days across {dyn?.meta.leagues?.toLocaleString("en-US") ?? "—"} crawled superflex leagues · face KTC values, TE-premium-matched per league · packages carry the trade model's consolidation adjustment on non-centerpiece assets · centerpiece attribution · min {dyn?.meta.min_n ?? 3} trades
+        </div>
+      )}
     </>
   );
 }

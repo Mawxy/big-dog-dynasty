@@ -1,13 +1,14 @@
 import { useMemo } from "react";
 import type {
-  Franchises, Matchups, PickValues, PicksOwned, ProjectionsFile, Team, TradesPayload, Values,
+  Franchises, Matchups, PickValues, PicksOwned, Team, TradesPayload, Values,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { useCvi, useDvi, useProjWar } from "../lib/useIndices";
+import { useCvi, useDvi, useProjWar, useProjWar1 } from "../lib/useIndices";
+import { useCurrentPickClass, useLeagueCaps } from "../lib/caps";
 import { useLeague } from "../lib/context";
 import { ktcOf } from "../lib/values";
 import {
-  LEAGUE_TEAMS, latestSeasonOf, lineupOf, optimalLineup, pricedLineup, rosterSeasonOf,
+  LEAGUE_TEAMS, latestSeasonOf, lineupOf, optimalLineup, rosterSeasonOf,
 } from "../lib/league";
 import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 
@@ -22,6 +23,64 @@ import { pickStream, ROUND_ORD } from "../lib/rosterModel";
 
 export const TIERS = ["Early", "Mid", "Late"];
 export type Tier = "Early" | "Mid" | "Late";
+
+/* ========================================================================
+   WHAT "STARTERS" MEANS — one definition, for every screen that sums one
+   ======================================================================== */
+
+/**
+ * EACH CURRENCY PRICES ITS OWN BEST LEGAL LINEUP.
+ *
+ * There were three answers to "this franchise's starters DVI" and they
+ * disagreed by up to 50 index points: the Team screen's figure strip summed
+ * DVI over the DVI-optimal lineup, the Teams board summed DVI over the
+ * projected-WAR lineup, and roster 9 therefore read 661 on one screen and 611
+ * on the other — with four franchises swapping rank between them. A figure
+ * that changes when you tap through to it is a bug the reader can see.
+ *
+ * THE SETTLED ANSWER IS THE CLASSIC BOARD'S, because it was already settled
+ * there: PROJECT_NOTES on /teams — "each index prices its own best legal
+ * lineup" — implemented by `lib/league.pricedLineup`, which `views/Franchises`
+ * and `components/FranchisePage` have both read since before this shell
+ * existed. The best dynasty nine and the best win-now nine are different nine
+ * players, and pricing one lineup in the other's currency understates every
+ * roster whose veterans and prospects split the two roles.
+ *
+ * THE POOL IS THE WHOLE ROSTER, TAXI AND IR INCLUDED, and that is classic's
+ * rule too (`pricedLineup` pools `team.players`; `rosterModel.rosterShapes`
+ * seats "every rostered player, taxi included"). A taxi body is an ASSET —
+ * DVI and CVI price assets — so leaving him out would say his index value is
+ * zero. The Team screen's LINEUP BAND is the one place taxi and IR are
+ * dropped, and it is not an index figure at all: it is the lineup card, and
+ * you cannot field a taxi player this week.
+ *
+ * A player the currency does not price is ABSENT from the pool rather than
+ * seated at zero — the same rule `pricedLineup` follows, and the reason a
+ * roster the market never covered totals `—` instead of 0.
+ */
+export function starterSet<T extends { id: string; pos: string }>(
+  pool: readonly T[], value: (a: T) => number | null | undefined, lineup: string[],
+): Set<string> {
+  const priced = pool.flatMap(a => {
+    const v = value(a);
+    return v == null ? [] : [{ id: a.id, pos: a.pos, war: v }];
+  });
+  return optimalLineup(priced, lineup).starters;
+}
+
+/** the same definition, summed — the figure itself */
+export function starterSum<T extends { id: string; pos: string }>(
+  pool: readonly T[], value: (a: T) => number | null | undefined, lineup: string[],
+): number {
+  const seated = starterSet(pool, value, lineup);
+  let sum = 0;
+  for (const a of pool) if (seated.has(a.id)) sum += value(a) ?? 0;
+  return sum;
+}
+
+/** the band note every screen showing one of these figures prints */
+export const STARTERS_NOTE =
+  "Each index prices its own best legal lineup — the best dynasty nine and the best win-now nine can differ";
 
 /* ========================================================================
    PICK TIERS — where a future pick lands, inferred from its ORIGINAL owner
@@ -46,6 +105,16 @@ export type Tier = "Early" | "Mid" | "Late";
  * Null until rosters and projections are both in hand. A franchise the
  * projection cannot seat (no projected players) ranks last, i.e. picks Early,
  * which is what a roster with nothing on it would do.
+ *
+ * THE FIGURE FOLLOWS THE MODEL PICKER (2026-09-21). This ranked franchises on
+ * `projections.json`'s `composite[0]` — the scalar composite, one of six
+ * curves — while the League screen's power rankings, which the comment above
+ * claims it agrees with, have followed the site-wide control since it was
+ * built. On the default curve the two numbers are identical and on the other
+ * five they are not, so flipping the model repriced every board on the site
+ * except the one that decides what a pick is worth. `useProjWar1` is that
+ * same year-one figure under whichever curve the reader is on; DVI supplies
+ * the position, as it does everywhere a bare pid -> WAR map has to be seated.
  */
 export interface PickSlot { slot: number; tier: Tier }
 
@@ -53,17 +122,17 @@ export function usePickTiers(): Map<number, PickSlot> | null {
   const { meta, league } = useLeague();
   const rosterSeason = rosterSeasonOf(league);
   const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
-  const proj = useJson<ProjectionsFile>("projections.json").data;
+  const dvi = useDvi();
+  const war = useProjWar1();
   return useMemo(() => {
-    if (!teams || !proj) return null;
+    if (!teams || !dvi || !war) return null;
     const lineup = lineupOf(meta);
-    const byPid = new Map(proj.players.map(p => [p.pid, p]));
     const strength = teams.map(t => {
-      const pool = t.players.map(p => byPid.get(p))
-        .filter((p): p is NonNullable<typeof p> => !!p)
-        .map(p => ({ id: p.pid, pos: p.pos, war: p.composite?.[0] ?? 0 }));
-      const starters = optimalLineup(pool, lineup).slots.flatMap(s => s.player ? [s.player] : []);
-      return { rid: t.roster_id, war: starters.reduce((a, p) => a + p.war, 0) };
+      const pool = t.players.flatMap(pid => {
+        const d = dvi.players[pid];
+        return d ? [{ id: pid, pos: d.pos, war: war[pid] ?? null }] : [];
+      });
+      return { rid: t.roster_id, war: starterSum(pool, p => p.war, lineup) };
     }).sort((a, b) => a.war - b.war);          // weakest first = picks first
     const n = strength.length;
     const per = n / 3;
@@ -74,7 +143,7 @@ export function usePickTiers(): Map<number, PickSlot> | null {
       out.set(s.rid, { slot, tier: TIERS[k] as Tier });
     });
     return out;
-  }, [teams, proj, meta]);
+  }, [teams, dvi, war, meta]);
 }
 
 /** the tier a pick prices at: its original owner's projected slot, or Mid
@@ -143,12 +212,15 @@ export interface StandingRow {
   /** points for, and the best the roster could have scored (Sleeper's
    *  potential points; null in data built before it was carried) */
   pf: number; maxPf: number | null;
-  /** record against each week's league median score — the schedule-luck
-   *  signature. Null before a game is played; never 0-0, which would read as
-   *  a team that went even rather than one that hasn't started. */
-  med: string | null; medWins: number | null;
   played: number;
 }
+
+/* `med` / `medWins` — a record against each week's league median — were
+   computed here for every standings row in both scopes and read by nothing:
+   the League screen derives its own median line from the same matchups file
+   (screens/League.tsx), and no table ever carried the column. Removed
+   2026-09-21 along with the per-week median pass that fed them. Recover from
+   git history if the schedule-luck column is ever actually built. */
 
 /**
  * A season's standings: twelve rows, ordered as the league orders them.
@@ -164,23 +236,8 @@ export function useStandings(season: string | null) {
   return useMemo<StandingRow[] | null>(() => {
     if (!teams || !mw) return null;
     const ps = mw.playoff_start || 15;
-    // each regular-season week's league median score
-    const weekPts: Record<number, number[]> = {};
-    for (const list of Object.values(mw.teams))
-      for (const e of list) if (e[0] < ps) (weekPts[e[0]] ??= []).push(e[1]);
-    const medians: Record<number, number> = {};
-    for (const [wk, pts] of Object.entries(weekPts)) {
-      const v = pts.slice().sort((a, b) => a - b), n = v.length;
-      medians[+wk] = n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2;
-    }
     const rows = teams.map(t => {
       const reg = (mw.teams[String(t.roster_id)] || []).filter(e => e[0] < ps);
-      let mwin = 0, mloss = 0, mtie = 0;
-      for (const e of reg) {
-        const m = medians[e[0]];
-        if (m == null) continue;
-        e[1] > m ? mwin++ : e[1] < m ? mloss++ : mtie++;
-      }
       const g = t.wins + t.losses + t.ties;
       return {
         rid: t.roster_id, rank: 0, team: t.team, manager: t.manager,
@@ -188,14 +245,17 @@ export function useStandings(season: string | null) {
         rec: `${t.wins}-${t.losses}${t.ties ? `-${t.ties}` : ""}`,
         ppg: g ? t.fpts / g : 0,
         pf: t.fpts, maxPf: t.ppts ?? null,
-        med: reg.length ? `${mwin}-${mloss}${mtie ? `-${mtie}` : ""}` : null,
-        medWins: reg.length ? mwin : null,
         played: reg.length,
       };
     });
-    // wins, then points — the same tiebreak the league seeds on
-    const order = rows.slice().sort((a, b) =>
-      b.wins - a.wins || b.ppg * b.played - a.ppg * a.played);
+    /* Wins, then POINTS FOR — the same tiebreak the league seeds on, read off
+       the figure the league keeps rather than rebuilt from two others. The
+       product `ppg × played` reconstructed it out of a rate over GAMES PLAYED
+       and a count of SCHEDULED regular-season rows, which are not the same
+       denominator: in a week with a game in progress `played` is already one
+       ahead of `wins + losses`, so the product ran ahead of the real total and
+       could seed two teams the wrong way round. `pf` is the total. */
+    const order = rows.slice().sort((a, b) => b.wins - a.wins || b.pf - a.pf);
     order.forEach((r, i) => { r.rank = i + 1; });
     return order;
   }, [teams, mw]);
@@ -219,12 +279,28 @@ export interface ActTrade extends ActBase {
 export interface ActMove extends ActBase {
   kind: "move";
   /** the franchise KEY (franchises.json — the roster_id, as a string, in a
-   *  dynasty league), so a screen about one franchise can filter by identity
-   *  rather than by a name that changes most seasons */
+   *  dynasty league and the owner's Sleeper user_id in a redraft one), so a
+   *  screen about one franchise can filter by identity rather than by a name
+   *  that changes most seasons */
   key: string;
-  team: string; waiver: boolean; adds: string[]; drops: string[];
+  team: string;
+  /** the transaction's own type, straight off the log: `waiver`,
+   *  `free_agent`, `commissioner`. A boolean `waiver` flag was here instead,
+   *  which made every non-waiver move read "Free agent" — including the
+   *  commissioner moves both leagues carry (3 in Big Dog, 5 in Pizza), where
+   *  the whole point of the row is that nobody claimed anybody. */
+  type: string;
+  adds: string[]; drops: string[];
 }
 export type Activity = ActTrade | ActMove;
+
+/** what a roster move's `type` is called on screen. An unknown type prints
+ *  itself, de-underscored, rather than being folded into a wrong label. */
+export const MOVE_LABEL = (type: string): string =>
+  type === "waiver" ? "Waiver"
+    : type === "free_agent" ? "Free agent"
+      : type === "commissioner" ? "Commissioner"
+        : type.replace(/_/g, " ").replace(/^./, c => c.toUpperCase());
 
 /**
  * The league's recent moves, newest first — trades and roster moves in one
@@ -235,13 +311,24 @@ export type Activity = ActTrade | ActMove;
  * scored here: the feed states that a thing happened. What it was worth is the
  * trade machine's job, and the machine re-prices at today's values rather than
  * at the values on the day.
+ *
+ * THE ROSTER MOVES DO NOT WAIT ON THE TRADES (2026-09-21). `trades.json` is
+ * written by `trade_analysis.py`, which runs for the default league and no
+ * other, so in Pineapple Pizza the fetch 404s, the old `!trades` guard never
+ * released, and every screen built on this hook reported that the league had
+ * made no moves at all — over a transaction log holding a dozen of them in
+ * the last week. The file is now REQUESTED only where the pipeline writes one
+ * (`caps.trades`) and, where it is requested, it contributes when it lands and
+ * is simply absent when it does not. `franchises.json` is the hook's real
+ * dependency: it is the one file that answers "what happened".
  */
 export function useActivity(limit: number) {
-  const trades = useJson<TradesPayload>("trades.json").data;
+  const caps = useLeagueCaps();
+  const trades = useJson<TradesPayload>(caps.trades ? "trades.json" : null).data;
   const fr = useJson<Franchises>("franchises.json").data;
   return useMemo<Activity[] | null>(() => {
-    if (!trades || !fr) return null;
-    const list = Array.isArray(trades) ? trades : trades.trades;
+    if (!fr) return null;
+    const list = trades ? (Array.isArray(trades) ? trades : trades.trades) : [];
     const out: Activity[] = list.map((t, i) => ({
       kind: "trade" as const, id: `t${i}`,
       ts: t.ts, season: t.season, week: t.week,
@@ -257,7 +344,7 @@ export function useActivity(limit: number) {
         out.push({
           kind: "move", id: `m${key}:${i}`, key,
           ts: tx.ts, season: tx.season, week: tx.week,
-          team: name, waiver: tx.type === "waiver",
+          team: name, type: tx.type,
           adds: tx.adds ?? [], drops: tx.drops ?? [],
         });
       });
@@ -282,10 +369,10 @@ export interface Asset {
   /** FantasyCalc dynasty value, the second market. Players from the values
    *  feed; picks from FantasyCalc's own pick ladder, by tier. */
   fc: number | null;
-  /** 30-day raw market delta. RAW VALUE, never a rank delta — a rank delta is
-   *  a statement about everyone else moving. Players only; the pick feed
-   *  publishes no trend. */
-  d30: number | null;
+  /* `d30`, the 30-day raw market delta, was carried on every one of ~900
+     assets and read by nothing — the market movers modules build their own
+     rows straight off values.json (beta/movers.ts), with a window the reader
+     picks. Removed 2026-09-21. */
   /** players: projected 3-yr WAR under the current model curve.
    *  picks: Bridge A's slot/tier realized-WAR stream, summed. */
   war: number | null;
@@ -314,6 +401,10 @@ export function useAssets() {
   const dvi = useDvi();
   const cvi = useCvi();
   const war = useProjWar();
+  /** which rookie class drafts NEXT — off drafts.json, not off a guess about
+   *  when pick_value.py last ran. Null while that file is in flight and in a
+   *  league with no rookie picks. */
+  const cur = useCurrentPickClass();
 
   return useMemo<Asset[] | null>(() => {
     if (!dvi || !cvi) return null;
@@ -336,14 +427,25 @@ export function useAssets() {
         // 9160 for the same player. Everything downstream of this hook is
         // priced off it: the baskets, the ledger's market column, and the
         // KTC->DVI/CVI fit the pick indexer runs over the player field.
-        ktc: ktcOf(v, meta.tep), fc: v?.fc ?? null, d30: v?.ktcT?.["30"] ?? null,
+        ktc: ktcOf(v, meta.tep), fc: v?.fc ?? null,
         war: war?.[pid] ?? null,
       });
     }
+    /* THE CLASS DRAFTING NOW COMES OFF drafts.json (2026-09-21).
+       `pv.meta.generated_for_season + 1` is a fact about when pick_value.py
+       last ran, not about the calendar: on the data as shipped it reads 2025+1
+       = 2026, a class that drafted in May, so the pool carried 48 "2026 Pick
+       1.01–4.12" assets nobody can trade and the trade machine priced them at
+       lag 0. `useCurrentPickClass` reads the recorded rookie drafts instead —
+       2026's is on file, so the answer is 2027, which is also the first year
+       picks_owned.json has holdings for. Null while drafts.json is in flight
+       (and forever in a league with no rookie picks): the exact-slot rows wait
+       rather than being labelled with a guessed year, and the tier rows still
+       cover every season anyone owns a pick in. */
     if (pv) {
-      const cur = pv.meta.generated_for_season + 1;      // current rookie class
       const sum = (s: number[]) => s.reduce((a, x) => a + x, 0);
-      for (let r = 0; r < 4; r++)
+      const ownedYears = owned?.meta?.seasons ?? [];
+      if (cur != null) for (let r = 0; r < 4; r++)
         for (let s = 1; s <= LEAGUE_TEAMS; s++) {
           const slot = `${r + 1}.${String(s).padStart(2, "0")}`;
           const tier = TIERS[Math.min(2, Math.floor((s - 1) / 4))];
@@ -356,12 +458,15 @@ export function useAssets() {
             // the only figure available and `ktcOf` has nothing to choose from.
             ktc: pickKtc.get(`${cur} ${tier} ${ROUND_ORD[r]}`) ?? null,
             // FantasyCalc prices the class drafting now by exact slot
-            fc: pickFc.get(`${cur} Pick ${slot}`) ?? null, d30: null,
+            fc: pickFc.get(`${cur} Pick ${slot}`) ?? null,
             war: sum(pickStream(pv, tier, r + 1)),
           });
         }
-      const lastYear = Math.max(cur + 2, ...(owned?.meta?.seasons ?? []));
-      for (let y = cur + 1; y <= lastYear; y++)
+      // the TIER rows: every season a franchise holds a pick in, minus the one
+      // above if it is named by slot. With no calendar yet, every owned year.
+      const first = cur == null ? Math.min(...ownedYears) : cur + 1;
+      const lastYear = Math.max(...(cur == null ? [] : [cur + 2]), ...ownedYears);
+      for (let y = first; y <= lastYear; y++)
         for (let r = 0; r < 4; r++)
           for (const tier of TIERS)
             out.push({
@@ -369,12 +474,12 @@ export function useAssets() {
               kind: "pick", pid: null, pos: "PICK", nfl: "",
               dvi: null, cvi: null,
               ktc: pickKtc.get(`${y} ${tier} ${ROUND_ORD[r]}`) ?? null,
-              fc: fcTier(pickFc, y, r + 1, tier), d30: null,
+              fc: fcTier(pickFc, y, r + 1, tier),
               war: sum(pickStream(pv, tier, r + 1)),
             });
     }
     return out;
-  }, [dvi, cvi, war, vals, pv, owned, players, meta]);
+  }, [dvi, cvi, war, vals, pv, owned, players, meta, cur]);
 }
 
 /**
@@ -408,35 +513,17 @@ export function fcTier(
   return raw;
 }
 
-/**
- * The exact rookie-pick slot a future pick is worth, e.g. "2028 1st ≈ 1.02".
- *
- * A future pick is priced as a TIER, and "2028 Mid 2nd" means nothing to most
- * readers; the current year's board is the ruler everyone in a dynasty league
- * already has calibrated. FantasyCalc is the only feed that publishes a
- * slot-by-slot ladder, so it supplies both sides of this comparison —
- * BOTH SIDES, which is the whole point. Pricing the tier in KTC and then
- * looking that figure up on FantasyCalc's ladder compares two currencies and
- * lands on a slot by coincidence.
- *
- * FantasyCalc labels tiers `2027 1st (Early)` and slots `2026 Pick 1.01`.
- */
-export function nearestPick(
-  vals: Values | null, season: number, round: number, tier: string,
-): string | null {
-  const fc = vals?.picks?.fc;
-  if (!fc) return null;
-  const price = new Map(fc).get(`${season} ${ROUND_ORD[round - 1]} (${tier})`);
-  if (price == null) return null;
-  const ladder = fc.filter(([l]) => /Pick \d\.\d\d$/.test(l));
-  if (!ladder.length) return null;
-  let best = ladder[0], gap = Math.abs(ladder[0][1] - price);
-  for (const row of ladder) {
-    const g = Math.abs(row[1] - price);
-    if (g < gap) { gap = g; best = row; }
-  }
-  return best[0].replace(/^.*Pick /, "");
-}
+/* `nearestPick` lived here: "2028 Mid 2nd ≈ 1.02", a future pick's tier price
+   looked up on FantasyCalc's slot-by-slot ladder so a reader could read it in
+   the ruler he already has calibrated. It ALWAYS RETURNED NULL — the feed
+   publishes no such ladder. data/values.json's `picks.fc` is 24 rows, every
+   one of them a round or a tier (`2027 1st`, `2027 1st (Early)`); the only
+   `Pick x.yy` labels on the site are KeepTradeCut's, and pricing a tier in one
+   currency to look it up in another lands on a slot by coincidence, which is
+   the reason this read both ends off one feed in the first place. So the Team
+   screen's "≈ 1.02" line under a pick's market figure has never rendered.
+   Removed 2026-09-21 with its one call site; the idea needs a slot ladder
+   before it needs code. */
 
 /* ========================================================================
    TEAM VALUATION — the Rankings screen's Teams scope
@@ -444,16 +531,22 @@ export function nearestPick(
 
 export interface TeamVal {
   rid: number; team: string; manager: string;
-  /** best legal lineup, summed in each currency. Starters, not roster: depth
-   *  is a real asset but it does not start, and a rankings board answers
-   *  "who's best" rather than "who owns most". */
-  war: number; dvi: number; cvi: number;
+  /** best legal lineup, summed in each index's OWN currency — `starterSum`,
+   *  the one definition. Starters, not roster: depth is a real asset but it
+   *  does not start, and a rankings board answers "who's best" rather than
+   *  "who owns most". */
+  dvi: number; cvi: number;
   /** whole-roster market, players plus the picks they hold — a market price is
    *  what the asset would fetch, and a pick fetches something */
   market: number;
-  /** 30-day raw market delta over the same population */
-  market30: number;
 }
+
+/* `war` and `market30` were on this row and read by nothing: the Team screen
+   takes dvi / cvi / market off it and prints its own lineup WAR from the band
+   two sections below (the lineup card, taxi and IR excluded), and no screen
+   ever showed a team-level 30-day market delta. `war` also cost the hook a
+   `useProjWar` gate, so a league with no projections got null for the market
+   rank it could have had. Removed 2026-09-21. */
 
 export function useTeamValues(season: string) {
   const { meta } = useLeague();
@@ -462,24 +555,14 @@ export function useTeamValues(season: string) {
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
   const dvi = useDvi();
   const cvi = useCvi();
-  const war = useProjWar();
   const tiers = usePickTiers();
 
   return useMemo<TeamVal[] | null>(() => {
-    if (!teams || !dvi || !cvi || !war) return null;
+    if (!teams || !dvi || !cvi) return null;
     const lineup = lineupOf(meta);
     const pickKtc = new Map(vals?.picks?.ktc ?? []);
-    const pickFc = new Map(vals?.picks?.fc ?? []);
-    // projected WAR arrives as pid -> number with no position, and the lineup
-    // optimizer needs one to seat a player. DVI's position is the right source:
-    // it is the position the figure was computed for.
-    const warIdx: Record<string, { pos: string; v: number }> = {};
-    for (const [pid, d] of Object.entries(dvi.players)) {
-      const w = war[pid];
-      if (w != null) warIdx[pid] = { pos: d.pos, v: w };
-    }
     return teams.map(t => {
-      let market = 0, market30 = 0;
+      let market = 0;
       for (const pid of t.players) {
         const v = vals?.players?.[pid];
         // THIS LEAGUE'S KTC COLUMN, not the base one. A roster's market total
@@ -489,23 +572,25 @@ export function useTeamValues(season: string) {
         const k = ktcOf(v, meta.tep);
         if (!k) continue;
         market += k;
-        // the TREND stays the base feed's: KTC publishes no per-tier trends,
-        // and direction and magnitude read the same either way.
-        market30 += v?.ktcT?.["30"] ?? 0;
       }
       // picks the franchise holds, priced by tier off the ORIGINAL owner's
       // projected finish (usePickTiers) — Mid only until the projection lands
       for (const p of owned?.owned?.[String(t.roster_id)] ?? [])
         market += pickKtc.get(`${p.season} ${tierOf(tiers, p.orig)} ${ROUND_ORD[p.round - 1]}`) ?? 0;
+      // each index over its OWN best legal lineup — `starterSum`, the same
+      // rule the Teams board reads and the same one classic's Value board has
+      // always used (lib/league.pricedLineup)
+      const pool = t.players.map(pid => ({ id: pid, pos: dvi.players[pid]?.pos ?? "?" }));
       return {
         rid: t.roster_id, team: t.team, manager: t.manager,
-        war: pricedLineup(t, warIdx, (_p, r) => r.v, lineup).starters,
-        dvi: pricedLineup(t, dvi.players, (_p, r) => r.dvi, lineup).starters,
-        cvi: pricedLineup(t, cvi.players, (_p, r) => r.cvi, lineup).starters,
-        market, market30,
+        dvi: starterSum(pool, p => dvi.players[p.id]?.dvi, lineup),
+        cvi: starterSum(
+          pool.map(p => ({ ...p, pos: cvi.players[p.id]?.pos ?? p.pos })),
+          p => cvi.players[p.id]?.cvi, lineup),
+        market,
       };
     });
-  }, [teams, dvi, cvi, war, vals, owned, meta, tiers]);
+  }, [teams, dvi, cvi, vals, owned, meta, tiers]);
 }
 
 /** Dense 1..n ranks over a numeric key, highest first. */

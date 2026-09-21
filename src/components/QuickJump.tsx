@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useLeague, useLeaguePath } from "../lib/context";
+import { useLeague, useShellPath } from "../lib/context";
 import { useJson } from "../lib/useJson";
 import type { Franchises } from "../lib/types";
 import PosBadge from "./PosBadge";
@@ -14,15 +14,19 @@ interface Opt { key: string; label: string; pos?: string; to: string }
  *  `path` rebases the destinations: the beta shell passes its own mapper so a
  *  jump stays inside that shell instead of landing on the classic routes. The
  *  paths handed to it are the classic shapes (/player/:pid, /franchise/:rid) —
- *  the mapper owns any renaming. */
+ *  the mapper owns any renaming.
+ *
+ *  The DEFAULT is `useShellPath`, not `useLeaguePath`: this box also mounts on
+ *  the player page, which the beta shell renders with no `path` prop, and a
+ *  classic builder there took a beta reader out of the shell mid-jump. */
 export default function QuickJump({ path }: { path?: (p: string) => string }) {
   const { players } = useLeague();
   const [q, setQ] = useState("");
   const [sel, setSel] = useState(0);
   const [open, setOpen] = useState(false);
   const nav = useNavigate();
-  const clp = useLeaguePath();
-  const lp = path ?? clp;
+  const sp = useShellPath();
+  const lp = path ?? sp;
   const frs = useJson<Franchises>("franchises.json").data;
 
   const opts = useMemo<Opt[]>(() => {

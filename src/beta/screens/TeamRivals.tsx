@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BracketFile, Franchises, Matchups } from "../../lib/types";
 import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
@@ -20,7 +20,35 @@ import { Band, IdCell, LensStrip, NUL, TapRow, useBetaPath } from "../ui";
  * Keyed by FRANCHISE, not by roster slot: a season's rid is joined to its
  * fkey through franchises.json, so in a redraft league (franchise = owner) a
  * manager who changed slots is still one opponent.
+ *
+ * IT LOADS WHEN IT IS LOOKED AT. This table needs EVERY season's matchups
+ * (100-200 KB each) and every season's bracket, and it is the fifth section of
+ * the Team screen — below the roster, what moved and the season ledger, which
+ * is most of a phone screen each. Mounting it fired ten fetches on every visit
+ * to any franchise page, for a table most of those visits never scrolled to.
+ * An IntersectionObserver with 400px of lead starts them a screen before the
+ * band arrives, so scrolling to it looks no different; the jump button in the
+ * rail scrolls, which trips the same observer.
  */
+
+/** true once `ref`'s element has come within a screen of the viewport, and
+ *  true for ever after. Falls back to true where the API is missing — an
+ *  environment with no observer should load the table, not withhold it. */
+function useNearViewport(ref: React.RefObject<HTMLElement | null>) {
+  const [seen, setSeen] = useState(false);
+  useEffect(() => {
+    if (seen) return;
+    const el = ref.current;
+    if (!el) return;
+    if (typeof IntersectionObserver === "undefined") { setSeen(true); return; }
+    const io = new IntersectionObserver(es => {
+      if (es.some(e => e.isIntersecting)) { setSeen(true); io.disconnect(); }
+    }, { rootMargin: "400px 0px" });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [ref, seen]);
+  return seen;
+}
 
 type Phase = "reg" | "po" | "both";
 
@@ -42,8 +70,11 @@ export default function TeamRivals({ fkey, fr, seasons, rosterSeason }: {
   const { league } = useLeague();
   const [phase, setPhase] = useState<Phase>("both");
   const [files, setFiles] = useState<{ m: (Matchups | null)[]; b: (BracketFile | null)[] } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
+  const near = useNearViewport(box);
 
   useEffect(() => {
+    if (!near) return;
     let live = true;
     setFiles(null);
     Promise.all([
@@ -51,7 +82,7 @@ export default function TeamRivals({ fkey, fr, seasons, rosterSeason }: {
       Promise.all(seasons.map(s => jl<BracketFile>(`${s}/bracket.json`).catch(() => null))),
     ]).then(([m, b]) => { if (live) setFiles({ m, b }); });
     return () => { live = false; };
-  }, [seasons.join(","), league]);
+  }, [near, seasons.join(","), league]);
 
   /** season -> rid -> fkey */
   const keyOf = useMemo(() => {
@@ -132,7 +163,9 @@ export default function TeamRivals({ fkey, fr, seasons, rosterSeason }: {
   const tg = tot.w + tot.l + tot.t;
 
   return (
-    <>
+    /* the observed element is the section itself, so "is this on screen" is
+       asked of the thing the reader would be looking at */
+    <div ref={box}>
       <Band label="Head to head"
         note="all-time vs each franchise · playoffs are the winners bracket only, no placement or consolation games" />
       <LensStrip options={PHASES} value={phase} onChange={setPhase} label="Phase" />
@@ -198,6 +231,6 @@ export default function TeamRivals({ fkey, fr, seasons, rosterSeason }: {
           )}
         </tbody>
       </table>
-    </>
+    </div>
   );
 }

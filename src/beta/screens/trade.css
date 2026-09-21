@@ -108,9 +108,11 @@
 
 /* ---- the favor board ----------------------------------------------------
    (Max, 2026-09-08.) One row per currency, star adjusted, and a diverging
-   favor bar between the two figures that says which side it favors. This replaces the
-   no-verdict ledger on this screen; the "no winner" comments in beta.css
-   describe the shared `.v3-ledger`, which the offer cards still honor.
+   favor bar between the two figures that says which side it favors. This replaced
+   the no-verdict ledger on this screen, and the ledger itself is gone: `Ledger`
+   and beta.css's `.v3-ledger*` block were removed 2026-09-21 with no renderer
+   anywhere in src/. Decision #14 — a trade is never reduced to one verdict
+   figure — is held here and in lib/tradeModel.ts, where the figures are drawn.
 
    Bar anatomy: a `--band` track, a lit slab across the even zone, a 1px
    `--dim` tick at 50%, gold fill from center out to the marker, and the
@@ -233,20 +235,11 @@
 .trx-favor .go:hover { border-color: var(--acc); }
 .trx-favor .go:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 
-/* ---- the ledger, transposed ---------------------------------------------
-   Two overrides on beta.css's `.v3-ledger`, both scoped to this screen, both
-   because this ledger's COLUMNS are franchises rather than currencies.
-
-   1. THE HEADERS ARE NAMES, so they wrap. The shared header is set at
-      `line-height: 1` with .12em tracking, which is right for "MARKET" and
-      unreadable for "BABY BILLYS BIBLE BONKERS" folded onto three lines.
-   2. THE HEADLINE STEPS DOWN ON A PHONE. beta.css sets 17px for the net row
-      (21px from 900px up) on a monospaced face, whose digits are 0.6em: a
-      signed five-figure difference is seven glyphs, which wants ~71px in a
-      column that has ~69px at 375px. 15px fits it; the desktop size is
-      restated below because these selectors outrank the media query's. */
-.trx-build .v3-ledger th { line-height: 1.25; letter-spacing: .06em; }
-.trx-build .v3-ledger td .big { font-size: 15px; }
+/* `.trx-build .v3-ledger th` and `.trx-build .v3-ledger td .big` were two
+   overrides on a shared ledger this screen never rendered — beta.css's
+   `.v3-ledger*` block and the `Ledger` component that would have carried the
+   class were both removed 2026-09-21, leaving these matching nothing. Removed
+   with them, along with the 900px restatement of the second. */
 
 /* ---- the offers, side by side -------------------------------------------
    One card per offer, and inside it the same two neutral columns the trade
@@ -449,10 +442,6 @@
    ========================================================================== */
 
 @media (min-width: 900px) {
-  /* beta.css's own desktop size, restated: the phone rule above outranks its
-     media query, so leaving this out would pin the headline at 15px here */
-  .trx-build .v3-ledger td .big { font-size: 21px; }
-
   /* the favor board as a five-column table, header row and all */
   .trx-favor .hd, .trx-favor .row {
     display: grid;

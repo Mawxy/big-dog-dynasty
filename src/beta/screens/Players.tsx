@@ -7,8 +7,10 @@ import type {
   Weekly, WeeklyRow,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
-import { useCviQuery, useDviQuery, useProjWar1 } from "../../lib/useIndices";
+import { useCviQuery, useDviQuery, useOutlook1 } from "../../lib/useIndices";
+import { outlookLabel, outlookNote } from "../../lib/outlook";
 import { fmt } from "../../lib/stats";
 import { ktcOf } from "../../lib/values";
 import {
@@ -42,8 +44,8 @@ import {
   fmtUsage, loadUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageIndex, type UsageKey,
 } from "../../lib/usage";
 import {
-  filterLabel, filterNeeds, parseFilters, passes, seasonFacts, serializeFilters,
-  type FactsIndex, type Filter,
+  filterFieldsFor, filterLabel, filterNeeds, parseFilters, passes, seasonFacts,
+  serializeFilters, type FactsIndex, type Filter,
 } from "../filters";
 import FilterSheet from "../FilterSheet";
 import {
@@ -569,6 +571,14 @@ function startsBy(mw: Matchups, teams: Team[]) {
 
 export default function Players() {
   const { meta, players, league } = useLeague();
+  /* THE VALUE TENSE IS ONE LEAGUE'S FILES. Its population is dvi.json's —
+     every player the model prices — so in a league the index runs skip there
+     is no board at all, and the tense used to land on "The board didn't load",
+     which is a claim about a fetch rather than about the pipeline. The Stats
+     tense reads summary / matchups / teams, which every league on the board
+     has, so that is where a league with no indices opens and the Value row in
+     the View sheet says why it is disabled. */
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const rosterSeason = rosterSeasonOf(league);
   const latest = latestSeasonOf(meta);
@@ -594,7 +604,14 @@ export default function Players() {
      making it the default: the segment still opens on the newest settled
      season, which is what a reader almost always wants, and all-time is one tap
      further rather than a tense of its own. */
-  const [scope, setScope] = useScope(played, { allowAll: true });
+  const [urlScope, setScope] = useScope(played, { allowAll: true });
+  /* Forced rather than redirected: the Value tense is the ABSENCE of the scope
+     params (Scope.tsx — "a link to the site as it ships carries no setting that
+     only means unchanged"), so a league with no price board opens on Stats
+     without rewriting anyone's URL. */
+  const scope: ScopeSel = caps.indices || urlScope.scope === "history"
+    ? urlScope
+    : { scope: "history", season: played[0] };
   const hist = scope.scope === "history";
   const season = hist ? scope.season : null;
   /** every settled season pooled into one row per player */
@@ -613,14 +630,25 @@ export default function Players() {
   const loc = useLocation();
   const navF = useNavigate();
   const filters = useMemo(() => parseFilters(new URLSearchParams(loc.search).get("f")), [loc.search]);
+  /* PUSH, NOT REPLACE. `filters.ts` states the contract — "a board someone
+     shows you should be the board they were looking at, and Back should undo a
+     criterion" — and replacing the entry made the second half of that false:
+     every criterion overwrote the last, so Back left the whole filtered board
+     at once and, from the sheet, could not walk back through the criteria at
+     all. This is the same call `Scope.tsx` makes for the tense, for the same
+     reason: a change the reader made is a place they can back out of. */
   const setFilters = (fs: Filter[]) => {
     const qs = new URLSearchParams(loc.search);
     if (fs.length) qs.set("f", serializeFilters(fs)); else qs.delete("f");
     const str = qs.toString();
-    navF({ pathname: loc.pathname, search: str ? `?${str}` : "" }, { replace: true });
+    navF({ pathname: loc.pathname, search: str ? `?${str}` : "" });
   };
   const [filterOpen, setFilterOpen] = useState(false);
   const needs = filterNeeds(filters);
+  /** the criteria this league's pipeline can actually answer. Offering "DVI ≥
+   *  50" where no dvi.json is written is a control whose only outcome is an
+   *  empty board reading "no match" — see `filterFieldsFor`. */
+  const filterFields = useMemo(() => filterFieldsFor(caps), [caps]);
   const [open, setOpen] = useState<string | null>(null);
 
   /* WHICH HALF OF THE SEASON. A filter rather than a scope segment: the tense
@@ -637,8 +665,10 @@ export default function Players() {
      box score's. */
   const [measure, setMeasure] = useState<"box" | "usage">("box");
   /** the Maxalytics lens is on. Named "usage" in the code since the day it was
-   *  built; the chip says Maxalytics (Max, 2026-09-17). */
-  const usage = hist && measure === "usage";
+   *  built; the chip says Maxalytics (Max, 2026-09-17). It needs usage.json,
+   *  which `usage_stats.py` writes for the home league only — without it every
+   *  column on the lens is an em dash, so the lens is not offered. */
+  const usage = hist && measure === "usage" && caps.usage;
   const [keyOpen, setKeyOpen] = useState(false);
   /* THE VIEW SHEET (Max, 2026-09-17): tense, season, phase and lens, behind
      the band. See the ViewSheet component at the foot of this file. */
@@ -695,49 +725,78 @@ export default function Players() {
 
   const [wins, setWins] = useState<WinShareIndex | null>(null);
   const [wkPts, setWkPts] = useState<WeekPointsIndex | null>(null);
-  /* the usage files, fetched the first time the lens is picked and never on
-     the box-score board: five small files nobody asked for otherwise */
+  /* THE USAGE FILES, FOR THE SEASONS ON SCREEN. The comment here said these
+     were "fetched the first time the lens is picked" and they were not: the
+     effect fired on the Stats tense whatever the lens, over EVERY season,
+     which is four files of ~165 KB each — and the box score reads exactly one
+     figure out of them (snap share) for exactly one season. Scoped to the
+     seasons in view: the loaders cache per (league, season list), so a narrower
+     list is a smaller download and switching seasons costs one file. */
   const [usg_, setUsg] = useState<UsageIndex | null>(null);
+  const viewSeasons = useMemo(
+    () => (allTime ? played : oneSeason ? [oneSeason] : []),
+    [allTime, played, oneSeason]);
   useEffect(() => {
-    if (!hist || !played.length) return;
+    if (!hist || !caps.usage || !viewSeasons.length) return;
     let live = true;
-    loadUsage(played).then(u => { if (live) setUsg(u); }).catch(() => {});
+    loadUsage(viewSeasons).then(u => { if (live) setUsg(u); }).catch(() => {});
     return () => { live = false; };
-  }, [hist, played]);
+  }, [hist, caps.usage, viewSeasons]);
 
   /* THE POOLED WEEK SCORES, ON DRAWER OPEN. Half a megabyte across four
      seasons, so it is not fetched with the board and not fetched at all in the
      single-season scope, which already pulls the one file it needs. `open`
      rather than the row id in the deps: the second drawer costs nothing. */
   useEffect(() => {
-    if (!hist || !open || !played.length) return;
+    if (!hist || !open || !viewSeasons.length) return;
     if (!allTime && phase !== "both") return;
     let live = true;
-    loadWeekPoints(played).then(w => { if (live) setWkPts(w); }).catch(() => {});
+    loadWeekPoints(viewSeasons).then(w => { if (live) setWkPts(w); }).catch(() => {});
     return () => { live = false; };
-  }, [hist, open, allTime, phase, played]);
+  }, [hist, open, allTime, phase, viewSeasons]);
 
   useEffect(() => {
     if (!hist || !played.length) return;
     let live = true;
+    /* HONORS STAY WHOLE-LEAGUE, and this is the one loader that must. The
+       ELITE bar is a p98 of season WAR at each position POOLED OVER EVERY
+       SEASON (lib/honors) — one twelve-team season is far too thin a
+       population for a 98th percentile, and a bar recomputed per scope would
+       move under a player's feet every time the reader changed year. So it is
+       scoped to the league, not to the view, on purpose. The files it reads
+       beyond the ones this board already holds are the other seasons'
+       summaries and brackets. */
     loadHonors(played).then(h => { if (live) setHonors(h); }).catch(() => {});
-    loadRecords(played).then(r => { if (live) setRecs(r); }).catch(() => {});
-    /* NOT FATAL IF IT DROPS. winshare.json is newer than the seasons around it
-       and a deploy can be missing one; the column reads the em dash for that
-       season and the rest of the board stands. */
-    loadWinShare(played).then(w => { if (live) setWins(w); }).catch(() => {});
     return () => { live = false; };
   }, [hist, played]);
 
   useEffect(() => {
-    if (phase === "reg" || !hist || !played.length) return;
+    if (!hist || !viewSeasons.length) return;
+    let live = true;
+    /* THE SEASONS IN VIEW, NOT EVERY SEASON. Both of these are read back
+       season by season — `recordsOf(recs, pid, [season])`, `winShareOf(wins,
+       pid, [season])` — with no cross-season derivation anywhere in either, so
+       a single-season board was pulling three extra matchups files (100-200 KB
+       each) and three extra win-share files to look at one year. */
+    loadRecords(viewSeasons).then(r => { if (live) setRecs(r); }).catch(() => {});
+    /* NOT FATAL IF IT DROPS. winshare.json is newer than the seasons around it
+       and a deploy can be missing one; the column reads the em dash for that
+       season and the rest of the board stands. */
+    loadWinShare(viewSeasons).then(w => { if (live) setWins(w); }).catch(() => {});
+    return () => { live = false; };
+  }, [hist, viewSeasons]);
+
+  useEffect(() => {
+    if (phase === "reg" || !hist || !viewSeasons.length) return;
     let live = true;
     setPostErr(false);
-    loadPostseason(played)
+    // same rule: `postseasonOf` is read per season, so the index only needs the
+    // seasons the board is pooling
+    loadPostseason(viewSeasons)
       .then(p => { if (live) setPost(p); })
       .catch(() => { if (live) setPostErr(true); });
     return () => { live = false; };
-  }, [phase, hist, played]);
+  }, [phase, hist, viewSeasons]);
 
   useEffect(() => {
     // the career index: all-time's population, and any season criterion's facts
@@ -756,12 +815,20 @@ export default function Players() {
   const cviQ = useCviQuery();
   // YEAR-1 projected WAR, not the 3-year total: on a board beside PPG and
   // CVI, "Proj WAR" reads as next season (settled with Max, 2026-08-31).
-  const projWar = useProjWar1();
-  /* projections_matrix.json is already in flight for `projWar`; reading it
+  //
+  // …and in week 4 of that season it reads as THIS season, which is four
+  // settled weeks plus ten fourteenths of a projection, not fourteen. So the
+  // cell carries `outlook` (lib/outlook) rather than the raw year-1 rate, the
+  // header and the band say so, and the column sorts by what it prints. With
+  // no `inseason` block in the matrix — the offseason, and all data built
+  // before 2026-09-21 — `outlook` IS the full-season figure and nothing here
+  // changes. Everything that PRICES a player keeps `useProjWar1`.
+  const ol = useOutlook1();
+  /* projections_matrix.json is already in flight for `ol`; reading it
      directly costs one more `.then` on the same cached promise and is what
      supplies age and the analog curve, neither of which the index files carry.
      The three model files are NOT gated on the tense the way the market files
-     below are: useDvi/useCvi/useProjWar1 have no "don't fetch" form, and forking
+     below are: useDvi/useCvi/useOutlook1 have no "don't fetch" form, and forking
      the projection-model logic into this screen to get one would put a second
      publisher on the number the masthead control drives. */
   /* …unless a filter asks: an age or KTC criterion on the Stats board needs
@@ -797,7 +864,7 @@ export default function Players() {
         f: {
           dvi: d.dvi,
           cvi: cvi.players[pid]?.cvi ?? null,
-          war: projWar?.[pid] ?? null,
+          war: ol.rows[pid]?.outlook ?? null,
           // through ktcOf, never row.ktc: KTC publishes four ladders and this
           // league sits on one of them (meta.tep). Reading the base column
           // prices a TE-premium league's tight ends in the wrong market.
@@ -808,7 +875,7 @@ export default function Players() {
       };
     });
   }, [hist, dviQ.data, cviQ.data, ecrQ.data, valsQ.data, rosQ.data, mxQ.data,
-    projWar, players, meta.tep]);
+    ol, players, meta.tep]);
 
   /* ---- STATS: one settled season ---------------------------------------- */
 
@@ -956,9 +1023,8 @@ export default function Players() {
      floor here: a one-game sample IS the postseason, and filtering it out
      would leave nothing. The reader's floor is the start filter instead. */
 
-  const postSeasons = useMemo(
-    () => (allTime ? played : oneSeason ? [oneSeason] : []),
-    [allTime, played, oneSeason]);
+  /** the same list the indexes above are loaded over — the seasons on screen */
+  const postSeasons = viewSeasons;
 
   const postPop = useMemo<Row[] | null>(() => {
     if (phase !== "post" || !hist || !post) return null;
@@ -1072,31 +1138,47 @@ export default function Players() {
     if (!usage) return null;
     const base = allTime ? allPop : histPop;
     if (!base) return null;
-    const scope = allTime ? played : oneSeason ? [oneSeason] : [];
     return base.map(r => {
-      const u = usageOf(usg_, r.pid, scope, phase);
+      const u = usageOf(usg_, r.pid, viewSeasons, phase);
       // the row's own box-score figures stay: WAR and WS lead this lens too
       const f: Row["f"] = { ...r.f };
       for (const k of Object.keys(f)) if (k in USAGE_LABEL) delete f[k as UsageKey];
       if (u) for (const [k, v] of Object.entries(u)) if (k !== "g") f[k as UsageKey] = v as number;
       return { ...r, f };
     });
-  }, [usage, allTime, allPop, histPop, usg_, played, oneSeason, phase]);
+  }, [usage, allTime, allPop, histPop, usg_, viewSeasons, phase]);
   /* THE BOX SCORE BORROWS ONE FIGURE from the same file: snap share, merged
      onto the league rows under the phase in force. Until usage.json lands
      the column reads the em dash and nothing else waits on it. */
   const snapPop = useMemo<Row[] | null>(() => {
     if (!hist || usage || !boxPop) return boxPop;
     if (!usg_) return boxPop;
-    const scope = allTime ? played : oneSeason ? [oneSeason] : [];
     return boxPop.map(r => {
-      const v = usageOf(usg_, r.pid, scope, phase)?.snap_pct;
+      const v = usageOf(usg_, r.pid, viewSeasons, phase)?.snap_pct;
       return v == null ? r : { ...r, f: { ...r.f, snap_pct: v } };
     });
-  }, [hist, usage, boxPop, usg_, allTime, played, oneSeason, phase]);
+  }, [hist, usage, boxPop, usg_, viewSeasons, phase]);
   const population = usage ? usagePop : snapPop;
-  const cols = usage ? maxaCols(pos) : hist ? HIST_COLS : CUR_COLS;
-  const grps = usage ? maxaGrps(pos) : hist ? HIST_GRPS : CUR_GRPS;
+  /* The box score's snap-share column is one figure borrowed from usage.json,
+     so it goes where that file does. A column that is an em dash in every row
+     of every season is not a column. */
+  const histCols = useMemo(
+    () => (caps.usage ? HIST_COLS : HIST_COLS.filter(c => c.id !== "snap_pct")),
+    [caps.usage]);
+  const histGrps = useMemo(
+    () => (caps.usage ? HIST_GRPS : [{ label: "Production", span: 3 }, ...HIST_GRPS.slice(1)]),
+    [caps.usage]);
+  /** THE HEADER FOLLOWS THE FIGURE. Mid-season the Current tense's WAR cell is
+   *  an outlook, not a full-season projection, so the header stops claiming
+   *  otherwise; `short` stays "WAR" because the phone strip has 66px a segment
+   *  and the band above it already names the split. */
+  const curCols = useMemo(
+    () => (ol.inseason
+      ? CUR_COLS.map(c => (c.id === "war" ? { ...c, label: "WAR outlook" } : c))
+      : CUR_COLS),
+    [ol.inseason]);
+  const cols = usage ? maxaCols(pos) : hist ? histCols : curCols;
+  const grps = usage ? maxaGrps(pos) : hist ? histGrps : CUR_GRPS;
   /** the micro line's preferred keys; the strip itself carries every column */
   const strip = usage ? maxaStrip(pos) : hist ? HIST_STRIP : CUR_STRIP;
   const stripAll: Key[] = cols.map(c => c.id);
@@ -1157,7 +1239,8 @@ export default function Players() {
     for (const [pid, d] of Object.entries(dviQ.data?.players ?? {})) at(pid).dvi = d.dvi;
     for (const [pid, c] of Object.entries(cviQ.data?.players ?? {})) at(pid).cvi = c.cvi;
     for (const m of mxQ.data?.players ?? []) if (m.age != null) at(m.pid).age = m.age;
-    for (const [pid, w] of Object.entries(projWar ?? {})) at(pid).pwar = w;
+    // the DISPLAYED figure, so "Proj WAR ≥ 0.5" cuts on the number in the cell
+    for (const [pid, r] of Object.entries(ol.rows)) at(pid).pwar = r.outlook;
     for (const [pid, v] of Object.entries(valsQ.data?.players ?? {})) {
       const k = ktcOf(v, meta.tep);
       if (k != null) at(pid).ktc = k;
@@ -1169,7 +1252,7 @@ export default function Players() {
     }
     for (const [pid, rows] of Object.entries(career ?? {})) Object.assign(at(pid), seasonFacts(rows));
     return out;
-  }, [filters.length, dviQ.data, cviQ.data, mxQ.data, projWar, valsQ.data, ecrQ.data, career, meta.tep]);
+  }, [filters.length, dviQ.data, cviQ.data, mxQ.data, ol, valsQ.data, ecrQ.data, career, meta.tep]);
   /* a criterion whose file has not landed yet must not empty the board for a
      frame and call it "no match" */
   const factsReady = !filters.length || (
@@ -1326,7 +1409,8 @@ export default function Players() {
         </div>
       )}
       {filterOpen && (
-        <FilterSheet filters={filters} onChange={setFilters} onClose={() => setFilterOpen(false)}
+        <FilterSheet filters={filters} fields={filterFields}
+          onChange={setFilters} onClose={() => setFilterOpen(false)}
           count={ready && rows ? rows.length : null} />
       )}
 
@@ -1410,6 +1494,15 @@ export default function Players() {
             {usage && pos === "ALL" && (
               <span className="band-note plx-hint">pick a position for its own columns</span>
             )}
+            {/* the one thing the Value tense's columns cannot say for
+                themselves: how much of the season the WAR column is already
+                reporting rather than projecting. Not `.plx-hint` — that hides
+                below 900px, and a phone reader needs this more, not less. */}
+            {!hist && ol.inseason && (
+              <span className="band-note" title={outlookNote(ol.inseason)}>
+                {outlookLabel(ol.inseason)}
+              </span>
+            )}
             <button type="button" className={`plx-keybtn${keyOpen ? " on" : ""}`}
               aria-expanded={keyOpen} onClick={() => setKeyOpen(v => !v)}>
               {keyOpen ? "Close" : "Key"}
@@ -1419,6 +1512,7 @@ export default function Players() {
       {viewOpen && (
         <ViewSheet scope={scope} setScope={setScope} played={played}
           phase={phase} setPhase={setPhase} measure={measure} setMeasure={setMeasure}
+          hasValue={caps.indices} hasUsage={caps.usage} league={league.name}
           onClose={() => setViewOpen(false)} />
       )}
 
@@ -1431,8 +1525,13 @@ export default function Players() {
           {cols.map(c => (
             <Fragment key={c.id}>
               <dt>{c.label}{c.short ? ` · ${c.short}` : ""}</dt>
-              <dd>{(hist && phase === "post" ? DEF_POST[c.id]
-                : hist && phase === "both" ? DEF_BOTH[c.id] : undefined) ?? DEF[c.id]}</dd>
+              <dd>{!hist && c.id === "war" && ol.inseason
+                ? `${DEF.war} Mid-season this column is an OUTLOOK rather than a `
+                  + `projection: ${outlookNote(ol.inseason)}. Every price on the site — `
+                  + `DVI, CVI, the market bridge, the trade machine — stays on the `
+                  + `full-season rate, because banked WAR has no trade value.`
+                : (hist && phase === "post" ? DEF_POST[c.id]
+                  : hist && phase === "both" ? DEF_BOTH[c.id] : undefined) ?? DEF[c.id]}</dd>
             </Fragment>
           ))}
         </dl>
@@ -1446,11 +1545,19 @@ export default function Players() {
            things it is, because "no rows" also happens when the chips and the
            search box have narrowed the list to nothing. */
         : rows.length === 0 ? (
+          /* THREE REASONS A BOARD IS EMPTY, and they are three different
+             facts. The second branch used to be unreachable — both arms tested
+             `oneSeason > latest`, so the first always won and "Stats · 2026 ·
+             Playoffs" in September read "Nothing matches those filters" over a
+             season whose bracket simply has not been played. The postseason
+             test comes FIRST now and asks the right question: a bracket exists
+             once the postseason index has a row for the season, and the
+             regular season being under way says nothing about it. */
           <div className="empty">
-            {hist && oneSeason && oneSeason > latest
-              ? `No scored games in ${oneSeason} yet — this fills in as the season is played.`
-              : hist && phase === "post" && oneSeason && oneSeason > latest
-                ? `${oneSeason} has no bracket yet.`
+            {hist && phase === "post" && oneSeason && !post?.seasons.includes(oneSeason)
+              ? `${oneSeason} has no bracket yet — the postseason fills in once it is played.`
+              : hist && oneSeason && oneSeason >= latest && !filters.length && !q && pos === "ALL"
+                ? `No scored games in ${oneSeason} yet — this fills in as the season is played.`
                 : "Nothing matches those filters."}
           </div>
         ) : (
@@ -1618,12 +1725,19 @@ export default function Players() {
           </>
         ) : hist ? (
           <>
+            {/* NO COUNTS IN THIS SENTENCE (2026-09-21). It read "the league's 108
+                startable slots" and "the 84 games it actually won" — one week of one
+                twelve-team season, printed under every scope there is: under All-time,
+                under a season one week old, and under a league of another size whose
+                figures are neither. Both are derived facts and neither is worth a
+                derivation here, because the claim the sentence is making is about the
+                RULE, not the count. */}
             WAR and win share are this board's own measures rather than the league's, so
             they sit under Maxalytics and not on the box score. WAR is wins over the best
-            player left out of the league's 108 startable slots, regular season only; win
-            share divides each won game's 1.0 among the nine who started it, half by Shapley
-            win-probability contribution and half by points over replacement, so the
-            league's shares sum to the 84 games it actually won and a total reads as "he
+            player left out of the league's startable slots that week, regular season only;
+            win share divides each won game's 1.0 among the nine who started it, half by
+            Shapley win-probability contribution and half by points over replacement, so the
+            league's shares sum to the games it actually won and a total reads as "he
             accounted for 3.2 of his team's 9 wins". WAR is what he was worth; win share is
             how much of the winning was his. The two records are the
             weeks he was there, not what he did:
@@ -1647,8 +1761,14 @@ export default function Players() {
           </>
         ) : (
           <>
-            DVI prices the dynasty horizon and CVI the coming season, both 0–100. Proj WAR
-            is the model's projection for the coming season. KTC and FantasyCalc are dynasty market prices in their own
+            DVI prices the dynasty horizon and CVI the coming season, both 0–100.{" "}
+            {ol.inseason
+              ? `WAR outlook is what ${ol.inseason.season} is tracking to finish at — the WAR `
+                + `he has banked so far plus the rest of the full-season projection, prorated `
+                + `to the weeks still to be played. The indices beside it, and every price on `
+                + `the site, stay on the full-season rate: banked WAR has no trade value.`
+              : "Proj WAR is the model's projection for the coming season."}
+            {" "}KTC and FantasyCalc are dynasty market prices in their own
             currencies; ECR is the FantasyPros redraft consensus, where 1 is best, so a rookie
             sits below his dynasty price by design. None of them are blended. The position
             badge carries rank within position for the active sort. What a player actually did
@@ -1678,7 +1798,8 @@ export default function Players() {
    ======================================================================== */
 
 function ViewSheet({
-  scope, setScope, played, phase, setPhase, measure, setMeasure, onClose,
+  scope, setScope, played, phase, setPhase, measure, setMeasure,
+  hasValue, hasUsage, league, onClose,
 }: {
   scope: ScopeSel;
   setScope: (s: ScopeSel) => void;
@@ -1686,6 +1807,11 @@ function ViewSheet({
   played: string[];
   phase: Phase; setPhase: (p: Phase) => void;
   measure: "box" | "usage"; setMeasure: (m: "box" | "usage") => void;
+  /** whether this league HAS a price board / a usage lens. A choice that
+   *  cannot be made is shown and disabled rather than hidden: absent is what
+   *  makes a reader assume the board cannot do it at all. */
+  hasValue: boolean; hasUsage: boolean;
+  league: string;
   onClose: () => void;
 }) {
   const hist = scope.scope === "history";
@@ -1696,8 +1822,10 @@ function ViewSheet({
     <Sheet label="What this board shows" title="View" onClose={onClose}>
       <div className="plx-view">
         <div className="plx-vgrp">Figures</div>
-        <SheetRow name="Value" meta="what they are worth now"
-          on={!hist} mark={here(!hist)}
+        <SheetRow name="Value"
+          meta={hasValue ? "what they are worth now"
+            : `not published for ${league} — DVI, CVI and the projection are the home league's`}
+          on={!hist} mark={here(!hist)} disabled={!hasValue}
           onClick={pick(() => setScope({ scope: "current" }))} />
         <SheetRow name="Stats" meta="what they did"
           on={hist} mark={here(hist)}
@@ -1711,11 +1839,15 @@ function ViewSheet({
         {hist && (
           <>
             <div className="plx-vgrp">Measures</div>
-            <SheetRow name="Box score" meta="games, points, the rate, snap share, the two records"
+            <SheetRow name="Box score"
+              meta={`games, points, the rate${hasUsage ? ", snap share" : ""}, the two records`}
               on={measure === "box"} mark={here(measure === "box")}
               onClick={pick(() => setMeasure("box"))} />
-            <SheetRow name="Maxalytics" meta="WAR and win share, expected points, the position's usage"
+            <SheetRow name="Maxalytics"
+              meta={hasUsage ? "WAR and win share, expected points, the position's usage"
+                : `not published for ${league} — the nflverse usage run is the home league's`}
               on={measure === "usage"} mark={here(measure === "usage")}
+              disabled={!hasUsage}
               onClick={pick(() => setMeasure("usage"))} />
 
             <div className="plx-vgrp">Season</div>

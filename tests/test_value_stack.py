@@ -19,7 +19,9 @@ source when its waa_war CSV exists) and its consequence at the aggregation
 layer (`summarize` publishes a skipped season as absent, a zeroed one as a
 real observation that moves `raw`). See the report accompanying this suite.
 """
+import json
 import sys
+import tempfile
 import unittest
 import warnings
 from pathlib import Path
@@ -201,6 +203,76 @@ class BridgeBMonotonicityTest(unittest.TestCase):
     def test_spearman_reads_a_perfect_monotone_join_as_one(self):
         self.assertEqual(vb.spearman([1, 2, 3, 4], [10, 20, 30, 40]), 1.0)
         self.assertEqual(vb.spearman([1, 2, 3, 4], [40, 30, 20, 10]), -1.0)
+
+
+class BridgeBSeedSeasonTest(unittest.TestCase):
+    """WHICH season the `war25` sanity fit is fit on.
+
+    That column is "market value -> what he actually produced last year", and
+    it was seeded off the newest NON-EMPTY summary.json. Empty was the right
+    test for the offseason placeholder summary and the wrong one the week the
+    new season kicks off: on 2026-09-15 the 2026 summary gained one scored week
+    and the fit moved onto it, published under a heading that says last season.
+    The spearman fell from ~0.74 to 0.585 — a real-looking number, fit on a
+    single game.
+
+    The seed is now the last COMPLETED season (a decided title game) that also
+    has realized WAR to fit against.
+    """
+
+    def tree(self, tmp, summaries, complete=()):
+        """A league dir with the two files the seed is read from."""
+        d = Path(tmp)
+        (d / "meta.json").write_text(json.dumps({
+            "seasons": [str(s) for s in sorted(summaries)],
+            "latest": str(max(summaries)),
+            "rosterSeason": str(max(summaries))}), encoding="utf-8")
+        for season, rows in summaries.items():
+            (d / str(season)).mkdir(parents=True, exist_ok=True)
+            (d / str(season) / "summary.json").write_text(json.dumps(rows),
+                                                          encoding="utf-8")
+            if season in complete:
+                (d / str(season) / "bracket.json").write_text(json.dumps({
+                    "winners": [{"r": 3, "p": 1, "w": 2, "l": 6}]}), encoding="utf-8")
+        return d
+
+    def test_a_one_week_season_is_not_last_season(self):
+        """THE 2026-09-15 CASE: 2026 has a scored week, so the old rule took
+        it. 2025 is the one with a champion."""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.tree(tmp, {2024: [["a"]], 2025: [["a"]], 2026: [["a"]]},
+                          complete=(2024, 2025))
+            self.assertEqual(vb.latest_summary_season(d), 2026)   # the old rule
+            self.assertEqual(vb.seed_season(d), 2025)
+
+    def test_it_advances_once_the_season_is_decided(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.tree(tmp, {2024: [["a"]], 2025: [["a"]], 2026: [["a"]]},
+                          complete=(2024, 2025, 2026))
+            self.assertEqual(vb.seed_season(d), 2026)
+
+    def test_an_empty_summary_offseason_still_skips_the_placeholder(self):
+        """build_site_data writes a summary.json for the upcoming season the
+        moment the league exists. The completed-season rule rejects it for the
+        same reason the non-empty rule did."""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.tree(tmp, {2024: [["a"]], 2025: [["a"]], 2026: []},
+                          complete=(2024, 2025))
+            self.assertEqual(vb.seed_season(d), 2025)
+
+    def test_a_completed_season_with_no_realized_war_falls_back(self):
+        """There is nothing to fit on, so the fit takes the newest season that
+        does carry rows rather than producing an empty curve."""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.tree(tmp, {2024: [["a"]], 2025: []}, complete=(2024, 2025))
+            self.assertEqual(vb.seed_season(d), 2024)
+
+    def test_a_league_with_no_finished_season_still_answers(self):
+        """A first-year league, or one whose brackets were never committed.
+        The old rule is the floor this sits on."""
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.tree(tmp, {2025: [["a"]], 2026: [["a"]]})
+            self.assertEqual(vb.seed_season(d), 2026)
 
 
 class BridgeASlotsTest(unittest.TestCase):

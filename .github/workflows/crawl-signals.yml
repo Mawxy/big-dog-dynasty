@@ -5,7 +5,11 @@ name: Crawl - signals (discovery + roster/start rates)
 # means each 6-hour run reaches new leagues (and refreshes stale ones).
 on:
   schedule:
-    - cron: "0 0,6,12,18 * * *"   # every 6h; trades/drafts run an hour later
+    # every 6h; trades run ~an hour later, drafts two. Minute :11, not :00 —
+    # every schedule in this repo used to fire on the hour, which is the most
+    # congested slot in Actions; see the cron comment in data-refresh.yml. The
+    # hours and the relative spacing are unchanged.
+    - cron: "11 0,6,12,18 * * *"
   workflow_dispatch:
     inputs:
       max_leagues:

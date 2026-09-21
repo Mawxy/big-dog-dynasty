@@ -55,6 +55,7 @@ import json
 from pathlib import Path
 from ioutil import atomic_write
 from leaguepaths import DataDir
+from seasons import last_completed_season
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -126,21 +127,17 @@ def spearman(x, y):
     return round(cov / (vx * vy), 3) if vx and vy else 0.0
 
 
-def latest_summary_season():
-    """Newest season with a NON-EMPTY summary.json — the realized-WAR seed.
+def latest_summary_season(data_dir=None):
+    """Newest season with a NON-EMPTY summary.json.
 
-    Mirrors pick_value.latest_history_season(): the default has to advance on
-    its own, or the war25 sanity fit quietly keeps pricing against whatever
-    year was hardcoded (the workflows pass nothing, so from 2027 a literal 2025
-    would have been silently wrong rather than absent).
-
-    Non-empty is the whole trick. build_site_data writes a summary.json for
-    every season it sees, so the upcoming one is present and EMPTY all
-    offseason — seeding off it would fit the sanity curve on nothing. This is
-    the same distinction meta.json draws between `latest` and `rosterSeason`.
+    NO LONGER THE SEED — see seed_season() below. Kept as the floor that check
+    sits on: a completed season with an empty summary.json has no realized WAR
+    to fit against, and neither does a league whose brackets were never
+    committed, so this is what the seed falls back to.
     """
+    data_dir = DATA if data_dir is None else data_dir
     yrs = []
-    for d in DATA.iterdir():
+    for d in data_dir.iterdir():
         f = d / "summary.json"
         if not (d.is_dir() and d.name.isdigit() and f.exists()):
             continue
@@ -152,14 +149,42 @@ def latest_summary_season():
     return max(yrs) if yrs else None
 
 
+def seed_season(data_dir=None):
+    """Last COMPLETED season with realized WAR to fit against.
+
+    The `war25` fit is "market value -> what he actually produced last year",
+    and a season that is one week old is not a year of production. Non-empty
+    summary.json used to stand in for "finished", which held right up until the
+    upcoming season kicked off: on 2026-09-15 this started seeding off a 2026
+    summary carrying a single scored week, and the sanity spearman fell from
+    ~0.74 to 0.585 — a fit on one game, published under a column that says
+    "last season".
+
+    So the seed is seasons.last_completed_season() (a decided title game),
+    which is the same clock project_war.py and draft_analysis.py run on. It
+    still has to carry a non-empty summary, and falls back to the newest one
+    that does when no season has finished.
+    """
+    data_dir = DATA if data_dir is None else data_dir
+    done = last_completed_season(data_dir)
+    if done is not None:
+        f = data_dir / str(done) / "summary.json"
+        try:
+            if json.loads(f.read_text(encoding="utf-8")):
+                return done
+        except (OSError, ValueError):
+            pass
+    return latest_summary_season(data_dir)
+
+
 # ------------------------------------------------------------------- main --
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--seed-season", type=int, default=None,
                     help="season whose summary.json is the realized-WAR sanity "
-                         "fit (default: newest season with a summary.json)")
+                         "fit (default: the last completed season)")
     args = ap.parse_args()
-    seed = args.seed_season if args.seed_season is not None else latest_summary_season()
+    seed = args.seed_season if args.seed_season is not None else seed_season()
     if seed is None:
         raise SystemExit("no season has a summary.json — run build_site_data.py first")
 

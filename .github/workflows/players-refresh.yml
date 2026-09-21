@@ -3,11 +3,13 @@ name: Players map refresh (weekly)
 # and the one it asks you to make at most once a day. It also changes slowly:
 # names, positions, teams and injury flags, not scores.
 #
-# So it gets its own weekly cadence. Everything else (data-refresh, which now
-# runs DAILY) restores this cache instead of re-downloading it. A player added
-# to Sleeper between weekly runs simply isn't in the map yet and is skipped by
-# the daily pipeline — sleeper_war.py counts and reports how many, so a stale
-# map can't quietly move replacement level without anyone noticing.
+# So it gets its own weekly cadence. Since 2026-09-21 its real job is the ESPN
+# id join below rather than the map itself: data-refresh.yml now keeps its OWN
+# date-keyed daily copy, because in-season a Tuesday map meant injury_status up
+# to seven days old, new players outside the WAR pool for a week, and lagging
+# NFL teams. The cache this job saves is now the daily pipeline's last-resort
+# fallback, not its source. sleeper_war.py still counts and reports whoever it
+# had to skip, so a stale map can't quietly move replacement level.
 #
 # Runs Tuesdays, a day ahead of nothing in particular — just early enough that
 # a fresh map is in place before the week's heaviest daily run.
@@ -18,12 +20,21 @@ name: Players map refresh (weekly)
 # fresh map and writes data/espn_ids.json. It rides here rather than in the
 # daily job because it is a property of the map, not of the scores, and
 # because nflverse is a second external fetch the daily pipeline should not
-# inherit. The daily build_site_data.py reads the committed file an hour
-# later, so this job commits ONLY data/espn_ids.json — never players_min.json,
-# which is the daily job's to write.
+# inherit. This job commits ONLY data/espn_ids.json — never players_min.json,
+# which is the daily job's to write, and which build_site_data.py builds from
+# whatever espn_ids.json is committed at the time.
+#
+# It is scheduled ~90 minutes ahead of the Tuesday data-refresh, but that is a
+# convenience, not a guarantee: the clock only staggers the starts and a
+# congested queue can reorder them. What is guaranteed is the shared `data-push`
+# concurrency group below — the two can never be in flight at once. If this job
+# ends up running second, the daily build simply uses LAST week's
+# espn_ids.json, which is at worst a few rookie headshots behind.
 on:
   schedule:
-    - cron: "0 5 * * 2"      # Tuesdays 05:00 UTC
+    # Minute :38, not :00 — see the cron comment in data-refresh.yml. Hour
+    # unchanged; the nightly is at 06:17.
+    - cron: "38 5 * * 2"     # Tuesdays 05:38 UTC
   workflow_dispatch:
 permissions:
   contents: write
@@ -41,6 +52,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-ci.txt
       - name: Download the player map
         run: python scripts/sleeper_pull.py --players-only --out sleeper_data
       - name: Report what landed
@@ -61,8 +74,13 @@ jobs:
       # Fail-soft: a bad nflverse download must never cost the week its map,
       # which is already cached above. A miss leaves last week's espn_ids.json
       # in place, which is at worst a few rookies behind.
-      - name: Install nflreadpy
-        run: pip install nflreadpy
+      # PINNED — `pip install nflreadpy` unpinned is what took the nightly out
+      # for three days in week 1 (see requirements-ci.txt). `-c` is pip's
+      # constraints flag: it applies that file's pins to nflreadpy and whatever
+      # it pulls in (polars, numpy) WITHOUT installing the scikit-learn stack,
+      # which nothing in this job imports.
+      - name: Install nflreadpy (pinned via requirements-ci.txt)
+        run: pip install -c requirements-ci.txt nflreadpy
       - name: Sleeper -> ESPN id join (headshots)
         id: espn
         continue-on-error: true

@@ -96,11 +96,33 @@ def load_weekly(season):
 
 
 def windows(mw):
-    """the league's phases for a season, as (name, first_week, last_week)"""
+    """the league's phases for a season, as (name, first_week, last_week).
+
+    BOUNDED BY WHAT THE LEAGUE HAS PLAYED, not by its schedule (2026-09-21).
+    `reg` used to end at playoff_start-1 whatever the date, so in September a
+    player's league "regular season" ran to week 14 while the league had played
+    one — and nflverse, which plays on its own calendar, handed back every NFL
+    week up to today. 2026's usage.json said g:2 for 236 players against a
+    league that had played [1]: the exact mismatched-window problem this file's
+    docstring says it exists to prevent, arrived from the other end.
+
+    build_site_data only writes a week into matchups.json once it has points,
+    so its weeks ARE the played weeks. A phase with nothing in it yet is
+    dropped rather than emitted backwards (post as "15-14"), and `aggregate`
+    then leaves that key off the player, which the site reads as the em dash."""
     ps = int(mw.get("playoff_start") or 15)
-    last = max((e[0] for rows in mw.get("teams", {}).values() for e in rows), default=ps + 2)
-    last = max(last, ps - 1)
-    return [("reg", 1, ps - 1), ("post", ps, last), ("both", 1, last)]
+    played = {e[0] for rows in (mw.get("teams") or {}).values() for e in rows}
+    last_reg = max((w for w in played if w < ps), default=0)
+    last_post = max((w for w in played if w >= ps), default=0)
+    last = max(last_reg, last_post)
+    out = [("reg", 1, last_reg), ("post", ps, last_post), ("both", 1, last)]
+    # `both` is identical to `reg` for as long as the bracket hasn't started,
+    # and is emitted anyway. Dropping the duplicate would halve the in-season
+    # file, but the site's three phase chips read a missing window as the em
+    # dash (src/lib/usage.ts `usageOf` returns null, src/views/Player.tsx dashes
+    # the row), so "Both" would go blank for the whole regular season. A
+    # duplicated window is cheaper than a blank chip.
+    return [(n, lo, hi) for n, lo, hi in out if hi >= lo]
 
 
 def aggregate(pos, weeks):
@@ -181,6 +203,16 @@ def main():
             print(f"{season}: no nfl_history/features_weekly_{season}.csv — skipped "
                   "(run war-history.yml with the weekly table)")
             continue
+        # SNAP SHARE ONLY EXISTS WHERE THE CSV CARRIES IT (Max, 2026-09-17).
+        # The columns were added to nfl_features.py after the history corpus
+        # was last rebuilt, so every season but the one data-refresh.yml
+        # refreshes nightly is missing them and its snap_pct silently never
+        # appears. Say so rather than shipping a quietly emptier season: the
+        # remedy is re-dispatching war-history.yml over 2012..last.
+        if rows and not ("snaps" in rows[0] and "team_snaps" in rows[0]):
+            print(f"{season}: WARN features_weekly_{season}.csv has no snaps/"
+                  "team_snaps columns — snap_pct will be absent for this season "
+                  "(re-run war-history.yml to rebuild the weekly table)")
         try:
             mw = json.load(open(out / season / "matchups.json", encoding="utf-8"))
         except FileNotFoundError:

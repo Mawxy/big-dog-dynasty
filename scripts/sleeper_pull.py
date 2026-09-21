@@ -230,7 +230,9 @@ def dump_league(league_id: str, root: Path, state=None):
         if t:
             save(t, d / "transactions" / f"week_{wk:02d}.json")
         if week_scored:
-            rows = fetch_week_stats(season, wk)
+            rows = fetch_week_stats(
+                season, wk,
+                strict=str(season).isdigit() and int(season) >= STATS_ERA)
             # played: bye vs DNP, per the position rule in row_played()
             played = {r["player_id"]: (r.get("team") or "")
                       for r in rows if r.get("player_id") and row_played(r)}
@@ -290,14 +292,33 @@ def row_played(row):
                 or st.get("st_snp") or st.get("tm_off_snp")
                 or st.get("tm_def_snp") or st.get("tm_st_snp") or has_stats)
 
-def fetch_week_stats(season, week):
+# Sleeper's per-week stats feed answers for every week of every season this
+# league family has played (verified: 2022-2025 all have played/ files). A
+# completed week inside that era therefore has stat lines, and silence is a
+# failure rather than an empty week.
+STATS_ERA = 2022
+
+
+def fetch_week_stats(season, week, strict=False):
     """Full-NFL QB/RB/WR/TE stat lines for one week — EVERY player, rostered or
     free agent. One call feeds two consumers: the `played` set (bye vs DNP) and
     `allstats` (the full scored universe sleeper_war uses to fix the startable
-    pool and measure the waiver baseline for VoWP)."""
+    pool and measure the waiver baseline for VoWP).
+
+    A COMPLETED WEEK ALWAYS HAS STATS. `get(...) or []` used to turn a null
+    body, a 404 or a transient miss into "nobody played", so the week got no
+    played/ and no allstats/ file at all — and sleeper_war, seeing no played
+    file, falls back to its "0.00 = DNP" rule and blanks VoWP for the whole
+    season off one bad request. `strict` refuses that trade through the same
+    require() the must-exist resources use."""
     url = (f"https://api.sleeper.app/stats/nfl/{season}/{week}"
            f"?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE")
-    return get(url) or []
+    rows = get(url)
+    if strict:
+        # `rows or None` folds [] into the null case: both mean the feed told
+        # us nothing about a week that is definitely in the books
+        require(rows or None, f"{season} week {week} stats (a completed week)")
+    return rows or []
 
 def main():
     ap = argparse.ArgumentParser(description="Dump a Sleeper league's full history to JSON.")

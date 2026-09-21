@@ -22,7 +22,7 @@ unless they start with `data/`.
 | [WAA / WAR](#waa-and-war) | How many wins was he worth over a season? | `sleeper_war.py` |
 | [VoWP](#vowp) | How much better than the waiver wire? | `sleeper_war.py` |
 | [Team win probability](#team-win-probability) | Who was favored in this matchup? | `week_odds.py` |
-| [Projected records](#projected-records) | Where does this roster finish? | `week_odds.py` + `src/views/Franchises.tsx` |
+| [Projected records](#projected-records) | Where does this roster finish? | `week_odds.py` + `src/lib/projRecord.ts` |
 | [Playoff WPA](#playoff-wpa) | How much did he swing a playoff game? | `playoff_wpa.py` |
 | [Win share](#win-share) | How much of a playoff win was his? | `playoff_wpa.py` |
 | [MVP and MVP+](#mvp-and-mvp) | Who won the postseason, and how great was it? | `playoff_wpa.py` |
@@ -30,7 +30,9 @@ unless they start with `data/`.
 | [Finish](#finish) | What place did a team take? | `build_site_data.py` |
 | [Scalar projections](#scalar-projections) | What will he be worth over 3 years? | `project_war.py`, `aging_curves.py` |
 | [Analog projections](#analog-projections) | What did players like him do next? | `project_war_knn.py` |
-| [The six-curve matrix](#the-six-curve-matrix) | Which model, and is Sleeper's read folded in? | `project_matrix.py`, `curves.py` |
+| [Points-first projections](#points-first-projections) | What will he score, and what is that worth? | `project_points.py` |
+| [The eight-curve matrix](#the-eight-curve-matrix) | Which model, and is Sleeper's read folded in? | `project_matrix.py`, `curves.py` |
+| [In-season outlook](#in-season-outlook) | What will this season finish at, from here? | `inseason.py`, `src/lib/outlook.ts` |
 | [DVI](#dvi-dynasty-value-index) | What is he worth in a dynasty trade? | `blend_values.py` via `index_models.py` |
 | [CVI](#cvi-contender-value-index) | What is he worth for THIS season? | `contender_index.py` via `index_models.py` |
 | [Bridge A / Bridge B](#pick-values-bridge-a-and-bridge-b) | What is a draft pick worth? | `pick_value.py`, `value_bridge.py` |
@@ -99,7 +101,12 @@ shaped like a Sleeper dump by `scripts/nfl_history.py`: 12 synthetic teams,
 2022–25 player-seasons ratio 1.0 against the real league (`SIGMA_COEF =
 0.160`). Position is current-state for a whole career, with `POS_OVERRIDE`
 corrections — see [Franchise players](#franchise-players). The corpus must
-start at 2012: a partial rebuild splices two played rules.
+start at 2012 or earlier: nflverse has no snap counts before then, so a rebuild
+that starts later splices two played rules. `war-history.yml` now defaults to
+**1999–2025** and files 1999–2011 WAR (and 1999–2013 skill features) under
+`nfl_history/early/`, which only `project_points.py` reads; every other reader
+globs the snap era. The job refuses an `end` at or past the season in progress
+— a partial `waa_war_<yr>.csv` would be fitted as a full season.
 
 ## VoWP
 
@@ -171,13 +178,24 @@ discounting lives in the projection's `expected` stream, not here.
 
 ## Projected records
 
-**Owner:** `scripts/week_odds.py` for the per-game lines; the standings and
-league-home views sum them.
+**Owners:** `scripts/week_odds.py` for the per-game lines;
+`src/lib/projRecord.ts` for the record built out of them.
 
-A roster season's projected record is the sum of its pregame win probabilities
-over the published schedule — expected wins in tenths, filled in with results
-as weeks land. Byes are ignored. Projected figures are dimmed on the standings
-board so a 9.4–4.6 never reads as a played record.
+A roster season's projected record is the **banked** W-L-T plus the sum of the
+pregame win probabilities over the regular-season weeks that have not been
+played — expected wins in tenths. One module owns that arithmetic since
+2026-09-21, because two screens were computing it differently: the League home
+page summed a normal CDF over `matchups.schedule`, which carries only the weeks
+still to come, so a fourteen-game projection shrank by a game a week and banked
+wins were never added at all.
+
+An unplayed week counts only once it carries a **win probability**: week 1
+without a projection snapshot is deliberately left unpriced, and counting it
+would have contributed a full projected loss for a week nobody had priced.
+Ties are a third figure and stay one — losses are the played losses plus the
+unplayed weeks' complement, never `games − wins`, which folds every tie into
+the loss column. Byes are ignored. Projected figures are dimmed on the
+standings board so a 9.4–4.6 never reads as a played record.
 
 ---
 
@@ -346,9 +364,14 @@ decided winners-bracket game, so an unplayed season has no placings.
 ## Scalar projections
 
 **Owner:** `scripts/project_war.py` · **Model fit:** `scripts/aging_curves.py`
-· **Output:** `projections.json`
+· **Output:** `projections.json`, parked at `projections_scalar.json` once
+`project_points.py --site` rewrites the former
 
-Three-year forward WAR per rostered player.
+Three-year forward WAR per rostered player, seeded from the **last completed
+season** — `seasons.last_completed_season`, a season with a decided champion,
+never `meta.latest` (which flips the moment a new season's week 1 freezes).
+Everything below keys on that seed: the recency window, the durability history,
+`age = base_age + (frm − seed)` and the published year labels.
 
 1. **Level** — a recency- and games-weighted per-13 rate over the last three
    seasons (`RECENCY = [0.5, 0.4, 0.1]`).
@@ -425,36 +448,118 @@ played seasons. Accuracy is no better than the scalar model (MAE ~0.63 either
 way); the point is that it disagrees in *legible* ways — shape, and "didn't
 play" as a state — which the scalar model cannot express.
 
-## The six-curve matrix
+## Points-first projections
+
+**Owner:** `scripts/project_points.py` · **Outputs:** `projections_points.json`,
+and under `--site` a rewritten `projections.json` plus `projections_scalar.json`
+
+**Why points first (Max, 2026-09-10).** WAR is points over the position's
+replacement level *that season*, so projecting WAR directly projects two things
+at once: what the player produces, and where the replacement line happens to
+sit — which moves when a dozen other players at his position have a good year
+and has nothing to do with him. A WAR model can therefore mark a man as
+regressing when he did not regress.
+
+So: project **points per game** and **games**, then hand every projected season
+to the WAR engine's own pool logic, which sets that season's replacement level
+from the projections themselves (the same greedy 108-slot lineup
+`sleeper_war.build_week` fills). A player's WAR then moves only when his points
+move.
+
+**The model.** Gradient-boosted trees (`HistGradientBoostingRegressor`), one
+per position per horizon year per target, with missing values left missing so a
+rookie with no history and a veteran with no feature row fit the same model.
+Inputs: three seasons of era-normalized ppg and games from
+`nfl_history/waa_war_<yr>.csv` (including `nfl_history/early/`, 1999+), the
+usage / expected-points columns of `features_<yr>.csv` for those seasons plus
+their three-year means, availability (weeks lost to injury, weeks dressed
+without a touch), age, draft round and pick, and experience. Bands are the p20 /
+p80 of holdout residuals per position. `--backtest` scores it against a naive
+"last season" baseline.
+
+**The rookie arm.** A rookie has no NFL season, so his arm is fitted on the one
+thing known the day he is drafted: draft capital. Per position, trees over every
+class since 1999 — overall pick, round, age at the draft — to that class's
+year-1/2/3 ppg and games, same targets, same era normalization, same WAR from
+the pool. An undrafted rookie is priced at pick 260. Rows are flagged
+`src: "rookie"`; veterans `src: "points"`; a row neither arm could read keeps
+its scalar streams as `src: "scalar"`.
+
+**`--site` is what makes it the price.** It reads the scalar model's
+`projections.json`, parks a copy at `projections_scalar.json` as a comparison
+lens, and rewrites `projections.json` in the same schema (`proj` = WAR over a
+full 13 at the projected ppg, `expected` = WAR over the projected games,
+`composite` = the ppg blended with Sleeper **in points space** at
+`BLEND_W = 0.9 / 0.5 / 0.1` and then priced through the *natural* pool's
+replacement line — Sleeper's read adjusts a player's own number, never the line
+he is measured against). It stamps `meta.engine: "points-first"` and exits
+non-zero if it rewrote nothing.
+
+**Where it breaks down.** `war_from_points` prices the pool over players
+projected for at least one game; `pool_war`, the path that recomputes with
+rookies in, does not filter — so veteran and rookie WAR are not measured
+against quite the same pool. And the site's published default curve is
+`blend_composite`, not this model, so `projections.json` and the board can
+quote two different "projected WAR" figures (both open, PROJECT_NOTES caveats
+11 and 12).
+
+## The eight-curve matrix
 
 **Owners:** `scripts/project_matrix.py`, `scripts/curves.py` · **Output:**
 `projections_matrix.json`, and `blend_w` inside each player shard
 
-Three models × two streams:
+Four models × two streams:
 
 | | natural | composite |
 |---|---|---|
 | **scalar** | the aging-curve rate | + Sleeper at 0.9 / 0.5 / 0.1 |
 | **analog** | the cohort median | + Sleeper, weighted by *trust* |
 | **blend** | trust-weighted mix of the two naturals | + Sleeper, same trust |
+| **points** | WAR over a full 13 at the projected ppg | + Sleeper blended in points, then priced |
+
+The points pair is copied in from `projections.json` rather than recomputed, so
+the picker and the index models see one list of curves. Both of its arms count:
+a rookie the rookie arm priced is a points row (`has_points` true), not a scalar
+row wearing a points heading.
+
+**One seed for every arm.** Each arm must project *forward from the same
+season*, and that season is the last one with a **decided champion**
+(`scripts/seasons.py` — the same test `build_site_data.py` gates FINISH on),
+never `meta.latest`, which flips the moment a new season's week 1 freezes. The
+matrix refuses to publish when the scalar arm seeded past the last completed
+season or the corpus is ahead of the league; an analog corpus merely a year
+behind is a loud warning, not a refusal. `check_projection_coherence` in
+`validate_data.py` repeats the check at the gate.
 
 **Trust** measures how tight the analog cohort is relative to the position's
 own median tightness: `trust = 1 / (1 + (d_med / d_ref[pos])⁴)`, halved when
 the cohort was padded. Sleeper's year-1 weight on the analog composite is
 `0.25 + 0.65·(1 − trust)` — a tight cohort keeps its own opinion, a loose one
-defers to Sleeper. Without this the two composites agree to 0.02 WAR and six
-curves collapse to four. Sleeper's leg is always aged along the *scalar* path:
-distrusting a curve's level while borrowing its shape is incoherent.
+defers to Sleeper. Without this the two composites agree to 0.02 WAR and the
+scalar/analog/blend curves collapse from six to four. Sleeper's leg is always
+aged along the *scalar* path: distrusting a curve's level while borrowing its
+shape is incoherent.
 
 **One owner per number.** `composite_path()` lives in `project_war.py`; the
-matrix imports it and reads the scalar columns rather than deriving them. Two
-tests lock this — the matrix must not re-grow a composite function, and its
-scalar columns must equal `projections.json` exactly.
+matrix imports it and reads the scalar columns rather than deriving them, and
+`remaining_frac` likewise comes from `inseason.py`. Tests lock both — the
+matrix must not re-grow a composite formula or its own week arithmetic, and its
+scalar columns must equal the scalar model's own file exactly.
 
 **The published default is `blend_composite`** (`curves.DEFAULT_CURVE`,
 mirrored by `DEFAULT_CURVE` in `src/lib/model.ts`). Blend over scalar because
 the analog arm is a real second opinion; composite over natural because
-Sleeper is the only input that sees this season's depth chart.
+Sleeper is the only input that sees this season's depth chart. Points-first
+held the default from 2026-09-11 to 09-16 and is a comparison lens again.
+
+**Which file a curve falls back to.** `projections.json` used to *be* the
+scalar model, so one fallback served every curve. Since `--site` it is the
+points-first model's file, so `curves.py` falls back per curve:
+`scalar_*`, `analog_*` and `blend_*` to **`projections_scalar.json`**,
+`points_*` to `projections.json`. `--curve scalar_composite` therefore still
+reproduces the pre-matrix numbers exactly (393/393, locked by a test), and
+those numbers live in `projections_scalar.json` — which is deliberately not
+deployed.
 
 **The model is a site-wide control.** The masthead's model picker (two
 controls: which model; whether Sleeper is folded in) switches DVI, CVI and
@@ -465,12 +570,51 @@ between sessions; the default is the absence of the param.
 **Staleness.** The scalar arm advances nightly; the analog corpus
 (`nfl_history/*.csv`) rebuilds only on the manual `war-history` job. A SEED
 warning from the matrix means the two arms are reading different histories —
-run `war-history`. A DATE warning means the nightly analog step broke.
+run `war-history`. A DATE warning means the nightly analog step broke. A seed
+*past* the last completed season is not a warning at all: it exits non-zero,
+and the nightly restores yesterday's matrix rather than publishing curves that
+disagree about what year one is.
+
+## In-season outlook
+
+**Owners:** `scripts/inseason.py` and `src/lib/outlook.ts` (one formula, two
+languages, kept in lockstep) · **Published in:** `projections_matrix.json`
+`meta.inseason` and each row's `banked` / `gp`, copied onto every player shard
+
+Year 1 of every curve above is a **full-season** figure for the roster season.
+That is the right thing to feed a model and the wrong thing to show a reader in
+week 4, when four of those weeks are settled fact with a realized WAR attached.
+So the displayed season figure splits at today (Max, 2026-09-21):
+
+```
+outlook        = banked + year1 × remaining_frac
+remaining_frac = (reg_weeks − weeks_played) / reg_weeks
+```
+
+`banked` is his realized regular-season WAR so far — `<season>/summary.json`,
+the same column the stats page prints. `reg_weeks` is the **league's** regular
+season, `playoff_start − 1` (14 for Big Dog), and `weeks_played` the number of
+scored regular-season weeks in that season's `matchups.json`; `build_site_data`
+writes a week into that file only once it has points, so those weeks *are* the
+played weeks and a week in progress is correctly not one of them. Week 0: the
+factor is 1.0 and the outlook IS the projection. Week 14: the factor is 0.0 and
+the outlook IS the banked season.
+
+**The pipeline publishes facts; the browser does the arithmetic.** The block
+appears only while year 1 is the roster season and that season is underway but
+unfinished — so the offseason is untouched, and a projection that has already
+rolled forward is never prorated.
+
+**Nothing here re-prices a player.** DVI, CVI, the value bridge, the pick tiers
+and the trade machine all keep reading the un-prorated year-1 WAR: banked WAR
+has no trade value, and an index that shrank to it by week 14 would price every
+asset at nothing in December and jump in January. The outlook is a presentation
+of the season and is labelled as one — "2026 outlook · 4 wks banked".
 
 ## DVI (Dynasty Value Index)
 
 **Owner:** `scripts/blend_values.py`, run by `scripts/index_models.py` ·
-**Output:** `dvi.json`, and all six curves in `index_models.json`
+**Output:** `dvi.json`, and all eight curves in `index_models.json`
 
 An ensemble trade rating in the spirit of passer rating: each signal is clamped
 into a meaningful range (below a floor earns no credit, above a ceiling earns
@@ -499,7 +643,7 @@ thin) and shifts to the season average by week 8, so one injured week never
 tanks a value. Injured-flagged players skip the start component entirely while
 the snapshot still dominates.
 
-**Six curves, one file.** `index_models.py` computes DVI and CVI under every
+**Eight curves, one file.** `index_models.py` computes DVI and CVI under every
 curve from one load and writes them together (~180 KB) so a model flip is free
 and no two screens can disagree. `--curve scalar_composite` reproduces the
 pre-matrix numbers exactly (393/393, locked by a test) — that equivalence is
@@ -515,7 +659,7 @@ number won't move".
 ## CVI (Contender Value Index)
 
 **Owner:** `scripts/contender_index.py`, run by `scripts/index_models.py` ·
-**Output:** `cvi.json`, and all six curves in `index_models.json`
+**Output:** `cvi.json`, and all eight curves in `index_models.json`
 
 DVI's opposite number: what a player is worth over **one** season.
 
@@ -638,6 +782,25 @@ collapse to one number with the per-team discount `δ = 0.7` (year 1 in full,
 year 2 at δ, year 3 at δ²; Max's settled range is 0.6–0.8) and a lag for picks
 that cannot produce yet.
 
+**The live season is counted once** (2026-09-21). A side's `total` is
+`war + future`, and in-season those two overlap: `war` accrues week by week
+while `future`'s first term is a full 13-game projection for the season being
+played. After week 1 of 2026 the overlap was already 13/14 of every held
+player's year one; by the end of the regular season it would have been all of
+it. So year 1 of the unrealized stream — and only year 1 — is prorated by the
+fraction of the roster season's regular season still to come:
+
+```
+remaining = (reg_weeks − weeks_played) / reg_weeks        # inseason.py
+```
+
+the same fraction the in-season outlook uses, derived from the same
+`matchups.json`. Later years and `δ` are untouched, and `δ` still discounts by
+*year* (1, δ, δ²). Out of season `weeks_played` is 0, the factor is exactly
+1.0, and the ledger is bit-for-bit what it was. A pick for a future season is
+deferred by its lag and so is never prorated. `trades.json` carries the factor
+as `meta.year1_remaining`.
+
 **The at-trade snapshot is frozen.** When a trade first appears, its
 projection, KTC and FantasyCalc values are written once and never overwritten,
 so "projected then" cannot be rewritten by tonight's projection. Merging is
@@ -645,6 +808,11 @@ enrich-only; the single exception backfills a pick's market value that froze as
 null before picks were priced. A guard refuses to write a ledger whose newest
 trade predates the committed one — a rebuild rode a feature push on 2026-08-21
 and clobbered three August trades.
+
+The snapshot inherits the proration, and should: a trade made in week 5 handed
+the acquirer nine weeks, not fourteen. **Two snapshots predate it** — the
+trades dated 2026-09-09 and 2026-09-10, whose `exp` froze un-prorated. Frozen
+means frozen, so they read a little rich against every later in-season trade.
 
 The Ledger view colors nothing: it records a settled fact. The trade machine
 evaluates a hypothetical and is allowed to say who gains.
@@ -785,6 +953,13 @@ Five marks a league career can carry, rarest-first after the team result:
 | Elite season | top 2 % of season WAR at the position, all seasons pooled (a per-season p98 would collapse into "king") |
 | Franchise bar | cleared `FRANCHISE_BAR` for the position (QB 1.0 / RB 0.7 / WR 0.85 / TE 0.5) |
 
+**Honors are awarded only over SETTLED seasons** — the same "decided champion"
+test `seasons.py` and `build_site_data.py`'s FINISH column use, mirrored in
+`src/lib/seasons.ts`. An MVP season, a positional king or an Elite season is a
+claim about a finished year; scoring the season in progress handed out marks in
+week 2 and quietly re-awarded them every week. Team honors
+(`src/lib/teamHonors.ts`) follow the same rule.
+
 When a career splits across franchises, **production splits week by week and
 a season's finish and honors go whole to the primary owner** — the franchise
 that held him most weeks. Splits are cut on change-of-hands boundaries so a
@@ -808,8 +983,10 @@ split sums back to the season's WAR.
   computed as the sum of the displayed components, not rounded separately.
 - **One owner per number.** A figure is computed in one place and read
   everywhere else. Where two languages must agree (`curves.py` ↔ `types.ts`
-  `MATRIX_CURVES`; `dynasty_movers.py` ↔ `tradeModel.ts` market curve) the
-  pairing is named in both files.
+  `MATRIX_CURVES`; `dynasty_movers.py` ↔ `tradeModel.ts` market curve;
+  `inseason.py` ↔ `outlook.ts` for the outlook formula) the pairing is named in
+  both files, and `tests/test_lockstep.py` pins the trade-curve constants
+  across the language boundary.
 
 ## Verifying any of this
 
@@ -817,7 +994,7 @@ The methodology decisions above are locked by the test suite — a failure there
 is a change in what a figure *means*, not a broken build:
 
 ```
-python -m unittest discover -s tests      # the invariants (382 tests)
+python -m unittest discover -s tests      # the invariants (665 tests, 25 files)
 npm test                                  # the trade machine (Node ≥ 22.18)
 python scripts/validate_data.py           # published-data consistency
 ```

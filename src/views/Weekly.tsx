@@ -261,6 +261,12 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
     if (season === "ALL") return;
     let live = true;
     setErr(false);
+    // CLEAR THE PREVIOUS SEASON'S PAIR FIRST. `bracket` and `odds` reset on a
+    // path change (useJson does it in render); these two were left standing
+    // until the new fetch resolved, so a season switch drew the new year's
+    // chip row over the old year's scores and week grid.
+    setWeekly(null);
+    setMw(null);
     Promise.all([
       jl<WeeklyT>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -300,7 +306,7 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
 
   if (week !== null && matchupRid !== null)
     return <MatchupDetail season={season} wk={week} rid={matchupRid} data={data}
-      weekly={weekly} mw={mw} players={players}
+      weekly={weekly} mw={mw} players={players} odds={odds}
       back={() => nav(lp(`/weekly/${seasonSeg(season)}/${week}`))} />;
 
   if (playoffs)

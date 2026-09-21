@@ -1,5 +1,7 @@
 import { useMemo } from "react";
 import type { CviFile, DviFile, IndexModelsFile, MatrixFile, ProjectionsFile } from "./types";
+import type { InSeason } from "./outlook";
+import { isInSeason, outlookY1 } from "./outlook";
 import type { Json } from "./useJson";
 import { useJson } from "./useJson";
 import { useModel } from "./model";
@@ -108,7 +110,11 @@ export function useCviQuery(): Json<CviFile> { return useCviJson(); }
 export function useProjWar(): Record<string, number> | null {
   const { curve } = useModel();
   const mx = useJson<MatrixFile>("projections_matrix.json");
-  const flat = useJson<ProjectionsFile>("projections.json");
+  // the pre-matrix fallback, requested only on the branch that reads it — the
+  // same gating `useDviJson` takes, for the same reason. projections.json is
+  // 265 KB and every screen with a WAR column was downloading it beside the
+  // matrix and then reading nothing out of it.
+  const flat = useJson<ProjectionsFile>(mx.error ? "projections.json" : null);
   return useMemo(() => {
     if (mx.data) {
       const out: Record<string, number> = {};
@@ -139,7 +145,8 @@ export function useProjWar(): Record<string, number> | null {
 export function useProjWar1(): Record<string, number> | null {
   const { curve } = useModel();
   const mx = useJson<MatrixFile>("projections_matrix.json");
-  const flat = useJson<ProjectionsFile>("projections.json");
+  // gated on the error branch, as above
+  const flat = useJson<ProjectionsFile>(mx.error ? "projections.json" : null);
   return useMemo(() => {
     if (mx.data) {
       const out: Record<string, number> = {};
@@ -156,6 +163,77 @@ export function useProjWar1(): Record<string, number> | null {
     for (const p of flat.data.players)
       if (p.composite?.[0] != null) out[p.pid] = p.composite[0];
     return out;
+  }, [mx.data, flat.data, curve]);
+}
+
+/** one player's year-1 figures, both ends of the split (see lib/outlook) */
+export interface OutlookRow {
+  /** the FULL-SEASON year-1 projection on the picked curve — the model input,
+   *  and what every screen that is not showing a season figure keeps using */
+  y1: number;
+  /** realized regular-season WAR so far. Null OUT of season, where there is no
+   *  such thing; 0 in season for a player the summary has no row for. */
+  banked: number | null;
+  /** banked + y1 × remaining_frac — what to SHOW for the season being played.
+   *  Identical to `y1` whenever there is no in-season block. */
+  outlook: number;
+}
+export interface Outlook1 {
+  /** pid -> his three year-1 figures */
+  rows: Record<string, OutlookRow>;
+  /** the matrix's `meta.inseason`, or null out of season / in data that
+   *  predates the field. Null is the signal to label and render nothing
+   *  differently at all. */
+  inseason: InSeason | null;
+}
+const NO_OUTLOOK: Outlook1 = { rows: {}, inseason: null };
+
+/**
+ * `useProjWar1`'s sibling: the same year-1 WAR, plus what a reader should be
+ * shown for a season already four weeks old.
+ *
+ * Max, 2026-09-21: "In week 4, we should have 4 weeks of actual data + the
+ * proj war for a final projected war outlook." The projection's year 1 is a
+ * FULL-SEASON figure and stays one — DVI, CVI, the trade machine, the power
+ * rankings and every optimiser keep reading `useProjWar1`, because banked WAR
+ * has no trade value and an index that shrank to it by week 14 would price
+ * every asset at nothing in December. This hook exists for the other job: a
+ * cell that says "his 2026 WAR", which in week 4 is four settled weeks plus
+ * ten tenths of the projection, not fourteen.
+ *
+ * NO SECOND FETCH. It reads the same projections_matrix.json `useProjWar1`
+ * does — one cached promise, one download — and takes the same pre-matrix
+ * fallback, where there is no block and no banked figure and the outlook is
+ * therefore the projection. So a caller can swap one for the other and, with
+ * no `inseason` block in the data, render byte-identically.
+ */
+export function useOutlook1(): Outlook1 {
+  const { curve } = useModel();
+  const mx = useJson<MatrixFile>("projections_matrix.json");
+  // gated on the error branch, exactly as above
+  const flat = useJson<ProjectionsFile>(mx.error ? "projections.json" : null);
+  return useMemo(() => {
+    if (mx.data) {
+      // a malformed or out-of-range block reads as no block at all, rather
+      // than as a reason to publish a prorated number nobody can defend
+      const blk = isInSeason(mx.data.meta.inseason) ? mx.data.meta.inseason : null;
+      const rows: Record<string, OutlookRow> = {};
+      for (const r of mx.data.players) {
+        const y1 = r[curve]?.[0];
+        if (y1 == null) continue;
+        // no row in the season summary is a REAL zero here — he has not
+        // dressed for anybody — which is what outlookY1 assumes too
+        const banked = blk ? (typeof r.banked === "number" ? r.banked : 0) : null;
+        rows[r.pid] = { y1, banked, outlook: outlookY1(y1, banked, blk) ?? y1 };
+      }
+      return { rows, inseason: blk };
+    }
+    if (!flat.data) return NO_OUTLOOK;
+    const rows: Record<string, OutlookRow> = {};
+    for (const p of flat.data.players)
+      if (p.composite?.[0] != null)
+        rows[p.pid] = { y1: p.composite[0], banked: null, outlook: p.composite[0] };
+    return { rows, inseason: null };
   }, [mx.data, flat.data, curve]);
 }
 

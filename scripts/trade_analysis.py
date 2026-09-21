@@ -13,6 +13,41 @@ For each trade we resolve the assets and score them:
 One hop only: if the acquired player is later traded again we don't chase the
 chain — the WAR simply stops accruing for that team.
 
+METHODOLOGY — THE LIVE SEASON IS COUNTED ONCE (2026-09-21)
+---------------------------------------------------------
+A side's `total` is `war + future`: what the haul HAS produced plus what it is
+still expected to produce. Those two are disjoint in the offseason and overlap
+in-season, because `war` accrues week by week while `future` is a discounted
+stream whose first term is a FULL 13-game projection for the season being
+played. After week 1 of 2026 the overlap was already 13/14 of every held
+player's year one; by the end of the regular season it would have been the
+whole of it, and every asset anybody still holds would have counted its 2026
+twice.
+
+So the year-1 term of the future stream is prorated by the fraction of the
+roster season's regular season still to come:
+
+    remaining = (reg_weeks - weeks_played) / reg_weeks
+
+`reg_weeks` is `playoff_start - 1` and `weeks_played` the number of scored
+regular-season weeks in that season's matchups.json — the file this script
+already loads, and the same source the odds table's `meta.played` is built
+from. Later years of the stream are untouched; so is `DELTA`, which discounts
+by YEAR and still runs 1, delta, delta^2 from the first year. Out of season
+`weeks_played` is 0 and the factor is exactly 1.0, so the offseason ledger is
+bit-for-bit what it was.
+
+A pick for a FUTURE season is deferred by `lag` years and its first year is not
+the live season, so it is never prorated; a pick for the roster season that has
+not been drafted yet only exists before that draft runs, when the factor is 1.0
+anyway.
+
+The frozen at-trade snapshot (`exp`) inherits this for free, and should: a
+trade made in week 5 hands the acquirer nine weeks, not fourteen, so "projected
+then" is the prorated number. Snapshots frozen BEFORE this landed keep their
+un-prorated `exp` — frozen means frozen — so a mid-season trade from
+2026-09-09/10 reads a little rich against every later one. See the report.
+
 Inputs: sleeper_data/<season>/{transactions,drafts,rosters,draft_*_picks}.json,
         data/<season>/{matchups,weekly}.json, data/<season>/teams.json
 Output: data/trades.json — newest first.
@@ -21,6 +56,7 @@ Usage: python scripts/trade_analysis.py
 """
 import argparse, datetime, json, re, sys, time
 from pathlib import Path
+import inseason
 from ioutil import write_json
 from leaguepaths import DataDir
 
@@ -72,10 +108,31 @@ def projected_slots(data_dir, load):
 DELTA = 0.7
 
 
-def stream_value(stream, delta, lag=0):
+def stream_value(stream, delta, lag=0, year1=1.0):
     """Discounted sum of a WAR stream. `lag` defers the whole stream by N years
-    (a 2028 pick can't produce until 2028)."""
-    return round(sum(v * delta ** (lag + k) for k, v in enumerate(stream)), 3)
+    (a 2028 pick can't produce until 2028). `year1` scales the FIRST year only
+    — in-season that year is already part-spent, and the realized half of it is
+    counted in `war` (see METHODOLOGY at the top of this file)."""
+    return round(sum(v * (year1 if k == 0 else 1.0) * delta ** (lag + k)
+                     for k, v in enumerate(stream)), 3)
+
+
+def weeks_played_of(mw):
+    """(scored regular-season weeks, regular-season length) for one season's
+    matchups.json. build_site_data only writes a week once it has points, so
+    counting the distinct weeks below playoff_start IS the played count."""
+    return inseason.weeks_played(mw), inseason.reg_weeks(mw)
+
+
+def season_remaining(mw):
+    """The fraction of a season's regular season still to be played, 0..1.
+
+    1.0 before a ball is snapped (the offseason ledger is unchanged), and 0.0
+    once the regular season is complete — at which point a year-1 projection
+    for it describes games that have all already happened and `war` holds the
+    whole of them."""
+    # one definition, shared with the published in-season outlook
+    return inseason.remaining_frac(mw)
 
 # SLOT_FIX and the roster -> draft-slot resolution now live in draft_slots.py,
 # shared with draft_analysis.py.
@@ -83,6 +140,66 @@ def stream_value(stream, delta, lag=0):
 
 def load(p):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+# ---- the tier AT THE TIME OF THE TRADE (Max, 2026-09-02) -------------------
+# "A projected mid first should be priced as such": the ledger's THEN end
+# prices a pick where it looked like landing on the day of the deal, and the
+# NOW end where it lands today (or did land), so the delta carries the tier
+# drift too. What "looked like" means, in order:
+#   * the draft had already happened -> the actual slot (known then);
+#   * four or more weeks into the season -> the original owner's standing
+#     through the trade week (wins, then points);
+#   * earlier than that, or the offseason -> the previous season's final
+#     standing, the last finish anybody had to go on;
+#   * nothing to go on (the league's first season) -> Mid.
+# Snapshots frozen from 2026-09-02 on carry these tiers per asset, so a later
+# run cannot re-derive them differently; older snapshots are re-frozen off the
+# same rule, which is the only record of "then" they can have.
+# Module level rather than closed over main()'s locals so the rule can be
+# tested on synthetic standings (tests/test_trade_analysis.py).
+
+def standing_tier(season, week, orig, mw_all, final_std):
+    """The tier `orig`'s own pick looked like, as of `week` of `season`."""
+    if week >= 4:
+        mw = mw_all.get(season) or {}
+        ps_ = mw.get("playoff_start") or 15
+        rec = {}
+        for rid_str, ents in (mw.get("teams") or {}).items():
+            w = pts = 0.0
+            for e in ents:
+                if e[0] <= week and e[0] < ps_:
+                    pts += e[1]
+                    # NO OPPONENT, NO RESULT. build_site_data writes None for
+                    # the opponent's points when a week pairs a team with
+                    # nobody (an odd roll, a Sleeper hiccup); the week still
+                    # counts toward points and simply decides no win, rather
+                    # than raising on None > float.
+                    if e[3] is None:
+                        continue
+                    w += 1 if e[1] > e[3] else 0.5 if e[1] == e[3] else 0
+            rec[int(rid_str)] = (w, pts)
+        if orig in rec:
+            order = sorted(rec, key=lambda r: rec[r])
+            return tier_of_slot(order.index(orig) + 1, len(order))
+    prev = final_std.get(season - 1)
+    if prev and orig in prev:
+        return tier_of_slot(prev[orig], len(prev))
+    return "Mid"
+
+
+def tier_then(a, t, slot_of, n_teams, mw_all, final_std):
+    """The tier asset `a` (a pick) priced at on the day of trade `t`."""
+    ps, orig = a.get("ps"), a.get("orig")
+    if ps is None or orig is None:
+        return a.get("tier") or "Mid"
+    slot = slot_of.get(ps, {}).get(orig)
+    # drafted before the trade: the slot was a fact, not a projection.
+    # (A same-season trade after draft day is caught by draft_day in main.)
+    season = int(t["season"])
+    if slot and ps < season:
+        return tier_of_slot(slot, n_teams)
+    return standing_tier(season, int(t["week"] or 0), orig, mw_all, final_std)
 
 
 def main():
@@ -124,16 +241,28 @@ def main():
     held = {t["roster_id"]: set(t["players"] or [])
             for t in (load(DATA / str(proj_season) / "teams.json") or [])}
 
+    # every season's matchups, loaded once: the played-week count that prorates
+    # the live season below, and the standings `standing_tier` reads further on
+    mw_all = {s: (load(DATA / str(s) / "matchups.json") or {}) for s in seasons}
+    # THE LIVE SEASON IS COUNTED ONCE — see METHODOLOGY at the top of the file.
+    # comp[0] is a full 13-game projection for proj_season; `war` already holds
+    # the weeks of it that have been played, so only the remainder is "future".
+    year1_left = season_remaining(mw_all.get(proj_season))
+
     def future_player(rid, pid):
         if not pid or pid not in held.get(rid, ()):
             return 0.0
-        return stream_value(comp.get(str(pid), []), delta)
+        return stream_value(comp.get(str(pid), []), delta, year1=year1_left)
 
     def future_pick(pick_season, rnd):
         exp = round_exp.get(rnd)
         if not exp:
             return 0.0
-        return stream_value(exp, delta, lag=max(0, pick_season - proj_season))
+        lag = max(0, pick_season - proj_season)
+        # only a stream whose first year IS the live season is part-spent; a
+        # 2028 pick's first year is 2028 and arrives whole
+        return stream_value(exp, delta, lag=lag,
+                            year1=year1_left if lag == 0 else 1.0)
 
     def pname(pid):
         p = players.get(str(pid))
@@ -206,7 +335,11 @@ def main():
     # where each franchise's OWN picks project to land, for the picks that
     # have not been drafted yet; a drafted pick's tier is its actual slot's
     proj_slot = projected_slots(DATA, load)
-    n_teams = max(12, len(proj_slot))
+    # the league's own size, not a constant: `tier_of_slot` cuts a round into
+    # thirds and a 10- or 14-team league cuts differently. teams.json for the
+    # roster season is the league roll; the projected-slot table is the same
+    # roll when projections exist; 12 is Big Dog's shape and the last resort.
+    n_teams = len(held) or len(proj_slot) or 12
 
     def pick_tier(ps, orig):
         slot = slot_of.get(ps, {}).get(orig)
@@ -214,59 +347,14 @@ def main():
             return tier_of_slot(slot, n_teams)
         return proj_slot.get(orig, (None, "Mid"))[1]
 
-    # ---- the tier AT THE TIME OF THE TRADE (Max, 2026-09-02) ------------
-    # "A projected mid first should be priced as such": the ledger's THEN end
-    # prices a pick where it looked like landing on the day of the deal, and
-    # the NOW end where it lands today (or did land), so the delta carries the
-    # tier drift too. What "looked like" means, in order:
-    #   * the draft had already happened -> the actual slot (known then);
-    #   * four or more weeks into the season -> the original owner's standing
-    #     through the trade week (wins, then points);
-    #   * earlier than that, or the offseason -> the previous season's final
-    #     standing, the last finish anybody had to go on;
-    #   * nothing to go on (the league's first season) -> Mid.
-    # Snapshots frozen from today on carry these tiers per asset, so a later
-    # run cannot re-derive them differently; older snapshots are re-frozen
-    # off the same rule, which is the only record of "then" they can have.
-    mw_all = {s: (load(DATA / str(s) / "matchups.json") or {}) for s in seasons}
+    # the final standing of every completed season — `standing_tier`'s
+    # offseason fallback. See the note above that function for the whole rule.
     final_std = {}
     for s in seasons:
         rows = load(DATA / str(s) / "teams.json") or []
         if rows and any(t.get("wins") or t.get("losses") for t in rows):
             order = sorted(rows, key=lambda t: (t.get("wins", 0), t.get("fpts", 0.0)))
             final_std[s] = {t["roster_id"]: i + 1 for i, t in enumerate(order)}
-
-    def standing_tier(season, week, orig):
-        if week >= 4:
-            mw = mw_all.get(season) or {}
-            ps_ = mw.get("playoff_start") or 15
-            rec = {}
-            for rid_str, ents in (mw.get("teams") or {}).items():
-                w = pts = 0.0
-                for e in ents:
-                    if e[0] <= week and e[0] < ps_:
-                        pts += e[1]
-                        w += 1 if e[1] > e[3] else 0.5 if e[1] == e[3] else 0
-                rec[int(rid_str)] = (w, pts)
-            if orig in rec:
-                order = sorted(rec, key=lambda r: rec[r])
-                return tier_of_slot(order.index(orig) + 1, len(order))
-        prev = final_std.get(season - 1)
-        if prev and orig in prev:
-            return tier_of_slot(prev[orig], len(prev))
-        return "Mid"
-
-    def tier_then(a, t):
-        ps, orig = a.get("ps"), a.get("orig")
-        if ps is None or orig is None:
-            return a.get("tier") or "Mid"
-        slot = slot_of.get(ps, {}).get(orig)
-        # drafted before the trade: the slot was a fact, not a projection.
-        # (A same-season trade after draft day is caught by draft_day below.)
-        season = int(t["season"])
-        if slot and ps < season:
-            return tier_of_slot(slot, n_teams)
-        return standing_tier(season, int(t["week"] or 0), orig)
 
     trades = []
     for s in seasons:
@@ -514,7 +602,8 @@ def main():
             for s in t["sides"]:
                 lst = got.get(str(s["rid"]))
                 out[str(s["rid"])] = lst if isinstance(lst, list) and len(lst) == len(s["got"]) \
-                    else [tier_then(a, t) if a["kind"] == "pick" else None for a in s["got"]]
+                    else [tier_then(a, t, slot_of, n_teams, mw_all, final_std)
+                          if a["kind"] == "pick" else None for a in s["got"]]
             return out
 
         def tier_chooser(tiers, s):
@@ -618,9 +707,13 @@ def main():
     write_json(
         DATA / "trades.json",
         {"meta": {"delta": delta, "proj_season": proj_season,
+                  "year1_remaining": round(year1_left, 4),
                   "note": "war = realized while starting for the acquiring team; "
                           "future = discounted expected WAR still to come for assets "
-                          "that team still holds; total = war + future"},
+                          "that team still holds, with the live season's year-1 "
+                          f"projection prorated to the {round(year1_left * 100)}% of its "
+                          "regular season still unplayed so it is not counted twice; "
+                          "total = war + future"},
          "trades": trades}, separators=(",", ":"))
     zero = sum(1 for t in trades if all(abs(s["total"]) < 1e-9 for s in t["sides"]))
     print(f"wrote {DATA/'trades.json'} — {len(trades)} trades, delta {delta}, "

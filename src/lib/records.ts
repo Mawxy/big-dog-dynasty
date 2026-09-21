@@ -1,5 +1,5 @@
 import type { Matchups } from "./types";
-import { jl } from "./data";
+import { indexKey, jl } from "./data";
 
 /**
  * A PLAYER'S WON-LOST RECORD — two of them, and they answer different
@@ -89,19 +89,22 @@ export interface RecordIndex {
   seasons: string[];
 }
 
-let pending: Promise<RecordIndex> | null = null;
+const cache = new Map<string, Promise<RecordIndex>>();
 
 /**
  * Build the whole-league record index once per page load.
  *
- * One module-level promise, the same shape `loadHonors` uses: the Stats board
- * asks for this on every scope change and a season's matchups file is 100-200
- * KB. A rejected build clears the cache so a retry is a real second attempt.
+ * One promise per (league, season list), the same shape `loadHonors` uses: the
+ * Stats board asks for this on every scope change and a season's matchups file
+ * is 100-200 KB. A rejected build clears the cache so a retry is a real second
+ * attempt. See `lib/data.ts#indexKey` for why the key exists.
  */
 export function loadRecords(seasons: string[]): Promise<RecordIndex> {
-  if (pending) return pending;
+  const ck = indexKey(seasons);
+  const hit = cache.get(ck);
+  if (hit) return hit;
 
-  pending = (async () => {
+  const pending = (async () => {
     const files = await Promise.all(seasons.map(s =>
       jl<Matchups>(`${s}/matchups.json`).catch(() => null)));
 
@@ -153,7 +156,8 @@ export function loadRecords(seasons: string[]): Promise<RecordIndex> {
     return { byPlayer, seasons: played };
   })();
 
-  pending.catch(() => { pending = null; });
+  cache.set(ck, pending);
+  pending.catch(() => cache.delete(ck));
   return pending;
 }
 

@@ -84,6 +84,51 @@ def score_line(stats, scoring, pos):
     return pts
 
 
+# THE CURRENT WEEK'S FLOOR (2026-09-21)
+#
+# `empty` below catches a position that came back with nothing across all 18
+# weeks. It cannot catch the one that matters in-season: a 404 or an empty
+# body for ONE position on ONE week is swallowed by `get(...) or []`, so if
+# the live week's QB call fails, every QB simply has no line for that week —
+# and week_odds prices "no line for this week" at zero (Max, 2026-09-15). The
+# whole position then reads 0.00 on the matchup page, the season sim, and the
+# proj_history snapshot, which is FIRST-WRITE-WINS and freezes the zeros as
+# that week's pregame record forever.
+#
+# So the live week is checked before anything is written. Measured on the
+# committed 2026 file, the thinnest position-week is QB at 28-32 lines (28 in
+# the heaviest bye week); RB/WR/TE run 94-180. Twelve is comfortably under a
+# real week and far above a failed call.
+MIN_WEEK_LINES = 12
+
+
+def current_regular_week(state, season):
+    """The live REGULAR-season week, when it belongs to the season being
+    pulled — else 0. Preseason and offseason have no week worth checking: the
+    weekly lines for a season that hasn't started are all equally preseason."""
+    st = state or {}
+    if st.get("season_type") != "regular":
+        return 0
+    if str(st.get("season") or "") != str(season):
+        return 0
+    try:
+        return int(st.get("week") or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def thin_week_positions(players, week, floor=MIN_WEEK_LINES):
+    """{position: count} for every position with fewer than `floor` lines for
+    `week`. Empty dict means the week is fully covered."""
+    out = {}
+    for pos in POSITIONS:
+        n = sum(1 for v in players.values()
+                if v.get("pos") == pos and str(week) in (v.get("wk") or {}))
+        if n < floor:
+            out[pos] = n
+    return out
+
+
 def default_league_id():
     """The registry default's CURRENT-season league_id — scoring settings must
     come from the live season, and Sleeper mints a new id every year. Falls
@@ -417,6 +462,23 @@ def main():
     if empty:
         sys.exit(f"no projections returned for {', '.join(empty)} "
                  f"(season {season}) — not yet published? refusing to overwrite {dest}")
+    # …and the same refusal for a position that came back thin for the LIVE
+    # week only — see MIN_WEEK_LINES. Keeping yesterday's file is right here:
+    # its week-N lines are the same rotowire product one day older, whereas
+    # writing this one hands week_odds a position of zeros and the snapshot
+    # freezes them. data-refresh.yml runs this step continue-on-error and
+    # prints a stale-projections warning, so a non-zero exit costs the pipeline
+    # nothing but a flag.
+    cur_wk = current_regular_week(state, season)
+    if cur_wk and args.weekly_fallback >= cur_wk:
+        thin = thin_week_positions(out, cur_wk)
+        if thin:
+            sys.exit("week {} came back thin for {} (floor {}) — a dropped "
+                     "position-week would price every one of them at 0.00 and "
+                     "the odds snapshot would freeze it; refusing to overwrite {}"
+                     .format(cur_wk,
+                             ", ".join(f"{p} {n}" for p, n in sorted(thin.items())),
+                             MIN_WEEK_LINES, dest))
     result = {"meta": {"season": season, "league_id": league_id,
                        "league_games": LEAGUE_GAMES, "players": len(out),
                        "note": "built from WEEKLY projection lines where they exist "

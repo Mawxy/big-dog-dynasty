@@ -6,6 +6,8 @@ import type {
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
+import { useLeagueCaps, useSettledSeasons } from "../lib/caps";
+import { playedWeeks, projectedRecord } from "../lib/projRecord";
 import { fmt, fmtWar, mean, meterWidth, ord, sd } from "../lib/stats";
 import { latestSeasonOf, lineupOf, optimalLineup, pricedLineup, rosterSeasonOf, seasonSeg, weekIndex } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
@@ -183,6 +185,7 @@ function RosterBoard() {
   const nav = useNavigate();
   const lp = useLeaguePath();
   const rosterSeason = rosterSeasonOf(league);
+  const caps = useLeagueCaps();
   const { sortId, dir, onSort } = useTableSort("dvi");
 
   const fr = useJson<Franchises>("franchises.json").data;
@@ -190,9 +193,9 @@ function RosterBoard() {
   // model-aware: these follow the masthead's projection-model control
   const dvi = useDvi();
   const cvi = useCvi();
-  const projs = useJson<ProjectionsFile>("projections.json").data;
+  const projs = useJson<ProjectionsFile>(caps.projections ? "projections.json" : null).data;
   // global file: the market prices a format, not a league
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const vals = useJson<Values>(caps.market ? "data/values.json" : null, "globalDaily").data;
 
   /**
    * Starters = the roster's best legal lineup optimized IN that currency, not
@@ -252,6 +255,14 @@ function RosterBoard() {
     () => rows ? applySort(rows, sortCol(BOARD_COLS, sortId, "dvi"), dir) : null,
     [rows, sortId, dir]);
 
+  // THE CAPS GATE BEFORE THE LOADING BRANCH (lib/caps): this whole board is
+  // priced in DVI and CVI, and a league whose pipeline writes neither 404s
+  // both — "Loading rosters…" then claimed forever that they were on the way.
+  if (!caps.indices) return (
+    <div className="empty">
+      Roster value is priced in DVI and CVI, which aren't published for this league.
+    </div>
+  );
   if (!sorted) return <div className="empty">Loading rosters…</div>;
   return (
     <>
@@ -303,7 +314,11 @@ function RosterBoard() {
 interface StandRow {
   rid: number; fkey: string; seed: number; team: string; manager: string;
   /** real wins plus the summed win probability of every unplayed week */
-  wins: number; fpts: number; rec: string;
+  wins: number;
+  /** played ties. A third figure, never folded into wins or losses — but it
+   *  counts half a win in the seed key, the way the pipeline seeds. */
+  ties: number;
+  fpts: number; rec: string;
   /** the median record as a label, and the wins in it — the column shows the
    *  first and sorts on the second; luck is a different quantity with its own
    *  column, and sorting Vs median by it ordered the table by neither */
@@ -343,6 +358,13 @@ function SeasonStandings({ season }: { season: string }) {
     setErr(false);
     setOpenRid(null);
     resetSort();
+    // CLEAR THE PREVIOUS SEASON'S PAIR FIRST. `data` (useSeasonData) and `odds`
+    // (useJson) both reset on a path change, but these two were left standing
+    // until the new fetch resolved — so for a frame the board drew the new
+    // season's teams and records against the OLD season's weekly medians and
+    // playoff start, and a team's vs-median line was a fact about another year.
+    setWeekly(null);
+    setMw(null);
     Promise.all([
       jl<Weekly>(`${season}/weekly.json`),
       jl<Matchups>(`${season}/matchups.json`).catch(() => ({ playoff_start: 15, teams: {} } as Matchups)),
@@ -378,41 +400,26 @@ function SeasonStandings({ season }: { season: string }) {
         if (m == null) continue;
         e[1] > m ? mwin++ : e[1] < m ? mloss++ : mtie++;
       }
-      // Every regular-season week the odds file prices that this team has not
-      // actually played. Summed win probability is expected wins: over a
-      // fourteen-week schedule that is a far better read than 0-0.
-      //
-      // A week counts only once it carries a WIN PROBABILITY, not merely an
-      // entry: `wp` is optional in WeekOdds (week 1 without a snapshot is
-      // deliberately left unpriced, with a mu and no line), and filtering on
-      // `x.o != null` let such a week into `ahead.length` while contributing
-      // `wp ?? 0` to expWins — a full projected LOSS for a week nobody has
-      // priced.
-      const done = new Set(reg.map(e => e[0]));
-      const ahead = Object.keys(odds?.weeks ?? {})
-        .map(wk => ({ wk: Number(wk), o: odds?.weeks[wk]?.[String(t.roster_id)] }))
-        .filter(x => x.wk < ps && !done.has(x.wk) && x.o?.wp != null);
-      const expWins = ahead.reduce((a, x) => a + (x.o?.wp ?? 0), 0);
-      const projPts = ahead.map(x => x.o?.mu ?? 0);
+      // THE PROJECTED RECORD, from `lib/projRecord` — the same call the League
+      // page makes, so the two screens cannot print different figures for the
+      // same team. Every rule this block used to state in place (a week counts
+      // only once it carries a `wp`; losses are the PLAYED losses plus the
+      // unplayed complement, never `games − wins`, which folds ties into
+      // losses) lives in that module's docstring now.
+      const pr = projectedRecord({
+        rid: t.roster_id,
+        record: { wins: t.wins, losses: t.losses, ties: t.ties },
+        odds, played: playedWeeks(ent, ps), playoffStart: ps,
+      });
 
       const g = t.wins + t.losses + t.ties;
-      const wins = t.wins + expWins;
-      // Played losses, NOT g - wins: that subtraction folded every tie into the
-      // loss column, so a 6-6-2 team read 6-8 and its projected record inherited
-      // the same two phantom losses. Ties are a third figure and stay one — the
-      // odds file prices a win probability, never a draw, so no unplayed week
-      // can add to them.
-      const losses = t.losses + (ahead.length - expWins);
-      const proj = ahead.length > 0;
-      const all = [...pts, ...projPts];
-      const ties = t.ties ? `-${t.ties}` : "";
+      const all = [...pts, ...pr.projPts];
       return {
         rid: t.roster_id, fkey: t.fkey ?? String(t.roster_id),
         seed: 0, manager: t.manager, team: t.team,
-        wins, fpts: t.fpts + projPts.reduce((a, b) => a + b, 0),
-        rec: proj
-          ? `${wins.toFixed(1)}-${losses.toFixed(1)}${ties}`
-          : `${t.wins}-${t.losses}${ties}`,
+        wins: pr.wins, ties: pr.ties,
+        fpts: t.fpts + pr.projPts.reduce((a, b) => a + b, 0),
+        rec: pr.text,
         // median record and luck are settled facts about weeks that happened;
         // an unplayed week contributes nothing to either
         med: reg.length ? `${mwin}-${mloss}${mtie ? "-" + mtie : ""}` : null,
@@ -421,10 +428,16 @@ function SeasonStandings({ season }: { season: string }) {
         ppg: all.length ? mean(all) : (g ? t.fpts / g : 0),
         sdv: pts.length > 1 ? sd(pts) : null,
         war: reg.length ? war : null,
-        ent, proj,
+        ent, proj: pr.projected,
       };
     });
-    const seedOrder = rs.slice().sort((a, b) => b.wins - a.wins || b.fpts - a.fpts);
+    // A TIE IS HALF A WIN — the pipeline's own seed key (build_site_data.py:
+    // `-(wins + 0.5*ties)`, then `-fpts`), which also decides the non-playoff
+    // half of `finish`. Sorting on wins alone seeded a 7-6-1 team level with a
+    // 7-7 one and broke the tie on points, so the board's seed column could
+    // disagree with the finish column beside it on the same row.
+    const seedOrder = rs.slice().sort(
+      (a, b) => (b.wins + b.ties / 2) - (a.wins + a.ties / 2) || b.fpts - a.fpts);
     rs.forEach(r => { r.seed = seedOrder.indexOf(r) + 1; });
     return rs;
   }, [data, mw, weekly, odds]);
@@ -677,6 +690,12 @@ function HistoryBoard() {
   const lp = useLeaguePath();
   const { sortId, dir, onSort } = useTableSort("winPct");
   const fr = useJson<Franchises>("franchises.json").data;
+  // BEST FINISH IS A SETTLED-SEASON FACT. build_site_data assigns places
+  // 7..12 off the standings the moment the first winners-bracket game is
+  // decided (lib/seasons#isSeasonSettled), so from week 15 a franchise that
+  // has never placed better than 8th would show this season's provisional
+  // 7th as its best — a placing nothing has decided yet.
+  const settled = useSettledSeasons();
 
   const rows = useMemo<HistRow[] | null>(() => {
     if (!fr) return null;
@@ -685,7 +704,7 @@ function HistoryBoard() {
         (a, sn) => ({ w: a.w + sn.wins, l: a.l + sn.losses, t: a.t + (sn.ties || 0) }),
         { w: 0, l: 0, t: 0 });
       const games = all.w + all.l + all.t;
-      const bestSn = f.seasons.filter(sn => sn.finish != null)
+      const bestSn = f.seasons.filter(sn => sn.finish != null && settled.isSettled(sn.season))
         .reduce<(typeof f.seasons)[number] | null>(
           (b, sn) => !b || sn.finish! < b.finish! || (sn.finish === b.finish && sn.season > b.season)
             ? sn : b, null);
@@ -699,7 +718,7 @@ function HistoryBoard() {
         titles: f.seasons.filter(sn => sn.finish === 1).length,
       };
     });
-  }, [fr]);
+  }, [fr, settled]);
 
   const sorted = useMemo(
     () => rows ? applySort(rows, sortCol(HIST_COLS, sortId, "winPct"), dir) : null,

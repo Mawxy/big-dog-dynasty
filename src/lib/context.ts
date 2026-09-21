@@ -61,8 +61,26 @@ export function useShell(): "classic" | "beta" {
 }
 
 /** the beta shell's name for a classic view's first path segment; a segment
- *  not listed keeps its name (player, teams, history, insights…) */
-const BETA_SEG: Record<string, string> = { draft: "drafts", weekly: "seasons" };
+ *  not listed keeps its name (player, teams, history, insights…).
+ *
+ *  `""` is the empty first segment of `lp("/")` — the classic board's League
+ *  dashboard, which the beta shell answers at /league. `home` is the same
+ *  screen's named address, and it is in BetaShell's CLASSIC_ONLY list, so
+ *  without this entry a "Dashboard" button in the beta shell would bounce
+ *  through the shell and out to /classic/home. */
+const BETA_SEG: Record<string, string> = {
+  draft: "drafts", weekly: "seasons", home: "league", "": "league",
+};
+
+/**
+ * A FRANCHISE KEY IS NOT ALWAYS A ROSTER ID (the same rule BetaShell's
+ * MastSearch writes out): it is the roster_id in a dynasty league and the
+ * owner's 18-digit Sleeper user_id in a redraft or keeper one. The beta
+ * shell's Team screen looks a franchise up strictly by roster_id, so an
+ * owner-keyed franchise has no beta screen and keeps the classic page, which
+ * knows how to read either shape.
+ */
+const isRid = (key: string) => /^\d{1,3}$/.test(key);
 
 /**
  * `useLeaguePath` for a view that lives in both shells: takes the CLASSIC
@@ -71,14 +89,26 @@ const BETA_SEG: Record<string, string> = { draft: "drafts", weekly: "seasons" };
  * on the classic board, `/big-dog/drafts/history/2025` in the beta shell.
  * Views keep writing classic paths, so nothing at a call site changes when
  * the classic board is retired; only this table does.
+ *
+ * A path with no beta equivalent stays classic — `/franchise/<user_id>` above,
+ * and any first segment BetaShell lists as CLASSIC_ONLY that is not renamed
+ * here. Landing a reader on the classic board is the honest outcome when the
+ * shell has no such screen; dropping him on a beta route that cannot resolve
+ * the id is not.
  */
 export function useShellPath() {
   const seg = leagueSeg(useLeague().league);
   const shell = useShell();
   return useCallback((p: string) => {
     const path = p.startsWith("/") ? p : `/${p}`;
-    if (shell === "classic") return `/${seg}/${CLASSIC_SEG}${path}`;
+    const classic = `/${seg}/${CLASSIC_SEG}${path}`;
+    if (shell === "classic") return classic;
     const [, first = "", ...rest] = path.split("/");
+    // /franchise/<rid> -> the beta Team screen; /franchise/<user_id> has none
+    if (first === "franchise") {
+      if (rest.length !== 1 || !isRid(rest[0])) return classic;
+      return `/${seg}/team/${rest[0]}`;
+    }
     const head = BETA_SEG[first] ?? first;
     return `/${seg}/${head}${rest.length ? `/${rest.join("/")}` : ""}`;
   }, [seg, shell]);

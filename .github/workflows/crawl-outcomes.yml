@@ -16,7 +16,9 @@ name: Crawl - outcomes (4-way sharded benchmarks)
 # only new rows come from leagues finishing, or from chains not yet walked.
 on:
   schedule:
-    - cron: "0 3,15 * * *"          # two hours after signals, list is fresh
+    # two hours after signals (:11), so the list is fresh. Minute :07, not :00 —
+    # see data-refresh.yml.
+    - cron: "7 3,15 * * *"
   workflow_dispatch:
 permissions:
   contents: write                   # commits the signals files

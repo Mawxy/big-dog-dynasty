@@ -1,12 +1,14 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Absences, MatrixModel, Ownership, PlayerShard, RecentAsset, RecentTrades, SummaryRow, Team,
+  Absences, MatrixModel, Matchups, Ownership, PlayerShard, RecentAsset, RecentTrades, Team,
   Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jl } from "../lib/data";
 import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
+import type { InSeason } from "../lib/outlook";
+import { isInSeason, outlookLabel, outlookNote, weeksLeft } from "../lib/outlook";
 import { fmt, sgn, mean } from "../lib/stats";
 // WAR at the beta shell's two places (Max, 2026-09-10): the player page is a
 // beta screen now, and "0.382" was the one three-place figure left on it
@@ -15,6 +17,7 @@ import { fmtUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageKey, type UsagePha
 import { splitCurve, useModel } from "../lib/model";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { leagueSeg, useLeague } from "../lib/context";
+import { useLeagueCaps } from "../lib/caps";
 import { RouteLink } from "../components/RouteLink";
 import { RECENT_NOTE, RecentFigs, RecentRows } from "../components/RecentTrades";
 import { ktcOf } from "../lib/values";
@@ -43,6 +46,29 @@ const heldBy = (owners: CareerSeason["owners"]) => owners.length
   ))
   : <span className="fig quiet">—</span>;
 const WINDOWS = ["7", "14", "30"] as const;
+
+/**
+ * THE SEASON CELL'S SECOND LINE, on the projected row that is already being
+ * played: what is banked, and how much of the projection is still ahead of it.
+ *
+ * It sits under the SEASON, not under a figure, because it is true of every
+ * figure in the row — the same realized WAR and the same remaining fraction
+ * apply to all eight curves and to both ends of the band. Sentence-case body
+ * face at caption size, so it reads as the qualifier it is and never competes
+ * with the year above it; the full sentence is on hover.
+ */
+function OutlookSub({ banked, inseason }: { banked: number; inseason: InSeason }) {
+  const left = weeksLeft(inseason) ?? 0;
+  return (
+    <div title={outlookNote(inseason)}
+      style={{
+        marginTop: 2, font: "400 11px/1.35 var(--sans)", color: "var(--dim)",
+        whiteSpace: "normal",
+      }}>
+      {fmtWar(banked)} banked + {left}/{inseason.reg_weeks} proj
+    </div>
+  );
+}
 
 /** data/recent_trades/<bucket>.json — MIRRORS dynasty_movers.py
  *  (RECENT_BUCKETS / recent_bucket): the same pid has to land in the same
@@ -87,8 +113,10 @@ const MODELS: { key: MatrixModel; label: string; desc: string }[] = [
     desc: "the two naturals mixed by how good the analog's cohort is" },
   // THE POINTS-FIRST ARM (Max, 2026-09-10/11): points projected first, WAR
   // derived from the projected pool — so his WAR moves only when his points
-  // do, not when the replacement line at his position moves. The site model
-  // since 2026-09-11; its two curves ride the matrix row like the others.
+  // do, not when the replacement line at his position moves. It was the site
+  // model from 2026-09-11 to 2026-09-16; `blend_composite` is the default now
+  // (DEFAULT_CURVE in lib/model.ts is the one place that answers it). Its two
+  // curves ride the matrix row like the others.
   { key: "points", label: "Points",
     desc: "points per game and games projected first, from his record and usage; WAR from the projected pool's replacement level" },
 ];
@@ -107,8 +135,6 @@ export default function Player({ pid }: { pid: string }) {
   const [usagePhase, setUsagePhase] = useState<UsagePhase>("reg");
   const [wks, setWks] = useState<WeeklyRow[] | null>(null);
   const [abs, setAbs] = useState<Record<string, string>>(NO_ABSENCES);
-  /** league-season WAR by year — the ladder fallback when there's no shard */
-  const [leagueCareer, setLeagueCareer] = useState<[number, number][] | null>(null);
   /** which projection stream leads the table (the restored lens) */
   const [stream, setStream] = useState<StreamKey>("composite");
   /** which PLAYED season the week grid shows — the career ladder sets it */
@@ -145,8 +171,13 @@ export default function Player({ pid }: { pid: string }) {
   const cvi = useCvi()?.players[pid] ?? null;
   const own = useJson<Ownership>("ownership.json").data ?? NO_OWNERSHIP;
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
+  /** what this league publishes. `market` is the one that matters here: KTC
+   *  and FantasyCalc price a DYNASTY asset, and the Market value table put a
+   *  dynasty price and a "priced like 2027 Early 1st" row on a redraft
+   *  league's player page, where neither means anything. */
+  const caps = useLeagueCaps();
   // global file: the market prices a format, not a league
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const vals = useJson<Values>(caps.market ? "data/values.json" : null, "globalDaily").data;
   /**
    * HIS TRADES ACROSS THE CRAWLED LEAGUES, last 7 days (Max, 2026-09-08).
    * Global, like the market feed: a trade in one of 46k dynasty leagues
@@ -157,7 +188,8 @@ export default function Player({ pid }: { pid: string }) {
    * `error` (the shards not deployed yet) hides the section rather than
    * showing an empty one.
    */
-  const recentQ = useJson<RecentTrades>(`data/recent_trades/${recentBucket(pid)}.json`, "globalDaily");
+  const recentQ = useJson<RecentTrades>(
+    caps.market ? `data/recent_trades/${recentBucket(pid)}.json` : null, "globalDaily");
   const recent = recentQ.data?.players[pid] ?? null;
 
   /**
@@ -179,43 +211,55 @@ export default function Player({ pid }: { pid: string }) {
   const mx = shard?.mx ?? null;
   const blendW = shard?.blend_w ?? null;
 
+  /**
+   * HOW MUCH OF THE ROSTER SEASON IS ALREADY A FACT (Max, 2026-09-21).
+   *
+   * Every curve's year 1 is a FULL-SEASON figure, which is the right input to
+   * a model and the wrong thing to show a reader in week 4: by then four of
+   * those weeks have happened and have a realized WAR attached. So while the
+   * shard carries `inseason`, every year-1 figure the projection tables and
+   * the career ladder PRINT is the outlook — banked + projection × the share
+   * of the season left (lib/outlook, mirrored by scripts/inseason.py).
+   *
+   * WHY THE WHOLE ROW MOVES, not just the accented cell. The transform is
+   * affine with the SAME two constants for every curve, so the eight model
+   * figures shift and scale together: their ordering, their spread relative to
+   * each other, and the band around them are all preserved. Prorating one cell
+   * and leaving its neighbour on fourteen weeks would have put two numbers
+   * measuring different seasons under one header.
+   *
+   * Absent `inseason` — the offseason, a shard built before the field, and
+   * every byte of data committed today — `owY` is the identity and this page
+   * renders exactly as it did.
+   */
+  const blk = shard?.inseason ?? null;
+  const inseason = isInSeason(blk) ? blk : null;
+  /** his realized regular-season WAR so far. No row in the season summary
+   *  means he has not dressed for anybody: a real zero, not a missing value. */
+  const banked = typeof shard?.banked === "number" && Number.isFinite(shard.banked)
+    ? shard.banked : 0;
+
   const last = latestSeasonOf(meta);
+  /** THE LEAGUE'S OWN REGULAR SEASON, for the usage table's caption: the
+   *  windows usage_stats.py sums are cut on `playoff_start`, so the caption
+   *  has to read it from the same place rather than asserting "weeks 1–14"
+   *  (lib/league's REG_WEEKS is explicitly the assumption for where that
+   *  figure is NOT known). Fetched only when there is a usage table to
+   *  caption, and matchups.json for this season is already in the cache from
+   *  the career build. */
+  const regMw = useJson<Matchups>(shard?.usage ? `${last}/matchups.json` : null).data;
+  const regTo = (regMw?.playoff_start ?? REG_WEEKS + 1) - 1;
   /** the open career row. Null means every row is collapsed — the week grid is
    *  a drawer now, so nothing is fetched until a season is actually opened. */
   const wkSeason = weekSeason && meta.seasons.includes(weekSeason) ? weekSeason : null;
 
   useEffect(() => {
     let live = true;
-    /** the ladder's fallback source for a player the projection model never
-     *  priced: league-season WAR read out of each season's summary */
-    const leagueLadder = async () => {
-      const sums = await Promise.all(meta.seasons.map(s =>
-        jl<SummaryRow[]>(`${s}/summary.json`).catch(() => [] as SummaryRow[])));
-      if (!live) return;
-      const career: [number, number][] = [];
-      meta.seasons.forEach((s, i) => {
-        const r = sums[i].find(x => x[0] === pid);
-        if (r) career.push([+s, r[6]]);
-      });
-      setLeagueCareer(career);
-    };
     jl<PlayerShard>(`player/${pid}.json`).then(
-      sh => {
-        if (!live) return;
-        setShard(sh);
-        // A shard carrying NEITHER projection is one the analog arm alone put
-        // there — before the shard held `knn` that player had no shard at all,
-        // and the ladder fell back to league seasons. Keep that: what the
-        // ladder reads is `proj.career`, so the trigger is the projection's
-        // absence, not the file's.
-        if (!sh?.proj && !sh?.sproj) leagueLadder();
-      },
-      () => {
-        // 404 = no record in any projection source; same fallback
-        if (!live) return;
-        setShard(null);
-        leagueLadder();
-      });
+      sh => { if (live) setShard(sh); },
+      // 404 = no record in any projection source. The ladder then falls back
+      // to his league seasons, which `career` below already holds.
+      () => { if (live) setShard(null); });
     loadHonors(meta.seasons).then(h => { if (live) setHonors(h); }).catch(() => {});
     loadCareer(meta.seasons).then(c => {
       if (!live) return;
@@ -269,6 +313,17 @@ export default function Player({ pid }: { pid: string }) {
   const [nm, pos, nfl] = pInfo(players, pid);
   const proj = shard?.proj ?? null;
   const years = shard?.years ?? [];
+  /** is projected year `i` the season currently being played? The pipeline
+   *  publishes the block only when year 1 IS the roster season, so this is row
+   *  0 and nothing else — matched on the season rather than on the index so a
+   *  rebuilt horizon can never prorate the wrong year. */
+  const owRow = (i: number) => !!inseason && years[i] === inseason.season;
+  /** `banked + v × remaining_frac` for that row, `v` untouched everywhere
+   *  else. Applied at render, never to a stored figure: nothing downstream of
+   *  this page — no index, no price, no optimiser — may see the prorated
+   *  number. */
+  const owY = (v: number, i: number): number =>
+    owRow(i) && inseason ? banked + v * inseason.remaining_frac : v;
   /** the accented model, forced back to scalar for a player with no cohort.
    *  Derived rather than corrected in state: the lens remembers what the reader
    *  picked, so navigating from a player who has an analog read to one who does
@@ -384,10 +439,29 @@ export default function Player({ pid }: { pid: string }) {
     if (scroll) refs.career.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   };
 
+  /**
+   * THE LADDER'S FALLBACK, off the career rows this page already holds.
+   *
+   * A player the projection model never priced has no `proj.career`, and the
+   * ladder used to fill that gap by fetching every season's summary.json and
+   * scanning each one for his pid — the same files `loadCareer` had already
+   * read to build the career table twelve rows below, filtered the same way
+   * (`typeof war === "number"`) to the same figure. One source, so the rail
+   * and the table can never disagree about what he did in 2024.
+   */
+  const leagueCareer: [number, number][] | null = career
+    ? career.map(r => [Number(r.season), r.war] as [number, number])
+      .sort((a, b) => a[0] - b[0])
+    : null;
+
   /** ladder rows, newest first: projected years above played ones */
   const played: [number, number][] = proj?.career ?? leagueCareer ?? [];
+  /* THE LADDER IS WHERE THE FULL-SEASON RATE READ WORST: a projected 2026 sat
+     directly above a played 2025 in the same column of season figures, and in
+     week 4 those two were measuring different amounts of football. The roster
+     season's rung is the OUTLOOK, which is the figure it will settle at. */
   const projected: [number, number][] = proj
-    ? years.map((y, i) => [y, proj.composite[i] ?? 0] as [number, number])
+    ? years.map((y, i) => [y, owY(proj.composite[i] ?? 0, i)] as [number, number])
     : [];
   const ladder = [...projected.slice().reverse(), ...played.slice().reverse()];
   const ladderMax = Math.max(0.001, ...ladder.map(([, w]) => Math.max(0, w)));
@@ -411,13 +485,38 @@ export default function Player({ pid }: { pid: string }) {
     const curveGap = mean(c.map((x, i) => x - (proj.proj[i] ?? 0)));
     const width = (proj.comp_high[0] ?? 0) - (proj.comp_low[0] ?? 0);
     const fin = proj.posFin?.[0] ? `, a ${pos}${proj.posFin[0]} finish` : "";
+    /* THE SENTENCE THAT NAMES YEAR 1 SAYS OUTLOOK, in season. The three-year
+       path below it deliberately does not: a trend is a statement about the
+       model's rates, and comparing a four-week-old season against two whole
+       ones would read as a collapse that nothing measured. So the first
+       sentence states what 2026 will finish at and the rest is labeled as the
+       full-season rate it has always been. The band is scaled with the figure
+       it sits under — same fraction, same arithmetic — rather than left at
+       fourteen weeks' worth of uncertainty over ten weeks of football. */
+    const o0 = owY(c[0] ?? 0, 0);
+    const rest = inseason ? (c[0] ?? 0) * inseason.remaining_frac : 0;
+    const left = inseason ? inseason.reg_weeks - inseason.weeks_played : 0;
+    const wk = inseason ? inseason.weeks_played : 0;
     return {
-      meta: `${years[0]} composite ${fmtWar(c[0])} WAR · band ${fmtWar(proj.comp_low[0])} to ${fmtWar(proj.comp_high[0])}`,
-      body: `Year one projects ${fmtWar(c[0])} WAR${fin}. The three-year path is ${trend} — `
-        + `${fmtWar(c[0])} in ${years[0]} to ${fmtWar(c[lastIdx])} by ${years[lastIdx]}. `
+      meta: inseason
+        ? `${years[0]} outlook ${fmtWar(o0)} WAR · ${fmtWar(banked)} banked in `
+          + `${wk} wk${wk === 1 ? "" : "s"} + ${fmtWar(rest)} still projected`
+        : `${years[0]} composite ${fmtWar(c[0])} WAR · band ${fmtWar(proj.comp_low[0])} to ${fmtWar(proj.comp_high[0])}`,
+      // NAMED YEARS, not "year one": the reader cannot tell from the phrase
+      // whether the first projected year is the roster season or the one
+      // after it, and the two have been different (the pipeline shipped a
+      // [2027..] horizon once). `years` is the projection's own answer.
+      body: (inseason
+        ? `${years[0]} is tracking to ${fmtWar(o0)} WAR${fin} — ${fmtWar(banked)} already `
+          + `banked over ${wk} of ${inseason.reg_weeks} weeks, plus ${left}/${inseason.reg_weeks} `
+          + `of a ${fmtWar(c[0])} full-season projection. `
+        : `${years[0]} projects ${fmtWar(c[0])} WAR${fin}. `)
+        + `The three-year path is ${trend} — `
+        + `${fmtWar(c[0])} in ${years[0]} to ${fmtWar(c[lastIdx])} by ${years[lastIdx]}`
+        + `${inseason ? ", on the full-season rate" : ""}. `
         + `The composite reads ${curveGap >= 0 ? "above" : "below"} the pure age-curve path by `
-        + `${fmtWar(Math.abs(curveGap))} WAR a year, and the 80% band on year one spans `
-        + `${fmtWar(width)} WAR.`,
+        + `${fmtWar(Math.abs(curveGap))} WAR a year, and the 80% band on ${years[0]} spans `
+        + `${fmtWar(inseason ? width * inseason.remaining_frac : width)} WAR.`,
     };
   })() : null;
 
@@ -427,8 +526,10 @@ export default function Player({ pid }: { pid: string }) {
   const stLo = proj ? (proj[st.lo] as number[]) : null;
   const stHi = proj ? (proj[st.hi] as number[]) : null;
   // the axis has to hold whichever band is showing, not always the composite's
+  // — and it is measured on the DRAWN figures, so an outlook row that prorates
+  // its band does not leave the axis scaled to a season nobody is looking at
   const rangeMax = proj
-    ? Math.max(0.001, ...((mx ? band.hi : stHi) ?? proj.comp_high))
+    ? Math.max(0.001, ...((mx ? band.hi : stHi) ?? proj.comp_high).map((v, i) => owY(v, i)))
     : 1;
 
   /* ---- the rail's parts, built once and placed by shape ------------------
@@ -493,7 +594,9 @@ export default function Player({ pid }: { pid: string }) {
           <div key={y} role={pick ? "button" : undefined}
             tabIndex={pick ? 0 : undefined}
             title={pick ? `Open ${y} in the career table`
-              : isProj ? undefined : `${y} — before the league began`}
+              : isProj
+                ? (inseason && y === inseason.season ? outlookNote(inseason) : undefined)
+                : `${y} — before the league began`}
             className={`rail-war${isProj ? " proj" : pick ? " pick" : " pre"}${on ? " mark" : ""}`}
             onClick={pick ? () => openSeason(String(y), true) : undefined}
             onKeyDown={pick ? e => {
@@ -598,7 +701,13 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="figsub">{firstYear ? `since ${firstYear}` : "no seasons"}</div>
               </div>
               <div className="figcell">
-                <div className="figkey">Next 3 years</div>
+                {/* THE PROJECTION'S OWN YEARS, never the roster season. The
+                    shard states which years it projects (`years`), and when a
+                    rebuild shifts the horizon "Next 3 years" would quietly
+                    mean a different three. Label with the real ones. */}
+                <div className="figkey">
+                  {years.length ? `${years[0]}–${years[years.length - 1]}` : "Next 3 years"}
+                </div>
                 <div className="figval">{proj ? fmtWar(proj.total_comp) : "—"}</div>
                 <div className="figsub">composite WAR</div>
               </div>
@@ -613,7 +722,10 @@ export default function Player({ pid }: { pid: string }) {
               <div className="pid-ladder">
                 <div className="band">
                   <span className="band-label">Career WAR</span>
-                  <span className="band-note">Projected years above played · tap a season to open it</span>
+                  <span className="band-note">
+                    Projected years above played · tap a season to open it
+                    {inseason && <> · <span title={outlookNote(inseason)}>{outlookLabel(inseason)}</span></>}
+                  </span>
                 </div>
                 {ladderRows}
               </div>
@@ -641,6 +753,16 @@ export default function Player({ pid }: { pid: string }) {
                       as a paragraph underneath. */}
                   <span className="band-note">
                     {models.find(m => m.key === modelOn)?.desc} · 80% band
+                    {/* THE ONE THING THE HEADERS CANNOT SAY. "Natural" and
+                        "Composite" still label their columns truthfully — every
+                        cell in them is that curve — but on the roster season's
+                        row each is banked WAR plus its own remainder, and the
+                        reader has to be told once, where the table's other
+                        cross-cutting facts are told. */}
+                    {inseason && <>
+                      {" · "}
+                      <span title={outlookNote(inseason)}>{outlookLabel(inseason)}</span>
+                    </>}
                     {mx.trust != null && <>
                       {" · "}
                       <span title={`How dense his cohort of comparables is (median distance ${fmt(mx.d_med ?? 0, 2)}${mx.padded ? ", padded past the cutoff" : ""}). A tight cohort keeps the analog's own read; a thin one hands the answer to the scalar model and to Sleeper.`}>
@@ -655,7 +777,7 @@ export default function Player({ pid }: { pid: string }) {
                     </>}
                     {mx.w_sleeper != null && <>
                       {" · "}
-                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmtWar(mx.sleeper_war ?? 0)} WAR. The analog composite takes it at this weight in year one; scalar and blend take it at ${Math.round((blendW?.[0] ?? 0.9) * 100)}%.`}>
+                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmtWar(mx.sleeper_war ?? 0)} WAR. The analog composite takes it at this weight in ${years[0]}; scalar and blend take it at ${Math.round((blendW?.[0] ?? 0.9) * 100)}%.`}>
                         Sleeper {Math.round(mx.w_sleeper * 100)}%
                       </span>
                     </>}
@@ -692,7 +814,11 @@ export default function Player({ pid }: { pid: string }) {
                       </th>
                     </tr>
                     <tr>
-                      <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
+                      {/* the Season column widens for the outlook row's second
+                          line, and the Range column gives up what it takes —
+                          a 9% column of "0.25 banked + 13/14 proj" would spill
+                          into the Age figure beside it */}
+                      <th scope="col" className="t" style={{ width: inseason ? "13%" : "9%" }}>Season</th>
                       <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
                       {models.map(m => {
                         const hm = m.key === modelOn ? "" : " hm";
@@ -703,14 +829,21 @@ export default function Player({ pid }: { pid: string }) {
                           </Fragment>
                         );
                       })}
-                      <th scope="col" className="t key edge" style={{ width: "27%" }}>Range</th>
+                      <th scope="col" className="t key edge" style={{ width: inseason ? "23%" : "27%" }}>Range</th>
                       <th scope="col" className="n" style={{ width: "8%" }}>Position finish</th>
                     </tr>
                   </thead>
                   <tbody>
                     {mx.blend_natural.map((_, i) => (
                       <tr key={i} className={i % 2 ? "zebra" : ""}>
-                        <td className="t fig strong">{years[i] ?? `Year ${i + 1}`}</td>
+                        <td className="t fig strong">
+                          {years[i] ?? `Year ${i + 1}`}
+                          {/* THE DECOMPOSITION, on the row it applies to. It
+                              belongs here rather than under one figure because
+                              it is true of every figure in the row: the same
+                              banked WAR and the same remaining fraction. */}
+                          {owRow(i) && inseason && <OutlookSub banked={banked} inseason={inseason} />}
+                        </td>
                         <td className="n fig quiet">{mx.age == null ? "—" : mx.age + i}</td>
                         {models.map(m => {
                           /* A model with no cohort has no read. The JSON carries
@@ -723,7 +856,7 @@ export default function Player({ pid }: { pid: string }) {
                           return (
                             <Fragment key={m.key}>
                               {(["natural", "composite"] as const).map((s, k) => {
-                                const v = (mx[`${m.key}_${s}` as const] ?? mx.scalar_natural)[i];
+                                const v = owY((mx[`${m.key}_${s}` as const] ?? mx.scalar_natural)[i], i);
                                 /* no Sleeper above the pts13 floor means the
                                    composite IS the natural — shown, but never
                                    accented, so an echo cannot read as a second
@@ -742,19 +875,29 @@ export default function Player({ pid }: { pid: string }) {
                           );
                         })}
                         <td className="t edge" style={{ whiteSpace: "normal" }}>
-                          {band.lo && band.hi ? <>
+                          {/* THE BAND TRAVELS WITH THE FIGURE. On the outlook
+                              row both ends take the same affine step the cells
+                              did — banked, then the projection's own share of
+                              what is left — so the 80% band is uncertainty
+                              about the games still to be played rather than
+                              about four weeks that are already settled. */}
+                          {band.lo && band.hi ? (() => {
+                            const lo = owY(band.lo[i] ?? 0, i), hi = owY(band.hi[i] ?? 0, i);
+                            const tick = owY((mx[`${modelOn}_natural` as const] ?? mx.scalar_natural)[i], i);
+                            return <>
                             <div className="range-band">
                               <div className="fill" style={{
-                                left: `${(Math.max(0, band.lo[i] ?? 0) / rangeMax * 100).toFixed(1)}%`,
-                                width: `${(Math.max(0, (band.hi[i] ?? 0) - Math.max(0, band.lo[i] ?? 0)) / rangeMax * 100).toFixed(1)}%`,
+                                left: `${(Math.max(0, lo) / rangeMax * 100).toFixed(1)}%`,
+                                width: `${(Math.max(0, hi - Math.max(0, lo)) / rangeMax * 100).toFixed(1)}%`,
                               }} />
-                              <div className="tick" style={{ left: `${(Math.max(0, (mx[`${modelOn}_natural` as const] ?? mx.scalar_natural)[i]) / rangeMax * 100).toFixed(1)}%` }} />
+                              <div className="tick" style={{ left: `${(Math.max(0, tick) / rangeMax * 100).toFixed(1)}%` }} />
                             </div>
                             <div className="range-ends">
-                              <span>{fmtWar(band.lo[i] ?? 0)}</span>
-                              <span>{fmtWar(band.hi[i] ?? 0)}</span>
+                              <span>{fmtWar(lo)}</span>
+                              <span>{fmtWar(hi)}</span>
                             </div>
-                          </> : <span className="fig quiet">—</span>}
+                            </>;
+                          })() : <span className="fig quiet">—</span>}
                         </td>
                         <td className="n last">
                           {proj.posFin?.[i]
@@ -773,7 +916,13 @@ export default function Player({ pid }: { pid: string }) {
               <div ref={refs.projection}>
                 <div className="band">
                   <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
-                  <span className="band-note">{st.desc} · range is the 80% band</span>
+                  <span className="band-note">
+                    {st.desc} · range is the 80% band
+                    {inseason && <>
+                      {" · "}
+                      <span title={outlookNote(inseason)}>{outlookLabel(inseason)}</span>
+                    </>}
+                  </span>
                 </div>
                 <div className="lens">
                   {STREAMS.map(s => (
@@ -792,7 +941,9 @@ export default function Player({ pid }: { pid: string }) {
                       <th scope="colgroup" className="edge value" colSpan={2}>{st.label} view</th>
                     </tr>
                     <tr>
-                      <th scope="col" className="t" style={{ width: "9%" }}>Season</th>
+                      {/* as in the six-curve table above: the Season column
+                          widens for the outlook row's second line */}
+                      <th scope="col" className="t" style={{ width: inseason ? "13%" : "9%" }}>Season</th>
                       <th scope="col" className="n" style={{ width: "7%" }}>Age</th>
                       {/* every path is named for what it is; the lens only
                           decides which one carries the accent — and, on a
@@ -802,17 +953,21 @@ export default function Player({ pid }: { pid: string }) {
                           className={`n${k === 0 ? " edge" : ""}${s.key === stream ? "" : " hm"}`}
                           style={{ width: "11%" }}>{s.label}</th>
                       ))}
-                      <th scope="col" className="t key edge" style={{ width: "37%" }}>Range</th>
+                      <th scope="col" className="t key edge" style={{ width: inseason ? "33%" : "37%" }}>Range</th>
                       <th scope="col" className="n" style={{ width: "14%" }}>Position finish</th>
                     </tr>
                   </thead>
                   <tbody>
                     {years.map((y, i) => (
                       <tr key={y} className={i % 2 ? "zebra" : ""}>
-                        <td className="t fig strong">{y}</td>
+                        <td className="t fig strong">
+                          {y}
+                          {owRow(i) && inseason && <OutlookSub banked={banked} inseason={inseason} />}
+                        </td>
                         <td className="n fig quiet">{proj.age + i}</td>
                         {STREAMS.map((s, k) => {
-                          const v = (proj[s.line] as number[])[i];
+                          const raw = (proj[s.line] as number[])[i];
+                          const v = raw == null ? raw : owY(raw, i);
                           const on = s.key === stream;
                           return (
                             <td key={s.key} className={`n${k === 0 ? " edge" : ""}${on ? "" : " fig quiet hm"}`}>
@@ -823,17 +978,25 @@ export default function Player({ pid }: { pid: string }) {
                           );
                         })}
                         <td className="t edge" style={{ whiteSpace: "normal" }}>
-                          <div className="range-band">
-                            <div className="fill" style={{
-                              left: `${(Math.max(0, stLo?.[i] ?? 0) / rangeMax * 100).toFixed(1)}%`,
-                              width: `${(Math.max(0, (stHi?.[i] ?? 0) - Math.max(0, stLo?.[i] ?? 0)) / rangeMax * 100).toFixed(1)}%`,
-                            }} />
-                            <div className="tick" style={{ left: `${(Math.max(0, stLine?.[i] ?? 0) / rangeMax * 100).toFixed(1)}%` }} />
-                          </div>
-                          <div className="range-ends">
-                            <span>{fmtWar(stLo?.[i] ?? 0)}</span>
-                            <span>{fmtWar(stHi?.[i] ?? 0)}</span>
-                          </div>
+                          {/* the band takes the same step the figures did — see
+                              the six-curve table above */}
+                          {(() => {
+                            const lo = owY(stLo?.[i] ?? 0, i), hi = owY(stHi?.[i] ?? 0, i);
+                            const tick = owY(stLine?.[i] ?? 0, i);
+                            return <>
+                            <div className="range-band">
+                              <div className="fill" style={{
+                                left: `${(Math.max(0, lo) / rangeMax * 100).toFixed(1)}%`,
+                                width: `${(Math.max(0, hi - Math.max(0, lo)) / rangeMax * 100).toFixed(1)}%`,
+                              }} />
+                              <div className="tick" style={{ left: `${(Math.max(0, tick) / rangeMax * 100).toFixed(1)}%` }} />
+                            </div>
+                            <div className="range-ends">
+                              <span>{fmtWar(lo)}</span>
+                              <span>{fmtWar(hi)}</span>
+                            </div>
+                            </>;
+                          })()}
                         </td>
                         <td className="n last">
                           {proj.posFin?.[i]
@@ -1041,8 +1204,12 @@ export default function Player({ pid }: { pid: string }) {
                               carries every mark he has */}
                           <td className="t last edge"><span className="fig quiet">—</span></td>
                         </tr>
+                        {/* keyed on the FRANCHISE, not the roster slot: in a
+                            redraft league a slot is reassigned every year, so
+                            two different managers split on the same `rid` and
+                            React silently dropped one of the two rows */}
                         {splits.length > 1 && splits.map(s => (
-                          <tr key={s.rid} className="tot owner">
+                          <tr key={s.fkey} className="tot owner">
                             {/* the manager, not the team name — a franchise
                                 renames itself most years and the splits have
                                 to survive that */}
@@ -1077,8 +1244,10 @@ export default function Player({ pid }: { pid: string }) {
                   <HonorLegend />
                   <div className="tnote" style={{ padding: `12px ${gut}px 16px` }}>
                     The crown and the gem carry the position's color. Honors cover league seasons
-                    only, and held by is the roster at season end — a player traded in November
-                    shows his new team, with the moves themselves in the ownership table below.
+                    only, and held by is every franchise that rostered him that season, in the
+                    order they held him — read week by week off the lineups, not off the roster
+                    at season end, so a player traded in November shows both teams with the
+                    weeks on hover. The moves themselves are in the ownership table below.
                   </div>
                 </>}
             </div>
@@ -1164,7 +1333,7 @@ export default function Player({ pid }: { pid: string }) {
                   </TScroll>
                   <div className="tnote" style={{ padding: `12px ${gut}px 16px` }}>
                     {keys.map(k => `${USAGE_LABEL[k].short ?? USAGE_LABEL[k].label}: ${USAGE_LABEL[k].def}`).join(" · ")}
-                    {" "}Windows are the league's: regular season is weeks 1–14, playoffs the bracket weeks. G is NFL games
+                    {" "}Windows are the league's: regular season is weeks 1–{regTo}, playoffs the bracket weeks. G is NFL games
                     with a stat line in the window, not league games; the career row is games-weighted.
                   </div>
                 </div>

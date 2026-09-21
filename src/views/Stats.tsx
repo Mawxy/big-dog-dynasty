@@ -117,7 +117,7 @@ export default function Stats() {
   // samples, sort the whole population and rank within position off that
   // order. Keyed on the DATA and the SORT only; the query filters the result
   // in the memo below rather than forcing this whole pass per keystroke.
-  const { population, ctx } = useMemo(() => {
+  const { population, ctx, floor } = useMemo(() => {
     const owners = data ? ownerOf(data.teams) : {};
     // Same guard honors.ts uses on this tuple: WAR is optional in the row type
     // and a row missing it arithmetics into NaN, which sorts unpredictably and
@@ -137,22 +137,37 @@ export default function Stats() {
           gp, pts, ppg, sdv: sdv || 0, war, warG: gp ? war / gp : 0,
         };
       });
-    // floor tiny samples out of the leaderboard: a two-game cameo at 22 PPG is
-    // not a season, and it outranks everyone if left in
+    /**
+     * THE SAMPLE FLOOR IS A RATE-SORT RULE, NOT A POPULATION RULE.
+     *
+     * "A two-game cameo at 22 PPG is not a season, and it outranks everyone if
+     * left in" is an argument about a RATE: dividing by a small denominator is
+     * what makes the cameo win. It says nothing about a TOTAL — a player who
+     * has banked 0.9 WAR in six games has banked 0.9 WAR, and dropping him
+     * because the board's leader has fourteen games is removing a true figure
+     * to protect a column he cannot distort.
+     *
+     * On the All-time board the floor was 45% of the career-games leader, so
+     * ~27 games: every 2025 and 2026 rookie fell off a board whose resting
+     * sort is TOTAL career WAR. So the floor now applies only while the table
+     * is ordered by a per-game figure.
+     */
+    const col = sortCol(cols, sortId, "war");
+    const rate = col?.id === "ppg" || col?.id === "warG" || col?.id === "sdv";
     const gpMax = all.reduce((m, r) => Math.max(m, r.gp), 0);
-    const floor = Math.round(gpMax * 0.45);
-    all = all.filter(r => r.gp >= floor);
+    const floor = rate ? Math.round(gpMax * 0.45) : 0;
+    if (floor > 0) all = all.filter(r => r.gp >= floor);
 
     const ctx: BoardCtx = { warMax: Math.max(0.01, ...all.map(r => r.war)) };
     // sort the FULL population first, then assign position rank from that
     // order, then filter — so RB4 stays RB4 inside the RB-only view
-    const sorted = applySort(all, sortCol(cols, sortId, "war"), dir);
+    const sorted = applySort(all, col, dir);
     const counters: Record<string, number> = {};
     sorted.forEach(r => {
       counters[r.pos] = (counters[r.pos] ?? 0) + 1;
       r.posRank = counters[r.pos];
     });
-    return { population: sorted, ctx };
+    return { population: sorted, ctx, floor };
   }, [data, players, sortId, dir, cols]);
 
   // …and the cheap half. `ctx.warMax` stays the FULL population's max, so the
@@ -198,7 +213,10 @@ export default function Stats() {
         <span className="band-note">
           {allTime
             ? "Totals across every season played · career volatility is not a number anyone should read, so points take its column"
-            : "WAR vs the best player left out of the league's 108 startable slots · sub-45% of the season's max games filtered out"}
+            : "WAR vs the best player left out of the league's 108 startable slots"}
+          {/* the floor is a property of the ORDER now, so it is stated only
+              while it is actually in force */}
+          {floor > 0 && ` · ordered by a per-game figure, so players under ${floor} games are filtered out`}
         </span>
       </div>
 

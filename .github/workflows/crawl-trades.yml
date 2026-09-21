@@ -17,10 +17,12 @@ on:
     # Every 2h on ODD hours: runs finish in ~30 min, so the extra runs work
     # through the 80k-league backlog faster (each league still re-pulls only
     # after --cooldown-days). Odd hours keep the original property that a run
-    # lands an hour after each 6-hourly signals crawl (0,6,12,18), so the
-    # league list is fresh. Concurrency below queues, never overlaps, if a
+    # lands about an hour after each 6-hourly signals crawl (00/06/12/18 at :11),
+    # so the league list is fresh. Concurrency below queues, never overlaps, if a
     # rate-limited run overshoots the gap.
-    - cron: "0 1-23/2 * * *"
+    # Minute :13, not :00 — see the cron comment in data-refresh.yml; every
+    # workflow here owns a distinct off-the-hour minute now.
+    - cron: "13 1-23/2 * * *"
   workflow_dispatch:
 permissions:
   contents: read                  # only reads the committed league list
@@ -118,9 +120,24 @@ jobs:
           # exact key, restores yesterday's copy through the prefix, fetches
           # over it and saves under today's; every later run that day is an
           # exact hit and makes no call at all.
+          #
+          # RENAMED 2026-09-21 from `movers-players-nfl-` to the neutral
+          # `players-nfl-daily-`, which is now ALSO data-refresh.yml's key.
+          # Both workflows run on main and therefore share a cache scope, so one
+          # key means one fetch a day between the two of them instead of two —
+          # whichever starts first pays, the other gets an exact hit. This job
+          # is usually first (odd hours from 01:xx vs the nightly's 06:17).
+          # Keep the two keys identical; splitting them silently doubles the
+          # daily cost of the heaviest endpoint Sleeper serves.
           path: sleeper_data/players.json
-          key: movers-players-nfl-${{ steps.day.outputs.d }}
-          restore-keys: movers-players-nfl-
+          key: players-nfl-daily-${{ steps.day.outputs.d }}
+          # The second prefix is TRANSITIONAL: it restores the last cache saved
+          # under the old key so the rename does not cost one pointless 19 MB
+          # fetch. Safe to delete once no movers-players-nfl-* entry survives
+          # (GitHub evicts a cache after 7 idle days).
+          restore-keys: |
+            players-nfl-daily-
+            movers-players-nfl-
       - name: Fetch the Sleeper player map
         # names/positions for the board; ~19 MB, the call PROJECT_NOTES caveat
         # #3 says to make at most once a day — which is what the date-keyed

@@ -19,7 +19,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 from sleeper_war import (build_week, norm_win_shift,              # noqa: E402
                          nth_best_unrostered, slot_counts, WAIVER_RANK)
-from sleeper_pull import row_played                               # noqa: E402
+from sleeper_pull import (effective_week, row_played,             # noqa: E402
+                          week_complete)
 
 
 # The league: 12 teams, QB/2RB/3WR/TE/FLEX/SUPER_FLEX.
@@ -308,6 +309,107 @@ class TestPlayedRule(unittest.TestCase):
         for pos in ("QB", "RB", "WR", "TE"):
             self.assertFalse(row_played(row(pos, gms_active=1)), f"{pos} on IR")
             self.assertFalse(row_played(row(pos)), f"{pos} inactive/bye")
+
+
+# ---------------------------------------------------------------------------
+# WHEN A WEEK IS FINAL, AND WHICH WEEK IS "NOW" (sleeper_pull)
+#
+# These two decide what the dump freezes. week_complete gates the whole
+# played/allstats/matchups branch — freeze a week mid-Sunday and the Thu games
+# have points while the Sun-night players read 0, which is a bad sigma and a
+# row of real players marked DNP, committed as final. effective_week decides
+# which week's SET lineups are captured, and its September rule exists because
+# Sleeper's state does not say "regular / week 1" until kickoff week while
+# managers set week-1 lineups well before that.
+# ---------------------------------------------------------------------------
+def state(season="2026", season_type="regular", week=3):
+    return {"season": season, "season_type": season_type, "week": week}
+
+
+class TestWeekComplete(unittest.TestCase):
+
+    def test_in_season_only_the_weeks_before_the_live_one_are_final(self):
+        st = state(week=3)
+        self.assertTrue(week_complete("2026", 1, st))
+        self.assertTrue(week_complete("2026", 2, st))
+        self.assertFalse(week_complete("2026", 3, st), "the LIVE week")
+        self.assertFalse(week_complete("2026", 4, st))
+
+    def test_the_preseason_has_finished_nothing(self):
+        for wk in (1, 5, 18):
+            self.assertFalse(week_complete("2026", wk, state(season_type="pre")),
+                             wk)
+
+    def test_once_the_regular_season_is_over_every_week_is_final(self):
+        for st in ("post", "off"):
+            self.assertTrue(week_complete("2026", 14, state(season_type=st)), st)
+            self.assertTrue(week_complete("2026", 1, state(season_type=st)), st)
+
+    def test_a_past_season_is_done_and_a_future_one_is_not(self):
+        st = state(season="2026")
+        self.assertTrue(week_complete("2025", 17, st))
+        self.assertTrue(week_complete("2022", 1, st))
+        self.assertFalse(week_complete("2027", 1, st))
+
+    def test_no_state_fails_closed_on_the_season_in_progress(self):
+        """An external caller with no state must not be told the live week is
+        final. The one thing provable without state is that the CALENDAR has
+        put a season behind us — and an NFL season runs Sep into Feb, so
+        before March the season in progress is still last year's."""
+        import datetime as dt
+        today = dt.date.today()
+        current = today.year if today.month >= 3 else today.year - 1
+        self.assertFalse(week_complete(str(current), 1, None))
+        self.assertFalse(week_complete(str(current + 1), 1, None))
+        self.assertTrue(week_complete(str(current - 1), 17, None))
+        self.assertTrue(week_complete(str(current - 4), 1, None))
+
+    def test_an_unknown_season_keeps_the_old_behavior(self):
+        self.assertTrue(week_complete("unknown", 1, state()))
+        self.assertTrue(week_complete("unknown", 1, None))
+
+    def test_a_state_with_no_week_finalizes_nothing_in_season(self):
+        for wk_now in (None, 0):
+            self.assertFalse(week_complete("2026", 1, state(week=wk_now)),
+                             repr(wk_now))
+
+
+class TestEffectiveWeek(unittest.TestCase):
+
+    def test_in_season_it_is_simply_the_live_week(self):
+        self.assertEqual(effective_week("2026", state(week=6)), 6)
+
+    def test_another_season_is_never_current(self):
+        self.assertIsNone(effective_week("2025", state()))
+        self.assertIsNone(effective_week("2027", state()))
+
+    def test_no_state_is_no_week(self):
+        self.assertIsNone(effective_week("2026", None))
+        self.assertIsNone(effective_week("2026", {}))
+
+    def test_a_regular_season_state_with_no_week_is_no_week(self):
+        self.assertIsNone(effective_week("2026", state(week=0)))
+        self.assertIsNone(effective_week("2026", state(week=None)))
+
+    def test_from_september_the_upcoming_week_one_counts_as_current(self):
+        """Max, 2026-08-31: managers set week-1 lineups before Sleeper's state
+        rolls over to regular/1, and those lineups are decisions worth pricing.
+        (2026 is safely in the past from September 2026 on, so this claim does
+        not drift with the calendar.)"""
+        for st in ("pre", "off"):
+            self.assertEqual(effective_week("2026", state(season="2026",
+                                                          season_type=st)), 1, st)
+
+    def test_before_september_of_that_season_it_is_still_nothing(self):
+        """The same branch on a season whose September has not arrived."""
+        for st in ("pre", "off"):
+            self.assertIsNone(effective_week("2099", state(season="2099",
+                                                           season_type=st)), st)
+
+    def test_a_non_numeric_season_cannot_reach_the_september_rule(self):
+        self.assertIsNone(effective_week("unknown",
+                                         state(season="unknown",
+                                               season_type="off")))
 
 
 if __name__ == "__main__":

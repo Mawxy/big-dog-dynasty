@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type {
-  BracketFile, Drafts, Franchises, Matchups, PlayersMin, ProjectionsFile,
+  BracketFile, Drafts, Franchises, MatrixFile, Matchups, PlayersMin,
   SleeperProjFile, SummaryRow, Team, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
@@ -10,6 +10,10 @@ import { fmt, mean, normCdf, ord } from "../../lib/stats";
 import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
+import { useLeagueCaps } from "../../lib/caps";
+import { ridOf, seasonRowOf, settledSeasons } from "../../lib/seasons";
+import { playedWeeks as playedRegWeeks, projectedRecord } from "../../lib/projRecord";
+import { useProjWar1 } from "../../lib/useIndices";
 import { RouteLink } from "../../components/RouteLink";
 import PlayoffBracket from "../../components/PlayoffBracket";
 import { HonorSprite } from "../../components/HonorMarks";
@@ -18,7 +22,9 @@ import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamH
 import DraftBoardGrid from "../../components/DraftBoardGrid";
 import { buildHistory } from "../../lib/draftHistory";
 import { useSeasonPhase, useStandings } from "../model";
-import { useLiveScores, useNflScoreboard, type LiveSide, type Scoreboard } from "../../lib/liveScores";
+import {
+  isStale, useLiveWeekFeed, useNflBoardFeed, type LiveSide, type Scoreboard,
+} from "../../lib/liveScores";
 import Moved from "../moved";
 import { playedWeeks, weekFigures, weekRows } from "../week";
 import {
@@ -73,36 +79,117 @@ function ViewAll({ to, label = "View all →" }: { to: string; label?: string })
  *  to `.v3tbl td`; a basket figure and a champion block are not table cells. */
 const DASH = <span className="lgx-nul">—</span>;
 
+/* ========================================================================
+   WHO HELD THAT ROSTER SLOT, AND IS THERE A PAGE FOR THEM
+   ======================================================================== */
+
+/**
+ * A ROSTER SLOT IS NOT A FRANCHISE (2026-09-21).
+ *
+ * bracket.json, matchups.json and odds.json are keyed "1".."12" — the roster
+ * slot. franchises.json is keyed by the FRANCHISE KEY, which is the roster_id
+ * in a dynasty league and the owner's 18-digit Sleeper user_id in a redraft
+ * one. In the first league the two coincide and every screen on this board was
+ * written as though they always do; in the second they do not, and the
+ * consequences were all on this screen:
+ *
+ *  - `key={r.rid}` on a table of 34 franchises holding 12 slots is 12 distinct
+ *    keys, so React reconciled three managers' rows onto one and dropped the
+ *    rest.
+ *  - `acc.get(rid)` credited every bracket run on slot 5 to whoever holds slot
+ *    5 — a manager who left in 2024 inherited his successor's titles.
+ *  - `/team/<slot>` resolves against the ROSTER season's teams.json, so every
+ *    all-time row linked to whoever owns that slot TODAY.
+ *
+ * So: rows are keyed by franchise key, postseason records are accumulated
+ * season by season through this map, and a franchise still in the league gets
+ * a link while one that has left renders as plain text — because the beta
+ * shell's franchise page can only address the roster season's twelve slots,
+ * and there is no honest destination for the other twenty-two.
+ */
+export function useFranchiseIndex(rosterSeason: string) {
+  const fr = useJson<Franchises>("franchises.json").data;
+  const betaPath = useBetaPath();
+  return useMemo(() => {
+    /** season -> roster slot -> franchise key. The same join
+     *  screens/TeamRivals.tsx builds; `ridOf` is the season row's own `rid`,
+     *  falling back to the key only for site data built before `rid` was
+     *  written — which is dynasty data by definition. */
+    const bySeason = new Map<string, Map<number, string>>();
+    /** franchise key -> the slot it holds in the ROSTER season */
+    const now = new Map<string, number>();
+    for (const [key, f] of Object.entries(fr ?? {})) {
+      for (const s of f.seasons) {
+        const rid = ridOf(key, s);
+        if (!Number.isFinite(rid)) continue;
+        let m = bySeason.get(s.season);
+        if (!m) { m = new Map(); bySeason.set(s.season, m); }
+        m.set(rid, key);
+        if (s.season === rosterSeason) now.set(key, rid);
+      }
+    }
+    /** the franchise that held slot `rid` in `season`, or null */
+    const keyOf = (season: string, rid: number | null | undefined): string | null =>
+      (rid == null ? null : bySeason.get(season)?.get(rid) ?? null);
+    /** this franchise's page, or null when it is not in the roster season */
+    const hrefOf = (fkey: string | null | undefined): string | null => {
+      const rid = fkey == null ? undefined : now.get(fkey);
+      return rid == null ? null : betaPath(`/team/${rid}`);
+    };
+    return {
+      fr, keyOf, hrefOf,
+      /** the page for whoever held slot `rid` in `season` */
+      slotHref: (season: string, rid: number | null | undefined) => hrefOf(keyOf(season, rid)),
+    };
+  }, [fr, rosterSeason, betaPath]);
+}
+
 export default function League() {
   const { meta, league } = useLeague();
   const latest = latestSeasonOf(meta);
   const fr = useJson<Franchises>("franchises.json").data;
 
-  /** the SETTLED seasons, newest first. Sliced at `latest` rather than filtered
-   *  by string comparison: the roster season sits in meta.seasons too, and it
-   *  has no result to show. */
+  /** every season the league has PLAYED, newest first — the ALL-TIME view's
+   *  population. Sliced at `latest` rather than filtered by string comparison:
+   *  the roster season sits in meta.seasons too. */
   const played = useMemo(() => {
     const i = meta.seasons.indexOf(latest);
     return (i < 0 ? meta.seasons : meta.seasons.slice(0, i + 1)).slice().reverse();
   }, [meta.seasons, latest]);
 
+  /* THE SEASONS HISTORY OFFERS ARE THE SETTLED ONES (2026-09-21).
+     `played` ends at meta.latest, and meta.latest becomes the ROSTER season
+     the moment one of its weeks is scored — so the picker offered 2026, and
+     HistoryView then rendered "2026 champion —" above a band headed "2026
+     final standings" whose Finish column was a dash on every row. None of
+     those three claims is true of a season in progress; the Current scope is
+     where that season lives, and it is untouched.
+
+     Settled means somebody finished first (lib/seasons.isSeasonSettled — the
+     split FINISH column hands out 7th..12th a fortnight early, so `finish`
+     alone does not answer it). `played` stands in only while franchises.json
+     is in flight, so a shared ?season= link is not clamped away before the
+     file that validates it has landed. */
+  const history = useMemo(
+    () => (fr ? settledSeasons(fr, played).reverse() : played), [fr, played]);
+
   // "All-time" is a row in the picker (Max, 2026-09-02): every franchise's
   // record across the league's life, and the career WAR leaders
-  const [scope, setScope] = useScope(played, { allowAll: true });
+  const [scope, setScope] = useScope(history, { allowAll: true });
 
   /* The picker's per-season note — "champion · record", so choosing a year is
      reading a history table rather than picking a number off a list. From
      franchises.json because it is ONE file carrying every season's finish; the
      alternative is a bracket.json per year, four fetches to fill a sheet most
      readers never open. */
-  const seasons = useMemo<ScopeSeason[]>(() => played.map(id => {
+  const seasons = useMemo<ScopeSeason[]>(() => history.map(id => {
     const won = fr && Object.values(fr)
       .flatMap(f => f.seasons)
       .find(s => s.season === id && s.finish === 1);
     return won
       ? { id, note: `${won.name} · ${won.wins}-${won.losses}${won.ties ? `-${won.ties}` : ""}` }
       : { id };
-  }), [played, fr]);
+  }), [history, fr]);
 
   return (
     <>
@@ -243,21 +330,27 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const phase = useSeasonPhase();
   const resultSeason = phase.resultSeason;
 
+  /* WHAT THIS LEAGUE PUBLISHES. odds.json and proj_sleeper.json are written by
+     downstream steps that run for the default league only, so in the second
+     league they are 404s — asked for by name they are a permanent pending
+     fetch, and the cards would sit on "Pregame line" with nothing behind it
+     either way. Gated here so nothing is requested that cannot exist. */
+  const caps = useLeagueCaps();
+
   const mwQ = useJson<Matchups>(`${rosterSeason}/matchups.json`);
-  const oddsQ = useJson<WeekOdds>(`${rosterSeason}/odds.json`);
+  const oddsQ = useJson<WeekOdds>(caps.odds ? `${rosterSeason}/odds.json` : null);
   const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
   // the result season's files: the same files when a week of the roster
   // season has been played, the previous season's before that
   const mwR = useJson<Matchups>(`${resultSeason}/matchups.json`).data;
-  const oddsR = useJson<WeekOdds>(`${resultSeason}/odds.json`).data;
+  const oddsR = useJson<WeekOdds>(caps.odds ? `${resultSeason}/odds.json` : null).data;
   const weeklyR = useJson<Weekly>(`${resultSeason}/weekly.json`).data;
   const teamsR = useJson<Team[]>(`${resultSeason}/teams.json`).data;
   // the measured vig: a global file, one fit for every league
   const vig = useJson<VigModel>("data/vig_model.json").data;
   // STARS TO WATCH: each side's highest-projected starter this week, off
-  // Sleeper's per-week lines; once the week is scored, its top scorer instead
-  const sproj = useJson<SleeperProjFile>("proj_sleeper.json").data;
-  const weeklyNow = useJson<Weekly>(`${rosterSeason}/weekly.json`).data;
+  // Sleeper's per-week lines
+  const sproj = useJson<SleeperProjFile>(caps.projections ? "proj_sleeper.json" : null).data;
 
   const nameOf = (list: Team[] | null | undefined, rid: number) =>
     list?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
@@ -275,42 +368,39 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
     const scheduled = Object.keys(mw.schedule ?? {}).map(Number).filter(w => w < ps).sort((a, b) => a - b);
     const wk = phase.week ?? scheduled[0] ?? null;
     if (wk == null) return null;
-    // scored entries for the week, by roster
-    const scored = new Map<number, { pts: number; opp: number | null; oppPts: number | null }>();
-    for (const [rid, list] of Object.entries(mw.teams)) {
-      const e = list.find(x => x[0] === wk);
-      if (e) scored.set(Number(rid), { pts: e[1], opp: e[2], oppPts: e[3] });
-    }
-    // pairings: the schedule's, else derived from the scored entries
-    let pairs: [number, number][] = mw.schedule?.[String(wk)] ?? [];
-    if (!pairs.length) {
-      const seen = new Set<number>();
-      for (const [rid, e] of scored) {
-        if (seen.has(rid) || e.opp == null) continue;
-        seen.add(rid); seen.add(e.opp); pairs.push([rid, e.opp]);
-      }
-    }
+    /* THIS WEEK IS NEVER A SCORED WEEK (verified 2026-09-21), and the band no
+       longer pretends it might be. `phase.week` is the first UNPLAYED
+       regular-season week by construction, and the fallback comes out of
+       `mw.schedule`, which build_site_data writes with the weeks still to come
+       — week 1 is gone from it the morning after week 1. So both arms name an
+       unscored week, `scored` was always empty for it, and the branch that
+       read "Final", the weekly.json fetch behind it and the derived-pairings
+       fallback were all unreachable. Removed rather than left as a promise the
+       data cannot keep: the live feed is what covers a week in progress, and
+       once the pipeline scores a week it belongs to Last week and Seasons. */
+    // A COPY, NOT THE CACHED ARRAY: `mw` is lib/data's shared fetch cache, and
+    // the derived-pairings fallback used to push into `mw.schedule[wk]` itself
+    // — mutating the file every other reader of it holds.
+    const pairs: [number, number][] = (mw.schedule?.[String(wk)] ?? []).slice();
     const line = oddsQ.data?.weeks[String(wk)] ?? {};
-    const played = pairs.length > 0 && pairs.every(([a, b]) => scored.has(a) && scored.has(b));
 
     // NO STAR TO WATCH (Max, 2026-09-10): the card carried each side's
     // top projected / top scoring starter under the figure; it was noise
     // beside a line and a score, and the drawer has every slot anyway.
     const games = pairs.map(([a, b]) => ({
-      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, sd: line[String(a)]?.sd ?? null, pts: scored.get(a)?.pts ?? null },
-      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, sd: line[String(b)]?.sd ?? null, pts: scored.get(b)?.pts ?? null },
+      a: { rid: a, wp: line[String(a)]?.wp ?? null, mu: line[String(a)]?.mu ?? null, sd: line[String(a)]?.sd ?? null },
+      b: { rid: b, wp: line[String(b)]?.wp ?? null, mu: line[String(b)]?.mu ?? null, sd: line[String(b)]?.sd ?? null },
     }));
-    // THE LEAGUE MEDIAN (Max, 2026-09-09): the middle score of every team's
-    // figure this week — points once played, the projected total before.
+    // THE LEAGUE MEDIAN (Max, 2026-09-09): the middle of the projected totals.
     // The line a median-win league pays on, and the line every team is over
-    // or under regardless.
+    // or under regardless. Once the games are on, `liveMedian` replaces it.
     const figs = games.flatMap(g => [g.a, g.b])
-      .map(x => (played ? x.pts : x.mu)).filter((v): v is number => v != null)
+      .map(x => x.mu).filter((v): v is number => v != null)
       .sort((x, y) => x - y);
     const median = figs.length
       ? figs.length % 2 ? figs[(figs.length - 1) / 2] : (figs[figs.length / 2 - 1] + figs[figs.length / 2]) / 2
       : null;
-    return { wk, played, games, median };
+    return { wk, games, median };
   }, [mwQ.data, oddsQ.data, phase.week]);
 
   /* ---- live (Max, 2026-09-10) --------------------------------------------
@@ -320,8 +410,26 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      week; before anyone has scored the cards stay pregame, and once the
      file carries the week it is the record and nothing is fetched. */
   const leagueId = league.chain?.[rosterSeason] ?? league.currentLeagueId ?? null;
-  const live = useLiveScores(leagueId, thisWeek?.wk ?? null, !!thisWeek && !thisWeek.played);
-  const isLive = !!live?.started && !thisWeek?.played;
+  const wkNow = thisWeek?.wk ?? null;
+  /* THE SCOREBOARD IS THE POLLER'S STOP CONDITION (2026-09-21), so it is read
+     FIRST and handed to the live feed. Without it `useLiveScores` falls back
+     to a flat sixty seconds for the whole week — Tuesday, Wednesday, and every
+     hour after the Monday night final — against two public APIs that rate-
+     limit. With it the chain idles until kickoff, polls while games are on,
+     takes one grace read after the last final and then stops for good.
+
+     Each feed's `week` is checked against the week on screen before its data
+     is used. `usePoll` already resets in render on a league or week change, so
+     this is belt and braces rather than the fix — but a live figure under the
+     wrong heading is the one failure this band cannot survive. */
+  const boardFeed = useNflBoardFeed(rosterSeason, wkNow, !!thisWeek);
+  const board = boardFeed.week === wkNow ? boardFeed.data : null;
+  const liveFeed = useLiveWeekFeed(leagueId, wkNow, !!thisWeek, board);
+  const live = liveFeed.week === wkNow ? liveFeed.data : null;
+  const isLive = !!live?.started;
+  /** the poller has failed or stopped and the running totals have aged out —
+   *  said out loud on the band rather than left to look current */
+  const liveStale = isLive && isStale(liveFeed);
   const liveOf = (rid: number): LiveSide | null => live?.sides[String(rid)] ?? null;
   /* ---- the live line (Max, 2026-09-10) -----------------------------------
      The projection and the odds move with the games. Per starter: his game
@@ -332,9 +440,6 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      probability is the same normal the pregame line is quoted from —
      Φ((muA − muB) / sqrt(varA + varB)). The scoreboard is ESPN's; without
      it the pregame line stands. */
-  // fetched all week, not only once live: pregame the drawer shows each
-  // man's kickoff, which is worth a request on its own
-  const board = useNflScoreboard(rosterSeason, thisWeek?.wk ?? null, !!thisWeek && !thisWeek.played);
   const liveLine = useCallback((rid: number, sd: number | null): { mu: number; v: number } | null => {
     const ls = liveOf(rid);
     if (!ls || !board) return null;
@@ -371,42 +476,37 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   }, [isLive, live, thisWeek]);
 
   /* ---- slot by slot ------------------------------------------------------
-     A side's starting lineup as the manager set it (matchups.set, or the
-     scored entry's starters once played), one entry per starting slot in
-     the league's lineup order; before a lineup is set, the roster's best
-     projected lineup. Each slot carries its week figure: the actual score
-     once played, Sleeper's per-week projection before. A bye or an empty
-     slot is a real 0.0 — that IS the weakness. */
-  const slotsOf = useCallback((rid: number, wk: number, played: boolean, ls: LiveSide | null = null): SlotEntry[] => {
+     A side's starting lineup as the manager set it (matchups.set, or the live
+     feed's own read of it), one entry per starting slot in the league's
+     lineup order; before a lineup is set, the roster's best projected lineup.
+     Each slot carries its week figure: points so far while the games are on,
+     Sleeper's per-week projection before. A bye or an empty slot is a real
+     0.0 — that IS the weakness. The week here is never a scored one (see
+     `thisWeek`), so there is no third case. */
+  const slotsOf = useCallback((rid: number, wk: number, ls: LiveSide | null = null): SlotEntry[] => {
     const mw = mwQ.data;
     const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
     const projOf = (pid: string): number => sproj?.players[pid]?.wk?.[String(wk)] ?? 0;
-    const val = (pid: string): number => {
-      // live: points so far, off Sleeper's read of the week in progress
-      if (ls) return ls.ppts[pid] ?? 0;
-      if (played) return weeklyNow?.[pid]?.find(x => x[0] === wk)?.[1] ?? 0;
-      return projOf(pid);
-    };
+    // live: points so far, off Sleeper's read of the week in progress
+    const val = (pid: string): number => (ls ? ls.ppts[pid] ?? 0 : projOf(pid));
     /** the projection under a result, and whether it was missed (Max,
      *  2026-09-10): red only once his game is over — a slow first half is
      *  not a miss yet */
     const result = (pid: string, v: number): Pick<SlotEntry, "proj" | "over" | "miss" | "beat" | "est"> => {
-      if (!ls && !played) return {};
+      if (!ls) return {};
       // no line for the week (an older week the projections file has
       // dropped): nothing to hit, so nothing under the figure
-      if (sproj?.players[pid]?.wk?.[String(wk)] == null) return { est: v, over: played };
+      if (sproj?.players[pid]?.wk?.[String(wk)] == null) return { est: v };
       const proj = projOf(pid);
       const clock = board?.[pInfo(players, pid)[2]];
-      const over = played || clock?.state === "post";
+      const over = clock?.state === "post";
       // the share of his game still to play: none once over, all before
       // kickoff, the clock's in between; no game on the board reads off
       // whether he has scored
       const rem = over ? 0 : clock ? clock.remaining : v > 0 ? 0 : 1;
       return { proj, over, miss: over && v < proj, beat: over && v > proj, est: v + rem * proj };
     };
-    const e = mw?.teams[String(rid)]?.find(x => x[0] === wk);
     let set: string[] | null = ls?.starters.length ? ls.starters
-      : e?.[4]?.length ? e[4]
       : mw?.set?.week === wk ? mw.set.starters[String(rid)] ?? null : null;
     if (set && set.length !== lineup.length) set = null;
     if (set) {
@@ -424,7 +524,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       slot: sl.slot, pid: sl.player?.id ?? null, v: sl.player?.war ?? 0,
       ...(sl.player ? result(sl.player.id, sl.player.war) : {}),
     }));
-  }, [mwQ.data, meta, weeklyNow, sproj, teams, players, board]);
+  }, [mwQ.data, meta, sproj, teams, players, board]);
 
   /* ---- last week ---------------------------------------------------------
      The most recent scored regular-season week, read by beta/week.ts — the
@@ -444,7 +544,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   return (
     <>
       <Band label={thisWeek ? `This week · ${twSeason} wk ${thisWeek.wk}` : "This week"}
-        note={thisWeek?.played ? "Final"
+        note={liveStale ? "Live · the feed has stopped answering, so these totals are the last good read"
           : isLive ? "Live · points so far, projection and odds moving with the games"
           : "Pregame line"} />
       {mwQ.error ? <DataError what="Schedule didn't load" />
@@ -454,40 +554,38 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
             <div className="lgx-median">
               <span className="k">League median</span>
               <span className="v">{fmt((isLive ? liveMedian : thisWeek.median) as number, 1)}</span>
-              <span className="s">{thisWeek.played ? "of the week's scores" : isLive ? "of the points so far" : "of the projected totals"}</span>
+              <span className="s">{isLive ? "of the points so far" : "of the projected totals"}</span>
             </div>
           )}
           {thisWeek.games.map(g => {
             // while live, the figures are the points so far and the leader
             // takes the accent the winner takes at the final
             const la = isLive ? liveOf(g.a.rid) : null, lb = isLive ? liveOf(g.b.rid) : null;
-            const ptsA = la ? la.pts : g.a.pts, ptsB = lb ? lb.pts : g.b.pts;
-            const aWon = ptsA != null && ptsB != null && ptsA > ptsB;
-            const bWon = ptsA != null && ptsB != null && ptsB > ptsA;
+            const aWon = !!la && !!lb && la.pts > lb.pts;
+            const bWon = !!la && !!lb && lb.pts > la.pts;
             /* THE LINE, THE WAY A BOOK WOULD QUOTE IT (Max, 2026-09-02): each
                side's moneyline is its figure; the spread and the total sit in
                the middle block between them, the way a scoreboard card posts
                them, with the spread quoted from the favorite's side and an
-               arrow pointing at it. Under each name: the star to watch. After
-               kickoff the figures are the points and the middle reads Final. */
+               arrow pointing at it. Once the games are on, the figures are the
+               points so far and the middle block re-prices itself off them. */
             const total = g.a.mu != null && g.b.mu != null ? fmt(g.a.mu + g.b.mu, 1) : null;
             const aFav = (g.a.wp ?? 0) >= (g.b.wp ?? 0);
             const favSide = aFav ? g.a : g.b, dogSide = aFav ? g.b : g.a;
             const sp = favSide.mu != null && dogSide.mu != null ? spread(favSide.mu, dogSide.mu) : null;
             const [mlA, mlB] = g.a.wp != null ? lines(g.a.wp, vig) : [null, null];
             const side = (x: typeof g.a, ls: LiveSide | null, ml: string | null, won: boolean, right: boolean, lml: string | null = null) => {
-              const pts = ls ? ls.pts : x.pts;
               // live: the re-projected total; pregame: the line's
               const ll = ls ? liveLine(x.rid, x.sd) : null;
               const mu = ll ? ll.mu : x.mu;
               return (
                 <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
                   <div className="nm">{nameOf(teams, x.rid)}</div>
-                  <div className="fig">{pts != null ? fmt(pts, 1) : ml ?? DASH}</div>
+                  <div className="fig">{ls ? fmt(ls.pts, 1) : ml ?? DASH}</div>
                   {/* the side's projected total, pregame and live (Max,
                       2026-09-09): the figure the line is made from, under the
                       line it makes — and, once live, the pace to beat. */}
-                  {x.pts == null && mu != null && (
+                  {mu != null && (
                     <div className="proj"><span className="k">Proj</span> {fmt(mu, 1)}</div>
                   )}
                   {/* the moneyline, live (Max, 2026-09-10): the points took
@@ -522,43 +620,39 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
                 onClick={() => setOpenGame(isOpen ? null : key)}>
                 {side(g.a, la, mlA, aWon, false, lmlA)}
                 <div className="mid">
-                  {thisWeek.played ? <span className="k">Final</span> : (
+                  {/* live: the margin so far over the pregame spread, so the
+                      read is "up 8, was favored by 3" */}
+                  {lm != null ? (
                     <>
-                      {/* live: the margin so far over the pregame spread, so
-                          the read is "up 8, was favored by 3" */}
-                      {lm != null ? (
-                        <>
-                          <span className="k lgx-live">Live</span>
-                          <span className="v edge">
-                            <span className="ar">{lm > 0 ? "◂" : ""}</span>
-                            <span className="n">{fmt(Math.abs(lm), 1)}</span>
-                            <span className="ar">{lm < 0 ? "▸" : ""}</span>
-                          </span>
-                          {/* the odds now: the favorite's chance, arrow at
-                              him — the moneyline's live form, one figure */}
-                          <span className="k">Win</span>
-                          <span className="v edge">
-                            <span className="ar">{lwp != null && lwp >= 0.5 ? "◂" : ""}</span>
-                            <span className="n">{lwp != null ? `${Math.round(Math.max(lwp, 1 - lwp) * 100)}%` : DASH}</span>
-                            <span className="ar">{lwp != null && lwp < 0.5 ? "▸" : ""}</span>
-                          </span>
-                          <span className="k">Total</span>
-                          <span className="v">{lTotal ?? total ?? DASH}</span>
-                        </>
-                      ) : (
-                        <>
-                          <span className="k">Spread</span>
-                          {/* the figure holds the center; the arrow takes a fixed
-                              slot either side, so spreads line up down the column */}
-                          <span className="v edge">
-                            <span className="ar">{sp && aFav ? "◂" : ""}</span>
-                            <span className="n">{sp ?? DASH}</span>
-                            <span className="ar">{sp && !aFav ? "▸" : ""}</span>
-                          </span>
-                          <span className="k">Total</span>
-                          <span className="v">{total ?? DASH}</span>
-                        </>
-                      )}
+                      <span className={`k lgx-live${liveStale ? " stale" : ""}`}>Live</span>
+                      <span className="v edge">
+                        <span className="ar">{lm > 0 ? "◂" : ""}</span>
+                        <span className="n">{fmt(Math.abs(lm), 1)}</span>
+                        <span className="ar">{lm < 0 ? "▸" : ""}</span>
+                      </span>
+                      {/* the odds now: the favorite's chance, arrow at him —
+                          the moneyline's live form, one figure */}
+                      <span className="k">Win</span>
+                      <span className="v edge">
+                        <span className="ar">{lwp != null && lwp >= 0.5 ? "◂" : ""}</span>
+                        <span className="n">{lwp != null ? `${Math.round(Math.max(lwp, 1 - lwp) * 100)}%` : DASH}</span>
+                        <span className="ar">{lwp != null && lwp < 0.5 ? "▸" : ""}</span>
+                      </span>
+                      <span className="k">Total</span>
+                      <span className="v">{lTotal ?? total ?? DASH}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="k">Spread</span>
+                      {/* the figure holds the center; the arrow takes a fixed
+                          slot either side, so spreads line up down the column */}
+                      <span className="v edge">
+                        <span className="ar">{sp && aFav ? "◂" : ""}</span>
+                        <span className="n">{sp ?? DASH}</span>
+                        <span className="ar">{sp && !aFav ? "▸" : ""}</span>
+                      </span>
+                      <span className="k">Total</span>
+                      <span className="v">{total ?? DASH}</span>
                     </>
                   )}
                 </div>
@@ -566,9 +660,9 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               </button>,
               isOpen && (
                 <SlotDrawer key={`${key}-drawer`}
-                  a={{ rid: g.a.rid, name: nameOf(teams, g.a.rid), slots: slotsOf(g.a.rid, thisWeek.wk, thisWeek.played, la) }}
-                  b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid), slots: slotsOf(g.b.rid, thisWeek.wk, thisWeek.played, lb) }}
-                  played={thisWeek.played} live={!!la && !!lb} players={players} board={board}
+                  a={{ rid: g.a.rid, name: nameOf(teams, g.a.rid), slots: slotsOf(g.a.rid, thisWeek.wk, la) }}
+                  b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid), slots: slotsOf(g.b.rid, thisWeek.wk, lb) }}
+                  played={false} live={!!la && !!lb} players={players} board={board}
                   to={`${seasonsRoute(twSeason, thisWeek.wk)}/${g.a.rid}`} />
               ),
             ];
@@ -877,8 +971,11 @@ function futuresLines(fair: Record<string, number>): Record<string, string> {
 
 function Standings({ rosterSeason }: { rosterSeason: string }) {
   const betaPath = useBetaPath();
+  const caps = useLeagueCaps();
   const rows = useStandings(rosterSeason);
-  const oddsQ = useJson<WeekOdds>(`${rosterSeason}/odds.json`);
+  // the season simulation, where this league has one — odds.json is a default-
+  // league file, and the table below stands on its own without it
+  const oddsQ = useJson<WeekOdds>(caps.odds ? `${rosterSeason}/odds.json` : null);
   const sim = oddsQ.data?.season?.teams ?? null;
   /* BEFORE WEEK 1 every row is 0-0 with 0 points and the league's order is
      no order at all — roster id, which says nothing. Until a game has been
@@ -988,15 +1085,40 @@ interface PowerRow {
 function CurrentView({ rosterSeason }: { rosterSeason: string }) {
   const { meta, players } = useLeague();
   const betaPath = useBetaPath();
-  const phase = useSeasonPhase();
+
+  /* WHAT THIS LEAGUE PUBLISHES (2026-09-21). The playoff race is built out of
+     projections.json and odds.json and the value module out of the two
+     indices, and NONE of those files exists outside the default league — the
+     downstream steps that write them run for it and no other. Asked for by
+     name they 404, the state stays null, and `!power ? "Loading…"` became a
+     permanent claim that something was on its way; beside it sat a
+     `DataError` whose Try again could only fail again, because `projQ.error`
+     was true forever. Gate on the capability BEFORE the loading and error
+     arms, and the band says what is true: not published for this league. */
+  const caps = useLeagueCaps();
 
   const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
   const teams = teamsQ.data;
-  const projQ = useJson<ProjectionsFile>("projections.json");
-  const proj = projQ.data;
+  /* THE LINEUP FOLLOWS THE MODEL PICKER (2026-09-21). This read `composite[0]`
+     straight off projections.json, which is the SCALAR composite and nothing
+     else — so the masthead's six-curve control repriced Team, Teams and
+     Players while this table sat still on one curve — 165 of 365 players
+     differ by more than 0.05 between the default blend and the scalar.
+     `useProjWar1` is the year-1 figure on the curve the site is being read
+     under, which is the same figure those three screens rank on. The position
+     now comes from players_min rather than the projections row, because the
+     matrix keys on pid alone. */
+  const war1 = useProjWar1();
+  /* The matrix query is held only for its `error`: `useProjWar1` hands back
+     data or null and cannot say which. lib/useJson caches on the path, so
+     this costs one extra `.then` and no second download, and the fallback
+     matters — a matrix that 404s onto a good projections.json still fills
+     the table, so the error arm waits for BOTH to be gone. */
+  const mxQ = useJson<MatrixFile>(caps.projections ? "projections_matrix.json" : null);
+  const projFailed = caps.projections && mxQ.error && war1 == null;
   const mw = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
   // the per-week lines, for projected points per game on the playoff race
-  const oddsW = useJson<WeekOdds>(`${rosterSeason}/odds.json`).data;
+  const oddsW = useJson<WeekOdds>(caps.odds ? `${rosterSeason}/odds.json` : null).data;
   // this season's WAR so far, for the four position blocks. A 404 before the
   // first scored week is a season that has not started, not a failure.
   const sumNowQ = useJson<SummaryRow[]>(`${rosterSeason}/summary.json`);
@@ -1040,17 +1162,18 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
    * the two shells reconverge this belongs beside `useTeamValues` — which
    * prices the THREE-YEAR total and so cannot stand in for it.
    *
-   * Win probabilities come off the published schedule through the same z-score
-   * conversion the standings page uses. Byes are ignored, which is honest for a
-   * front-page read and would not be for the model.
+   * The record is `lib/projRecord.projectedRecord` — banked wins plus the win
+   * probabilities odds.json already published for the weeks still to come, the
+   * same lines the Playoff and Title percentages beside it are simulated from,
+   * and the same function the classic Standings board calls.
    */
   const power = useMemo<PowerRow[] | null>(() => {
-    if (!teams || !proj) return null;
-    const byPid = new Map(proj.players.map(p => [p.pid, p]));
+    if (!teams || !war1) return null;
     const built = teams.map(t => {
-      const pool = t.players.map(p => byPid.get(p))
-        .filter((p): p is NonNullable<typeof p> => !!p)
-        .map(p => ({ id: p.pid, pos: p.pos, war: p.composite?.[0] ?? 0 }));
+      const pool = t.players
+        .map(pid => ({ id: pid, pos: pInfo(players, pid)[1], war: war1[pid] }))
+        .filter((p): p is { id: string; pos: string; war: number } =>
+          !!p.pos && p.war != null);
       const starters = optimalLineup(pool, lineup).slots
         .flatMap(s => s.player ? [s.player] : []);
       return {
@@ -1060,18 +1183,34 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       };
     });
     const ps = mw?.playoff_start || 15;
-    /** one franchise's UNPLAYED regular-season lines. Each carries the week's
-     *  projected total and the win probability week_odds.py derived from it
-     *  against that week's opponent, so the record and the points in this row
-     *  come off the same line rather than off two models. */
-    const linesOf = (rid: number) => Object.entries(oddsW?.weeks ?? {})
-      .filter(([wk]) => +wk < ps)
-      .map(([, w]) => w[String(rid)])
-      .filter(x => !!x?.proj);
+    /* ONE PROJECTED RECORD FOR THE WHOLE SITE (2026-09-21). The banked W-L
+       plus Σ`wp` over the unplayed priced weeks was written out here and
+       again in views/Franchises.tsx, and a third way round in views/Home.tsx
+       — which summed a normal CDF over `matchups.schedule` and so never added
+       the banked wins at all. `lib/projRecord.projectedRecord` is that one
+       calculation; it also keeps ties a third figure rather than folding them
+       into the losses, which the expression here did not have to handle
+       because nothing has tied yet.
+
+       Identical to what this computed: `playedWeeks` reads the weeks whose
+       matchups row carries an opponent score, and odds.json flags exactly the
+       complement of those with `proj` — verified on 2026, where week 1 is
+       scored and unflagged and weeks 2–14 carry `proj: true`. */
+    const recOf = (b: { rid: number; w: number; l: number; ti: number }) =>
+      projectedRecord({
+        rid: b.rid,
+        record: { wins: b.w, losses: b.l, ties: b.ti },
+        odds: oddsW,
+        played: playedRegWeeks(mw?.teams?.[String(b.rid)], ps),
+        playoffStart: ps,
+      });
     /** what a franchise has actually scored, regular season only. teams.json's
-     *  `fpts` cannot stand in for this: it carries the postseason too, and a
-     *  per-week figure that quietly changes its denominator in January is
-     *  worse than no figure. */
+     *  `fpts` cannot stand in for this: it is the whole season's points, and a
+     *  per-week figure whose denominator is the regular season has to have a
+     *  numerator that matches it. (It does NOT carry the postseason — the
+     *  comment here said so for a year and four settled seasons say
+     *  otherwise — but week-by-week rows are still the only way to get the
+     *  count of weeks this figure is divided by.) */
     const scoredOf = (rid: number) => {
       const rows = (mw?.teams?.[String(rid)] ?? []).filter(e => e[0] < ps);
       return { pts: rows.reduce((a, e) => a + e[1], 0), n: rows.length };
@@ -1083,16 +1222,13 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
        whole regular season: points scored where a week is final, the week's
        projected total where it is not, over every week either way. A week
        finishing re-weights it on the next build, which is the point. */
-    const ppgOf = (rid: number): number | null => {
-      const mus = linesOf(rid).map(x => x.mu).filter((m): m is number => m != null);
+    const ppgOf = (rid: number, mus: number[]): number | null => {
       const done = scoredOf(rid);
       const n = done.n + mus.length;
       if (!n) return null;
       return (done.pts + mus.reduce((a, m) => a + m, 0)) / n;
     };
     return built.map(b => {
-      const ppg = ppgOf(b.rid);
-      const gp = b.w + b.l + b.ti;
       /* ONE MODEL BEHIND THE RECORD AND THE ODDS (Max, 2026-09-15).
          This column used to run starter WAR through a z-score of its own,
          which made it a SECOND opinion printed beside the Playoff and Title
@@ -1100,33 +1236,19 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
          could and did order franchises differently with nothing on screen to
          say why. It now sums the per-week win probabilities in odds.json,
          the same lines week_odds.py's season simulation draws from, so the
-         record and the odds are one claim stated two ways.
-
-         Starter WAR still orders the table; it is no longer asked to double
-         as a schedule model. */
-      const wp = linesOf(b.rid)
-        .map(x => x.wp)
-        .filter((p): p is number => p != null);
+         record and the odds are one claim stated two ways. */
+      const pr = recOf(b);
+      const ppg = ppgOf(b.rid, pr.projPts);
+      const gp = b.w + b.l + b.ti;
       // NO LINES, NO RECORD. Home.tsx falls back to a strength-only estimate
       // here; on this screen the projected record is a column of its own, and
       // a fabricated figure in a column is indistinguishable from a real one.
       // So it reads —. Once the last regular-season week has scored there is
       // nothing left to price and the settled record IS the projection.
-      if (!wp.length) {
-        return gp
-          ? { ...b, wins: b.w, rec: `${b.w}-${b.l}${b.ti ? `-${b.ti}` : ""}`, ppg }
-          : { ...b, wins: null, rec: null, ppg };
-      }
+      if (!pr.projected && !gp) return { ...b, wins: null, rec: null, ppg };
       // played games are settled and enter as the whole numbers they are;
       // only the weeks still to come are priced
-      const rest = wp.reduce((a, p) => a + p, 0);
-      const wins = b.w + rest;
-      const losses = b.l + (wp.length - rest);
-      return {
-        ...b, wins,
-        rec: `${fmt(wins, 1)}-${fmt(losses, 1)}${b.ti ? `-${b.ti}` : ""}`,
-        ppg,
-      };
+      return { ...b, wins: pr.wins, rec: pr.text, ppg };
     }).sort((a, b) => {
       /* ORDERED BY THE PROJECTED RECORD (Max, 2026-09-15). Starter WAR
          ordered this table when the table was called Power rankings, which
@@ -1144,10 +1266,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       }
       return b.wins - a.wins || (b.ppg ?? 0) - (a.ppg ?? 0);
     });
-  }, [teams, proj, mw, lineup, oddsW]);
-
-  const leader = power?.[0] ?? null;
-
+  }, [teams, war1, players, mw, lineup, oddsW]);
 
   /* ---- the three mover modules -------------------------------------------
      Computed in `../movers` and shared with the Movers screen, so the five
@@ -1167,10 +1286,14 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       <Band label={`Playoff race · ${rosterSeason}`}
         note="Ordered by projected record · record and odds from the season simulation"
         right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
-      {/* A FAILED FETCH IS NOT A SLOW ONE. Without the error arm the band
-          claims to be loading projections that are never coming, for the life
-          of the page. */}
-      {teamsQ.error || projQ.error
+      {/* A FILE THAT DOES NOT EXIST IS NOT A SLOW ONE EITHER. The capability
+          arm comes FIRST: in a league with no projections the fetch can only
+          404, so "Loading projections…" would be permanent and a `DataError`
+          would offer a Try again that is guaranteed to fail. Then the error
+          arm, for a league that does publish them and had a bad deploy. */}
+      {!caps.projections
+        ? <div className="empty">Not published for this league.</div>
+        : teamsQ.error || projFailed
         ? <DataError what="The playoff race didn't load" />
         : !power ? <div className="empty">Loading projections…</div> : (
         <table className="v3tbl lgx-grid lgx-wrap">
@@ -1261,9 +1384,12 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
       {/* ---- 4. win now vs dynasty --------------------------------------- */}
       <Band label="Win now vs dynasty" note="CVI prices this season, DVI the horizon"
-        right={<ViewAll to={betaPath("/movers/value")} />} />
-      {teamsQ.error
-        ? <DataError what="Rosters didn't load" />
+        right={caps.indices ? <ViewAll to={betaPath("/movers/value")} /> : undefined} />
+      {/* DVI and CVI come out of index_models.json, which only the default
+          league's pipeline writes — without it `useGapRows` is null forever
+          and this band read "Loading…" for the life of the page. */}
+      {!caps.indices ? <div className="empty">Not published for this league.</div>
+        : teamsQ.error ? <DataError what="Rosters didn't load" />
         : !mvm ? <div className="empty">Loading…</div>
         : <GapTable rows={mvm} limit={MODULE_ROWS} />}
 
@@ -1311,9 +1437,14 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
 /** one franchise's whole record */
 interface AllTimeRow {
-  rid: number; team: string; manager: string;
-  /** franchises.json key — what the honor index is filed under */
+  /** franchises.json key — the franchise's IDENTITY: what the honor index is
+   *  filed under, what a bracket run is credited to, and the React key. Never
+   *  a roster slot; see `useFranchiseIndex`. */
   fkey: string;
+  /** its page, or null when the franchise is not in the roster season and the
+   *  beta shell therefore has no address for it */
+  href: string | null;
+  team: string; manager: string;
   seasons: number; wins: number; losses: number; ties: number;
   fpts: number; ppg: number;
   /** Max PF summed over the seasons that carry it; null when none does */
@@ -1404,10 +1535,12 @@ interface StarterRecord {
  * reader will look for.
  */
 function AllTimeView({ played }: { played: string[] }) {
-  const { players } = useLeague();
+  const { players, league } = useLeague();
   const betaPath = useBetaPath();
+  const rosterSeason = rosterSeasonOf(league);
   const frQ = useJson<Franchises>("franchises.json");
   const fr = frQ.data;
+  const { keyOf, hrefOf } = useFranchiseIndex(rosterSeason);
   // titles, top seeds, points crowns, playoff trips — the marks the Team page
   // shows, beside each franchise's name in the standings (desktop only)
   const honorIdx = useTeamHonors(played);
@@ -1433,7 +1566,8 @@ function AllTimeView({ played }: { played: string[] }) {
       const ppts = withMax.length ? withMax.reduce((a, x) => a + (x.ppts as number), 0) : null;
       const games = wins + losses + ties;
       out.push({
-        rid: last.rid ?? Number(key), team: last.name, manager: last.manager, fkey: key,
+        fkey: key, href: hrefOf(key),
+        team: last.name, manager: last.manager,
         seasons: ss.length, wins, losses, ties, fpts, ppts,
         ppg: games ? fpts / games : 0,
         avgFinish: fins.length ? mean(fins) : null,
@@ -1444,7 +1578,7 @@ function AllTimeView({ played }: { played: string[] }) {
     }
     const pct = (r: AllTimeRow) => (r.wins + r.ties / 2) / Math.max(1, r.wins + r.losses + r.ties);
     return out.sort((a, b) => pct(b) - pct(a) || b.fpts - a.fpts);
-  }, [fr, played]);
+  }, [fr, played, hrefOf]);
 
   /* every played season's summary, together. Not useJson: the hook count would
      follow the season count, and four small files in one Promise.all is what
@@ -1544,30 +1678,42 @@ function AllTimeView({ played }: { played: string[] }) {
      first-round pass) come off the season rows, not the bracket. */
   const playoffs = useMemo(() => {
     if (!brs || !rows) return null;
-    const acc = new Map<number, { apps: number; w: number; l: number; titles: number; pts: number; g: number }>();
-    const at = (rid: number) => {
-      let r = acc.get(rid);
-      if (!r) { r = { apps: 0, w: 0, l: 0, titles: 0, pts: 0, g: 0 }; acc.set(rid, r); }
+    const acc = new Map<string, { apps: number; w: number; l: number; titles: number; pts: number; g: number }>();
+    const at = (k: string) => {
+      let r = acc.get(k);
+      if (!r) { r = { apps: 0, w: 0, l: 0, titles: 0, pts: 0, g: 0 }; acc.set(k, r); }
       return r;
     };
-    for (const br of Object.values(brs)) {
+    /* CREDITED TO THE FRANCHISE THAT PLAYED THE GAME, not to whoever holds its
+       roster slot now (2026-09-21). bracket.json names slots, so the season is
+       load-bearing: `Object.values` threw it away and every run on slot 5 was
+       filed under one franchise, which in a redraft league handed a departed
+       manager his successor's titles. */
+    for (const [season, br] of Object.entries(brs)) {
       if (!br) continue;
-      const seen = new Set<number>();
+      const key = (rid: number | null | undefined) => keyOf(season, rid);
+      const seen = new Set<string>();
       for (const g of br.winners) {
-        for (const t of [g.t1, g.t2]) if (t != null && !seen.has(t)) { seen.add(t); at(t).apps++; }
+        for (const t of [g.t1, g.t2]) {
+          const k = key(t);
+          if (k && !seen.has(k)) { seen.add(k); at(k).apps++; }
+        }
         const elim = g.p == null || g.p === 1;
         if (!elim || g.w == null || g.l == null) continue;
-        at(g.w).w++; at(g.l).l++;
-        if (g.p === 1) at(g.w).titles++;
+        const kw = key(g.w), kl = key(g.l);
+        if (kw) { at(kw).w++; if (g.p === 1) at(kw).titles++; }
+        if (kl) at(kl).l++;
         // points per playoff game, elimination games only, both sides
-        if (g.t1 != null && g.t1_pts != null) { at(g.t1).pts += g.t1_pts; at(g.t1).g++; }
-        if (g.t2 != null && g.t2_pts != null) { at(g.t2).pts += g.t2_pts; at(g.t2).g++; }
+        for (const [t, pts] of [[g.t1, g.t1_pts], [g.t2, g.t2_pts]] as const) {
+          const k = key(t);
+          if (k && pts != null) { at(k).pts += pts; at(k).g++; }
+        }
       }
     }
     return rows
-      .map(r => ({ ...r, po: acc.get(r.rid) ?? { apps: 0, w: 0, l: 0, titles: 0, pts: 0, g: 0 } }))
+      .map(r => ({ ...r, po: acc.get(r.fkey) ?? { apps: 0, w: 0, l: 0, titles: 0, pts: 0, g: 0 } }))
       .sort((a, b) => b.po.titles - a.po.titles || b.po.w - a.po.w || b.po.apps - a.po.apps || a.team.localeCompare(b.team));
-  }, [brs, rows]);
+  }, [brs, rows, keyOf]);
 
 
   /**
@@ -1694,7 +1840,10 @@ function AllTimeView({ played }: { played: string[] }) {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
+              /* KEYED BY THE FRANCHISE, LINKED ONLY WHERE THERE IS A PAGE
+                 (2026-09-21) — see `useFranchiseIndex`. A franchise that has
+                 left the league keeps its row and loses its link. */
+              <TapRow key={r.fkey} to={r.href} className={i % 2 ? "zebra" : ""}>
                 {/* the accent marks titles won, in the one place the screen
                     spends it: the ordinal of every franchise with a ring */}
                 <Spine rank={i + 1} top={r.titles > 0} />
@@ -1703,7 +1852,7 @@ function AllTimeView({ played }: { played: string[] }) {
                     was the same on every row, and the honor marks beside the
                     name say what each franchise won — "N titles" repeated the
                     trophy. The phone keeps the gold spine for a ring. */}
-                <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)}
+                <IdCell name={r.team} to={r.href}
                   mark={(() => {
                     const m = teamHonorTotals(franchiseHonors(honorIdx, r.fkey));
                     return m.length ? <TeamHonorMarks marks={m} size={15} /> : null;
@@ -1752,11 +1901,11 @@ function AllTimeView({ played }: { played: string[] }) {
           </thead>
           <tbody>
             {playoffs.map((r, i) => (
-              <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
+              <TapRow key={r.fkey} to={r.href} className={i % 2 ? "zebra" : ""}>
                 <Spine rank={i + 1} top={r.po.titles > 0} />
                 {/* the sub-line is the manager, as in the standings above — a
                     season count was the same on every row */}
-                <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)} sub={r.manager} />
+                <IdCell name={r.team} to={r.href} sub={r.manager} />
                 <td className="n">
                   <span className="f">{r.po.apps || NUL}</span>
                   {/* first-round byes under the appearances (Max, 2026-09-09) */}
@@ -1831,8 +1980,9 @@ function AllTimeView({ played }: { played: string[] }) {
 }
 
 function HistoryView({ season }: { season: string }) {
-  const { players } = useLeague();
+  const { players, league } = useLeague();
   const betaPath = useBetaPath();
+  const { keyOf, hrefOf } = useFranchiseIndex(rosterSeasonOf(league));
   const rows = useStandings(season);
   /* the QUERY, not just its data: an em dash is a claim ("there is no such
      figure") and a fetch in flight is not entitled to make it, so the champion
@@ -1912,9 +2062,12 @@ function HistoryView({ season }: { season: string }) {
    *  a winner rather than rendering an empty block. */
   const fallback = useMemo(() => {
     if (!fr) return null;
-    for (const [rid, f] of Object.entries(fr)) {
-      const s = f.seasons.find(x => x.season === season);
-      if (s?.finish === 1) return { rid: Number(rid), name: s.name };
+    for (const [key, f] of Object.entries(fr)) {
+      const s = seasonRowOf(f, season);
+      // THE KEY IS NOT THE ROSTER SLOT. `Number(key)` on an 18-digit Sleeper
+      // user_id loses precision silently; the season row's own `rid` is the
+      // slot, and the key is the fallback only for pre-`rid` dynasty data.
+      if (s?.finish === 1) return { rid: ridOf(key, s), name: s.name };
     }
     return null;
   }, [fr, season]);
@@ -1925,8 +2078,22 @@ function HistoryView({ season }: { season: string }) {
     ?? (champRid != null ? br?.names[String(champRid)] : null)
     ?? fallback?.name ?? null;
 
-  const finishOf = (rid: number) =>
-    fr?.[String(rid)]?.seasons.find(s => s.season === season)?.finish ?? null;
+  /* EVERY SEASON'S FINISH, BY THAT SEASON'S ROSTER SLOT (2026-09-21).
+     This was `fr[String(rid)]` — right in a league whose franchise key IS the
+     roster_id and wrong in every other, where the key is an owner's user_id
+     and the lookup missed on all twelve rows. The Finish column was a dash
+     down the whole table for every settled season of the second league, which
+     reads as "this season was never decided". Built once per season rather
+     than scanned per row. */
+  const finishBySlot = useMemo(() => {
+    const m = new Map<number, number | null>();
+    for (const [key, f] of Object.entries(fr ?? {})) {
+      const s = seasonRowOf(f, season);
+      if (s) m.set(ridOf(key, s), s.finish ?? null);
+    }
+    return m;
+  }, [fr, season]);
+  const finishOf = (rid: number) => finishBySlot.get(rid) ?? null;
 
   /* THE SEASON'S FOUR SUPERLATIVES (Max, 2026-09-08), in place of the
      champion's own seed / record / median / title-game line — which repeated
@@ -2000,9 +2167,13 @@ function HistoryView({ season }: { season: string }) {
         : !rows || brq.loading ? <div className="empty">Loading {season}…</div> : <>
         <div className="lgx-champ">
           <div className="k">{season} champion</div>
-          {champName && champRid != null
-            ? <RouteLink to={betaPath(`/team/${champRid}`)} className="nm">{champName}</RouteLink>
-            : <span className="nm">{DASH}</span>}
+          {/* THE LINK GOES TO THE FRANCHISE, NOT TO ITS OLD ROSTER SLOT: the
+              beta franchise page addresses the ROSTER season's twelve slots,
+              so `/team/<that year's rid>` opened whoever holds the slot today.
+              A champion who has since left the league reads as plain text. */}
+          {champName && hrefOf(keyOf(season, champRid))
+            ? <RouteLink to={hrefOf(keyOf(season, champRid))!} className="nm">{champName}</RouteLink>
+            : <span className="nm">{champName ?? DASH}</span>}
           {/* the non-breaking space is load-bearing, the same way it is in
               ui.tsx's identity sub-line: a manager-less block would collapse
               to zero height and the name above it would jump */}
@@ -2067,8 +2238,11 @@ function HistoryView({ season }: { season: string }) {
           <tbody>
             {rows.map((r, i) => {
               const fin = finishOf(r.rid);
+              // the franchise that held this slot THAT season, where it is
+              // still in the league — never `/team/<that season's slot>`
+              const href = hrefOf(keyOf(season, r.rid));
               return (
-                <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)}
+                <TapRow key={r.rid} to={href}
                   className={i % 2 ? "zebra" : ""}>
                   {/* ONE ACCENT, and the champion block above spent it. The
                       gold ordinal marks the same franchise rather than a second
@@ -2077,7 +2251,7 @@ function HistoryView({ season }: { season: string }) {
                       on, and a gold rule under 6th would be a second claim in
                       the same color. */}
                   <Spine rank={r.rank} top={r.rid === champRid} />
-                  <IdCell name={r.team} sub={r.manager} to={betaPath(`/team/${r.rid}`)} />
+                  <IdCell name={r.team} sub={r.manager} to={href} />
                   <td className="n"><span className="f hd">{r.rec}</span></td>
                   <td className="n"><span className="f">{r.played ? fmt(r.ppg, 1) : NUL}</span></td>
                   <td className="n">

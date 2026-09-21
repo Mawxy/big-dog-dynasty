@@ -4,6 +4,8 @@ import {
 } from "react-router-dom";
 import type { Drafts, Team as TeamT } from "../lib/types";
 import { useJson } from "../lib/useJson";
+import { useLeagueCaps } from "../lib/caps";
+import { rookieDraftRecorded } from "../lib/seasons";
 import { CLASSIC_SEG, leagueSeg, useLeague, useLeaguePath } from "../lib/context";
 import { IdentityContext, useIdentityState } from "../lib/identity";
 import { rosterSeasonOf } from "../lib/league";
@@ -152,12 +154,23 @@ function BetaBoard() {
      That is a fact the pipeline states rather than a month boundary, and it
      ties the promotion to the countdown the Drafts row already shows. What it
      does NOT yet encode is a lead time: it promotes the day the previous
-     season's data lands, not four weeks out. */
-  const drafts = useJson<Drafts>("drafts.json").data;
-  const draftPending = useMemo(() => {
-    if (!drafts) return false;
-    return !Object.values(drafts).some(picks => picks.some(p => p.season === rosterSeason));
-  }, [drafts, rosterSeason]);
+     season's data lands, not four weeks out.
+
+     ONE BOOLEAN, AND NOT AT ANY PRICE. drafts.json is 218 KB and this shell
+     downloaded it on EVERY mount, in every league, to answer whether a sixth
+     tab should be on the bar. `draft_analysis.py` writes it for the default
+     league only, so in Pineapple Pizza the request was 218 KB of 404 for a
+     question whose answer is "no rookie draft, ever" — a redraft league has no
+     rookie class. Gated on the capability, and the test itself is
+     `lib/seasons.rookieDraftRecorded`, which is the same expression `More`'s
+     Drafts row and `currentPickClass` read, so the tab, the row and the trade
+     machine's calendar cannot disagree. (A startup draft is not a rookie
+     class; the old inline test counted one.) */
+  const caps = useLeagueCaps();
+  const drafts = useJson<Drafts>(caps.drafts ? "drafts.json" : null).data;
+  const draftPending = useMemo(
+    () => caps.drafts && drafts != null && !rookieDraftRecorded(drafts, rosterSeason),
+    [caps.drafts, drafts, rosterSeason]);
 
   const tabs = draftPending
     ? [...TABS.slice(0, 4), { id: "drafts", label: "Draft", dot: true }, TABS[4]]

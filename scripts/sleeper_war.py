@@ -267,7 +267,13 @@ def run_season(season_dir: Path, players, args):
         sig = sigmas.get(wk, sigma)                # pure weekly sigma
         for pid, pts in points.items():            # accrue only for rostered players
             pos = positions[pid]
-            paa, par = pts - avg[pos], pts - repl[pos]
+            # A position with NOBODY in the startable pool has no "average
+            # startable" — build_week leaves it out of `avg` entirely, which
+            # used to be a KeyError here. It happens whenever a position's
+            # slots go unfilled (a tiny league, a week whose feed is thin), and
+            # the replacement level is then the only baseline that exists, so
+            # WAA collapses onto WAR for that position rather than crashing.
+            paa, par = pts - avg.get(pos, repl[pos]), pts - repl[pos]
             waa_w, war_w = norm_win_shift(paa, sig), norm_win_shift(par, sig)
             a = acc[pid]
             a["pts"] += pts; a["gp"] += 1

@@ -81,21 +81,32 @@ Rows it prices are flagged `src: "rookie"`; a player neither arm can read
 (an unjoined name) keeps his scalar row, `src: "scalar"`.
 
 Usage:  python scripts/project_points.py [--backtest] [--as-of 2025] [--site]
-Output: nfl_history/projections_points.json  (gsis_id -> {ppg, games, pts, …})
-        data/<league>/projections_points.json — the same rows keyed by Sleeper
-        pid (project_war.py's name matcher does the join, as the analog arm's
+Output: data/<league>/projections_points.json — the rows keyed by Sleeper pid
+        (project_war.py's name matcher does the join, as the analog arm's
         does), with the WAR bands the player page draws
         --site: data/<league>/projections.json rewritten, projections_scalar.json
+        --out PATH: the corpus copy keyed by gsis_id, what backtest_curves.py
+        reads. OPT-IN since 2026-09-21: it defaulted to
+        nfl_history/projections_points.json, a tracked 335 KB file that nothing
+        reads and no workflow stages — the nightly rewrote it and threw the
+        result away, and only war-history.yml is supposed to write nfl_history/.
 """
 import argparse
 import csv
+import datetime
 import json
 import math
+import re
 import statistics
 from collections import defaultdict
 from pathlib import Path
 
-import numpy as np
+from ioutil import atomic_write, write_json
+
+# numpy and scikit-learn are imported ON USE, never at module scope: everything
+# outside the fitting functions — file discovery, the loaders, the era level,
+# the NaN guard, the meta this model stamps on projections.json — is plain
+# Python, and neither package is installed in the test job.
 
 ROOT = Path(__file__).resolve().parent.parent
 HIST = ROOT / "nfl_history"
@@ -109,12 +120,33 @@ HIST = ROOT / "nfl_history"
 HIST_EARLY = HIST / "early"
 
 
-def hist_files(pattern):
-    """waa_war_*.csv / features_*.csv from the main corpus and the early one"""
-    files = list(HIST.glob(pattern))
-    if HIST_EARLY.exists():
-        files += list(HIST_EARLY.glob(pattern))
-    return sorted(files, key=lambda f: int(f.stem.split("_")[-1]) if f.stem.split("_")[-1].isdigit() else 0)
+def hist_year(f):
+    """The season a corpus CSV is for: the four digits ending its stem."""
+    return int(f.stem.rsplit("_", 1)[-1])
+
+
+def hist_files(prefix):
+    """<prefix>_<season>.csv from the early corpus then the main one, by season.
+
+    STRICT on the stem (2026-09-21). `features_*.csv` also matched
+    nfl_history/features_weekly_<yr>.csv, added to the corpus on 2026-09-16:
+    same four digits, the same parsed year, and the sort key is the year alone
+    — so whichever file the filesystem handed over last overwrote the other,
+    and for 2025 that was the weekly one. Every player's season row became his
+    LAST SINGLE WEEK: 0 of 572 kept an fp_exp_pg, car_pg / tgt_pg / epa_db /
+    wk_hurt / wk_bench all read NaN, and Ja'Marr Chase's target share came out
+    0.2632 (one game) instead of 0.3207. Glob order is arbitrary on Linux, so
+    which file won varied by year and by machine. The same strictness is what
+    keeps waa_war_career.csv out of the season list.
+
+    Early first, main second: on a season both folders somehow hold, the
+    snap-era corpus is the one that wins.
+    """
+    pat = f"{prefix}_[0-9][0-9][0-9][0-9].csv"
+    exact = re.compile(rf"{re.escape(prefix)}_\d{{4}}")
+    files = list(HIST_EARLY.glob(pat)) if HIST_EARLY.exists() else []
+    files += list(HIST.glob(pat))
+    return sorted((f for f in files if exact.fullmatch(f.stem)), key=hist_year)
 
 CORE = ("QB", "RB", "WR", "TE")
 FULL_GP = 13
@@ -176,6 +208,12 @@ POS_COLS = {
 
 
 # ------------------------------------------------------------------ loading --
+def numpy():
+    """numpy, on use. See the import block: fitting needs it, loading does not."""
+    import numpy as np
+    return np
+
+
 def fnum(v):
     try:
         x = float(v)
@@ -186,46 +224,47 @@ def fnum(v):
 
 def load_meta():
     meta = {}
-    for r in csv.DictReader(open(HIST / "players_meta.csv", encoding="utf-8")):
-        try:
-            born = int(r["birth_date"][:4])
-        except (ValueError, TypeError):
-            born = None
-        meta[r["gsis_id"]] = {
-            "name": (r.get("common") or "").strip() or r["name"], "pos": r["pos"],
-            "born": born,
-            "draft": int(r["draft_season"]) if r.get("draft_season") else None,
-            "round": fnum(r.get("draft_round")), "pick": fnum(r.get("draft_pick")),
-        }
+    with open(HIST / "players_meta.csv", encoding="utf-8") as fh:
+        for r in csv.DictReader(fh):
+            try:
+                born = int(r["birth_date"][:4])
+            except (ValueError, TypeError):
+                born = None
+            meta[r["gsis_id"]] = {
+                "name": (r.get("common") or "").strip() or r["name"], "pos": r["pos"],
+                "born": born,
+                "draft": int(r["draft_season"]) if r.get("draft_season") else None,
+                "round": fnum(r.get("draft_round")), "pick": fnum(r.get("draft_pick")),
+            }
     return meta
 
 
 def load_seasons():
     """season -> pid -> {pos, gp, pts, ppg}"""
     seasons = defaultdict(dict)
-    for f in hist_files("waa_war_*.csv"):
-        if "career" in f.name:
-            continue
-        yr = int(f.stem.split("_")[-1])
-        for r in csv.DictReader(open(f, encoding="utf-8")):
-            try:
-                gp, pts = int(r["gp"]), float(r["pts"])
-            except (ValueError, TypeError):
-                continue
-            if r["pos"] not in CORE:
-                continue
-            seasons[yr][r["player_id"]] = {"pos": r["pos"], "gp": gp, "pts": pts,
-                                           "ppg": pts / gp if gp else 0.0}
+    for f in hist_files("waa_war"):
+        yr = hist_year(f)
+        with open(f, encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                try:
+                    gp, pts = int(r["gp"]), float(r["pts"])
+                except (ValueError, TypeError):
+                    continue
+                if r["pos"] not in CORE:
+                    continue
+                seasons[yr][r["player_id"]] = {"pos": r["pos"], "gp": gp, "pts": pts,
+                                               "ppg": pts / gp if gp else 0.0}
     return seasons
 
 
 def load_features():
     """season -> pid -> {col: float|nan}"""
     feats = defaultdict(dict)
-    for f in hist_files("features_*.csv"):
-        yr = int(f.stem.split("_")[-1])
-        for r in csv.DictReader(open(f, encoding="utf-8")):
-            feats[yr][r["player_id"]] = {c: fnum(r.get(c)) for c in ALL_COLS}
+    for f in hist_files("features"):
+        yr = hist_year(f)
+        with open(f, encoding="utf-8") as fh:
+            for r in csv.DictReader(fh):
+                feats[yr][r["player_id"]] = {c: fnum(r.get(c)) for c in ALL_COLS}
     return feats
 
 
@@ -270,7 +309,7 @@ def build_x(pid, yr, seasons, feats, meta, lvl):
     for c in POS_COLS[pos]:
         vals = [f[c] for f in fx if f and not math.isnan(f[c])]
         x.append(sum(vals) / len(vals) if vals else math.nan)
-    return pos, np.array(x, dtype=float)
+    return pos, numpy().array(x, dtype=float)
 
 
 def feature_names(pos):
@@ -345,6 +384,7 @@ def make_model(target, seed=0, pos=None):
 
 def fit_models(corpus, positions=CORE):
     """pos -> k -> {"ppg": model|None, "games": model|None}"""
+    np = numpy()
     out = {}
     for pos in positions:
         rows = [r for r in corpus if r["pos"] == pos]
@@ -373,18 +413,27 @@ def fit_models(corpus, positions=CORE):
 
 
 def predict(models, pos, x):
-    """[(ppg_norm, games)] per horizon year; games clipped to 0..FULL_GP"""
+    """[(ppg_norm, games)] per horizon year; games clipped to 0..FULL_GP.
+
+    A horizon year with no model (fewer than the minimum rows at this
+    position) has no read, and NaN is not a read: max(nan, 0.0) returns nan,
+    nan survives every arithmetic step downstream, and json.dumps writes it as
+    a bare `NaN` — which is not JSON, so the site's JSON.parse throws and the
+    whole board goes blank. No read is zero, and the dump sites pass
+    allow_nan=False so one can never be published quietly again."""
     res = []
     for k in range(HORIZON):
         m = models[pos][k]
         ppg = float(m["ppg"].predict(x[None, :])[0]) if m["ppg"] else math.nan
         g = float(m["games"].predict(x[None, :])[0]) if m["games"] else math.nan
-        res.append((max(ppg, 0.0), min(max(g, 0.0), FULL_GP)))
+        res.append((0.0 if math.isnan(ppg) else max(ppg, 0.0),
+                    0.0 if math.isnan(g) else min(max(g, 0.0), FULL_GP)))
     return res
 
 
 # ------------------------------------------------------------------ backtest --
 def backtest(seasons, feats, meta, lvl, years):
+    np = numpy()
     print("holdout: fit on seasons before each year, score the year after")
     print(f"{'year':>5} {'pos':>3} {'n':>4}  {'mae ppg':>8} {'naive':>6}  {'mae gp':>7} {'naive':>6}")
     agg = defaultdict(list)
@@ -421,6 +470,7 @@ def backtest(seasons, feats, meta, lvl, years):
 def residual_bands(seasons, feats, meta, lvl, years):
     """p20/p80 of (actual − fitted) ppg per position from the holdout years,
     for the bands. Pooled across the years, per horizon year 1."""
+    np = numpy()
     res = defaultdict(list)
     for yr in years:
         corpus = build_corpus(seasons, feats, meta, lvl, last_year=yr)
@@ -437,9 +487,9 @@ def residual_bands(seasons, feats, meta, lvl, years):
 
 # --------------------------------------------------------------- rookie arm --
 def rookie_x(pick, rnd, age):
-    return np.array([pick if pick and pick < 999 else UDFA_PICK,
-                     rnd if rnd and rnd == rnd else 7.0,
-                     age if age is not None else math.nan], dtype=float)
+    return numpy().array([pick if pick and pick < 999 else UDFA_PICK,
+                          rnd if rnd and rnd == rnd else 7.0,
+                          age if age is not None else math.nan], dtype=float)
 
 
 def rookie_corpus(seasons, meta, lvl, last_year):
@@ -470,6 +520,7 @@ def fit_rookie_models(corpus):
     """pos -> k -> {ppg, games}: the same trees, on three inputs, with the
     leaves sized for ~250 rows a position."""
     from sklearn.ensemble import HistGradientBoostingRegressor
+    np = numpy()
     out = {}
     for pos in CORE:
         rows = [r for r in corpus if r["pos"] == pos]
@@ -491,6 +542,7 @@ def fit_rookie_models(corpus):
 
 def rookie_backtest(seasons, meta, lvl, last):
     """leave-one-class-out over the last four classes, year one"""
+    np = numpy()
     print("rookie arm holdout (year one, by draft class):")
     for D in range(last - 3, last + 1):
         corpus = [r for r in rookie_corpus(seasons, meta, lvl, last_year=last)
@@ -591,7 +643,15 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--backtest", action="store_true")
     ap.add_argument("--as-of", type=int, default=None, help="last known season")
-    ap.add_argument("--out", default=str(HIST / "projections_points.json"))
+    # OPT-IN (2026-09-21). The corpus copy used to default to
+    # nfl_history/projections_points.json: 335 KB, tracked, rewritten by every
+    # nightly and staged by none of them (data-refresh.yml's allow-list is
+    # data/; war-history.yml is nfl_history/'s only writer). Nothing in
+    # scripts/ or src/ reads it either — only backtest_curves.py, which passes
+    # its own --out. The committed copy can be untracked.
+    ap.add_argument("--out", default=None,
+                    help="also write the gsis-keyed corpus copy here "
+                         "(backtest_curves.py's input; off by default)")
     ap.add_argument("--no-feats", action="store_true", help="ablation: history only")
     ap.add_argument("--backtest-rookies", action="store_true", help="leave-one-class-out on the rookie arm")
     ap.add_argument("--site", action="store_true",
@@ -661,11 +721,12 @@ def main():
             p.setdefault("war13_high", []).append(round(win_shift(p["ppg_high"][k] - r) * FULL_GP, 3))
         repl_by_year[str(last + k + 1)] = {pos: next((r for pid, (_, _, r) in w.items() if out[pid]["pos"] == pos), None)
                                            for pos in CORE}
-    Path(args.out).write_text(json.dumps({"meta": {"as_of": last, "era_ref": round(ref, 2),
-                                                    "model": "hgb points-first (ppg, games) per pos/horizon; WAR from the projected pool",
-                                                    "sigma": round(SIGMA, 2), "replacement_ppg": repl_by_year},
-                                           "players": out}), encoding="utf-8")
-    print(f"wrote {len(out)} players → {args.out}")
+    if args.out:
+        write_json(args.out, {"meta": {"as_of": last, "era_ref": round(ref, 2),
+                                       "model": "hgb points-first (ppg, games) per pos/horizon; WAR from the projected pool",
+                                       "sigma": round(SIGMA, 2), "replacement_ppg": repl_by_year},
+                              "players": out}, allow_nan=False)
+        print(f"wrote {len(out)} players → {args.out}")
 
     # THE ROOKIE ARM: the incoming class (draft season last+1), priced on
     # draft capital alone. Written beside the veterans, flagged, in the same
@@ -702,7 +763,15 @@ def main():
             p.setdefault("war13_low", []).append(round(win_shift(p["ppg_low"][k] - r) * FULL_GP, 3))
             p.setdefault("war13_high", []).append(round(win_shift(p["ppg_high"][k] - r) * FULL_GP, 3))
     rows = write_site(out, last)
-    if args.site and rows:
+    # --site is a promise that projections.json now holds THIS model. Every
+    # guard below it used to `return` and leave the exit status at 0, so a
+    # missing dependency or an unreadable players_min.json published yesterday's
+    # file under today's stamp and the workflow went green. Under --site a
+    # rewrite that did not happen is a failed run.
+    if args.site:
+        if not rows:
+            raise SystemExit("  ! --site: no rows joined to Sleeper ids; "
+                             "projections.json NOT rewritten")
         write_projections(rows, last)
 
 
@@ -731,16 +800,86 @@ def write_site(out, last):
             continue
         m = match_meta(v[0], v[1], idx)
         gsis = m[3] if m else None
-        if gsis and gsis in out and pid not in rows:
+        if gsis and gsis in out:
             rows[pid] = dict(out[gsis], gsis=gsis, name=v[0])
     path = data / "projections_points.json"
-    path.write_text(json.dumps({"meta": {"as_of": last, "horizon": HORIZON,
-                                          "years": [last + k + 1 for k in range(HORIZON)],
-                                          "note": "points first: ppg and games from gradient-boosted trees on "
-                                                  "history + nflverse skill features; WAR from the projected pool"},
-                                 "players": rows}, separators=(",", ":")), encoding="utf-8")
+    write_json(path, {"meta": {"as_of": last, "horizon": HORIZON,
+                               "years": [last + k + 1 for k in range(HORIZON)],
+                               "note": "points first: ppg and games from gradient-boosted trees on "
+                                       "history + nflverse skill features; WAR from the projected pool"},
+                      "players": rows}, separators=(",", ":"), allow_nan=False)
     print(f"site: {len(rows)} of {len(out)} joined to Sleeper ids → {path}")
     return rows
+
+
+# ------------------------------------------------- which model wrote a file --
+# `meta.engine` is the explicit answer, and this model stamps one. project_war.py
+# does not yet (its owner should: engine "scalar"), so a frame without one falls
+# back to its model prose — which is the coupling this replaces: the scalar copy
+# used to be gated on the string "per-13 rate", so an edit to project_war.py's
+# description would have turned the comparison lens off in silence.
+ENGINE = "points-first"
+SCALAR_ENGINE = "scalar"
+SCALAR_MODEL_PREFIX = "per-13 rate"
+MODEL_NOTE = ("points-first: ppg and games from gradient-boosted trees on league history + "
+              "nflverse usage (project_points.py); rookies from draft capital; WAR from the "
+              "projected pool's replacement level; composite = ppg blended with Sleeper in "
+              "points (90/50/10) then priced the same way. Rows src:scalar keep the per-13 "
+              "rate model (unjoined names).")
+
+
+def is_scalar_frame(meta):
+    """Is this projections.json project_war.py's own output, rather than one of
+    our rewrites? Explicit engine first, prose only as the fallback."""
+    eng = (meta or {}).get("engine")
+    if eng:
+        return eng == SCALAR_ENGINE
+    return str((meta or {}).get("model") or "").startswith(SCALAR_MODEL_PREFIX)
+
+
+def check_years(scalar_meta, last):
+    """The horizon years THIS model projects, [last+1 ..], checked against the
+    scalar frame's.
+
+    A scalar frame projecting DIFFERENT years is not something to relabel: the
+    two models were seeded from different seasons, and every row that keeps its
+    scalar streams (src:"scalar") really would be a year out of step with the
+    rest of the file. Refuse the run and say so."""
+    years = [last + k + 1 for k in range(HORIZON)]
+    syears = [int(y) for y in (scalar_meta or {}).get("years") or []]
+    if syears and syears != years:
+        raise SystemExit(
+            f"  ! --site: the scalar frame projects {syears} (seed_season "
+            f"{(scalar_meta or {}).get('seed_season')}) but this model projects {years} "
+            f"(last completed season {last}). Refusing to relabel one model's streams "
+            "with the other's years — seed project_war.py from the last COMPLETED "
+            "season, or match it with --as-of.")
+    return years
+
+
+def site_meta(scalar_meta, last, out_rows, replaced):
+    """projections.json's meta for THIS model's streams.
+
+    The scalar frame carries metadata that is right whichever model prices a
+    row, so it is inherited — but `years` and `seed_season` describe the
+    STREAMS, and the streams are this model's, [last+1 ..]. Copying the
+    scalar's is how the published file came to say years [2027, 2028, 2029]
+    over 356 rows holding 2026-2028 values. Both are restated from `last`."""
+    years = check_years(scalar_meta, last)
+    meta = dict(scalar_meta or {})
+    meta.update({
+        "generated": datetime.date.today().isoformat(),
+        "engine": ENGINE,
+        "seed_season": last,
+        "horizon": HORIZON,
+        "years": years,
+        "model": MODEL_NOTE,
+        "players": len(out_rows),
+        "points_players": sum(1 for r in out_rows if r.get("src") == "points"),
+        "rookie_players": sum(1 for r in out_rows if r.get("src") == "rookie"),
+        "scalar_players": len(out_rows) - replaced,
+    })
+    return meta
 
 
 def write_projections(rows, last):
@@ -749,34 +888,39 @@ def write_projections(rows, last):
     Every scalar row is kept as the frame — its `career` line, `age`, `team`,
     `bye`, `pick`, `exp` are the site's metadata and are right whichever model
     prices him. Where this model has a read, the streams are replaced; where
-    it does not, the scalar streams stay and the row says so."""
-    import datetime
-    import shutil
+    it does not, the scalar streams stay and the row says so.
+
+    Called under --site only, so every guard here raises: a run that promised
+    to publish this model and did not is a failure, not a no-op."""
     import sys
     sys.path.insert(0, str(ROOT / "scripts"))
     from leaguepaths import DataDir
     data = DataDir(ROOT / "data")
     pfile = data / "projections.json"
     if not pfile.exists():
-        print("  ! no projections.json to rewrite (run project_war.py first)")
-        return
+        raise SystemExit(f"  ! --site: no {pfile} to rewrite (run project_war.py first)")
     scalar = json.loads(pfile.read_text(encoding="utf-8"))
     sfile = data / "projections_scalar.json"
     # keep the scalar's own output for the comparison lens — but only from a
     # scalar run, never from a previous rewrite of ours
-    if (scalar.get("meta") or {}).get("model", "").startswith("per-13 rate"):
-        shutil.copyfile(pfile, sfile)
+    if is_scalar_frame(scalar.get("meta")):
+        atomic_write(sfile, pfile.read_text(encoding="utf-8"))
     elif sfile.exists():
         scalar = json.loads(sfile.read_text(encoding="utf-8"))
+        if not is_scalar_frame(scalar.get("meta")):
+            raise SystemExit(f"  ! --site: neither {pfile.name} nor {sfile.name} is the "
+                             "scalar model's output — run project_war.py first")
     else:
-        print("  ! projections.json is not the scalar model's and no projections_scalar.json exists")
-        return
+        raise SystemExit(f"  ! --site: {pfile.name} is not the scalar model's and no "
+                         f"{sfile.name} exists — run project_war.py first")
     try:
         sproj = json.loads((data / "proj_sleeper.json").read_text(encoding="utf-8"))["players"]
     except (OSError, ValueError, KeyError):
         sproj = {}
     H = HORIZON
-    years = [last + k + 1 for k in range(H)]
+    # before the pools are built: the two models have to be projecting the
+    # same seasons or nothing below is publishable
+    check_years(scalar.get("meta"), last)
 
     # ---- the composite in points space, per player -------------------------
     # Sleeper's line is a full-participation per-13 (pts13 / 13); a positive
@@ -809,7 +953,6 @@ def write_projections(rows, last):
             continue
         replaced += 1
         src = "rookie" if r.get("rookie") else "points"
-        e = 1.0
         proj = [nat_w[k][pid][0] for k in range(H)]
         expv = [nat_w[k][pid][1] for k in range(H)]
         cmp_ = [comp_w[k][pid][0] for k in range(H)]
@@ -831,7 +974,7 @@ def write_projections(rows, last):
             "comp_high": [round(cmp_[k] + hi[k], 3) for k in range(H)],
             # ppg is the composite's year one, in league points — the model's
             # own unit, no pts_to_war inversion
-            "ppg": round(comp[pid][0] * e, 2),
+            "ppg": round(comp[pid][0], 2),
             "ppg_nat": [round(v, 2) for v in nat[pid]],
             "ppg_comp": comp[pid],
             "games": games[pid],
@@ -848,20 +991,9 @@ def write_projections(rows, last):
             for i, r in enumerate(grp):
                 r.setdefault("posFin", [0] * H)[y] = i + 1
     out_rows.sort(key=lambda r: r["total"], reverse=True)
-    meta = dict(scalar["meta"])
-    meta.update({
-        "generated": datetime.date.today().isoformat(),
-        "model": "points-first: ppg and games from gradient-boosted trees on league history + "
-                 "nflverse usage (project_points.py); rookies from draft capital; WAR from the "
-                 "projected pool's replacement level; composite = ppg blended with Sleeper in "
-                 "points (90/50/10) then priced the same way. Rows src:scalar keep the per-13 "
-                 "rate model (unjoined names).",
-        "points_players": sum(1 for r in out_rows if r.get("src") == "points"),
-        "rookie_players": sum(1 for r in out_rows if r.get("src") == "rookie"),
-        "scalar_players": len(out_rows) - replaced,
-    })
-    pfile.write_text(json.dumps({"meta": meta, "players": out_rows}, separators=(",", ":")),
-                     encoding="utf-8")
+    meta = site_meta(scalar.get("meta"), last, out_rows, replaced)
+    write_json(pfile, {"meta": meta, "players": out_rows},
+               separators=(",", ":"), allow_nan=False)
     print(f"projections.json: {replaced} priced by the points model, "
           f"{len(out_rows) - replaced} kept on the scalar → {pfile}; scalar copy at {sfile.name}")
 

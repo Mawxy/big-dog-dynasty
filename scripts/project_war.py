@@ -34,6 +34,8 @@ from leaguepaths import DataDir
 # one nickname table for the whole repo — it had drifted between here and
 # pick_value.py, which is a join that works in one file and not the other
 from names import NICK
+# and one definition of "last completed season", for the same reason
+from seasons import last_completed_season
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -249,7 +251,8 @@ def main():
     # through that seed is the only way to score this model out of sample —
     # the shipped curves are fit through the season you would be predicting.
     ap.add_argument('--seed', type=int, default=None,
-                    help='pretend this is the last completed season')
+                    help='pretend this is the last completed season '
+                         '(default: the last season whose title game was played)')
     ap.add_argument('--curves', default=None,
                     help='path to an aging_curves.json (default nfl_history/)')
     args = ap.parse_args()
@@ -257,7 +260,28 @@ def main():
 
     meta = json.load(open(DATA / 'meta.json', encoding='utf-8'))
     seasons = sorted(int(s) for s in meta['seasons'])
-    seed = args.seed or int(meta.get('latest') or seasons[-2])
+    # THE SEED IS THE LAST COMPLETED SEASON, NOT meta.latest (2026-09-21).
+    #
+    # `latest` is the newest season with any summary data at all, so it flipped
+    # to 2026 the moment week 1 froze and this model started projecting FROM a
+    # one-game season: seed_season 2025 / years [2026, 2027, 2028] on 09-14
+    # became seed_season 2026 / years [2027, 2028, 2029] on 09-15. Nothing else
+    # moved with it — the analog arm seeds off the nfl_history corpus, the
+    # points arm off the same corpus, pick_value off its CSVs — so the default
+    # blend_composite curve was averaging a 2027 scalar year against a 2026
+    # analog year, silently, under one column heading.
+    #
+    # Everything below is keyed on this: the recency window (seed-2..seed), the
+    # durability history, `age = base_age + (frm - seed)`, the `war25` field and
+    # the published year labels. One wrong seed moves all of them together,
+    # which is exactly why it reads as a plausible model change rather than a
+    # bug. seasons.py is the shared answer; --seed still overrides it for
+    # backtests.
+    seed = args.seed or last_completed_season(DATA, seasons)
+    if seed is None:
+        # no season has been played out yet (a league in its first year).
+        # Fall back to the season before the roster one, as this did before.
+        seed = seasons[-2] if len(seasons) > 1 else seasons[-1]
     roster_season = seasons[-1]
 
     # per-13 rate + gp per player for seed-2..seed
@@ -494,6 +518,9 @@ def main():
             # (b. 1997-02-09) read 28 through the 2026 offseason.
             'age': base_age + (roster_season - seed), 'age_src': asrc,
             'pick': pick, 'exp': exp0,
+            # `war25` is the SEED season's realized WAR — the name is a frozen
+            # 2025 artifact, the figure follows the seed. It must never be a
+            # part-season: value_bridge fits its sanity curve against this.
             'elite': elite, 'war25': round(war_s[pid].get(seed, 0.0), 3), 'career': career,
             'availAdj': round(av_delta, 3),
             'level': round((1 - pw0) * (L0 if L0 is not None else prior) + pw0 * prior, 3),

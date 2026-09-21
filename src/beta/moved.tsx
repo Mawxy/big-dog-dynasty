@@ -1,9 +1,11 @@
-import { useMemo, useState } from "react";
-import type { Trade, TradesPayload } from "../lib/types";
+import { useMemo, useState, type ReactNode } from "react";
+import type { Franchises, Trade, TradesPayload } from "../lib/types";
 import { useJson } from "../lib/useJson";
+import { useLeagueCaps } from "../lib/caps";
+import { ridOf, seasonRowOf } from "../lib/seasons";
 import { readTrades, tradeWhen } from "../lib/trades";
 import { RouteLink } from "../components/RouteLink";
-import { useActivity, useSeasonPhase, type ActMove } from "./model";
+import { MOVE_LABEL, useActivity, type ActMove } from "./model";
 import { Band, fmtWar, useBetaPath } from "./ui";
 
 /**
@@ -13,9 +15,13 @@ import { Band, fmtWar, useBetaPath } from "./ui";
  * rendering, so a franchise's week is literally the league's week with the
  * other eleven teams taken out, never a lookalike.
  *
- * The band's LABEL changes with the season ("Since Sunday" in-season, "Last 7
- * days" otherwise); the window never does. A week, because that is the cadence
- * a reader checks a league on.
+ * THE BAND SAYS WHAT THE WINDOW IS (2026-09-21). It read "Since Sunday" in
+ * season and "Last 7 days" out of it, over one fixed rolling window of seven
+ * days ending now — so for six days a week the label named a boundary the
+ * figures underneath it did not use, and a Friday reader was told a Tuesday
+ * waiver claim had happened "since Sunday" when the window in force reached
+ * back to the Friday before. One label, and it is the true one. A week,
+ * because that is the cadence a reader checks a league on.
  *
  * Styles: `.lgx-*` in screens/league.css, which League imports eagerly with
  * the shell, so they are on the page before Team renders. Move them with this
@@ -29,15 +35,64 @@ export const WINDOW_DAYS = 7;
 const DASH = <span className="lgx-nul">—</span>;
 
 /**
+ * A LEAGUE WITH NO PRICED LEDGER STILL MAKES TRADES.
+ *
+ * `trades.json` is `trade_analysis.py`'s output and that script runs for the
+ * default league only, so in Pineapple Pizza it 404s — and this module used to
+ * report a league that had never traded, over a transaction log holding 30 of
+ * them. Sleeper's log is the fallback: each franchise records its own side of
+ * a deal (`with` / `got` / `gave`), so the two rows sharing a timestamp ARE
+ * the two sides, and a `Trade`-shaped object falls straight out of them.
+ *
+ * What it cannot carry is a PRICE — `expThen` / `mktThen` are the nightly
+ * snapshot's, and there is no snapshot without the script. They stay absent,
+ * the card prints em dashes for them, and the reader is told a deal happened
+ * rather than being told none did.
+ */
+function txTrades(fr: Franchises | null | undefined, since: number): Trade[] {
+  if (!fr) return [];
+  const byTs = new Map<number, Trade>();
+  for (const [key, f] of Object.entries(fr)) {
+    for (const tx of f.tx) {
+      if (tx.type !== "trade" || tx.ts < since) continue;
+      const row = seasonRowOf(f, tx.season);
+      const deal: Trade = byTs.get(tx.ts)
+        ?? { ts: tx.ts, season: tx.season, week: tx.week, sides: [] };
+      deal.sides.push({
+        rid: ridOf(key, row),
+        team: row?.name ?? f.seasons[f.seasons.length - 1]?.name ?? "—",
+        /* The log names assets in PROSE — "Ja'Marr Chase", never a pid — so
+           they are labels and nothing more: no pid to link, no WAR to claim.
+           Zero is the only honest realized figure for a deal made this week
+           and it is what trades.json carries for one too. */
+        got: (tx.got ?? []).map(label => ({
+          kind: "player" as const, pid: null, label, war: 0, future: 0,
+        })),
+        war: 0, future: 0, total: 0,
+      });
+      byTs.set(tx.ts, deal);
+    }
+  }
+  return [...byTs.values()];
+}
+
+/**
  * The window's trades and moves, scored for size, optionally one franchise's.
  *
- * `rid` narrows both streams to deals that franchise was a side of and moves
- * it made. Trades match on the side's roster id; moves on the franchise KEY,
- * which in a dynasty league IS the roster id as a string — never on the team
- * name, which changes most seasons.
+ * `rid` and `fkey` narrow both streams to deals that franchise was a side of
+ * and moves it made. Trades match on the side's ROSTER ID, which is what
+ * trades.json is keyed by; moves match on the FRANCHISE KEY, which is the
+ * roster id as a string in a dynasty league and the owner's 18-digit Sleeper
+ * user_id in a redraft one — so comparing a move's key against `String(rid)`
+ * matched nothing at all in Pineapple Pizza, and every franchise there read as
+ * having made no moves. Never the team name, which changes most seasons.
  */
-export function useMoved(rid?: number | null) {
-  const tradesFile = useJson<TradesPayload>("trades.json").data;
+export function useMoved(rid?: number | null, fkey?: string | null) {
+  const caps = useLeagueCaps();
+  // requested only where the pipeline writes one — see `txTrades` for what
+  // stands in where it does not
+  const tradesFile = useJson<TradesPayload>(caps.trades ? "trades.json" : null).data;
+  const fr = useJson<Franchises>("franchises.json").data;
   /* The window is a span of TIME and useActivity's argument is a row count, so
      it is asked for far more rows than it will show and then filtered by
      timestamp. 400 covers seven days with years of slack — this league's whole
@@ -47,7 +102,10 @@ export function useMoved(rid?: number | null) {
    *  below is not recomputed on every render by a moving `Date.now()` */
   const since = useMemo(() => Date.now() - WINDOW_DAYS * 86400000, []);
   const trades = useMemo<Trade[]>(
-    () => (tradesFile ? readTrades(tradesFile).trades : []), [tradesFile]);
+    () => (caps.trades
+      ? (tradesFile ? readTrades(tradesFile).trades : [])
+      : txTrades(fr, since)),
+    [caps.trades, tradesFile, fr, since]);
 
   const recent = useMemo(() => {
     const mine = (t: Trade) => rid == null || t.sides.some(s => s.rid === rid);
@@ -69,16 +127,24 @@ export function useMoved(rid?: number | null) {
     const biggest = inWindow.length
       ? inWindow.slice().sort((a, b) => size(b) - size(a) || b.ts - a.ts)[0]
       : null;
+    /* THE FRANCHISE KEY, not `String(rid)`. See the docstring: the two agree
+       in a dynasty league and never in a redraft one. `fkey` falls back to the
+       rid so a caller that only has one still filters correctly where that is
+       the key. */
+    const mineKey = fkey ?? (rid == null ? null : String(rid));
     const moves = (acts ?? [])
       .filter((a): a is ActMove => a.kind === "move" && a.ts >= since
-        && (rid == null || a.key === String(rid)));
+        && (mineKey == null || a.key === mineKey));
     return {
       trades: inWindow.length, biggest, moves, since,
       // whether the "biggest" claim is actually sized by anything, or whether
       // every side of every trade in the window is unpriced
       sized: biggest ? size(biggest) > 0 : false,
+      /** whether the league has a priced ledger at all — the "All →" link has
+       *  nowhere to land without one */
+      priced: caps.trades,
     };
-  }, [trades, acts, since, rid]);
+  }, [trades, acts, since, rid, fkey, caps.trades]);
 
   return recent;
 }
@@ -91,14 +157,15 @@ export function useMoved(rid?: number | null) {
  * the ledger already filtered to that franchise (`?team=<rid>`), so the reader
  * sees the same population one tap later, not the whole league's.
  */
-export default function Moved({ rid, teamName }: {
+export default function Moved({ rid, fkey, teamName }: {
   rid?: number | null;
+  /** the franchise KEY — what the transaction log is keyed by. See `useMoved`. */
+  fkey?: string | null;
   /** the franchise's name, for the quiet band when its week was empty */
   teamName?: string;
 }) {
   const betaPath = useBetaPath();
-  const phase = useSeasonPhase();
-  const recent = useMoved(rid);
+  const recent = useMoved(rid, fkey);
   const [openMoves, setOpenMoves] = useState(false);
   const windowFrom = new Date(recent.since)
     .toLocaleDateString(undefined, { month: "short", day: "numeric" });
@@ -106,9 +173,10 @@ export default function Moved({ rid, teamName }: {
 
   return (
     <>
-      <Band label={phase.offseason ? `Last ${WINDOW_DAYS} days` : "Since Sunday"}
+      <Band label={`Last ${WINDOW_DAYS} days`}
         note={`${rid == null ? "Trades and roster moves" : "This franchise's trades and roster moves"} since ${windowFrom}`} />
-      {recent.biggest ? <BigTrade trade={recent.biggest} sized={recent.sized} only={recent.trades === 1} /> : (
+      {recent.biggest ? <BigTrade trade={recent.biggest} sized={recent.sized}
+        only={recent.trades === 1} priced={recent.priced} /> : (
         /* A QUIET BAND, not an empty table. A week with no trades in it is a
            fact about the league, and a header over twelve pixels of nothing is
            the wrong way to state it. */
@@ -126,11 +194,16 @@ export default function Moved({ rid, teamName }: {
           <span className="k">Trades</span>
           <span className="v">{recent.trades}</span>
           {/* the league ledger: every trade this league has ever made, scored —
-              filtered to the franchise when this module is */}
-          <RouteLink className="go"
-            to={betaPath(`/trade?scope=history${rid == null ? "" : `&team=${rid}`}`)}>
-            All →
-          </RouteLink>
+              filtered to the franchise when this module is. A league the
+              pipeline never scores has no ledger to open, so the row states
+              the count off the transaction log and stops there rather than
+              pointing at an empty screen. */}
+          {recent.priced && (
+            <RouteLink className="go"
+              to={betaPath(`/trade?scope=history${rid == null ? "" : `&team=${rid}`}`)}>
+              All →
+            </RouteLink>
+          )}
         </div>
         <div className="lgx-count">
           <span className="k">Roster moves</span>
@@ -156,9 +229,13 @@ export default function Moved({ rid, teamName }: {
                key collided and React silently dropped every row after the first
                of each collision, which read as moves that never happened. */
             <div className="v3-act" key={a.id}>
+              {/* THE MOVE'S OWN TYPE. "Waiver or else free agent" put the
+                  label "Free agent" on every commissioner move in both
+                  leagues — a row where nobody claimed anybody, which is the
+                  one thing that line exists to say. */}
               <div className="when">
                 <span>{tradeWhen(a.ts)}</span>
-                <span>{a.waiver ? "Waiver" : "Free agent"}</span>
+                <span>{MOVE_LABEL(a.type)}</span>
               </div>
               <div className="v3-wv">
                 <span className="add"><span className="k">Add</span>{a.adds.join(", ") || "—"}</span>
@@ -191,26 +268,33 @@ export default function Moved({ rid, teamName }: {
  * picks and would have read 0.0. So the card shows the two frozen figures the
  * file does publish, labeled "then" so they cannot be read as today's price.
  */
-export function BigTrade({ trade, sized, only }: {
+export function BigTrade({ trade, sized, only, priced = true }: {
   trade: Trade; sized: boolean;
   /** the window's one trade — "Biggest" would claim a comparison that never happened */
   only?: boolean;
+  /** whether this league HAS a scored ledger. Without one the card is a
+   *  record, not a link: the deal came off the transaction log, the ledger
+   *  screen has no row for it, and its frozen figures read as em dashes. */
+  priced?: boolean;
 }) {
   const betaPath = useBetaPath();
-  return (
-    <a className="v3-act lgx-trade" href={`#${betaPath(`/trade?load=${trade.ts}`)}`}>
-      <div className="when">
-        {/* the DATE, not "season · week": in the offseason every trade carries
-            week 1, and a card headed "2026 · WK 1" in August names a week that
-            has not happened */}
-        <span>{tradeWhen(trade.ts)}</span>
-        <span>{only ? "The trade" : sized ? "Biggest trade" : "Latest trade"}</span>
-        {/* `?load=<ts>` opens this deal's own row in the ledger — the Trade
-            screen consumes the param, flips itself to the history scope and
-            drops it. It is NOT the builder any more: the builder draws from
-            current rosters, so the label says where the tap lands. */}
-        <span className="go">Ledger →</span>
-      </div>
+  const head = (
+    <div className="when">
+      {/* the DATE, not "season · week": in the offseason every trade carries
+          week 1, and a card headed "2026 · WK 1" in August names a week that
+          has not happened */}
+      <span>{tradeWhen(trade.ts)}</span>
+      <span>{only ? "The trade" : sized ? "Biggest trade" : "Latest trade"}</span>
+      {/* `?load=<ts>` opens this deal's own row in the ledger — the Trade
+          screen consumes the param, flips itself to the history scope and
+          drops it. It is NOT the builder any more: the builder draws from
+          current rosters, so the label says where the tap lands. */}
+      {priced && <span className="go">Ledger →</span>}
+    </div>
+  );
+  const body: ReactNode = (
+    <>
+      {head}
       <div className="v3-baskets">
         {trade.sides.map(s => (
           <div className="bk" key={s.rid}>
@@ -229,6 +313,9 @@ export function BigTrade({ trade, sized, only }: {
           </div>
         ))}
       </div>
-    </a>
+    </>
   );
+  return priced
+    ? <a className="v3-act lgx-trade" href={`#${betaPath(`/trade?load=${trade.ts}`)}`}>{body}</a>
+    : <div className="v3-act lgx-trade">{body}</div>;
 }

@@ -1,0 +1,58 @@
+# Pinned CI dependencies — the ONLY place a workflow names a third-party
+# Python package. Nothing here is imported by the site or by the stdlib-only
+# test suite; these are the two external stacks the pipeline reaches for.
+#
+# WHY PINS AND NOT `pip install scikit-learn`.
+# 2026-09-12 through 09-14 the nightly refresh installed whatever scikit-learn
+# PyPI was serving that morning, got 1.9, and died in project_points.fit_models
+# with "window shape cannot be larger than input array shape" — an all-NaN
+# feature column that <1.9 binned away silently. The points step sits mid-chain,
+# so the run never reached the commit and the site got NO score refresh for
+# three days, in week 1. The code was fixed for 1.9 on 09-15 (see the comment at
+# scripts/project_points.py:~360 and commit 1cf816a1). An unpinned install in a
+# fail-hard nightly is a scheduled outage waiting for the next upstream release;
+# these pins are what makes tonight's run the same run as last night's.
+#
+# HOW THESE VERSIONS WERE CHOSEN. Each is the release that was the PyPI latest
+# on 2026-09-15 and therefore what every green run since has actually
+# installed — i.e. exactly the set CI is known to work on, written down. Bumping
+# one is a deliberate edit, and this file is the record of it.
+#
+# TO BUMP: change the version here, dispatch data-refresh by hand, and only
+# leave it changed if that run is green. `pip index versions <pkg>` lists what
+# is available.
+
+# ---- points-first projection model (scripts/project_points.py) -------------
+# project_points.py imports numpy directly and sklearn lazily in make_model().
+scikit-learn==1.9.1        # 2026-09-10; the release the 09-15 fix targets
+numpy==2.5.3               # 2026-09-06
+# scikit-learn's own runtime stack. Pinned rather than left to float because
+# this is the numeric/ABI-coupled cluster that broke us once already; a scipy or
+# threadpoolctl release lands in the nightly the same way 1.9 did.
+scipy==1.18.1              # 2026-08-21
+joblib==1.6.0              # 2026-08-31
+threadpoolctl==3.7.0       # 2026-09-15
+narwhals==2.26.0           # 2026-09-08
+
+# ---- nflverse (scripts/nfl_features.py, nfl_history.py, espn_ids.py) -------
+# These import polars directly as well as nflreadpy, so polars is a first-class
+# dependency here, not just something nflreadpy drags in.
+nflreadpy==0.1.5           # 2025-11-19 (still the latest)
+polars==1.44.2             # 2026-09-09; polars pins its own polars-runtime-*
+
+# NOT PINNED, deliberately: nflreadpy's plumbing (requests, pydantic,
+# pydantic-settings, tqdm, platformdirs). They are stable, non-numeric, and
+# pinning a partial closure by hand is how you get an unresolvable set. If one
+# of them ever breaks a run, freeze the whole tree properly instead of adding
+# guesses here: take `pip freeze` from the last GREEN data-refresh run's log and
+# paste it in as requirements-ci.lock.txt.
+#
+# USED BY:
+#   data-refresh.yml    pip install -r requirements-ci.txt     (needs both stacks)
+#   players-refresh.yml pip install -c requirements-ci.txt nflreadpy
+#   war-history.yml     pip install -c requirements-ci.txt nflreadpy
+# `-c` is pip's CONSTRAINTS flag: it applies the pins above to whatever is being
+# installed WITHOUT installing the rest of the file, so the two nflverse-only
+# jobs get identically-pinned polars/nflreadpy without dragging in ~100 MB of
+# scikit-learn + scipy they never import. Any job that adds a scikit-learn step
+# should switch to `-r`.

@@ -140,3 +140,21 @@ export function jl<T>(name: string): Promise<T> {
 export function jlDaily<T>(name: string): Promise<T> {
   return j<T>(`${leagueBase || "data/"}${name}?d=${new Date().toISOString().slice(0, 10)}`);
 }
+
+/**
+ * THE CACHE KEY the whole-league index loaders share — honors, career,
+ * teamHonors, records, postseason, winshare, weekpoints, usage.
+ *
+ * Each of those builds one index per page load behind a module-level promise.
+ * That promise used to be keyed on NOTHING, so the first caller's `seasons`
+ * won for the life of the page: League asks `useTeamHonors(played)` and the
+ * franchise page asks `useTeamHonors(meta.seasons)`, and whichever mounted
+ * first decided what the other got. The same hole would have served the
+ * previous league's index across a league switch that did not re-boot the app.
+ *
+ * So the key is the resolved data base — which is the league — plus the season
+ * list. The underlying files are still fetched once each by `j()`, so a second
+ * key costs a rebuild of the index and not a byte of network.
+ */
+export const indexKey = (seasons: readonly string[]) =>
+  `${leagueBase || "data/"}|${seasons.join(",")}`;

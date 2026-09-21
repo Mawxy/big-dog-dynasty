@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
 import type { Team, Values } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { rosterSeasonOf } from "../../lib/league";
 import {
@@ -46,23 +47,42 @@ export default function Movers() {
   const [source, setSource] = useState<MarketSource>("ktc");
   const [window, setWindow] = useState<MarketWindow>(7);
   const { league } = useLeague();
+  /* EACH MODULE HAS ITS OWN SOURCE AND ITS OWN CAPABILITY. Win-now-vs-dynasty
+     is a gap between two indices this pipeline computes for one league;
+     dynasty movers and market movers are the DYNASTY market, which prices a
+     format a redraft league does not play. Without the gates `/movers/value`
+     sat on "Loading…" forever in Pineapple Pizza — `useGapRows` returns null
+     until two files that are never coming both land. */
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const rosterSeason = rosterSeasonOf(league);
 
-  const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
-  const valsQ = useJson<Values>("data/values.json", "globalDaily");
-  const dyn = useDynMovers();
+  const teamsQ = useJson<Team[]>(caps.indices ? `${rosterSeason}/teams.json` : null);
+  const valsQ = useJson<Values>(
+    caps.market ? "data/values.json" : null, "globalDaily");
+  const dyn = useDynMovers(caps.market);
   const gap = useGapRows(teamsQ.data);
   const movers = useMarketMovers(valsQ.data, source, window);
 
   if (!kind || !(kind in KINDS)) return <Navigate replace to={betaPath("/more")} />;
   const k = kind as Kind;
+  /** whether this league has the module at all */
+  const has = k === "value" ? caps.indices : caps.market;
   const note = k === "value" ? KINDS.value.note
     : k === "dynasty" ? dynNote(dyn) : marketNote(movers);
 
   return (
     <>
       <div className="v3-head"><h1>{KINDS[k].title}</h1></div>
+      {!has ? (
+        <div className="tnote screen">
+          Not published for {league.name}.{" "}
+          {k === "value"
+            ? "This module is the gap between DVI and CVI, and both indices come from the nightly model run, which covers the home league only."
+            : "This module reads the DYNASTY market — KeepTradeCut, FantasyCalc and the crawled trade corpus — which prices a format this league does not play."}
+        </div>
+      ) : (
+      <>
       <LensStrip label="Half" value={half} onChange={setHalf}
         options={[{ id: "a", label: KINDS[k].halves[0] }, { id: "b", label: KINDS[k].halves[1] }]} />
       {k === "market" && (
@@ -103,6 +123,8 @@ export default function Movers() {
             ? "Δ is what centerpiece trades across the corpus paid against the blended market value. Positive means the market is paying over."
             : `${window}d is the ${window}-day change in ${SOURCE_NAME[source]} points${source === "ktc" ? ", in this league's TE-premium column" : ""}, measured off the board's own daily snapshots. Zero-change players are left out.`}
       </div>
+      </>
+      )}
     </>
   );
 }

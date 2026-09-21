@@ -196,6 +196,11 @@
    one word on the card that says the figures are moving. Under it the
    pregame spread stays for the comparison. */
 .lgx-game .mid .k.lgx-live { color: var(--good); }
+/* THE FEED HAS STOPPED ANSWERING (2026-09-21): the same word, in --warn
+   rather than --good. The totals under it are the last good read and are no
+   longer moving; the band above the cards says so in full. A dropped poll is
+   a caution, not a failure — the figures were true five minutes ago. */
+.lgx-game .mid .k.lgx-live.stale { color: var(--warn); }
 @media (min-width: 900px) {
   .lgx-game .side .nm { font-size: 14.5px; }
   .lgx-game .side .fig { font-size: 21px; }

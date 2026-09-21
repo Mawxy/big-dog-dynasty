@@ -5,6 +5,7 @@ import { useLeague } from "../../lib/context";
 import { useMobile } from "../../lib/useWidth";
 import { fmt, ord } from "../../lib/stats";
 import { pInfo } from "../../lib/league";
+import { ridOf, seasonRowOf, settledSeasons } from "../../lib/seasons";
 import TeamHonorMarks from "../../components/TeamHonorMarks";
 import { teamHonorTotals, type TeamHonorKey } from "../../lib/teamHonors";
 import { Band, IdCell, NUL, sgnWar, TapRow, useBetaPath } from "../ui";
@@ -45,6 +46,12 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
   const seasons = useMemo(
     () => (fr?.[fkey]?.seasons ?? []).slice().sort((a, b) => b.season.localeCompare(a.season)),
     [fr, fkey]);
+  /** WHICH OF THESE SEASONS IS OVER (2026-09-21). Not "has games" and not
+   *  "isn't the roster season": a season is settled when somebody finished
+   *  first, league-wide (lib/seasons). It is what the average row divides by
+   *  — see below — and what tells a 1-0 September from a finished year. */
+  const settled = useMemo(
+    () => new Set(settledSeasons(fr, seasons.map(s => s.season))), [fr, seasons]);
   /** the managers who have held the franchise, in the order they did */
   const managers = useMemo(() => {
     const by = new Map<string, FranchiseSeason[]>();
@@ -53,14 +60,27 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
   }, [seasons]);
   if (!seasons.length) return null;
 
-  /** a season the roster season has not started — the row reads "live" */
+  /** a season with nothing played at all — its figure cells read — */
   const isLive = (s: FranchiseSeason) => s.season === rosterSeason && s.wins + s.losses + s.ties === 0;
+  /** THE ROSTER SEASON, UNSETTLED: under way. Its row carries the figures it
+   *  has earned so far and the Finish cell reads "Live" rather than an em
+   *  dash — nothing has finished yet, which is not the same as no placing.
+   *  Scoped to the roster season on purpose: an OLD season with no finish on
+   *  file is missing data, and calling it live would be a lie. */
+  const inPlay = (s: FranchiseSeason) =>
+    s.season === rosterSeason && !settled.has(s.season);
   const played = seasons.filter(s => !isLive(s));
+  /** THE POPULATION THE AVERAGE DIVIDES BY (2026-09-21): settled seasons and
+   *  nothing else. `played` only excluded a 0-0 roster season, so the morning
+   *  after week 1 a franchise with four 10-4 years read an average season of
+   *  8.2-3.2 and its points per season fell by a fifth — one week of football
+   *  was being averaged against four whole years as though it were one. */
+  const done = seasons.filter(s => settled.has(s.season));
   const rec = (w: number, l: number, t: number) => `${w}-${l}${t ? `-${t}` : ""}`;
   const finish = (s: FranchiseSeason) =>
     s.finish === 1 ? <span className="mark acc">Champ</span>
     : s.finish != null ? <span className="f">{ord(s.finish)}</span>
-    : isLive(s) ? <span className="mark">Live</span> : NUL;
+    : inPlay(s) ? <span className="mark">Live</span> : NUL;
 
   /* ---- the summary rows --------------------------------------------------- */
   const sum = (rows: FranchiseSeason[]) => rows.reduce((a, s) => ({
@@ -68,6 +88,10 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
     g: a.g + s.wins + s.losses + s.ties,
   }), { w: 0, l: 0, t: 0, pf: 0, war: 0, g: 0 });
   const career = sum(played);
+  const avg = sum(done);
+  /** the finishes among the settled seasons — a franchise can be settled-in
+   *  and still carry no placing in old data, and `0 / 0` printed "NaN" */
+  const avgFins = done.map(s => s.finish).filter((x): x is number => x != null);
   const honorsOf = (rows: FranchiseSeason[]) =>
     teamHonorTotals(rows.map(s => ({ season: s.season, keys: honors.get(s.season) ?? [] })));
   return (
@@ -132,16 +156,27 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
             <td className="n v3-desk">{NUL}</td>
             <td className="t v3-desk">{honorsOf(played).length ? <TeamHonorMarks marks={honorsOf(played)} size={14} /> : NUL}</td>
           </tr>
-          {/* the average season, on the quiet ramp — a shape to read the rows against */}
-          {played.length > 1 && (
+          {/* the average season, on the quiet ramp — a shape to read the rows
+              against. SETTLED SEASONS ONLY, and the sub-line says so whenever
+              that is fewer seasons than the career row sums. */}
+          {done.length > 1 && (
             <tr className="tms-sum tms-avg">
               <td className="t tms-yr"><span className="mark">Avg</span></td>
-              <IdCell name="Average season" />
-              <td className="n v3-desk"><span className="f q">{fmt(career.w / played.length, 1)}-{fmt(career.l / played.length, 1)}</span></td>
-              <td className="n v3-desk"><span className="f q">{fmt(career.pf / played.length, 0)}</span></td>
-              <td className="n"><span className="f q">{career.g ? fmt(career.pf / career.g, 1) : NUL}</span></td>
-              <td className="n"><span className="f q">{sgnWar(career.war / played.length)}</span></td>
-              <td className="n v3-desk"><span className="f q">{fmt(played.reduce((a, s) => a + (s.finish ?? 0), 0) / played.filter(s => s.finish != null).length, 1)}</span></td>
+              <IdCell name="Average season"
+                sub={done.length === played.length ? undefined
+                  : `${done.length} settled season${done.length === 1 ? "" : "s"}`} />
+              <td className="n v3-desk"><span className="f q">{fmt(avg.w / done.length, 1)}-{fmt(avg.l / done.length, 1)}</span></td>
+              <td className="n v3-desk"><span className="f q">{fmt(avg.pf / done.length, 0)}</span></td>
+              <td className="n"><span className="f q">{avg.g ? fmt(avg.pf / avg.g, 1) : NUL}</span></td>
+              <td className="n"><span className="f q">{sgnWar(avg.war / done.length)}</span></td>
+              {/* 0 / 0 is NaN, and "NaN" in a Finish column is worse than no
+                  figure: a franchise whose settled seasons carry no placing
+                  reads — */}
+              <td className="n v3-desk">
+                {avgFins.length
+                  ? <span className="f q">{fmt(avgFins.reduce((a, x) => a + x, 0) / avgFins.length, 1)}</span>
+                  : NUL}
+              </td>
               <td className="t v3-desk">{NUL}</td>
             </tr>
           )}
@@ -179,16 +214,23 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
   const mw = mwQ.data;
   const ps = mw?.playoff_start || 15;
 
-  /** the name a roster played under THAT season — franchises.json carries
-   *  every season's name, so the opponent needs no second file */
-  const nameOf = (r: number | null) => {
-    if (r == null) return "—";
+  /** the name a roster played under THAT season, by roster slot — franchises.json
+   *  carries every season's name, so the opponent needs no second file.
+   *
+   *  BUILT ONCE (2026-09-21). This was a full scan of every franchise and
+   *  every one of its seasons per week row: seventeen rows × 34 franchises ×
+   *  four seasons in the second league, re-run on every render of an open
+   *  drawer, to answer a question with one table behind it. */
+  const nameBySlot = useMemo(() => {
+    const m = new Map<number, string>();
     for (const [k, f] of Object.entries(fr ?? {})) {
-      const s = f.seasons.find(x => x.season === season && (x.rid ?? Number(k)) === r);
-      if (s) return s.name;
+      const s = seasonRowOf(f, season);
+      if (s) m.set(ridOf(k, s), s.name);
     }
-    return `Team ${r}`;
-  };
+    return m;
+  }, [fr, season]);
+  const nameOf = (r: number | null) =>
+    r == null ? "—" : nameBySlot.get(r) ?? `Team ${r}`;
 
   const rows = useMemo(() => {
     if (!mw) return [];

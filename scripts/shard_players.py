@@ -22,7 +22,8 @@ Inputs:
 Output:
   data/player/<pid>.json
     {"years":[...], "proj":{...}|null, "sproj":{...}|null,
-     "mx":{...}, "blend_w":[...], "knn":{...}, "pts":{...}}
+     "mx":{...}, "blend_w":[...], "inseason":{...}, "banked":0.0, "gp":0,
+     "knn":{...}, "pts":{...}}
 
 WHAT GOES IN, AND WHAT DOES NOT. The shard carries exactly what
 `src/views/Player.tsx` renders and nothing else — its whole reason to exist is
@@ -41,6 +42,14 @@ that a page should not download a league-wide file to read one row:
     reads out of that file's HEADER (the Sleeper-weight tooltip). Copying three
     numbers into every shard costs ~14 KB across the tree and removes the last
     reason to fetch the whole matrix.
+
+  * `inseason` is that header's other figure (2026-09-21): {season,
+    weeks_played, reg_weeks, remaining_frac}, present only while the roster
+    season is underway. With it ride `banked` and `gp`, lifted out of the
+    matrix row so the page can read them without unpacking `mx` — the pair the
+    in-season outlook is built from (`outlookY1` in src/lib/outlook.ts,
+    scripts/inseason.py). ~60 B a shard for the same reason blend_w is here: a
+    player page must not fetch a league-wide file to prorate one man's year.
 
   * `pts` is his row from projections_points.json (Max, 2026-09-10) — the
     points-first arm: ppg, games, points, and the WAR derived from the
@@ -106,6 +115,9 @@ def main():
     ptsf = load(out / "projections_points.json") or {}
     years = ((projf.get("meta") or {}).get("years")) or []
     blend_w = ((mxf.get("meta") or {}).get("blend_w")) or None
+    # absent out of season, and then so are `banked`/`gp` on every row — see
+    # the docstring; a shard that carries neither is the offseason shape
+    inseason = ((mxf.get("meta") or {}).get("inseason")) or None
     proj = by_pid(projf.get("players"))
     sproj = sprojf.get("players") or {}
     mx = by_pid(mxf.get("players"))
@@ -151,6 +163,15 @@ def main():
             rec["mx"] = row
             if blend_w:
                 rec["blend_w"] = blend_w
+            if inseason:
+                rec["inseason"] = inseason
+                # copied up from the row rather than recomputed: one figure,
+                # one producer. 0.0 is a real banked WAR (he has not dressed),
+                # so this is `is not None`, not truthiness.
+                if row.get("banked") is not None:
+                    rec["banked"] = row["banked"]
+                if row.get("gp") is not None:
+                    rec["gp"] = row["gp"]
         k = knn.get(pid)
         if k:
             rec["knn"] = k

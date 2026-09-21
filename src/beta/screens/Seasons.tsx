@@ -9,7 +9,7 @@ import PlayoffBracket from "../../components/PlayoffBracket";
 import { RouteLink } from "../../components/RouteLink";
 import { Band, DataError, IdCell, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath } from "../ui";
 import ScopeControl, { type ScopeSeason, type ScopeSel } from "../Scope";
-import { PosLeaders, SlotDrawer, type SlotEntry } from "./League";
+import { PosLeaders, SlotDrawer, useFranchiseIndex, type SlotEntry } from "./League";
 import { playedPlayoffWeeks, playedWeeks, weekFigures, weekGames, weekRows, type WeekGame, type WeekRow } from "../week";
 import "./league.css";
 import "./seasons.css";
@@ -139,7 +139,7 @@ export default function Seasons() {
       {mwQ.error ? <DataError what="Season didn't load" />
         : !mw ? <div className="empty">Loading…</div>
         : playoffs ? (
-          <Playoffs season={season} mw={mw} bracket={bracket} odds={odds} teams={teams} nameOf={nameOf} ptsOf={ptsOf} />
+          <Playoffs season={season} mw={mw} bracket={bracket} odds={odds} nameOf={nameOf} ptsOf={ptsOf} />
         ) : wk == null ? (
           <div className="empty">No week of {season} has been played yet.</div>
         ) : mid != null ? (
@@ -479,12 +479,13 @@ function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf }: WeekProps
    THE PLAYOFFS — the bracket, then each round's games
    ======================================================================== */
 
-function Playoffs({ season, mw, bracket, odds, teams, nameOf, ptsOf }: {
+function Playoffs({ season, mw, bracket, odds, nameOf, ptsOf }: {
   season: string; mw: Matchups; bracket: BracketFile | null | undefined;
-  odds: WeekOdds | null | undefined; teams: Team[] | null | undefined;
+  odds: WeekOdds | null | undefined;
   nameOf: (rid: number) => string; ptsOf: PtsOf;
 }) {
-  const betaPath = useBetaPath();
+  const { league } = useLeague();
+  const { keyOf, hrefOf } = useFranchiseIndex(rosterSeasonOf(league));
   const weeks = useMemo(() => playedPlayoffWeeks(mw), [mw]);
   const final = bracket?.winners.find(g => g.p === 1);
   const champ = final?.w ?? null;
@@ -498,14 +499,24 @@ function Playoffs({ season, mw, bracket, odds, teams, nameOf, ptsOf }: {
     const fromEnd = wks.length - 1 - wks.indexOf(wk);
     return fromEnd === 0 ? "Final" : fromEnd === 1 ? "Semifinals" : fromEnd === 2 ? "Quarterfinals" : `Round ${wks.indexOf(wk) + 1}`;
   };
-  const fkey = (rid: number) => teams?.find(t => t.roster_id === rid)?.fkey ?? String(rid);
+  /* THE CHAMPION'S PAGE, INSIDE THIS SHELL (2026-09-21). This linked
+     `/franchise/<fkey>`, and `franchise` is in BetaShell's CLASSIC_ONLY list —
+     so tapping the champion forwarded a beta reader out to the classic board
+     and stranded him there. The beta franchise page is `/team/<rid>` and it
+     addresses the ROSTER season's slots, so the link is resolved through the
+     franchise key: the champion of an old season who is still in the league
+     gets a link, one who has left reads as plain text rather than opening
+     whoever inherited his roster slot. */
+  const champHref = champ != null ? hrefOf(keyOf(season, champ)) : null;
 
   return (
     <>
       {champ != null && (
         <div className="lgx-champ">
           <div className="k">{season} champion</div>
-          <RouteLink to={betaPath(`/franchise/${fkey(champ)}`)} className="nm">{nameOf(champ)}</RouteLink>
+          {champHref
+            ? <RouteLink to={champHref} className="nm">{nameOf(champ)}</RouteLink>
+            : <span className="nm">{nameOf(champ)}</span>}
           <div className="sub">
             {runner != null ? `over ${nameOf(runner)}` : ""}
             {final?.t1_pts != null && final?.t2_pts != null
