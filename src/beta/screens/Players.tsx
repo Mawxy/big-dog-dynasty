@@ -39,7 +39,7 @@ import { boxStats } from "../../components/BoxMarks";
 // two shells cannot disagree about what a bye looks like
 import WeekGrid from "../../components/WeekGrid";
 import { useMobile } from "../../lib/useWidth";
-import { ALL_SEASONS, useScope, type ScopeSel } from "../Scope";
+import ScopeControl, { ALL_SEASONS, useScope, type ScopeSel } from "../Scope";
 import {
   fmtUsage, loadUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageIndex, type UsageKey,
 } from "../../lib/usage";
@@ -49,7 +49,7 @@ import {
 } from "../filters";
 import FilterSheet from "../FilterSheet";
 import {
-  Band, DataError, fmtWar, IdCell, LensStrip, NUL, Sheet, SheetRow, Spine, sortBy,
+  Band, DataError, fmtWar, IdCell, LensStrip, NUL, SheetRow, Spine, sortBy,
   TapRow, Th, useBetaPath, useSort,
 } from "../ui";
 import "./players.css";
@@ -618,6 +618,11 @@ export default function Players() {
   const allTime = season === ALL_SEASONS;
   /** the single season a per-season query should read, or null in all-time */
   const oneSeason = hist && !allTime ? season : null;
+  /* No champion/record note on the picker rows. It would be the right thing to
+     show there and it costs a 217 KB franchises.json fetch this screen makes
+     for nothing else; the League screen already holds that file and is where
+     the note earns itself. */
+  const seasons = useMemo(() => played.map(id => ({ id })), [played]);
 
   const [pos, setPos] = useState("ALL");
   const [q, setQ] = useState("");
@@ -670,9 +675,6 @@ export default function Players() {
    *  column on the lens is an em dash, so the lens is not offered. */
   const usage = hist && measure === "usage" && caps.usage;
   const [keyOpen, setKeyOpen] = useState(false);
-  /* THE VIEW SHEET (Max, 2026-09-17): tense, season, phase and lens, behind
-     the band. See the ViewSheet component at the foot of this file. */
-  const [viewOpen, setViewOpen] = useState(false);
   /* the search box, which is a row only while it is being used */
   const [findOpen, setFindOpen] = useState(false);
 
@@ -1345,25 +1347,59 @@ export default function Players() {
         </span>
       </div>
 
-      {/* ONE ROW OF CONTROLS, NOT SIX (Max, 2026-09-17).
+      {/* THE CONTROLS ARE ON THE BOARD, NOT BEHIND IT (Max, 2026-09-22).
 
-          This screen had nine rows stacked over it before a reader saw a
-          single player: the tense, the season, Show, Phase, the position
-          chips, the search box, Filter, the sort strip and the band. Eleven
-          controls, every one of them the same bordered chip, and the first row
-          of the table was 350px down a 812px phone.
+          For five days the tense, the season, the phase and the lens lived in
+          a sheet behind the band label, and every switch cost a tap to open
+          it, a tap to pick and the sheet closing. The reader who flips between
+          the box score and Maxalytics a dozen times a session hated it. So the
+          two switches a reader reaches for are back in view, one tap each:
+          the Value / Stats segment on top and the Show row under it.
 
-          They were never one family. Some of them change WHICH PLAYERS are
-          listed — position, search, the criteria — and the rest change WHAT
-          THE COLUMNS SAY — the tense, the season, the phase, the lens. Wearing
-          one costume they read as nine things to filter by.
+          The season and the phase stay together in the segment's picker: the
+          sheet that already chose the year now also chooses which part of it,
+          which keeps the phase off the board — a control changed once a
+          session does not need a permanent row — and puts it where a reader
+          already goes to say WHEN. The segment always says both on its face —
+          "2026 · Regular season" — so the phase is never a hidden setting
+          (Max, 2026-09-22).
 
-          So the first family keeps a row, and the second collapses into the
-          BAND, which already sat above the table saying what it was looking
-          at. It now says all four of them and opens the sheet that changes
-          them: a control that states where you are, which a row of chips
-          cannot do — chips show you the options and leave you to work out
-          which one is in force. */}
+          Below them, the row that narrows WHICH PLAYERS: the position chips,
+          Find and Filter. Two families, two shapes. */}
+      <ScopeControl value={scope} onChange={setScope} seasons={seasons}
+        currentLabel="Value" historyLabel="Stats" allTime pickOnReturn
+        sheetTitle="Season and phase"
+        suffix={PHASES.find(p => p.id === phase)!.label}
+        extra={close => (
+          <>
+            <div className="plx-vgrp">Phase</div>
+            {PHASES.map(p => (
+              <SheetRow key={p.id} name={p.label} on={phase === p.id}
+                mark={phase === p.id ? "Here" : undefined}
+                onClick={() => { setPhase(p.id); close(); }} />
+            ))}
+          </>
+        )} />
+
+      {/* THE SHOW ROW: which figures the board carries. Its own row with a
+          key in front, because "Box score" and "Maxalytics" are not a closed
+          vocabulary the way QB/RB/WR/TE is — without a word in front of them
+          they read as two more things to filter by rather than the two states
+          of one switch. The lens that is not published for this league is
+          shown and disabled rather than hidden: absent is what makes a reader
+          assume the board cannot do it at all. */}
+      {hist && (
+        <div className="v3-filters plx-filters plx-filters2">
+          <span className="plx-fk">Show</span>
+          <button type="button" className={`chip${measure === "box" ? " on" : ""}`}
+            onClick={() => setMeasure("box")}>Box score</button>
+          <button type="button" className={`chip${measure === "usage" ? " on" : ""}`}
+            disabled={!caps.usage}
+            title={caps.usage ? undefined : `not published for ${league.name} — the nflverse usage run is the home league's`}
+            onClick={() => setMeasure("usage")}>Maxalytics</button>
+        </div>
+      )}
+
       <div className="v3-filters plx-filters plx-row1">
         {POS_CHIPS.map(p => (
           <button key={p} type="button" className={`chip${pos === p ? " on" : ""}`}
@@ -1460,20 +1496,14 @@ export default function Players() {
       )}
 
       <Band
-        /* THE LABEL IS THE CONTROL. It reads as the band it has always been
-           and answers "what am I looking at" without being asked; pressing it
-           is how the four things it names get changed. */
-        label={
-          <button type="button" className="plx-state" aria-haspopup="dialog"
-            aria-expanded={viewOpen} onClick={() => setViewOpen(true)}>
-            {hist
-              ? `Stats · ${allTime ? "All-time" : season} · ${
-                PHASES.find(p => p.id === phase)!.label} · ${
-                usage ? "Maxalytics" : "Box score"}`
-              : `Value · ${rosterSeason} rosters`}
-            <span className="cv" aria-hidden="true">▾</span>
-          </button>
-        }
+        /* the state line: what the picker and the Show row have set. The
+           season and the lens are already visible in the controls above;
+           the phase is in the picker, so this is the one place it is always
+           written out. */
+        label={hist
+          ? `${allTime ? "All-time" : season} · ${
+            PHASES.find(p => p.id === phase)!.label} · ${usage ? "Maxalytics" : "Box score"}`
+          : `Value · ${rosterSeason} rosters`}
         right={
           /* THE BAND CARRIES BOTH, and the note comes first: it is the thing a
              reader needs without asking, and the Key is the thing they go
@@ -1509,13 +1539,6 @@ export default function Players() {
             </button>
           </span>
         } />
-      {viewOpen && (
-        <ViewSheet scope={scope} setScope={setScope} played={played}
-          phase={phase} setPhase={setPhase} measure={measure} setMeasure={setMeasure}
-          hasValue={caps.indices} hasUsage={caps.usage} league={league.name}
-          onClose={() => setViewOpen(false)} />
-      )}
-
       {/* EVERY COLUMN, DEFINED — in the order the columns appear, so a reader
           who is looking at one can count across to it. The phase changes what
           some of them mean, so the list is built from the tense in force
@@ -1777,97 +1800,6 @@ export default function Players() {
         )}
       </div>
     </>
-  );
-}
-
-/* ========================================================================
-   THE VIEW SHEET
-
-   What the columns say: the tense, the lens, the season and the phase. Four
-   controls that used to be four rows of chips permanently above the table.
-
-   SHEET ROWS, NOT CHIPS. `SheetRow` is what this shell already uses to pick
-   one of a set — it is the season picker's row — and it carries a "Here" mark
-   on the one in force plus room for a line saying what the choice means. A
-   grid of chips in a sheet would have been a fifth chip vocabulary on a
-   screen that already had four.
-
-   Every choice CLOSES the sheet. A reader opens it to change one thing; a
-   sheet that stays open after the board behind it has changed is asking to be
-   dismissed a second time.
-   ======================================================================== */
-
-function ViewSheet({
-  scope, setScope, played, phase, setPhase, measure, setMeasure,
-  hasValue, hasUsage, league, onClose,
-}: {
-  scope: ScopeSel;
-  setScope: (s: ScopeSel) => void;
-  /** every season, newest first */
-  played: string[];
-  phase: Phase; setPhase: (p: Phase) => void;
-  measure: "box" | "usage"; setMeasure: (m: "box" | "usage") => void;
-  /** whether this league HAS a price board / a usage lens. A choice that
-   *  cannot be made is shown and disabled rather than hidden: absent is what
-   *  makes a reader assume the board cannot do it at all. */
-  hasValue: boolean; hasUsage: boolean;
-  league: string;
-  onClose: () => void;
-}) {
-  const hist = scope.scope === "history";
-  const season = hist ? scope.season : null;
-  const pick = (fn: () => void) => () => { fn(); onClose(); };
-  const here = (on: boolean) => (on ? "Here" : undefined);
-  return (
-    <Sheet label="What this board shows" title="View" onClose={onClose}>
-      <div className="plx-view">
-        <div className="plx-vgrp">Figures</div>
-        <SheetRow name="Value"
-          meta={hasValue ? "what they are worth now"
-            : `not published for ${league} — DVI, CVI and the projection are the home league's`}
-          on={!hist} mark={here(!hist)} disabled={!hasValue}
-          onClick={pick(() => setScope({ scope: "current" }))} />
-        <SheetRow name="Stats" meta="what they did"
-          on={hist} mark={here(hist)}
-          onClick={pick(() => {
-            /* landing on the season being played rather than the picker: the
-               old control spent the first tap opening a sheet over a board
-               with no stats on it */
-            if (!hist) setScope({ scope: "history", season: played[0] });
-          })} />
-
-        {hist && (
-          <>
-            <div className="plx-vgrp">Measures</div>
-            <SheetRow name="Box score"
-              meta={`games, points, the rate${hasUsage ? ", snap share" : ""}, the two records`}
-              on={measure === "box"} mark={here(measure === "box")}
-              onClick={pick(() => setMeasure("box"))} />
-            <SheetRow name="Maxalytics"
-              meta={hasUsage ? "WAR and win share, expected points, the position's usage"
-                : `not published for ${league} — the nflverse usage run is the home league's`}
-              on={measure === "usage"} mark={here(measure === "usage")}
-              disabled={!hasUsage}
-              onClick={pick(() => setMeasure("usage"))} />
-
-            <div className="plx-vgrp">Season</div>
-            <SheetRow name="All-time" meta="every settled season pooled"
-              on={season === ALL_SEASONS} mark={here(season === ALL_SEASONS)}
-              onClick={pick(() => setScope({ scope: "history", season: ALL_SEASONS }))} />
-            {played.map(y => (
-              <SheetRow key={y} name={y} on={season === y} mark={here(season === y)}
-                onClick={pick(() => setScope({ scope: "history", season: y }))} />
-            ))}
-
-            <div className="plx-vgrp">Phase</div>
-            {PHASES.map(p => (
-              <SheetRow key={p.id} name={p.label} on={phase === p.id} mark={here(phase === p.id)}
-                onClick={pick(() => setPhase(p.id))} />
-            ))}
-          </>
-        )}
-      </div>
-    </Sheet>
   );
 }
 

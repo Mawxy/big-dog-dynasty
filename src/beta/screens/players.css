@@ -48,6 +48,9 @@
   /* the search field shares its row with Clear rather than taking the row
      whole — it is open only while it is being used */
   .plx-find input[type="search"] { flex: 1 1 auto; }
+  /* the show row keeps scrolling rather than wrapping: two chips and a key
+     fit 375px, and a wrap would put "Maxalytics" alone on a line */
+  .plx-filters2 { flex-wrap: nowrap; overflow-x: auto; }
 }
 
 /* ---- the key ------------------------------------------------------------
@@ -137,41 +140,34 @@
 .plx-txtbtn:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 .plx-find { padding-top: 0; padding-bottom: 8px; }
 
-/* ---- the band as a control ----------------------------------------------
-   The label states the four things the sheet changes and opens it. It takes
-   the band label's own face by inheritance — it has to read as the band it
-   has always been, not as a button someone dropped into one. */
-.plx-state {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 7px;
-  min-width: 0;
-  max-width: 100%;
-  background: none;
-  border: 0;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-  color: inherit;
-  font: inherit;
-  letter-spacing: inherit;
-  text-transform: inherit;
-  text-align: left;
+/* ---- the show row ---------------------------------------------------------
+   The lens switch, on the board (Max, 2026-09-22) — it lived in a sheet behind
+   the band for five days and every flip cost three taps. A key and two chips,
+   under the tense segment and above the position row: the position chips are
+   the control every reader reaches for, and on a 375px scroller anything in
+   front of them pushes them off-screen. The key is at a fixed width so the
+   chips start where the position chips do. */
+.plx-filters2 { padding-top: 0; padding-bottom: 8px; }
+.plx-filters2 .plx-fk {
+  flex: 0 0 auto;
+  min-width: 34px;
+  font: 600 9.5px/1 var(--cond);
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--dim2);
+  padding-right: 1px;
 }
-.plx-state:hover { color: var(--txt); }
-.plx-state:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; }
-.plx-state .cv { flex: 0 0 auto; color: var(--dim2); }
+.plx-filters2 .chip:disabled { opacity: .45; cursor: not-allowed; }
 
 /* the note beside the Key button, desktop only: at 390px the band is already
    carrying a four-part state line */
 .plx-hint { display: none; }
 @media (min-width: 900px) { .plx-hint { display: inline; } }
 
-/* ---- the view sheet ------------------------------------------------------
-   Group headings over the shell's own SheetRow. The heading is the band
-   label's type at the sheet's scale, so a group in here reads as the same
-   kind of object as a band out there. */
-.plx-view { padding-bottom: 10px; }
+/* ---- the phase group in the season picker --------------------------------
+   The Stats segment's sheet picks the year and, under it, the phase. The
+   group heading is the band label's type at the sheet's scale, so a group in
+   here reads as the same kind of object as a band out there. */
 .plx-vgrp {
   padding: 15px var(--v3pad) 7px;
   font: 600 10px/1 var(--cond);
@@ -179,7 +175,6 @@
   text-transform: uppercase;
   color: var(--dim2);
 }
-.plx-vgrp:first-child { padding-top: 8px; }
 
 /* ---- advanced search (Max, 2026-09-16) ---------------------------------- */
 /* the criteria row: the Filter chip, then one chip per active criterion */

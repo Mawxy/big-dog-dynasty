@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { Sheet, SheetRow } from "./ui";
 import "./scope.css";
@@ -85,7 +85,7 @@ export function useScope(seasons: string[], opts?: {
  */
 export default function ScopeControl({
   value, onChange, seasons, currentLabel = "Current", historyLabel = "History",
-  all, allTime, pickOnReturn,
+  all, allTime, pickOnReturn, suffix, sheetTitle = "Seasons", extra,
 }: {
   value: ScopeSel;
   onChange: (s: ScopeSel) => void;
@@ -111,6 +111,18 @@ export default function ScopeControl({
    *  screens whose right segment really does mean "the past", the sheet is the
    *  whole point of the tap. */
   pickOnReturn?: boolean;
+  /** words after the selected season in the right segment — Players puts the
+   *  phase there, so a control whose sheet also sets the phase always says
+   *  both on its face: "2026 · Regular season". */
+  suffix?: string;
+  /** the sheet's title, when it houses more than seasons */
+  sheetTitle?: string;
+  /** MORE THAN SEASONS IN THE SHEET (Max, 2026-09-22). Rows rendered under the
+   *  season rows — Players puts its phase pick here, so one sheet answers
+   *  "which year" and "which part of it" and the board above the table keeps
+   *  one row fewer. Given `close` so a pick can shut the sheet the way a season
+   *  pick does. */
+  extra?: (close: () => void) => ReactNode;
 }) {
   const [picking, setPicking] = useState(false);
   const onHistory = value.scope === "history";
@@ -135,6 +147,7 @@ export default function ScopeControl({
               else onChange({ scope: "history", season: seasons[0].id });
             }}>
             {onHistory ? (value.season === ALL_SEASONS ? "All-time" : value.season) : historyLabel}
+            {onHistory && suffix ? ` · ${suffix}` : ""}
             {/* the caret promises a sheet, so it appears only on the tap that
                 opens one */}
             {sheetNext && <span className="caret">▾</span>}
@@ -142,7 +155,7 @@ export default function ScopeControl({
         )}
       </div>
       {picking && !all && (
-        <Sheet label="Pick a season" title="Seasons" onClose={() => setPicking(false)}>
+        <Sheet label="Pick a season" title={sheetTitle} onClose={() => setPicking(false)}>
           {allTime && (
             <SheetRow on={onHistory && value.season === ALL_SEASONS}
               mark={onHistory && value.season === ALL_SEASONS ? "Here" : undefined}
@@ -157,6 +170,7 @@ export default function ScopeControl({
                 onClick={() => { setPicking(false); onChange({ scope: "history", season: s.id }); }} />
             );
           })}
+          {extra?.(() => setPicking(false))}
         </Sheet>
       )}
     </>
