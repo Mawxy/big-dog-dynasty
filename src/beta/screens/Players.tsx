@@ -1,14 +1,14 @@
 import {
   Fragment, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 import type {
   Absences, EcrFile, Matchups, MatrixFile, MatrixRow, SummaryRow, Team, Values,
   Weekly, WeeklyRow,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
-import { useLeague } from "../../lib/context";
+import { leagueSeg, useLeague } from "../../lib/context";
 import { useCviQuery, useDviQuery, useOutlook1 } from "../../lib/useIndices";
 import { outlookLabel, outlookNote } from "../../lib/outlook";
 import { fmt } from "../../lib/stats";
@@ -49,7 +49,8 @@ import {
 } from "../filters";
 import FilterSheet from "../FilterSheet";
 import {
-  Band, DataError, fmtWar, IdCell, LensStrip, NUL, SheetRow, Spine, sortBy,
+  Band, DataError, fmtWar, IdCell, LensStrip, NUL, readSticky, SheetRow, Spine, sortBy,
+  useSticky, writeSticky,
   TapRow, Th, useBetaPath, useSort,
 } from "../ui";
 import "./players.css";
@@ -624,8 +625,14 @@ export default function Players() {
      the note earns itself. */
   const seasons = useMemo(() => played.map(id => ({ id })), [played]);
 
-  const [pos, setPos] = useState("ALL");
-  const [q, setQ] = useState("");
+  /* WHAT THIS SITTING REMEMBERS (Max, 2026-09-22): the position, the search,
+     the phase, the lens, the three sort orders and the scroll position all
+     survive a trip to a player page and back. See `useSticky` in ui.tsx for
+     why this is the tab's storage and not the URL. Keyed by league so two
+     leagues open in one tab do not trade settings. */
+  const stick = (k: string) => `plx:${leagueSeg(league)}:${k}`;
+  const [pos, setPos] = useSticky(stick("pos"), "ALL");
+  const [q, setQ] = useSticky(stick("q"), "");
 
   /* ---- ADVANCED SEARCH (Max, 2026-09-16) --------------------------------
      Numeric criteria over facts the whole site knows — age, KTC, a best
@@ -661,22 +668,23 @@ export default function Players() {
      would give one control two jobs and four segments. Regular season is the
      default because it is fourteen weeks against three and because it is the
      only phase in which the board's own WAR is defined league-wide. */
-  const [phase, setPhase] = useState<Phase>("reg");
+  const [phase, setPhase] = useSticky<Phase>(stick("phase"), "reg");
   /* WHICH MEASURES (Max, 2026-09-16): the box score, or usage and efficiency
      from nflverse. A lens over the same rows, not a filter — so it swaps the
      figure columns and leaves the population alone. The phase chips apply
      under it too: usage_stats.py sums the weekly table over the league's own
      regular season, bracket weeks and both, so the windows line up with the
      box score's. */
-  const [measure, setMeasure] = useState<"box" | "usage">("box");
+  const [measure, setMeasure] = useSticky<"box" | "usage">(stick("measure"), "box");
   /** the Maxalytics lens is on. Named "usage" in the code since the day it was
    *  built; the chip says Maxalytics (Max, 2026-09-17). It needs usage.json,
    *  which `usage_stats.py` writes for the home league only — without it every
    *  column on the lens is an em dash, so the lens is not offered. */
   const usage = hist && measure === "usage" && caps.usage;
   const [keyOpen, setKeyOpen] = useState(false);
-  /* the search box, which is a row only while it is being used */
-  const [findOpen, setFindOpen] = useState(false);
+  /* the search box, which is a row only while it is being used — and a
+     remembered search is being used */
+  const [findOpen, setFindOpen] = useState(q !== "");
 
   /* 900px, not style.css's 640px: the beta shell's own desktop breakpoint is
      where the nav bar becomes a rail and the tables gain their padding, and a
@@ -688,11 +696,11 @@ export default function Players() {
      only `war`, and a reader who ordered the price board by KTC has not said
      anything about how they want 2023 ordered — carrying it across would either
      drop to a default silently or apply a key the other tense does not have. */
-  const cur = useSort<Key>("dvi");
+  const cur = useSort<Key>("dvi", -1, stick("sort.value"));
   /* POINTS, not WAR (Max, 2026-09-17): WAR left this lens, and the box
      score's own headline is what he scored. */
-  const hst = useSort<Key>("pts");
-  const usg = useSort<Key>("war");
+  const hst = useSort<Key>("pts", -1, stick("sort.box"));
+  const usg = useSort<Key>("war", -1, stick("sort.usage"));
   const s = usage ? usg : hist ? hst : cur;
 
   // The tense changing re-states every figure in the row, so an open drawer
@@ -1298,6 +1306,23 @@ export default function Players() {
   const ready = factsReady && (hist
     ? rows != null && (!usage || usg_ != null)
     : rows != null && ![dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ].some(x => x.loading));
+
+  /* THE SCROLL POSITION, saved when the screen is left and put back when Back
+     brings the reader here. Saved in the unmount cleanup, which runs before
+     the shell's own scroll-to-top for the incoming page; restored only on a
+     POP (Back, Forward) and only once the rows are on the page, since a
+     scroll into an empty board lands at the top regardless. A fresh visit by
+     tab or link starts at the top like any other screen. */
+  const navType = useNavigationType();
+  useEffect(() => () => { writeSticky(stick("y"), window.scrollY); },
+    []);
+  const restoredY = useRef(navType !== "POP");
+  useEffect(() => {
+    if (restoredY.current || !ready) return;
+    restoredY.current = true;
+    const y = readSticky<number>(stick("y"));
+    if (typeof y === "number" && y > 0) window.scrollTo(0, y);
+  }, [ready]);
 
   /* A FAILED FETCH IS NOT A SLOW ONE. Without this the board says Loading…
      for the life of the page whenever one of its files drops.

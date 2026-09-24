@@ -1,6 +1,6 @@
 import {
   Fragment, createContext, useCallback, useContext, useEffect, useReducer,
-  useState, type ReactNode,
+  useState, type Dispatch, type ReactNode, type SetStateAction,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { leagueSeg, useLeague } from "../lib/context";
@@ -499,6 +499,40 @@ export function SheetRow({ name, meta, mark, on, disabled, onClick }: {
   );
 }
 
+/* ---- state that survives leaving the screen ----------------------------- */
+
+/**
+ * THE BOARD REMEMBERS WHERE YOU WERE (Max, 2026-09-22). A reader sorts the
+ * Players board by WAR, opens a player, taps Back — and got the board's
+ * defaults, unsorted, at the top. Every control that is not in the URL was a
+ * `useState`, and the screen unmounts the moment a player page mounts.
+ *
+ * sessionStorage, not the URL: the scope and the filters are in the URL
+ * because a shared link should show the board that was shared; a sort order
+ * or a search string is how ONE reader was looking at it, for this sitting,
+ * and pushing every header tap into history would give Back a dozen steps to
+ * walk through. The tab's own storage is exactly "this sitting": it dies with
+ * the tab and is never shared. Every read and write is guarded — a private
+ * window can throw on access — and a `null` key is an ordinary useState.
+ */
+export function readSticky<T>(key: string): T | undefined {
+  try {
+    const raw = sessionStorage.getItem(key);
+    return raw == null ? undefined : JSON.parse(raw) as T;
+  } catch { return undefined; }
+}
+export function writeSticky(key: string, value: unknown) {
+  try { sessionStorage.setItem(key, JSON.stringify(value)); } catch { /* full, or private */ }
+}
+export function useSticky<T>(key: string | null, initial: T): [T, Dispatch<SetStateAction<T>>] {
+  const [v, setV] = useState<T>(() => {
+    const got = key ? readSticky<T>(key) : undefined;
+    return got === undefined ? initial : got;
+  });
+  useEffect(() => { if (key) writeSticky(key, v); }, [key, v]);
+  return [v, setV];
+}
+
 /* ---- sorting ------------------------------------------------------------ */
 
 /**
@@ -511,8 +545,10 @@ export function SheetRow({ name, meta, mark, on, disabled, onClick }: {
  * moved. An updater must be pure; the toggle is computed here and both fields
  * are written in a single transition.
  */
-export function useSort<K extends string>(initial: K, initialDir: 1 | -1 = -1) {
-  const [st, setSt] = useState<{ sort: K; dir: 1 | -1 }>(
+export function useSort<K extends string>(initial: K, initialDir: 1 | -1 = -1,
+  /** remember the order across a leave-and-return, under this key */
+  key: string | null = null) {
+  const [st, setSt] = useSticky<{ sort: K; dir: 1 | -1 }>(key,
     { sort: initial, dir: initialDir });
   const onSort = useCallback((id: K, asc = false) => {
     setSt(p => p.sort === id

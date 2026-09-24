@@ -357,27 +357,31 @@ const priceOf = (b: ValueBridge, label: string) =>
 
 test("pick index: a future 1st under CVI lands on the conversion floor, not the timing cliff",
   { skip: FIELD ? false : "committed league data not present in this clone" }, () => {
-    const { indexer, bridge } = FIELD!;
-    const y27 = indexer("2027 Early 1st", priceOf(bridge, "2027 Early 1st"))!;
-    const y28 = indexer("2028 Early 1st", priceOf(bridge, "2028 Early 1st"))!;
-    assert.ok(y27 && y28, "both bands must estimate");
+    // Bands are built off the live pick class, not the calendar, so the test
+    // does not rot when the class rolls: near is one year out, far is two.
+    const { indexer, bridge, currentClass } = FIELD!;
+    const nearBand = `${currentClass + 1} Early 1st`;
+    const farBand = `${currentClass + 2} Early 1st`;
+    const near = indexer(nearBand, priceOf(bridge, nearBand))!;
+    const far = indexer(farBand, priceOf(bridge, farBand))!;
+    assert.ok(near && far, "both bands must estimate");
 
-    assert.ok(y28.cvi <= y27.cvi, "2028 must not beat 2027 under CVI");
-    assert.ok(y28.dvi < y27.dvi, "2028 must be weaker than 2027 under DVI");
-    // Timing alone would put a 2028 pick near zero for a contender. The pick
+    assert.ok(far.cvi <= near.cvi, "the far pick must not beat the near one under CVI");
+    assert.ok(far.dvi < near.dvi, "the far pick must be weaker than the near one under DVI");
+    // Timing alone would put a far pick near zero for a contender. The pick
     // is liquid, so its CVI is floored at what it converts to less the haircut
     // (Max, 2026-09-08): the figure is baseCvi × CVI_CONVERSION exactly, and
     // the estimate says so.
-    assert.ok(y28.timeCvi < CVI_CONVERSION, "a 2028 pick's timing is below the floor");
-    assert.ok(y28.converted, "the floor must be flagged");
-    assert.ok(Math.abs(y28.cvi - y28.baseCvi * CVI_CONVERSION) < 1e-9,
+    assert.ok(far.timeCvi < CVI_CONVERSION, "a far pick's timing is below the floor");
+    assert.ok(far.converted, "the floor must be flagged");
+    assert.ok(Math.abs(far.cvi - far.baseCvi * CVI_CONVERSION) < 1e-9,
       "CVI must be the conversion figure");
-    assert.ok(y28.cvi > y28.baseCvi * y28.timeCvi * 3,
+    assert.ok(far.cvi > far.baseCvi * far.timeCvi * 3,
       "the floor must lift the pick well clear of the timing cliff");
     // DVI is untouched by the floor: it still takes its mild timing step
-    const dRatio = y28.dvi / y27.dvi;
+    const dRatio = far.dvi / near.dvi;
     assert.ok(dRatio > 0.6, `DVI drop is too brutal (${dRatio.toFixed(3)})`);
-    assert.ok(!y28.converted || Math.abs(y28.dvi - y28.baseDvi * y28.timeDvi) < 1e-9,
+    assert.ok(!far.converted || Math.abs(far.dvi - far.baseDvi * far.timeDvi) < 1e-9,
       "the floor must not touch DVI");
   });
 
