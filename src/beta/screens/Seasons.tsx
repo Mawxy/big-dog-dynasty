@@ -454,7 +454,7 @@ function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf }: WeekProps
                     <Spine color={POS_COLOR[pos]} rank="" />
                     <IdCell name={name} sub={`${club || "FA"} · ${pos}`} />
                     <td className="n"><span className="f">{fmt(x.pts, 1)}</span></td>
-                    <td className="n">{x.war == null ? NUL : <span className="f q">{sgnWar(x.war)}</span>}</td>
+                    <td className="n">{x.war == null ? NUL : <span className="f ssx-war">{sgnWar(x.war)}</span>}</td>
                   </tr>
                 );
               })}

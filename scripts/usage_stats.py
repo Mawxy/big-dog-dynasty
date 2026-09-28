@@ -44,6 +44,20 @@ matcher the projections use, so a player matched there is matched here. The
 site's players_min.json is the Sleeper side: every player the site can link
 to. Unmatched rows are counted and reported, never guessed.
 
+THE WEEKS THEMSELVES, TOO (Max, 2026-09-28): the Stats board's week window
+narrows the Maxalytics lens to any run of weeks, and a rate over weeks 3-7
+cannot be rebuilt from a season rate. So beside usage.json each season also
+gets the raw weekly components the rates are built from, one row per touched
+week in the league's played weeks:
+
+    data/leagues/<key>/<season>/usage_weekly.json
+        { "cols": [ …WEEK_COLS… ],
+          "players": { "<sleeper pid>": { "p": "WR", "w": { "<week>": [ … ] } } } }
+
+src/lib/usage.ts `usageOfWeeks` folds those rows with `aggregate`'s own rules
+(it is a port of it), so a window covering the whole regular season reproduces
+usage.json's `reg` row. Fetched only when a window is set on the lens.
+
 Runs after build_site_data.py (players_min.json) and before shard_players.py,
 which folds each player's seasons into his shard for the player page. Reads
 only committed files; no network.
@@ -74,6 +88,21 @@ POS_COLS = {
     "TE": ["fp_exp_pg", "tgt_pg", "tgt_share", "ay_share", "adot"],
 }
 CORE = set(POS_COLS)
+
+# THE WEEKLY FILE'S COLUMNS, in order — every raw CSV field `aggregate` reads.
+# src/lib/usage.ts WEEK_COLS mirrors this list; keep the two in step.
+WEEK_COLS = ["att", "car", "tgt", "rec", "sacks", "pass_epa", "cpoe", "fp_exp", "fp_act",
+             "tgt_share", "ay_share", "rec_ay", "team_car", "team_rb_touch",
+             "snaps", "team_snaps"]
+
+
+def week_row(w):
+    """one touched week's raw components, rounded, None for a blank cell"""
+    out = []
+    for c in WEEK_COLS:
+        v = num(w.get(c))
+        out.append(None if v is None else (int(v) if v == int(v) else round(v, 4)))
+    return out
 
 
 def num(s):
@@ -225,6 +254,8 @@ def main():
                 continue
             by_player.setdefault(r["player_id"], (r["pos"], []))[1].append(r)
         usage, unmatched = {}, 0
+        weekly = {}
+        last = max((hi for _n, _lo, hi in wins), default=0)
         for gsis, (pos, wk_rows) in by_player.items():
             pid = by_gsis.get(gsis)
             if not pid:
@@ -237,7 +268,12 @@ def main():
                     rec[name] = agg
             if rec:
                 usage[pid] = rec
+            wk = {str(int(w["week"])): week_row(w) for w in wk_rows if 1 <= int(w["week"]) <= last}
+            if wk:
+                weekly[pid] = {"p": pos, "w": wk}
         atomic_write(out / season / "usage.json", json.dumps(usage, separators=(",", ":")))
+        atomic_write(out / season / "usage_weekly.json",
+                     json.dumps({"cols": WEEK_COLS, "players": weekly}, separators=(",", ":")))
         print(f"{season}: {len(usage)} players matched, {unmatched} nflverse rows without a "
               f"Sleeper match · {', '.join(f'{n} wk {lo}-{hi}' for n, lo, hi in wins)} "
               f"→ {out / season / 'usage.json'}")

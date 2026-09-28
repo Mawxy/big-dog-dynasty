@@ -18,11 +18,13 @@ import { emptyWL, type WL } from "../lib/records";
  *   Win share         winshare.json's per-week `wk` map, summed in the window
  *   the two records   re-read off matchups.json for the window's weeks
  *
+ * Snap share and the whole Maxalytics lens come from usage_weekly.json, the
+ * raw weekly components folded over the window (lib/usage `usageOfWeeks`).
+ *
  * What does NOT survive is anything that is a fact about the whole season:
- * the honor marks (a season award), the position finish's meaning (it is
- * restated as the finish inside the window) and snap share, which usage.json
- * only carries as a season rate. Those are dropped rather than shown against
- * a window they were never measured over.
+ * the honor marks (a season award) and the position finish's meaning (it is
+ * restated as the finish inside the window). Those are dropped rather than
+ * shown against a window they were never measured over.
  *
  * Regular season only, like weekly.json itself — the phase filter already
  * owns the bracket.

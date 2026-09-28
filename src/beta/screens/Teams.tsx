@@ -9,13 +9,14 @@ import { ktcOf } from "../../lib/values";
 import { latestSeasonOf, lineupOf, pInfo, POS_CHIPS, rosterSeasonOf } from "../../lib/league";
 import { fmt } from "../../lib/stats";
 import ScopeControl, { useScope, type ScopeSel } from "../Scope";
-import TeamsStats from "./TeamsStats";
+import TeamsStats, { PHASES, type Phase } from "./TeamsStats";
 import { starterSet } from "../model";
 import { useMobile } from "../../lib/useWidth";
 import {
-  Band, DataError, fmtWar, IdCell, LensStrip, NUL, Spine, sortBy, TapRow, Th,
-  useBetaPath, useSort,
+  Band, DataError, fmtWar, IdCell, LensStrip, NUL, SheetRow, Spine, sortBy, TapRow, Th,
+  useBetaPath, useSort, useSticky,
 } from "../ui";
+import { leagueSeg } from "../../lib/context";
 import "./players.css";
 import "./teams.css";
 
@@ -228,6 +229,9 @@ export default function Teams() {
     ? urlScope : { scope: "history", season: played[0] };
   const hist = scope.scope === "history";
   const seasons = useMemo(() => played.map(id => ({ id })), [played]);
+  /* WHICH PART OF THE SEASON (Max, 2026-09-28) — Players' phase, in the same
+     place: the Stats segment's sheet, and written on the segment's face */
+  const [phase, setPhase] = useSticky<Phase>(`tmx:${leagueSeg(league)}:phase`, "reg");
   return (
     <>
       <div className="v3-head">
@@ -239,8 +243,20 @@ export default function Teams() {
         </span>
       </div>
       <ScopeControl value={scope} onChange={setScope} seasons={seasons}
-        currentLabel="Value" historyLabel="Stats" allTime pickOnReturn />
-      {hist ? <TeamsStats season={scope.season} played={played} /> : <ValueBoard />}
+        currentLabel="Value" historyLabel="Stats" allTime pickOnReturn
+        sheetTitle="Season and phase"
+        suffix={PHASES.find(p => p.id === phase)!.label}
+        extra={close => (
+          <>
+            <div className="plx-vgrp">Phase</div>
+            {PHASES.map(p => (
+              <SheetRow key={p.id} name={p.label} on={phase === p.id}
+                mark={phase === p.id ? "Here" : undefined}
+                onClick={() => { setPhase(p.id); close(); }} />
+            ))}
+          </>
+        )} />
+      {hist ? <TeamsStats season={scope.season} played={played} phase={phase} /> : <ValueBoard />}
     </>
   );
 }

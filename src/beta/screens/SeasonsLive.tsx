@@ -11,7 +11,7 @@ import {
 import { estWar, settledBaseline, weekBaseline, type WarBaseline } from "../../lib/liveWar";
 import { RouteLink } from "../../components/RouteLink";
 import { Band, IdCell, NUL, sgnWar, Spine, useBetaPath } from "../ui";
-import { SlotDrawer, type SlotEntry } from "./League";
+import { SlotDrawer, warLabel, type SlotEntry } from "./League";
 
 /**
  * THE WEEK IN PROGRESS ON THE WEEK FLOOR (Max, 2026-09-28).
@@ -81,8 +81,8 @@ function warFor(pid: string, pts: number, ctx: LiveCtx, players: ReturnType<type
 function baseNote(ctx: LiveCtx): string {
   if (!ctx.base) return "no baseline yet — WAR fills in as the week is played";
   return ctx.base.source === "week"
-    ? "≈ WAR against this week's own replacement level and spread; the pipeline's figure replaces it once the week is scored"
-    : `≈ WAR against the season's replacement level and spread (${ctx.base.weeks} settled week${ctx.base.weeks === 1 ? "" : "s"}), on points so far`;
+    ? "est WAR against this week's own replacement level and spread; the pipeline's figure replaces it once the week is scored"
+    : `est WAR against the season's replacement level and spread (${ctx.base.weeks} settled week${ctx.base.weeks === 1 ? "" : "s"}), on points so far`;
 }
 
 /* ---- the week's games, live -------------------------------------------- */
@@ -202,7 +202,7 @@ export function LiveMatchup({ season, wk, rid, mw, weekly, teams, nameOf }: {
                 <th className="sp" />
                 <th className="t">Player</th>
                 <th className="n" style={{ width: "20%" }}>Pts</th>
-                <th className="n" style={{ width: "22%" }}>≈ WAR</th>
+                <th className="n" style={{ width: "22%" }}>Est WAR</th>
               </tr>
             </thead>
             <tbody>
@@ -214,7 +214,8 @@ export function LiveMatchup({ season, wk, rid, mw, weekly, teams, nameOf }: {
                     <IdCell name={name} sub={`${club || "FA"} · ${pos}`} />
                     <td className="n"><span className="f">{fmt(x.pts, 1)}</span></td>
                     <td className="n">{x.war == null ? NUL
-                      : <span className={`f q${x.warEst === "live" ? " ssx-live" : ""}`}>≈{sgnWar(x.war)}</span>}</td>
+                      : <span className={`f ssx-war${x.warEst === "live" ? " ssx-live" : ""}`}
+                        title={warLabel(x.warEst)}>{sgnWar(x.war)}</span>}</td>
                   </tr>
                 );
               })}
@@ -244,9 +245,9 @@ export function LiveMatchup({ season, wk, rid, mw, weekly, teams, nameOf }: {
         {bench(b)}
       </div>
       <div className="tnote screen">
-        ≈ marks an estimated WAR: the pipeline has not scored this week yet. It is the same formula — the
+        Est WAR is an estimate: the pipeline has not scored this week yet. It is the same formula — the
         win-probability shift of his points over his position's replacement level — with the week's baselines
-        estimated; italics mean his game is still on and the figure is moving with it. A man who has not kicked
+        estimated; live WAR means his game is still on and the figure is moving with it. A man who has not kicked
         off has no figure. The official WAR replaces all of it once the nightly build scores the week.
         {" "}<RouteLink to={betaPath(`/seasons/${season}/${wk}`)} className="lgx-all">← Week {wk}</RouteLink>
       </div>

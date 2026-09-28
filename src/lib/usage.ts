@@ -144,3 +144,96 @@ export function usageOf(
   }
   return out;
 }
+
+/* ========================================================================
+   THE WEEKS THEMSELVES (Max, 2026-09-28) — for the Stats board's week window.
+
+   data/<season>/usage_weekly.json carries, per player, the RAW weekly
+   components every rate above is built from (scripts/usage_stats.py
+   WEEK_COLS, mirrored below). `usageOfWeeks` folds any run of them with that
+   script's `aggregate` rules, ported line for line, so the full regular
+   season reproduces usage.json's `reg` row and weeks 3-7 is the same figure
+   computed over five weeks.
+   ======================================================================== */
+
+/** scripts/usage_stats.py WEEK_COLS — keep the two in step */
+export const WEEK_COLS = [
+  "att", "car", "tgt", "rec", "sacks", "pass_epa", "cpoe", "fp_exp", "fp_act",
+  "tgt_share", "ay_share", "rec_ay", "team_car", "team_rb_touch", "snaps", "team_snaps",
+] as const;
+type WeekCol = typeof WEEK_COLS[number];
+
+export interface UsageWeeklyFile {
+  cols: string[];
+  players: Record<string, { p: string; w: Record<string, (number | null)[]> }>;
+}
+
+const wkCache = new Map<string, Promise<UsageWeeklyFile>>();
+
+/** one season's weekly usage file, once per page load */
+export function loadUsageWeekly(season: string): Promise<UsageWeeklyFile> {
+  const ck = indexKey([season]);
+  const hit = wkCache.get(ck);
+  if (hit) return hit;
+  const pending = jl<UsageWeeklyFile>(`${season}/usage_weekly.json`);
+  wkCache.set(ck, pending);
+  pending.catch(() => wkCache.delete(ck));
+  return pending;
+}
+
+const r2 = (x: number, d: number) => Math.round(x * 10 ** d) / 10 ** d;
+
+/**
+ * One player's usage over the weeks `inWin` keeps, or null when he touched
+ * the ball in none of them — `aggregate` in scripts/usage_stats.py.
+ */
+export function usageOfWeeks(
+  f: UsageWeeklyFile | null, pid: string, inWin: (wk: number) => boolean,
+): UsageRow | null {
+  const pl = f?.players[pid];
+  if (!f || !pl) return null;
+  const at = new Map<string, number>(f.cols.map((c, i) => [c, i]));
+  const weeks = Object.entries(pl.w).filter(([w]) => inWin(Number(w))).map(([, r]) => r);
+  if (!weeks.length) return null;
+  const n = weeks.length;
+  const get = (r: (number | null)[], k: WeekCol): number | null => {
+    const i = at.get(k);
+    return i == null ? null : r[i] ?? null;
+  };
+  const tot = (k: WeekCol) => weeks.reduce((a, r) => a + (get(r, k) ?? 0), 0);
+  const att = tot("att"), car = tot("car"), tgt = tot("tgt"), rec = tot("rec");
+  const db = att + tot("sacks");
+  const meanOf = (k: WeekCol) => {
+    const v = weeks.map(r => get(r, k)).filter((x): x is number => x != null);
+    return v.length ? v.reduce((a, x) => a + x, 0) / v.length : null;
+  };
+  const cp = weeks.map(r => [get(r, "cpoe"), get(r, "att") ?? 0] as const)
+    .filter((x): x is readonly [number, number] => x[0] != null && x[1] > 0);
+  const expW = weeks.map(r => get(r, "fp_exp"));
+  const haveOpp = expW.some(v => v != null);
+  const fpExp = expW.reduce<number>((a, v) => a + (v ?? 0), 0);
+  const fpAct = weeks.reduce((a, r) => a + (get(r, "fp_act") ?? 0), 0);
+  const ts = meanOf("tgt_share"), ays = meanOf("ay_share");
+  const teamCar = tot("team_car"), teamRb = tot("team_rb_touch");
+  const every: Partial<Record<UsageKey, number | null>> = {
+    fp_exp_pg: haveOpp ? r2(fpExp / n, 2) : null,
+    att_pg: r2(att / n, 2), car_pg: r2(car / n, 2), tgt_pg: r2(tgt / n, 2),
+    epa_db: db ? r2(tot("pass_epa") / db, 4) : null,
+    cpoe: cp.length ? r2(cp.reduce((a, [c, x]) => a + c * x, 0) / cp.reduce((a, [, x]) => a + x, 0), 3) : null,
+    tgt_share: ts != null ? r2(ts, 4) : null,
+    ay_share: ays != null ? r2(ays, 4) : null,
+    adot: tgt ? r2(tot("rec_ay") / tgt, 2) : null,
+    car_share: teamCar ? r2(car / teamCar, 4) : null,
+    rb_touch_share: pl.p === "RB" && teamRb ? r2((car + rec) / teamRb, 4) : null,
+  };
+  const out: UsageRow = { g: n };
+  for (const c of POS_USAGE[pl.p] ?? []) {
+    const v = every[c];
+    if (v != null) out[c] = v;
+  }
+  if (haveOpp) out.fp_diff_pg = r2((fpAct - fpExp) / n, 2);
+  const sn = weeks.map(r => [get(r, "snaps"), get(r, "team_snaps")] as const)
+    .filter((x): x is readonly [number, number] => x[0] != null && !!x[1]);
+  if (sn.length) out.snap_pct = r2(sn.reduce((a, [s]) => a + s, 0) / sn.reduce((a, [, t]) => a + t, 0), 4);
+  return out;
+}

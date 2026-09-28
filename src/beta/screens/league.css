@@ -102,13 +102,16 @@
    matchup page: signed ink for an official figure, the quiet ramp for an
    estimate, italic while his game is still on. */
 .lgx-drawer .sd-side .w {
-  font: 500 10.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim2);
+  font: 600 10.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--acc);
   white-space: nowrap;
 }
-.lgx-drawer .sd-side .w.pos { color: var(--good); }
-.lgx-drawer .sd-side .w.neg { color: var(--bad); }
-.lgx-drawer .sd-side .w.est { opacity: .8; }
-.lgx-drawer .sd-side .w.live { opacity: .7; font-style: italic; }
+/* the label says what the figure is: WAR, est WAR, live WAR */
+.lgx-drawer .sd-side .w .wl {
+  margin-left: 4px;
+  font: 600 9px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--dim2);
+}
+.lgx-drawer .sd-side .w.live { font-style: italic; }
 .lgx-drawer .sd-side .w.nul { color: var(--dim3); }
 .lgx-drawer .sd-tot .sd-side .w { font-size: 11px; font-weight: 600; }
 /* and --good once it has settled over it (Max, 2026-09-11) */

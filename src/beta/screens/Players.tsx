@@ -41,7 +41,8 @@ import WeekGrid from "../../components/WeekGrid";
 import { useMobile } from "../../lib/useWidth";
 import ScopeControl, { ALL_SEASONS, useScope, type ScopeSel } from "../Scope";
 import {
-  fmtUsage, loadUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageIndex, type UsageKey,
+  fmtUsage, loadUsage, loadUsageWeekly, POS_USAGE, USAGE_LABEL, usageOf, usageOfWeeks,
+  type UsageIndex, type UsageKey, type UsageWeeklyFile,
 } from "../../lib/usage";
 import {
   filterFieldsFor, filterLabel, filterNeeds, parseFilters, passes, seasonFacts,
@@ -913,13 +914,27 @@ export default function Players() {
   const mwQ = useJson<Matchups>(oneSeason ? `${oneSeason}/matchups.json` : null);
   /** the regular-season weeks this season has settled — the window's options */
   const weeks = useMemo(() => playedWeeks(mwQ.data), [mwQ.data]);
-  /** the window narrows ONE season's regular-season box score: not a career,
-   *  not the bracket, and not Maxalytics, whose usage.json carries season
-   *  rates only */
+  /** the window narrows ONE season's regular season: not a career and not the
+   *  bracket. Both lenses — Maxalytics folds usage_weekly.json's raw weeks
+   *  over it (lib/usage `usageOfWeeks`, Max 2026-09-28). */
   const weekable = hist && !!oneSeason && phase === "reg";
   const wspan = useMemo(
-    () => (weekable && !usage ? effectiveSpan(spanAsked, weeks) : null),
-    [weekable, usage, spanAsked, weeks]);
+    () => (weekable ? effectiveSpan(spanAsked, weeks) : null),
+    [weekable, spanAsked, weeks]);
+  /* THE WEEKLY USAGE FILE, only while a window is set and only where usage
+     is published. A missing file (a deploy from before the pipeline wrote it)
+     leaves the usage figures as the em dash and says why on the band. */
+  const [usgWk, setUsgWk] = useState<UsageWeeklyFile | null>(null);
+  const [usgWkErr, setUsgWkErr] = useState(false);
+  useEffect(() => {
+    setUsgWk(null); setUsgWkErr(false);
+    if (!wspan || !oneSeason || !caps.usage) return;
+    let live = true;
+    loadUsageWeekly(oneSeason)
+      .then(f => { if (live) setUsgWk(f); })
+      .catch(() => { if (live) setUsgWkErr(true); });
+    return () => { live = false; };
+  }, [!!wspan, oneSeason, caps.usage]);
   /* weekly.json is 140 KB and answers exactly one figure in the drawer, so it
      is fetched when a drawer is open and not before. Opening a second row keeps
      the same path, so the file is fetched once per season, not once per tap.
@@ -1196,33 +1211,40 @@ export default function Players() {
     const base = allTime ? allPop : histPop;
     if (!base) return null;
     return base.map(r => {
-      const u = usageOf(usg_, r.pid, viewSeasons, phase);
+      const u = wspan
+        ? usageOfWeeks(usgWk, r.pid, wk => inSpan(wspan, wk))
+        : usageOf(usg_, r.pid, viewSeasons, phase);
       // the row's own box-score figures stay: WAR and WS lead this lens too
       const f: Row["f"] = { ...r.f };
       for (const k of Object.keys(f)) if (k in USAGE_LABEL) delete f[k as UsageKey];
       if (u) for (const [k, v] of Object.entries(u)) if (k !== "g") f[k as UsageKey] = v as number;
       return { ...r, f };
     });
-  }, [usage, allTime, allPop, histPop, usg_, viewSeasons, phase]);
+  }, [usage, allTime, allPop, histPop, usg_, viewSeasons, phase, wspan, usgWk]);
   /* THE BOX SCORE BORROWS ONE FIGURE from the same file: snap share, merged
      onto the league rows under the phase in force. Until usage.json lands
      the column reads the em dash and nothing else waits on it. */
   const snapPop = useMemo<Row[] | null>(() => {
-    // a season rate has no week window to be read over
-    if (!hist || usage || !boxPop || wspan) return boxPop;
+    if (!hist || usage || !boxPop) return boxPop;
+    // under a week window, the window's own snap share off the weekly file
+    if (wspan) {
+      if (!usgWk) return boxPop;
+      return boxPop.map(r => {
+        const v = usageOfWeeks(usgWk, r.pid, wk => inSpan(wspan, wk))?.snap_pct;
+        return v == null ? r : { ...r, f: { ...r.f, snap_pct: v } };
+      });
+    }
     if (!usg_) return boxPop;
     return boxPop.map(r => {
       const v = usageOf(usg_, r.pid, viewSeasons, phase)?.snap_pct;
       return v == null ? r : { ...r, f: { ...r.f, snap_pct: v } };
     });
-  }, [hist, usage, boxPop, usg_, viewSeasons, phase, wspan]);
+  }, [hist, usage, boxPop, usg_, viewSeasons, phase, wspan, usgWk]);
   const population = usage ? usagePop : snapPop;
   /* The box score's snap-share column is one figure borrowed from usage.json,
      so it goes where that file does. A column that is an em dash in every row
      of every season is not a column. */
-  /* …and a week window drops it too: snap share is a season rate, with no
-     window to be read over (weekSpan.ts) */
-  const snapCol = caps.usage && !wspan;
+  const snapCol = caps.usage;
   const histCols = useMemo(
     () => (snapCol ? HIST_COLS : HIST_COLS.filter(c => c.id !== "snap_pct")),
     [snapCol]);
@@ -1356,6 +1378,7 @@ export default function Players() {
 
   const ready = factsReady && (hist
     ? rows != null && (!usage || usg_ != null)
+      && (!usage || !wspan || usgWk != null || usgWkErr)
     : rows != null && ![dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ].some(x => x.loading));
 
   /* THE SCROLL POSITION, saved when the screen is left and put back when Back
@@ -1482,28 +1505,25 @@ export default function Players() {
           to a run of its weeks. Two presets for the question a reader asks
           most — who is hot right now — and a from/to pair for everything else.
           Shown only where a window means something (one season, regular
-          phase), and disabled rather than hidden under Maxalytics, whose
-          figures are season rates. */}
+          phase), under both lenses. */}
       {weekable && weeks.length > 1 && (() => {
         const lo = weeks[0], hi = weeks[weeks.length - 1];
         const cur = wspan ?? { from: lo, to: hi };
         const last = (n: number): WeekSpan => ({ from: Math.max(lo, hi - n + 1), to: hi });
         const isLast = (n: number) => !!wspan && wspan.to === hi && wspan.from === Math.max(lo, hi - n + 1);
-        const off = usage;
-        const why = off ? "the Maxalytics figures are season rates, so they have no week window" : undefined;
         return (
           <div className="v3-filters plx-filters plx-filters2 plx-wkrow">
             <span className="plx-fk">Weeks</span>
-            <button type="button" className={`chip${!wspan ? " on" : ""}`} disabled={off} title={why}
+            <button type="button" className={`chip${!wspan ? " on" : ""}`}
               onClick={() => setSpan(null)}>All</button>
             {[3, 5].filter(n => n < weeks.length).map(n => (
               <button key={n} type="button" className={`chip${isLast(n) ? " on" : ""}`}
-                disabled={off} title={why}
+               
                 onClick={() => setSpan(last(n))}>Last {n}</button>
             ))}
             <span className="plx-wkrange">
               <select className="plx-wkpick" aria-label="From week" value={cur.from}
-                disabled={off} title={why}
+               
                 onChange={e => {
                   const f = Number(e.target.value);
                   setSpan({ from: f, to: Math.max(f, cur.to) });
@@ -1512,7 +1532,7 @@ export default function Players() {
               </select>
               <span className="plx-wkto">to</span>
               <select className="plx-wkpick" aria-label="To week" value={cur.to}
-                disabled={off} title={why}
+               
                 onChange={e => {
                   const t = Number(e.target.value);
                   setSpan({ from: Math.min(cur.from, t), to: t });
@@ -1648,6 +1668,9 @@ export default function Players() {
                 not, kept where a note belongs and dropped on a phone */}
             {usage && pos === "ALL" && (
               <span className="band-note plx-hint">pick a position for its own columns</span>
+            )}
+            {usage && wspan && usgWkErr && (
+              <span className="band-note">weekly usage isn't published for {oneSeason} yet</span>
             )}
             {/* the one thing the Value tense's columns cannot say for
                 themselves: how much of the season the WAR column is already

@@ -562,13 +562,16 @@ export function useSort<K extends string>(initial: K, initialDir: 1 | -1 = -1,
 
 /** A sortable header cell. */
 export function Th<K extends string>(
-  { id, label, sort, onSort, align = "n", asc, width }: {
+  { id, label, sort, onSort, align = "n", asc, width, className }: {
     id: K; label: ReactNode; sort: K; onSort: (id: K, asc?: boolean) => void;
     align?: "t" | "n" | "c"; asc?: boolean; width?: string;
+    /** extra classes — a group edge (`plx-edge`) on a board whose column set
+     *  moves, where an nth-child rule cannot keep up */
+    className?: string;
   },
 ) {
   return (
-    <th className={`${align} sortable${sort === id ? " sorted" : ""}`}
+    <th className={`${align} sortable${sort === id ? " sorted" : ""}${className ? ` ${className}` : ""}`}
       style={width ? { width } : undefined}
       tabIndex={0} role="button" aria-pressed={sort === id}
       onClick={() => onSort(id, asc)}

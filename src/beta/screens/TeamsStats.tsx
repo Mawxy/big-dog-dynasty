@@ -1,11 +1,10 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import type { Franchises, Matchups, Team, Weekly } from "../../lib/types";
+import type { BracketFile, Franchises, Matchups, Team, Weekly } from "../../lib/types";
 import { indexKey, jl } from "../../lib/data";
 import { useJson } from "../../lib/useJson";
 import { useSettledSeasons } from "../../lib/caps";
-import { fmt, mean, ord, sd } from "../../lib/stats";
-import { REG_WEEKS } from "../../lib/league";
+import { fmt, ord, sd } from "../../lib/stats";
 import { useMobile } from "../../lib/useWidth";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, sgnWar, Spine, sortBy, TapRow, Th,
@@ -23,40 +22,79 @@ import { ALL_SEASONS } from "../Scope";
  * Players board's grammar — the same scope control, the same sortable header,
  * sort strip, micro line and row drawer.
  *
- * REGULAR SEASON ONLY, like every WAR on the site and like the classic
- * table: a bracket game is a selection effect (only good teams play week 16)
- * and the pipeline scores no playoff WAR for lineups.
+ * THREE PHASES, THE PLAYERS BOARD'S (Max, 2026-09-28):
+ *
+ *   Regular season  weeks 1..playoff_start−1, every franchise.
+ *   Playoffs        the WINNERS bracket, ELIMINATION GAMES ONLY — the scope
+ *                   scripts/playoff_war.py prices and lib/postseason counts, so
+ *                   the WAR here and the player board's playoff WAR are the
+ *                   same games. Placement games and the consolation bracket
+ *                   are out. A first-round BYE is a win (the reward for the
+ *                   top seed must not rank below the third seed's), counted in
+ *                   the record and nowhere else — it has no score.
+ *   Both            the two added. Every column is a count or a sum, so each
+ *                   survives the addition; PPG and σ are recomputed over the
+ *                   games, never averaged across halves.
+ *
+ * Vs median and luck are regular-season constructs — a week's league median
+ * needs all twelve teams playing — so they leave the board under the other
+ * two phases rather than printing a figure that means something else.
  *
  * ACCRUED WAR is the headline figure: the WAR the franchise's actual starters
- * banked, week by week, against the league-wide replacement level — what the
- * lineups it fielded were worth, in wins. It is the classic board's "Lineup
- * WAR", renamed for what it is mid-season: a running total, not a projection.
- * Its twin in the drawer is the WAR left on the bench — the same measure over
- * the players rostered and not started.
- *
- * Every figure is read off three season files — teams.json for names,
- * matchups.json for scores, lineups and opponents, weekly.json for each
- * player-week's WAR — plus franchises.json for the finish and the titles, and
- * only for settled seasons (see lib/seasons#isSeasonSettled): a provisional
- * placing is not a finish.
+ * banked, game by game, against the league-wide replacement level — what the
+ * lineups it fielded were worth, in wins. Regular-season WAR is weekly.json's;
+ * bracket WAR is bracket.json's `war` block. Its twin in the drawer is the
+ * WAR left on the bench, which the bracket does not score.
  */
 
 /* ---- one franchise-season ------------------------------------------------ */
 
-interface WeekCell { wk: number; pts: number; opp: number | null; oppPts: number | null; res: "W" | "L" | "T" | null }
+export type Phase = "reg" | "post" | "both";
+export const PHASES: { id: Phase; label: string }[] = [
+  { id: "reg", label: "Regular season" },
+  { id: "post", label: "Playoffs" },
+  { id: "both", label: "Both" },
+];
+
+interface WeekCell {
+  wk: number; pts: number | null; opp: number | null; oppPts: number | null;
+  res: "W" | "L" | "T"; bye?: boolean;
+}
+
+/** one phase of one franchise-season, in the units the columns print */
+interface Half {
+  w: number; l: number; t: number;
+  /** first-round byes, each one of the wins above */
+  byes: number;
+  pf: number; pa: number;
+  /** the scores of the games actually played — never a bye */
+  scores: number[];
+  /** null where the file prices none: a bracket with no WAR block */
+  war: number | null;
+  /** WAR left on the bench — regular season only */
+  bench: number | null;
+  medW: number; medL: number; medT: number;
+  weeks: WeekCell[];
+}
 
 export interface TeamSeason {
   season: string;
   rid: number; fkey: string;
   team: string; manager: string;
-  w: number; l: number; t: number;
-  pf: number; pa: number;
-  /** each regular-season week's score, for σ and the drawer */
-  scores: number[];
-  medW: number; medL: number; medT: number;
-  war: number; bench: number;
-  weeks: WeekCell[];
+  reg: Half;
+  /** null when the franchise had no winners-bracket game that season */
+  post: Half | null;
+  /** the season has a bracket with a decided game in it */
+  bracket: boolean;
 }
+
+/** the fourteen-cell regular season the Players drawer uses */
+const REG_LEN = 14;
+
+const emptyHalf = (): Half => ({
+  w: 0, l: 0, t: 0, byes: 0, pf: 0, pa: 0, scores: [], war: 0, bench: 0,
+  medW: 0, medL: 0, medT: 0, weeks: [],
+});
 
 const cache = new Map<string, Promise<TeamSeason[]>>();
 
@@ -66,10 +104,11 @@ function loadSeason(season: string): Promise<TeamSeason[]> {
   const hit = cache.get(ck);
   if (hit) return hit;
   const pending = (async () => {
-    const [teams, mw, weekly] = await Promise.all([
+    const [teams, mw, weekly, br] = await Promise.all([
       jl<Team[]>(`${season}/teams.json`),
       jl<Matchups>(`${season}/matchups.json`),
       jl<Weekly>(`${season}/weekly.json`).catch(() => ({} as Weekly)),
+      jl<BracketFile>(`${season}/bracket.json`).catch(() => null),
     ]);
     const ps = mw.playoff_start || 15;
     const war = new Map<string, number>();
@@ -87,30 +126,66 @@ function loadSeason(season: string): Promise<TeamSeason[]> {
       const v = l.slice().sort((a, b) => a - b), n = v.length;
       med.set(wk, n % 2 ? v[(n - 1) / 2] : (v[n / 2 - 1] + v[n / 2]) / 2);
     }
+
+    /* THE BRACKET: elimination games of the winners bracket, decided ones */
+    const elim = (br?.winners ?? []).filter(g => !(g.p && g.p > 1));
+    const played = elim.filter(g => g.w != null && g.l != null);
+    const bps = br?.playoff_start ?? ps;
+    const postWar = new Map<number, number>();
+    if (br?.war) for (const r of Object.values(br.war))
+      postWar.set(r.rid, (postWar.get(r.rid) ?? 0) + r.war);
+
     return teams.map(t => {
-      const ent = (mw.teams[String(t.roster_id)] ?? [])
+      const rid = t.roster_id;
+      /* ---- the regular season ---- */
+      const reg = emptyHalf();
+      const ent = (mw.teams[String(rid)] ?? [])
         .filter(e => e[0] < ps && e[3] != null)
         .sort((a, b) => a[0] - b[0]);
-      const r: TeamSeason = {
-        season, rid: t.roster_id, fkey: t.fkey ?? String(t.roster_id),
-        team: t.team, manager: t.manager,
-        w: 0, l: 0, t: 0, pf: 0, pa: 0, scores: [],
-        medW: 0, medL: 0, medT: 0, war: 0, bench: 0, weeks: [],
-      };
       for (const e of ent) {
         const [wk, pts, opp, oppPts] = e;
         const res = pts > oppPts! ? "W" : pts < oppPts! ? "L" : "T";
-        r[res === "W" ? "w" : res === "L" ? "l" : "t"]++;
-        r.pf += pts; r.pa += oppPts!; r.scores.push(pts);
+        reg[res === "W" ? "w" : res === "L" ? "l" : "t"]++;
+        reg.pf += pts; reg.pa += oppPts!; reg.scores.push(pts);
         const m = med.get(wk);
-        if (m != null) { if (pts > m) r.medW++; else if (pts < m) r.medL++; else r.medT++; }
+        if (m != null) { if (pts > m) reg.medW++; else if (pts < m) reg.medL++; else reg.medT++; }
         const starters = (e[4] ?? []).filter(p => p && p !== "0");
-        for (const p of starters) r.war += war.get(`${p}|${wk}`) ?? 0;
+        for (const p of starters) reg.war! += war.get(`${p}|${wk}`) ?? 0;
         for (const p of e[5] ?? []) if (p && p !== "0" && !starters.includes(p))
-          r.bench += war.get(`${p}|${wk}`) ?? 0;
-        r.weeks.push({ wk, pts, opp, oppPts, res });
+          reg.bench! += war.get(`${p}|${wk}`) ?? 0;
+        reg.weeks.push({ wk, pts, opp, oppPts, res });
       }
-      return r;
+
+      /* ---- the bracket ---- */
+      let post: Half | null = null;
+      const mine = played.filter(g => g.t1 === rid || g.t2 === rid).sort((a, b) => a.r - b.r);
+      const seated = elim.filter(g => g.t1 === rid || g.t2 === rid);
+      if (mine.length || seated.length) {
+        post = emptyHalf();
+        post.bench = null;
+        post.war = br?.war ? postWar.get(rid) ?? 0 : null;
+        /* a bye for every elimination round the team was seeded past: its
+           first seat is in round N, so rounds 1..N−1 were won without a game */
+        const first = Math.min(...seated.map(g => g.r));
+        for (let r = 1; r < first; r++) {
+          post.w++; post.byes++;
+          post.weeks.push({ wk: bps + r - 1, pts: null, opp: null, oppPts: null, res: "W", bye: true });
+        }
+        for (const g of mine) {
+          const me1 = g.t1 === rid;
+          const pts = (me1 ? g.t1_pts : g.t2_pts) ?? 0;
+          const oppPts = (me1 ? g.t2_pts : g.t1_pts) ?? 0;
+          const res = g.w === rid ? "W" : "L";
+          post[res === "W" ? "w" : "l"]++;
+          post.pf += pts; post.pa += oppPts; post.scores.push(pts);
+          post.weeks.push({ wk: g.week, pts, opp: me1 ? g.t2 : g.t1, oppPts, res });
+        }
+        if (!mine.length && !post.byes) post = null;
+      }
+      return {
+        season, rid, fkey: t.fkey ?? String(rid), team: t.team, manager: t.manager,
+        reg, post, bracket: played.length > 0,
+      };
     });
   })();
   cache.set(ck, pending);
@@ -129,92 +204,113 @@ interface Col {
   grp: "res" | "score" | "war";
 }
 
-const SEASON_COLS: Col[] = [
-  { id: "rec", label: "Record", short: "W-L", width: "9%", grp: "res" },
-  { id: "fin", label: "Finish", short: "Fin", width: "7%", asc: true, grp: "res" },
-  { id: "med", label: "Vs median", short: "Vs med", width: "9%", grp: "res" },
-  { id: "luck", label: "Luck", width: "6%", grp: "res" },
-  { id: "pf", label: "PF", width: "8%", grp: "score" },
-  { id: "pa", label: "PA", width: "8%", grp: "score" },
-  { id: "ppg", label: "PPG", width: "7%", grp: "score" },
-  { id: "sdv", label: "σ", width: "6%", grp: "score" },
-  { id: "war", label: "Accrued WAR", short: "WAR", width: "11%", grp: "war" },
-];
-const ALL_COLS: Col[] = [
-  { id: "rec", label: "Record", short: "W-L", width: "9%", grp: "res" },
-  { id: "pct", label: "Win %", short: "Win %", width: "7%", grp: "res" },
-  { id: "titles", label: "Titles", width: "6%", grp: "res" },
-  { id: "fin", label: "Best", width: "7%", asc: true, grp: "res" },
-  { id: "luck", label: "Luck", width: "6%", grp: "res" },
-  { id: "pf", label: "PF", width: "9%", grp: "score" },
-  { id: "ppg", label: "PPG", width: "7%", grp: "score" },
-  { id: "sdv", label: "σ", width: "6%", grp: "score" },
-  { id: "war", label: "Accrued WAR", short: "WAR", width: "11%", grp: "war" },
-];
+const C: Record<Key, Col> = {
+  rec: { id: "rec", label: "Record", short: "W-L", width: "9%", grp: "res" },
+  fin: { id: "fin", label: "Finish", short: "Fin", width: "7%", asc: true, grp: "res" },
+  pct: { id: "pct", label: "Win %", width: "7%", grp: "res" },
+  titles: { id: "titles", label: "Titles", width: "6%", grp: "res" },
+  med: { id: "med", label: "Vs median", short: "Vs med", width: "9%", grp: "res" },
+  luck: { id: "luck", label: "Luck", width: "6%", grp: "res" },
+  pf: { id: "pf", label: "PF", width: "8%", grp: "score" },
+  pa: { id: "pa", label: "PA", width: "8%", grp: "score" },
+  ppg: { id: "ppg", label: "PPG", width: "7%", grp: "score" },
+  sdv: { id: "sdv", label: "σ", width: "6%", grp: "score" },
+  war: { id: "war", label: "Accrued WAR", short: "WAR", width: "11%", grp: "war" },
+};
+
+/** the columns for a scope and a phase — median and luck are the regular
+ *  season's alone */
+function colsFor(allTime: boolean, phase: Phase): Col[] {
+  const reg = phase === "reg";
+  const ids: Key[] = allTime
+    ? ["rec", "pct", "titles", "fin", ...(reg ? ["luck" as Key] : []), "pf", "ppg", "sdv", "war"]
+    : ["rec", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "pa", "ppg", "sdv", "war"];
+  return ids.map(k => (k === "fin" && allTime ? { ...C.fin, label: "Best" } : C[k]));
+}
 const GRP_LABEL = { res: "Results", score: "Scoring", war: "WAR" } as const;
 
 const DEF: Record<Key, string> = {
-  rec: "Regular-season wins, losses and ties. Sorts by wins (a tie is half of one), then points for.",
+  rec: "Wins, losses and ties. Sorts by wins (a tie is half of one), then points for. In the playoffs a first-round bye counts as a win.",
   fin: "Where the season ended — the bracket's placing, then the standings' for everyone else. Settled seasons only; all-time, the best one.",
-  pct: "Wins over games, a tie counting half.",
+  pct: "Wins over decisions, a tie counting half.",
   titles: "Championships won.",
   med: "The record against each week's league median score — what the team would have gone playing all twelve every week.",
   luck: "Actual wins minus median wins. Positive won more than the scores earned.",
-  pf: "Points for, regular season.",
-  pa: "Points against, regular season.",
-  ppg: "Points per game.",
-  sdv: "Week-to-week standard deviation of the team's score. Lower is steadier.",
-  war: "The WAR the lineups actually fielded banked, summed week by week — each starter's points against his position's replacement level, turned into wins. A running total while the season is on.",
+  pf: "Points for.",
+  pa: "Points against.",
+  ppg: "Points per game played — a bye is not a game.",
+  sdv: "Game-to-game standard deviation of the team's score. Lower is steadier.",
+  war: "The WAR the lineups actually fielded banked, summed game by game — each starter's points against his position's replacement level, turned into wins. A running total while the season is on. Playoff WAR is the bracket's, elimination games only.",
 };
 
 interface Row {
   rid: number; fkey: string; team: string; manager: string;
   /** the seasons behind the row: one, or every one the franchise played */
   parts: TeamSeason[];
-  w: number; l: number; t: number; pf: number; pa: number;
+  /** the phase's halves, season by season */
+  halves: { season: string; h: Half }[];
+  w: number; l: number; t: number; byes: number; pf: number; pa: number;
   f: Partial<Record<Key, number | null>>;
   text: Partial<Record<Key, string>>;
   best: { fin: number; season: string } | null;
   titles: number;
-  war: number; bench: number; games: number;
+  war: number | null; bench: number | null;
+  /** games actually played in the phase */
+  games: number;
 }
 
 const wlStr = (w: number, l: number, t: number) => `${w}-${l}${t ? `-${t}` : ""}`;
 
-function rowOf(parts: TeamSeason[], fin: (s: TeamSeason) => number | null, allTime: boolean): Row {
+function rowOf(
+  parts: TeamSeason[], fin: (s: TeamSeason) => number | null, allTime: boolean, phase: Phase,
+): Row | null {
+  const halves = parts.flatMap(p => {
+    const out: { season: string; h: Half }[] = [];
+    if (phase !== "post") out.push({ season: p.season, h: p.reg });
+    if (phase !== "reg" && p.post) out.push({ season: p.season, h: p.post });
+    return out;
+  });
+  // the Playoffs board lists who reached the bracket and nobody else
+  if (phase === "post" && !halves.length) return null;
   const last = parts[parts.length - 1];
-  const sum = (k: "w" | "l" | "t" | "pf" | "pa" | "medW" | "medL" | "medT" | "war" | "bench") =>
-    parts.reduce((a, p) => a + p[k], 0);
-  const w = sum("w"), l = sum("l"), t = sum("t");
+  const hs = halves.map(x => x.h);
+  const sum = (k: "w" | "l" | "t" | "byes" | "pf" | "pa" | "medW" | "medL" | "medT") =>
+    hs.reduce((a, h) => a + h[k], 0);
+  /** null only where every half is null — "not priced" is not zero */
+  const sumN = (k: "war" | "bench") =>
+    hs.every(h => h[k] == null) ? null : hs.reduce((a, h) => a + (h[k] ?? 0), 0);
+  const w = sum("w"), l = sum("l"), t = sum("t"), byes = sum("byes");
   const pf = sum("pf"), pa = sum("pa");
-  const games = w + l + t;
-  const scores = parts.flatMap(p => p.scores);
+  const scores = hs.flatMap(h => h.scores);
+  const games = scores.length;
+  const dec = w + l + t;
   const medW = sum("medW"), medL = sum("medL"), medT = sum("medT");
   const finishes = parts.map(p => ({ fin: fin(p), season: p.season }))
     .filter((x): x is { fin: number; season: string } => x.fin != null);
   const best = finishes.reduce<Row["best"]>(
     (b, x) => (!b || x.fin < b.fin || (x.fin === b.fin && x.season > b.season) ? x : b), null);
   const titles = finishes.filter(x => x.fin === 1).length;
-  const war = sum("war"), bench = sum("bench");
+  const war = sumN("war"), bench = sumN("bench");
+  const reg = phase === "reg";
   return {
     rid: last.rid, fkey: last.fkey, team: last.team, manager: last.manager,
-    parts, w, l, t, pf, pa, best, titles, war, bench, games,
+    parts, halves, w, l, t, byes, pf, pa, best, titles, war, bench, games,
     f: {
-      rec: games ? (w + t / 2) * 1e6 + pf : null,
+      rec: dec ? (w + t / 2) * 1e6 + pf : null,
       fin: allTime ? best?.fin ?? null : fin(last),
-      pct: games ? (w + t / 2) / games : null,
+      pct: dec ? (w + t / 2) / dec : null,
       titles: allTime ? titles : null,
-      med: games ? (medW + medT / 2) * 1e6 + pf : null,
-      luck: games ? w - medW : null,
+      med: reg && games ? (medW + medT / 2) * 1e6 + pf : null,
+      luck: reg && games ? w - medW : null,
       pf: games ? pf : null,
       pa: games ? pa : null,
       ppg: games ? pf / games : null,
-      sdv: scores.length > 1 ? sd(scores) : null,
+      sdv: games > 1 ? sd(scores) : null,
       war: games ? war : null,
     },
     text: {
-      rec: games ? wlStr(w, l, t) : undefined,
-      med: games ? wlStr(medW, medL, medT) : undefined,
+      rec: dec ? wlStr(w, l, t) : undefined,
+      med: reg && games ? wlStr(medW, medL, medT) : undefined,
     },
   };
 }
@@ -243,11 +339,12 @@ const cellOf = (k: Key, r: Row): ReactNode => {
 
 /* ======================================================================== */
 
-export default function TeamsStats({ season, played }: {
+export default function TeamsStats({ season, played, phase }: {
   /** a season, or ALL_SEASONS */
   season: string;
   /** every season the league has, newest first */
   played: string[];
+  phase: Phase;
 }) {
   const betaPath = useBetaPath();
   const mobile = useMobile("(max-width: 899px)");
@@ -283,31 +380,35 @@ export default function TeamsStats({ season, played }: {
       const l = by.get(t.fkey) ?? [];
       l.push(t); by.set(t.fkey, l);
     }
-    return [...by.values()].map(parts =>
-      rowOf(parts.sort((a, b) => a.season.localeCompare(b.season)), finOf, allTime));
-  }, [data, finOf, allTime]);
+    return [...by.values()]
+      .map(parts => rowOf(parts.sort((a, b) => a.season.localeCompare(b.season)), finOf, allTime, phase))
+      .filter((r): r is Row => r != null);
+  }, [data, finOf, allTime, phase]);
 
   /** season|rid -> the franchise's name that season, for the drawer's opponents */
   const names = useMemo(() => new Map(
     (data ?? []).flat().map(t => [`${t.season}|${t.rid}`, t.team] as const)), [data]);
-  const cols = allTime ? ALL_COLS : SEASON_COLS;
+  const cols = useMemo(() => colsFor(allTime, phase), [allTime, phase]);
   const groups = (["res", "score", "war"] as const)
     .map(g => ({ id: g, label: GRP_LABEL[g], span: cols.filter(c => c.grp === g).length }));
   const s = useSort<Key>("rec", -1, "tmx:sort.stats");
   useEffect(() => {
     if (!cols.some(c => c.id === s.sort)) s.onSort("rec");
   }, [cols, s]);
-  const col = (id: Key) => cols.find(c => c.id === id) ?? cols[0];
+  const col = (id: Key) => cols.find(c => c.id === id) ?? C[id];
+  const edge = (c: Col, i: number) => i === 0 || c.grp !== cols[i - 1].grp;
 
   const ordered = useMemo(() => (rows ? sortBy(rows, r => r.f[s.sort] ?? null, s.dir) : null),
     [rows, s.sort, s.dir]);
   const [open, setOpen] = useState<string | null>(null);
-  useEffect(() => { setOpen(null); }, [season]);
+  useEffect(() => { setOpen(null); }, [season, phase]);
 
-  const anyGames = !!rows?.some(r => r.games > 0);
+  const anyGames = !!rows?.some(r => r.games > 0 || r.byes > 0);
+  const noBracket = phase === "post" && !!data && !data.some(l => l.some(t => t.bracket));
   const micro: Key[] = (["ppg", "war", "rec"] as Key[]).filter(k => k !== s.sort).slice(0, 2);
   const span = mobile ? 3 : 2 + cols.length;
   const [keyOpen, setKeyOpen] = useState(false);
+  const phaseLabel = PHASES.find(p => p.id === phase)!.label;
 
   return (
     <>
@@ -320,10 +421,13 @@ export default function TeamsStats({ season, played }: {
             options={cols.map(c => ({ id: c.id, label: c.short ?? c.label }))} />
         </div>
       )}
-      <Band label={`${allTime ? "All-time" : season} · Regular season`}
+      <Band label={`${allTime ? "All-time" : season} · ${phaseLabel}`}
         right={
           <span className="plx-bandr">
-            <span className="band-note plx-hint">WAR is what the lineups fielded banked</span>
+            <span className="band-note plx-hint">
+              {phase === "reg" ? "WAR is what the lineups fielded banked"
+                : "the bracket is elimination games only · a bye is a win"}
+            </span>
             <button type="button" className={`plx-keybtn${keyOpen ? " on" : ""}`}
               aria-expanded={keyOpen} onClick={() => setKeyOpen(v => !v)}>
               {keyOpen ? "Close" : "Key"}
@@ -342,24 +446,26 @@ export default function TeamsStats({ season, played }: {
       )}
       {err ? <DataError what="The season didn't load" />
         : !ordered ? <div className="empty">Loading…</div>
+        : noBracket ? <div className="empty">{allTime ? "No bracket" : season} has been played yet — the postseason fills in once it is.</div>
         : !anyGames ? <div className="empty">No scored week in {season} yet — this fills in as the season is played.</div>
         : (
-        <table className={`v3tbl plx-tbl tmx-stats ${allTime ? "tmx-all" : "tmx-season"}`}>
+        <table className="v3tbl plx-tbl tmx-stats">
           {!mobile && (
             <thead>
               <tr className="plx-grp">
                 <th className="sp" />
                 <th className="t" />
-                {groups.map(g => (
+                {groups.filter(g => g.span).map(g => (
                   <th key={g.id} className="plx-edge" colSpan={g.span}>{g.label}</th>
                 ))}
               </tr>
               <tr className="plx-cols">
                 <th className="c sp">#</th>
                 <th className="t">Franchise</th>
-                {cols.map(c => (
+                {cols.map((c, i) => (
                   <Th key={c.id} id={c.id} label={c.label} align="n" width={c.width}
-                    asc={c.asc} sort={s.sort} onSort={s.onSort} />
+                    asc={c.asc} sort={s.sort} onSort={s.onSort}
+                    className={edge(c, i) ? "plx-edge" : undefined} />
                 ))}
               </tr>
             </thead>
@@ -373,7 +479,7 @@ export default function TeamsStats({ season, played }: {
                   <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)}
                     sub={allTime
                       ? `${r.manager} · ${r.parts.length} season${r.parts.length === 1 ? "" : "s"}`
-                      : `${r.manager} · ${r.games} game${r.games === 1 ? "" : "s"}`} />
+                      : `${r.manager} · ${r.games} game${r.games === 1 ? "" : "s"}${r.byes ? " + bye" : ""}`} />
                   {mobile ? (
                     <td className="n plx-lead">
                       <span className="f hd">{cellOf(s.sort, r)}</span>
@@ -386,7 +492,7 @@ export default function TeamsStats({ season, played }: {
                       </div>
                     </td>
                   ) : cols.map((c, ci) => (
-                    <td key={c.id} className={`n${ci === 0 || c.grp !== cols[ci - 1].grp ? " plx-edge" : ""}`}>
+                    <td key={c.id} className={`n${edge(c, ci) ? " plx-edge" : ""}`}>
                       <span className={`f${c.id === s.sort ? " hd" : ""}`}>{cellOf(c.id, r)}</span>
                     </td>
                   ))}
@@ -394,8 +500,8 @@ export default function TeamsStats({ season, played }: {
                 {open === r.fkey && (
                   <tr className="plx-drawrow">
                     <td colSpan={span}>
-                      <Drawer r={r} allTime={allTime} to={betaPath(`/team/${r.rid}`)}
-                        nameOf={rid => names.get(`${r.parts[r.parts.length - 1].season}|${rid}`) ?? `Team ${rid}`} />
+                      <Drawer r={r} allTime={allTime} phase={phase} to={betaPath(`/team/${r.rid}`)}
+                        nameOf={(sn, rid) => names.get(`${sn}|${rid}`) ?? `Team ${rid}`} />
                     </td>
                   </tr>
                 )}
@@ -405,11 +511,13 @@ export default function TeamsStats({ season, played }: {
         </table>
       )}
       <div className="tnote screen">
-        Regular season only. Accrued WAR sums, week by week, the WAR of the players each franchise actually
-        started — the lineup as set, not the best one it could have fielded — so it rewards the roster and the
-        manager's calls together; the drawer carries the WAR left on the bench beside it. Vs median is the record
-        against each week's league median, and luck is the gap between that and the real one. A finish is printed
-        only once its season is settled.
+        {phase === "reg" ? "Regular season. " : phase === "post"
+          ? "The winners bracket's elimination games — placement games and the consolation bracket are left out, the same games playoff WAR is scored over. A first-round bye counts as a win in the record and nowhere else. "
+          : "Regular season and the winners bracket's elimination games, added; a bye counts as a win in the record. "}
+        Accrued WAR sums, game by game, the WAR of the players each franchise actually started — the lineup as
+        set, not the best one it could have fielded — so it rewards the roster and the manager's calls together.
+        {phase === "reg" ? " The drawer carries the WAR left on the bench beside it. Vs median is the record against each week's league median, and luck is the gap between that and the real one." : ""}
+        {" "}A finish is printed only once its season is settled.
       </div>
     </>
   );
@@ -427,55 +535,78 @@ function Fig({ k, v, sub }: { k: string; v: ReactNode; sub?: ReactNode }) {
   );
 }
 
-function Drawer({ r, allTime, to, nameOf }: {
-  r: Row; allTime: boolean; to: string; nameOf: (rid: number) => string;
+function Drawer({ r, allTime, phase, to, nameOf }: {
+  r: Row; allTime: boolean; phase: Phase; to: string;
+  nameOf: (season: string, rid: number) => string;
 }) {
   const nav = useNavigate();
-  const weeks = r.parts.flatMap(p => p.weeks.map(w => ({ ...w, season: p.season })));
-  const best = weeks.reduce<(typeof weeks)[number] | null>((b, w) => (!b || w.pts > b.pts ? w : b), null);
-  const worst = weeks.reduce<(typeof weeks)[number] | null>((b, w) => (!b || w.pts < b.pts ? w : b), null);
+  const weeks = r.halves.flatMap(x => x.h.weeks.filter(w => !w.bye).map(w => ({ ...w, season: x.season })));
+  const best = weeks.reduce<(typeof weeks)[number] | null>((b, w) => (!b || w.pts! > b.pts! ? w : b), null);
+  const worst = weeks.reduce<(typeof weeks)[number] | null>((b, w) => (!b || w.pts! < b.pts! ? w : b), null);
   const when = (w: { wk: number; season: string }) => (allTime ? `${w.season} week ${w.wk}` : `week ${w.wk}`);
   const one = !allTime ? r.parts[r.parts.length - 1] : null;
-  const max = Math.max(1, ...(one?.weeks.map(w => w.pts) ?? [1]));
+  /* the season's cells for the phase: the fourteen regular weeks, the
+     bracket's, or both in order */
+  const cells = one ? r.halves.flatMap(x => x.h.weeks) : [];
+  /* the regular season is POSITIONAL — every week 1..14 has a cell, so two
+     franchises' seasons compare cell for cell — and the bracket is its games
+     in order after it, a bye included */
+  const regLen = one && phase !== "post"
+    ? Math.max(REG_LEN, ...one.reg.weeks.map(w => w.wk)) : 0;
+  const grid: (WeekCell | { wk: number; none: true })[] = one
+    ? [
+      ...Array.from({ length: regLen }, (_, i) =>
+        one.reg.weeks.find(c => c.wk === i + 1) ?? { wk: i + 1, none: true as const }),
+      ...(phase !== "reg" ? one.post?.weeks ?? [] : []),
+    ]
+    : [];
+  const max = Math.max(1, ...cells.map(w => w.pts ?? 0));
+  const phaseWords = phase === "reg" ? "regular season" : phase === "post" ? "playoffs" : "regular season and playoffs";
   return (
     <div className="plx-draw">
       <div className="hd">
         <span className="nm">{r.team}</span>
-        <span className="mt">{r.manager} · {allTime ? `${r.parts.length} seasons` : `${one?.season} regular season`}</span>
+        <span className="mt">{r.manager} · {allTime ? `${r.parts.length} seasons` : `${one?.season}`} {phaseWords}</span>
       </div>
       <div className="plx-figs">
-        <Fig k="Accrued WAR" v={r.games ? sgnWar(r.war) : NUL}
-          sub={r.games ? `${fmtWar(r.war / r.games)} a game` : "no game yet"} />
-        <Fig k="Bench WAR" v={r.games ? sgnWar(r.bench) : NUL} sub="what sat, same measure" />
+        <Fig k="Accrued WAR" v={r.games && r.war != null ? sgnWar(r.war) : NUL}
+          sub={r.games && r.war != null ? `${fmtWar(r.war / r.games)} a game` : r.games ? "not priced for this bracket" : "no game yet"} />
+        <Fig k="Bench WAR" v={r.bench != null && r.games ? sgnWar(r.bench) : NUL}
+          sub={phase === "post" ? "the bracket scores starters only" : phase === "both" ? "regular season only" : "what sat, same measure"} />
         <Fig k="PF – PA" v={r.games ? `${r.pf - r.pa >= 0 ? "+" : "−"}${fmt(Math.abs(r.pf - r.pa), 1)}` : NUL}
           sub={r.games ? `${fmt(r.pf, 1)} for, ${fmt(r.pa, 1)} against` : undefined} />
-        <Fig k="Best week" v={best ? fmt(best.pts, 1) : NUL} sub={best ? when(best) : "no scored week"} />
-        <Fig k="Worst week" v={worst ? fmt(worst.pts, 1) : NUL} sub={worst ? when(worst) : "no scored week"} />
+        <Fig k="Best game" v={best ? fmt(best.pts!, 1) : NUL} sub={best ? when(best) : "no scored game"} />
+        <Fig k="Worst game" v={worst ? fmt(worst.pts!, 1) : NUL} sub={worst ? when(worst) : "no scored game"} />
         {allTime
           ? <Fig k="Best finish" v={r.best ? ord(r.best.fin) : NUL}
               sub={r.best ? `${r.best.season}${r.titles ? ` · ${r.titles} title${r.titles === 1 ? "" : "s"}` : ""}` : "no settled season"} />
           : <Fig k="Avg margin" v={r.games ? `${r.pf - r.pa >= 0 ? "+" : "−"}${fmt(Math.abs(r.pf - r.pa) / r.games, 1)}` : NUL}
               sub="points a game" />}
       </div>
-      {one && (
+      {one && grid.length > 0 && (
         <div className="plx-weeks">
-          <div className="k">Week by week</div>
+          <div className="k">Game by game</div>
           <div className="weekgrid">
-            {Array.from({ length: REG_WEEKS }, (_, i) => {
-              const w = one.weeks.find(x => x.wk === i + 1);
-              if (!w) return (
-                <div key={i} className="weekcell miss">
-                  <div className="top"><span className="wk">W{i + 1}</span><span className="pts">—</span></div>
+            {grid.map(c => {
+              if ("none" in c) return (
+                <div key={c.wk} className="weekcell miss">
+                  <div className="top"><span className="wk">W{c.wk}</span><span className="pts">—</span></div>
                   <div className="bar" /><div className="war">{" "}</div>
                 </div>
               );
+              if (c.bye) return (
+                <div key={`b${c.wk}`} className="weekcell bye">
+                  <div className="top"><span className="wk">W{c.wk}</span><span className="pts">BYE</span></div>
+                  <div className="bar" /><div className="war good">W · advanced</div>
+                </div>
+              );
               return (
-                <div key={i} className="weekcell">
-                  <div className="top"><span className="wk">W{w.wk}</span><span className="pts">{fmt(w.pts, 1)}</span></div>
-                  <div className="bar"><i style={{ width: `${Math.round(Math.max(0, w.pts) / max * 100)}%` }} /></div>
-                  <div className={`war ${w.res === "W" ? "good" : w.res === "L" ? "bad" : ""}`}
-                    title={w.opp != null ? `vs ${nameOf(w.opp)}, ${fmt(w.oppPts ?? 0, 1)}` : undefined}>
-                    {w.res}{w.oppPts != null ? ` · ${fmt(w.oppPts, 1)}` : ""}
+                <div key={c.wk} className="weekcell">
+                  <div className="top"><span className="wk">W{c.wk}</span><span className="pts">{fmt(c.pts ?? 0, 1)}</span></div>
+                  <div className="bar"><i style={{ width: `${Math.round(Math.max(0, c.pts ?? 0) / max * 100)}%` }} /></div>
+                  <div className={`war ${c.res === "W" ? "good" : c.res === "L" ? "bad" : ""}`}
+                    title={c.opp != null ? `vs ${nameOf(one.season, c.opp)}, ${fmt(c.oppPts ?? 0, 1)}` : undefined}>
+                    {c.res}{c.oppPts != null ? ` · ${fmt(c.oppPts, 1)}` : ""}
                   </div>
                 </div>
               );
@@ -485,7 +616,12 @@ function Drawer({ r, allTime, to, nameOf }: {
       )}
       {allTime && (
         <div className="plx-note">
-          {r.parts.map(p => `${p.season} ${wlStr(p.w, p.l, p.t)}`).join(" · ")}
+          {r.parts.map(p => {
+            const h = r.halves.filter(x => x.season === p.season).map(x => x.h);
+            if (!h.length) return null;
+            const w = h.reduce((a, x) => a + x.w, 0), l = h.reduce((a, x) => a + x.l, 0), t = h.reduce((a, x) => a + x.t, 0);
+            return `${p.season} ${wlStr(w, l, t)}`;
+          }).filter(Boolean).join(" · ")}
         </div>
       )}
       <a className="plx-go" href={`#${to}`}

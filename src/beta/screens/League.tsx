@@ -844,19 +844,20 @@ export interface SlotEntry {
 }
 
 /**
- * A SLOT'S WAR, under its points (Max, 2026-09-28). Signed and coloured like
- * every WAR on the board; an estimate carries a leading "≈" and the quiet
- * ramp, and one still moving with a live game is italic on top of that, so a
- * figure the pipeline has not signed off on can never pass for one it has.
+ * A SLOT'S WAR, under its points (Max, 2026-09-28). In the accent, and
+ * LABELLED with what it is (Max, 2026-09-28: no "≈", say it in words): "WAR"
+ * for the pipeline's own figure, "est WAR" for an estimate (lib/liveWar),
+ * "live WAR" while his game is still on and the figure is moving with it.
  */
+export const warLabel = (est?: "est" | "live") =>
+  est === "live" ? "live WAR" : est ? "est WAR" : "WAR";
 function WarFig({ v, est }: { v: number | null; est?: "est" | "live" }) {
   if (v == null) return <span className="w nul">—</span>;
-  const cls = Math.abs(v) < 0.005 ? "" : v > 0 ? " pos" : " neg";
   return (
-    <span className={`w${cls}${est ? ` ${est}` : ""}`}
+    <span className={`w${est ? ` ${est}` : ""}`}
       title={est === "live" ? "estimated on points so far — his game is still on"
         : est ? "estimated — the pipeline scores the week once it is over" : "WAR for the week"}>
-      {est ? "≈" : ""}{sgnWar(v)}
+      {sgnWar(v)}<span className="wl">{warLabel(est)}</span>
     </span>
   );
 }
@@ -997,7 +998,7 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to, war
     <div className="lgx-drawer">
       <div className="sd-head">
         <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live" : "Slot by slot · projected"}
-          {war ? " · points over WAR" : ""}</span>
+          </span>
         {to && <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>}
       </div>
       {Array.from({ length: n }, (_, i) => {

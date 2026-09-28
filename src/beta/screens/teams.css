@@ -49,17 +49,5 @@
 .tmx-stats .tmx-pos { color: var(--good); }
 .tmx-stats .tmx-neg { color: var(--bad); }
 .tmx-stats .tmx-acc { color: var(--acc); }
-@media (min-width: 900px) {
-  /* the header row's group edges — Th forwards no class, so by position:
-     Results starts at 3, Scoring and WAR after it */
-  .tmx-stats.tmx-season thead tr.plx-cols th:nth-child(3),
-  .tmx-stats.tmx-season thead tr.plx-cols th:nth-child(7),
-  .tmx-stats.tmx-season thead tr.plx-cols th:nth-child(11),
-  .tmx-stats.tmx-all thead tr.plx-cols th:nth-child(3),
-  .tmx-stats.tmx-all thead tr.plx-cols th:nth-child(8),
-  .tmx-stats.tmx-all thead tr.plx-cols th:nth-child(11) {
-    border-left: 1px solid var(--rule);
-  }
-}
 /* the week strip's third line is a result and an opponent, not a WAR */
 .tmx-stats .weekcell .war { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
