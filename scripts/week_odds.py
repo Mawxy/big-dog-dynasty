@@ -535,8 +535,9 @@ def main():
     ap.add_argument("--raw", default=str(ROOT / "sleeper_data"))
     ap.add_argument("--probe", action="store_true")
     ap.add_argument("--snapshot", action="store_true",
-                    help="archive today's projections under the current NFL "
-                         "week, so this week can be priced honestly later")
+                    help="LEGACY first-write-wins archive of today's projections. "
+                         "The pipeline no longer passes it: scripts/proj_snapshot.py "
+                         "keeps the kickoff-locked record (Max, 2026-09-28)")
     args = ap.parse_args()
 
     ld = Path(str(DATA))

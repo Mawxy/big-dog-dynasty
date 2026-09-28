@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { BracketFile, Franchises, Matchups, Team, WeekOdds, Weekly } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
+import type { Scoreboard } from "../../lib/liveScores";
 import { useLeague } from "../../lib/context";
 import { fmt } from "../../lib/stats";
 import { POS_CHIPS, POS_COLOR, latestSeasonOf, lineupOf, pInfo, rosterSeasonOf } from "../../lib/league";
@@ -76,6 +78,12 @@ export default function Seasons() {
   const teams = useJson<Team[]>(`${season}/teams.json`).data;
   const bracket = useJson<BracketFile>(`${season}/bracket.json`).data;
   const fr = useJson<Franchises>("franchises.json").data;
+  /* THE PROJECTIONS AS THEY STOOD AT KICKOFF (Max, 2026-09-28):
+     proj_snapshot.py's record, week -> pid -> points. The matchup page puts
+     each man's line under his points, the way the live card does. */
+  const caps = useLeagueCaps();
+  const phist = useJson<Record<string, Record<string, number>>>(
+    caps.projections ? `${season}/proj_history.json` : null).data;
 
   const weeks = useMemo(() => playedWeeks(mw), [mw]);
   const poWeeks = useMemo(() => playedPlayoffWeeks(mw), [mw]);
@@ -114,6 +122,11 @@ export default function Seasons() {
 
   const nameOf = (rid: number) => teams?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
   const ptsOf = useMemo(() => ptsSource(weekly, bracket), [weekly, bracket]);
+  const { players } = useLeague();
+  const nflGames = useJson<NflGames>(`${season}/nfl_games.json`).data;
+  const nflClubs = useJson<Record<string, string>>(`${season}/nfl_teams.json`).data;
+  const nfl = useMemo(() => (wk != null ? nflWeek(nflGames, nflClubs, wk, players) : undefined),
+    [nflGames, nflClubs, wk, players]);
 
   return (
     <>
@@ -153,13 +166,14 @@ export default function Seasons() {
         ) : wk != null && wk === liveWk ? (
           mid != null
             ? <LiveMatchup season={season} wk={wk} rid={mid} mw={mw} weekly={weekly} teams={teams} nameOf={nameOf} />
-            : <LiveWeek season={season} wk={wk} mw={mw} weekly={weekly} nameOf={nameOf} />
+            : <LiveWeek season={season} wk={wk} mw={mw} weekly={weekly} odds={odds} teams={teams} nameOf={nameOf} />
         ) : wk == null ? (
           <div className="empty">No week of {season} has been played yet.</div>
         ) : mid != null ? (
-          <Matchup season={season} wk={wk} rid={mid} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf} />
+          <Matchup season={season} wk={wk} rid={mid} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf}
+            proj={phist?.[String(wk)] ?? null} nfl={nfl} />
         ) : (
-          <WeekBoard season={season} wk={wk} mw={mw} odds={odds} weekly={weekly} teams={teams} nameOf={nameOf} ptsOf={ptsOf} />
+          <WeekBoard season={season} wk={wk} mw={mw} odds={odds} weekly={weekly} teams={teams} nameOf={nameOf} ptsOf={ptsOf} nfl={nfl} />
         )}
     </>
   );
@@ -174,9 +188,45 @@ interface WeekProps {
   odds: WeekOdds | null | undefined; weekly: Weekly | null | undefined;
   nameOf: (rid: number) => string;
   ptsOf: PtsOf;
+  /** the week's NFL results, for the line under every player */
+  nfl?: NflWeek;
 }
 
-function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf }: WeekProps & { teams: Team[] | null | undefined }) {
+/**
+ * THE NFL GAME UNDER EVERY MAN (Max, 2026-09-28): "vs TB · W 24–17" on a
+ * finished week, the way the live card prints the clock. From
+ * <season>/nfl_games.json (scripts/nfl_games.py) — shaped as the live
+ * scoreboard the slot drawer already reads, every game final — and the
+ * season's own club for each player (nfl_teams.json), since today's roster is
+ * the wrong club for anyone traded since.
+ */
+type NflGames = Record<string, Record<string, [string, number, number | null, number | null, string]>>;
+interface NflWeek {
+  board: Scoreboard | null;
+  clubOf: (pid: string) => string;
+  /** "NE · vs TB · W 24–17", or "NE · Bye", for a table's sub-line */
+  line: (pid: string) => string;
+}
+function nflWeek(games: NflGames | null | undefined, clubs: Record<string, string> | null | undefined,
+  wk: number, players: ReturnType<typeof useLeague>["players"]): NflWeek {
+  const g = games?.[String(wk)];
+  const board: Scoreboard | null = g ? Object.fromEntries(Object.entries(g).map(([club, [opp, home, pts, oppPts, date]]) => {
+    const res = pts == null || oppPts == null ? "Final"
+      : `${pts > oppPts ? "W" : pts < oppPts ? "L" : "T"} ${pts}–${oppPts}`;
+    return [club, { state: "post" as const, remaining: 0, opp, home: !!home, date, detail: res }];
+  })) : null;
+  const clubOf = (pid: string) => clubs?.[pid] || pInfo(players, pid)[2] || "";
+  const line = (pid: string) => {
+    const c = clubOf(pid);
+    if (!c) return "FA";
+    if (!board) return c;
+    const x = board[c];
+    return x ? `${c} · ${x.home ? "vs" : "@"} ${x.opp} · ${x.detail}` : `${c} · Bye`;
+  };
+  return { board, clubOf, line };
+}
+
+function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf, nfl }: WeekProps & { teams: Team[] | null | undefined }) {
   const { players } = useLeague();
   const betaPath = useBetaPath();
   const rows = useMemo(() => weekRows(mw, wk), [mw, wk]);
@@ -197,7 +247,7 @@ function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf }: WeekP
           <span className="s">of the week's scores</span>
         </div>
       )}
-      <Games season={season} wk={wk} games={games} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf} />
+      <Games season={season} wk={wk} games={games} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf} nfl={nfl} />
 
       {!isPlayoff && figs && (
         <>
@@ -244,7 +294,7 @@ function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf }: WeekP
    League's card at the final: the two scores, the winner in the accent, the
    margin and the pregame line in the middle. Tapping a card opens the slot
    drawer under it, the full page is the link inside. */
-function Games({ season, wk, games, odds, nameOf, ptsOf, solo = false }: WeekProps & {
+function Games({ season, wk, games, odds, nameOf, ptsOf, solo = false, nfl }: WeekProps & {
   games: WeekGame[];
   /** the matchup page: one card, not a control */
   solo?: boolean;
@@ -304,7 +354,7 @@ function Games({ season, wk, games, odds, nameOf, ptsOf, solo = false }: WeekPro
             <SlotDrawer key={`${key}-drawer`}
               a={{ rid: g.a.rid, name: nameOf(g.a.rid), slots: slots(g.a) }}
               b={{ rid: g.b.rid, name: nameOf(g.b.rid), slots: slots(g.b) }}
-              played players={players} board={null}
+              played players={players} board={nfl?.board ?? null} clubOf={nfl?.clubOf}
               to={betaPath(`/seasons/${season}/${wk}/${g.a.rid}`)} />
           ),
         ];
@@ -316,7 +366,9 @@ function Games({ season, wk, games, odds, nameOf, ptsOf, solo = false }: WeekPro
 /** a side's starting lineup as it was scored, one entry per slot in the
  *  league's lineup order, each slot carrying the points it returned. An
  *  empty slot is a real 0.0 — that IS the weakness. */
-function useSlots(wk: number, ptsOf: PtsOf, weekly?: Weekly | null) {
+function useSlots(wk: number, ptsOf: PtsOf, weekly?: Weekly | null,
+  /** the week's kickoff projections, pid -> points (proj_history.json) */
+  proj?: Record<string, number> | null) {
   const { meta } = useLeague();
   return useMemo(() => {
     const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
@@ -331,19 +383,26 @@ function useSlots(wk: number, ptsOf: PtsOf, weekly?: Weekly | null) {
         const v = real ? pts(pid) : 0;
         // the week's official WAR, off weekly.json (regular season only)
         const war = real ? weekly?.[pid]?.find(x => x[0] === wk)?.[5] ?? null : null;
-        return { slot: lineup[i] ?? "FLEX", pid: real ? pid : null, v, over: true, est: v, war };
+        // the line he was projected for at kickoff, and whether he beat it
+        const p = real ? proj?.[pid] : undefined;
+        return {
+          slot: lineup[i] ?? "FLEX", pid: real ? pid : null, v, over: true, est: v, war,
+          ...(p != null ? { proj: p, miss: v < p, beat: v > p } : {}),
+        };
       });
     };
-  }, [meta, wk, ptsOf, weekly]);
+  }, [meta, wk, ptsOf, weekly, proj]);
 }
 
 /* ---- top performers -------------------------------------------------------
    Started players only, by WAR. The badge-rank on the sub-line is rank within
    position for THIS sort; the phone folds points onto the sub-line, the
    desktop gets them as columns. */
-function Performers({ wk, rows, weekly, nameOf, betaPath }: {
+export function Performers({ wk, rows, weekly, nameOf, betaPath, est = false }: {
   wk: number; rows: WeekRow[]; weekly: Weekly | null | undefined;
   nameOf: (rid: number) => string; betaPath: (p: string) => string;
+  /** the live week: the WAR column is an estimate (lib/liveWar) and says so */
+  est?: boolean;
 }) {
   const { players } = useLeague();
   const [all, setAll] = useState(false);
@@ -370,7 +429,7 @@ function Performers({ wk, rows, weekly, nameOf, betaPath }: {
   );
   return (
     <>
-      <Band label="Top performers" note="started players only · by WAR"
+      <Band label="Top performers" note={est ? "started players only · points so far · by est WAR" : "started players only · by WAR"}
         right={perf.length > PERF_FOLDED && (
           <button type="button" className="lgx-all" onClick={() => setAll(a => !a)}>
             {all ? `Top ${PERF_FOLDED} ▴` : `All ${Math.min(PERF_ALL, perf.length)} ▾`}
@@ -385,7 +444,7 @@ function Performers({ wk, rows, weekly, nameOf, betaPath }: {
               <th className="n lgx-desk" style={{ width: "12%" }}>Pts</th>
               <th className="n lgx-desk" style={{ width: "12%" }}>Vs avg</th>
               <th className="n lgx-desk" style={{ width: "12%" }}>Vs repl</th>
-              <th className="n sorted" style={{ width: "20%" }}>WAR</th>
+              <th className="n sorted" style={{ width: "20%" }}>{est ? "Est WAR" : "WAR"}</th>
             </tr>
           </thead>
           <tbody>
@@ -403,7 +462,7 @@ function Performers({ wk, rows, weekly, nameOf, betaPath }: {
                 <td className="n lgx-desk"><span className="f">{fmt(x.pts, 1)}</span></td>
                 <td className="n lgx-desk">{sPts(x.avg)}</td>
                 <td className="n lgx-desk">{sPts(x.repl)}</td>
-                <td className="n"><span className="f hd">{sgnWar(x.war)}</span></td>
+                <td className="n"><span className={est ? "f hd ssx-war" : "f hd"}>{sgnWar(x.war)}</span></td>
               </TapRow>
             ))}
           </tbody>
@@ -417,12 +476,14 @@ function Performers({ wk, rows, weekly, nameOf, betaPath }: {
    THE MATCHUP — one game, slot by slot, then both benches
    ======================================================================== */
 
-function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf }: WeekProps & { rid: number }) {
+function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf, proj, nfl }: WeekProps & {
+  rid: number; proj: Record<string, number> | null;
+}) {
   const { players } = useLeague();
   const betaPath = useBetaPath();
   const rows = useMemo(() => weekRows(mw, wk), [mw, wk]);
   const games = useMemo(() => weekGames(rows), [rows]);
-  const slots = useSlots(wk, ptsOf, weekly);
+  const slots = useSlots(wk, ptsOf, weekly, proj);
   const g = games.find(x => x.a.rid === rid || x.b.rid === rid);
   if (!g) return <div className="empty">No game for that team in week {wk}.</div>;
   const scored = [...g.a.starters, ...g.b.starters].some(pid => pid && pid !== "0" && ptsOf(pid, wk) != null);
@@ -452,7 +513,7 @@ function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf }: WeekProps
                 return (
                   <tr key={x.pid} className={i % 2 ? "zebra" : ""}>
                     <Spine color={POS_COLOR[pos]} rank="" />
-                    <IdCell name={name} sub={`${club || "FA"} · ${pos}`} />
+                    <IdCell name={name} sub={nfl ? `${pos} · ${nfl.line(x.pid)}` : `${club || "FA"} · ${pos}`} />
                     <td className="n"><span className="f">{fmt(x.pts, 1)}</span></td>
                     <td className="n">{x.war == null ? NUL : <span className="f ssx-war">{sgnWar(x.war)}</span>}</td>
                   </tr>
@@ -468,14 +529,16 @@ function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf }: WeekProps
   return (
     <>
       <Band label={`${nameOf(g.a.rid)} vs ${nameOf(g.b.rid)}`} note={`${season} · week ${wk} · final`} />
-      <Games season={season} wk={wk} games={[g]} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf} solo />
-      <Band label="Lineups" note={scored ? "slot by slot · the higher figure takes the arrow, only the totals take the accent" : "no per-player scoring on file for this game"} />
+      <Games season={season} wk={wk} games={[g]} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf} solo nfl={nfl} />
+      <Band label="Lineups" note={!scored ? "no per-player scoring on file for this game"
+        : proj ? "points, the projection at kickoff under them, then WAR" : "slot by slot · points, then WAR"} />
       {scored && (
         <div className="ssx-lineups">
           <SlotDrawer
             a={{ rid: g.a.rid, name: nameOf(g.a.rid), slots: slots(g.a) }}
             b={{ rid: g.b.rid, name: nameOf(g.b.rid), slots: slots(g.b) }}
-            played players={players} board={null} war={wk < (mw.playoff_start || 15)} />
+            played players={players} board={nfl?.board ?? null} clubOf={nfl?.clubOf}
+            war={wk < (mw.playoff_start || 15)} />
         </div>
       )}
       <div className="ssx-two">

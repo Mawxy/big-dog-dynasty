@@ -1,0 +1,52 @@
+name: Projection snapshots
+# THE PROJECTION AT KICKOFF (Max, 2026-09-28). Every two hours, re-read the
+# live week's Sleeper projections and overwrite each player whose game has not
+# kicked off; a player whose game has started is frozen. When the week is over
+# every entry in <season>/proj_history.json is the last read before that
+# player's own kickoff — at most two hours stale. See scripts/proj_snapshot.py.
+#
+# Stdlib only, a handful of HTTP calls, done in well under a minute. Outside
+# the regular season the script finds no live week and exits without writing.
+on:
+  schedule:
+    # every even hour at :53 — a minute no other workflow here owns (see the
+    # cron table in PROJECT_NOTES). Two hours is the resolution Max asked for.
+    - cron: "53 */2 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+# In `data-push` with the nightly refresh, on purpose: data-refresh stages the
+# whole data/leagues tree from its own checkout, so a snapshot pushed while it
+# ran would be REVERTED by its commit. Sharing the group means the two can
+# never be in flight at once; a snapshot queued behind the nightly simply runs
+# after it (GitHub keeps the newest pending run, which is the one we want).
+concurrency:
+  group: data-push
+  cancel-in-progress: false
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Snapshot the live week's projections (kickoff-locked)
+        run: python scripts/proj_snapshot.py
+      - name: Commit
+        run: |
+          git config user.name "big-dog-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git rebase --abort 2>/dev/null || true
+          # RE-PARENT with an explicit allow-list — see data-refresh.yml. These
+          # two files per league-season are this job's entire surface.
+          for i in 1 2 3 4 5; do
+            git fetch origin main || { sleep $((i*10)); continue; }
+            git reset FETCH_HEAD
+            git add data/leagues/*/*/proj_history.json data/leagues/*/*/proj_history_meta.json 2>/dev/null || true
+            git diff --cached --quiet && { echo "no snapshot changes"; exit 0; }
+            git commit -m "Projection snapshot $(date -u +%FT%H:%MZ)"
+            git push origin HEAD:main && exit 0
+            echo "push attempt $i failed; retrying in $((i*10))s"; sleep $((i*10))
+          done
+          echo "push failed after 5 attempts"; exit 1

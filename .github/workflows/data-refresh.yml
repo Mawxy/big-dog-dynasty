@@ -179,6 +179,13 @@ jobs:
       # current season's winshare.json only moved when Max ran it by hand.
       - name: Regular-season win share (season_wpa)
         run: python scripts/season_wpa.py
+      # THE NFL'S OWN RESULTS (Max, 2026-09-28): each club's opponent and final
+      # score per week, so a finished fantasy matchup can print "vs TB · W 24-17"
+      # under every player the way the live card does. A season already complete
+      # on disk is never refetched. Fail-soft: without it the line reads the club.
+      - name: NFL results (opponent and score per club-week)
+        continue-on-error: true
+        run: python scripts/nfl_games.py --out data
       - name: Fetch Sleeper projections (composite input)
         id: fetch_proj
         run: python scripts/fetch_projections.py
@@ -196,8 +203,17 @@ jobs:
       # off what was known at the time once it's in the past. Sleeper only
       # serves current projections; without the archive a past week can only
       # ever fall back to a positional prior.
+      # THE KICKOFF-LOCKED SNAPSHOT (Max, 2026-09-28) replaces week_odds'
+      # --snapshot, which kept the FIRST read of a week — the Tuesday it became
+      # current. proj_snapshot.py overwrites each player until his own kickoff
+      # and freezes him after; proj-snapshots.yml runs it every two hours and
+      # this is the nightly's read. Fail-soft: a missed read costs at most two
+      # hours of freshness, never a wrong line.
+      - name: Projection snapshot (kickoff-locked)
+        continue-on-error: true
+        run: python scripts/proj_snapshot.py
       - name: Week odds (pregame win probability per matchup)
-        run: python scripts/week_odds.py --snapshot
+        run: python scripts/week_odds.py
       - name: Recompute WAR projections (scalar model)
         run: python scripts/project_war.py
       # THE PRICING MODEL (Max, 2026-09-11): points first, WAR from the

@@ -912,11 +912,14 @@ function gameLine(team: string, board: Scoreboard | null): string {
   return `${who} · ${when}`;
 }
 
-export function SlotDrawer({ a, b, played, live = false, players, board, to, war = false }: {
+export function SlotDrawer({ a, b, played, live = false, players, board, to, war = false, clubOf }: {
   a: SlotSide; b: SlotSide; played: boolean;
   /** print each slot's WAR under its points, and each side's total — the
    *  matchup page does; the League card's drawer keeps to points */
   war?: boolean;
+  /** his club THAT week, where it can differ from today's (a past season's
+   *  nfl_teams.json); today's club when absent */
+  clubOf?: (pid: string) => string;
   /** the week in progress: the figures are points so far */
   live?: boolean;
   players: PlayersMin;
@@ -939,7 +942,8 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to, war
      moment the name was long. */
   const who = (pid: string | null) => {
     if (!pid) return <span className="n1">—</span>;
-    const [name, , team] = pInfo(players, pid);
+    const [name, , today] = pInfo(players, pid);
+    const team = clubOf?.(pid) || today;
     const gl = gameLine(team, board);
     return (
       <>

@@ -50,6 +50,9 @@ export function winShift(points: number, sigma: number): number {
 export interface WarBaseline {
   /** replacement level per position, in points */
   repl: Record<string, number>;
+  /** the average startable player per position, in points — the "vs avg"
+   *  baseline weekly.json's third column is measured against */
+  avg: Record<string, number>;
   /** the spread of team scores the week is priced on */
   sigma: number;
   /** where the baselines came from */
@@ -82,6 +85,7 @@ export function settledBaseline(
   if (!weekly || !mw) return null;
   const ps = mw.playoff_start || 15;
   const per: Record<string, Map<number, number[]>> = {};
+  const perAvg: Record<string, Map<number, number[]>> = {};
   for (const [pid, rows] of Object.entries(weekly)) {
     const pos = pInfo(players, pid)[1];
     if (!CORE.has(pos)) continue;
@@ -91,12 +95,25 @@ export function settledBaseline(
       const l = m.get(w[0]) ?? [];
       l.push(w[1] - w[3]);
       m.set(w[0], l);
+      const ma = (perAvg[pos] ??= new Map());
+      const la = ma.get(w[0]) ?? [];
+      la.push(w[1] - w[2]);
+      ma.set(w[0], la);
     }
   }
-  const repl: Record<string, number> = {};
-  for (const [pos, m] of Object.entries(per)) {
+  const meanOfMedians = (m: Map<number, number[]>) => {
     const wk = [...m.values()].map(median);
-    if (wk.length) repl[pos] = wk.reduce((a, x) => a + x, 0) / wk.length;
+    return wk.length ? wk.reduce((a, x) => a + x, 0) / wk.length : null;
+  };
+  const repl: Record<string, number> = {};
+  const avg: Record<string, number> = {};
+  for (const [pos, m] of Object.entries(per)) {
+    const v = meanOfMedians(m);
+    if (v != null) repl[pos] = v;
+  }
+  for (const [pos, m] of Object.entries(perAvg)) {
+    const v = meanOfMedians(m);
+    if (v != null) avg[pos] = v;
   }
   const byWeek = new Map<number, number[]>();
   for (const list of Object.values(mw.teams))
@@ -109,7 +126,7 @@ export function settledBaseline(
   const sigmas = [...byWeek.values()].filter(l => l.length >= 2).map(sd);
   if (!sigmas.length || !Object.keys(repl).length) return null;
   return {
-    repl,
+    repl, avg,
     sigma: sigmas.reduce((a, x) => a + x, 0) / sigmas.length,
     source: "season",
     weeks: sigmas.length,
@@ -135,26 +152,30 @@ export function weekBaseline(
     .filter(pid => CORE.has(posOf(pid)) && ppts[pid])
     .sort((a, b) => ppts[b] - ppts[a]);
   const left: string[] = [];
+  const startable: string[] = [];
   for (const pid of pool) {
     const pos = posOf(pid);
-    if ((open[pos] ?? 0) > 0) open[pos]--;
+    if ((open[pos] ?? 0) > 0) { open[pos]--; startable.push(pid); }
     else left.push(pid);
   }
   const rest: string[] = [];
   for (const pid of left) {
     const pos = posOf(pid);
     const slot = FLEX_ORDER.find(s => FLEX_SLOTS[s].includes(pos) && (open[s] ?? 0) > 0);
-    if (slot) open[slot]--;
+    if (slot) { open[slot]--; startable.push(pid); }
     else rest.push(pid);
   }
   const repl: Record<string, number> = {};
+  const avg: Record<string, number> = {};
   for (const pos of CORE) {
     const nxt = rest.find(p => posOf(p) === pos);
     repl[pos] = nxt ? ppts[nxt] : 0;
+    const st = startable.filter(p => posOf(p) === pos).map(p => ppts[p]);
+    avg[pos] = st.length ? st.reduce((a, x) => a + x, 0) / st.length : repl[pos];
   }
   const sigma = sd(teamTotals.filter(x => x > 0));
   if (!(sigma > 0)) return null;
-  return { repl, sigma, source: "week", weeks: 1 };
+  return { repl, avg, sigma, source: "week", weeks: 1 };
 }
 
 /** a player's estimated WAR for the week against a baseline, or null for a

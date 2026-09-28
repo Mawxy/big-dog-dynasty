@@ -1,17 +1,22 @@
 import { useMemo } from "react";
-import type { Matchups, SleeperProjFile, Team, Weekly } from "../../lib/types";
+import type { Matchups, SleeperProjFile, Team, WeekOdds, Weekly } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { useLeagueCaps } from "../../lib/caps";
 import { fmt } from "../../lib/stats";
-import { POS_COLOR, lineupOf, pInfo } from "../../lib/league";
+import { POS_CHIPS, POS_COLOR, lineupOf, pInfo } from "../../lib/league";
+import { weekFigures, type WeekRow } from "../week";
+import { Performers } from "./Seasons";
 import {
   isStale, useLiveWeekFeed, useNflBoardFeed, type LiveSide, type Scoreboard,
 } from "../../lib/liveScores";
 import { estWar, settledBaseline, weekBaseline, type WarBaseline } from "../../lib/liveWar";
 import { RouteLink } from "../../components/RouteLink";
-import { Band, IdCell, NUL, sgnWar, Spine, useBetaPath } from "../ui";
-import { SlotDrawer, warLabel, type SlotEntry } from "./League";
+import { Band, IdCell, NUL, sgnWar, Spine, Strip, useBetaPath } from "../ui";
+import { PosLeaders, SlotDrawer, warLabel, type SlotEntry } from "./League";
+
+const POSITIONS = POS_CHIPS.filter(p => p !== "ALL");
+const DASH = <span className="lgx-nul">—</span>;
 
 /**
  * THE WEEK IN PROGRESS ON THE WEEK FLOOR (Max, 2026-09-28).
@@ -87,13 +92,72 @@ function baseNote(ctx: LiveCtx): string {
 
 /* ---- the week's games, live -------------------------------------------- */
 
-export function LiveWeek({ season, wk, mw, weekly, nameOf }: {
+export function LiveWeek({ season, wk, mw, weekly, odds, teams, nameOf }: {
   season: string; wk: number; mw: Matchups; weekly: Weekly | null | undefined;
+  odds: WeekOdds | null | undefined; teams: Team[] | null | undefined;
   nameOf: (rid: number) => string;
 }) {
+  const { players } = useLeague();
   const betaPath = useBetaPath();
   const ctx = useLiveCtx(season, wk, mw, weekly);
   const ptsOf = (rid: number) => ctx.live?.sides[String(rid)]?.pts ?? null;
+
+  /* THE FINAL WEEK'S MODULES, LIVE (Max, 2026-09-28): the median, the four
+     week figures, the position leaders and the top performers — the same
+     components a scored week draws, fed from the live feed. The rows are the
+     scored week's shape (beta/week.ts WeekRow) built from the pairings and
+     the running totals, and the player-weeks a synthetic weekly.json row
+     [week, pts, vs avg, vs repl, 0, est WAR] for everyone with points so far,
+     so weekFigures and Performers run unchanged. */
+  const liveRows = useMemo<WeekRow[]>(() => {
+    const L = ctx.live;
+    if (!L?.started) return [];
+    const out: WeekRow[] = [];
+    for (const [a, b] of ctx.pairs) {
+      const sa = L.sides[String(a)], sb = L.sides[String(b)];
+      if (!sa || !sb) continue;
+      const side = (s: LiveSide, opp: LiveSide): WeekRow => {
+        const starters = s.starters.filter(p => p && p !== "0");
+        const roster = teams?.find(t => t.roster_id === s.rid)?.players ?? Object.keys(s.ppts);
+        return {
+          rid: s.rid, pts: s.pts, opp: opp.rid, oppPts: opp.pts,
+          starters, bench: roster.filter(p => !starters.includes(p)),
+        };
+      };
+      out.push(side(sa, sb), side(sb, sa));
+    }
+    return out;
+  }, [ctx.live, ctx.pairs, teams]);
+  const liveWeekly = useMemo<Weekly | null>(() => {
+    const L = ctx.live;
+    if (!L?.started || !ctx.base) return null;
+    const out: Weekly = {};
+    for (const s of Object.values(L.sides))
+      for (const [pid, pts] of Object.entries(s.ppts)) {
+        if (!pts) continue;
+        const pos = pInfo(players, pid)[1];
+        const w = warFor(pid, pts, ctx, players).war;
+        if (w == null) continue;
+        out[pid] = [[wk, pts, pts - (ctx.base.avg[pos] ?? 0), pts - (ctx.base.repl[pos] ?? 0), 0, w]];
+      }
+    return out;
+  }, [ctx, players, wk]);
+  const figs = useMemo(
+    () => (liveRows.length ? weekFigures(liveRows, wk, odds, liveWeekly, players) : null),
+    [liveRows, wk, odds, liveWeekly, players]);
+  const teamOf = (pid: string) => teams?.find(t => t.players.includes(pid))?.team ?? null;
+  /** UPSET WATCH: the underdog leading by the widest pregame gap — the
+   *  leader the line liked least, and only if the line had him under 50% */
+  const upset = useMemo(() => {
+    const line = odds?.weeks[String(wk)] ?? {};
+    let best: { row: WeekRow; wp: number } | null = null;
+    for (const r of liveRows) {
+      const wp = line[String(r.rid)]?.wp;
+      if (wp == null || wp >= 0.5 || r.oppPts == null || r.pts <= r.oppPts) continue;
+      if (!best || wp < best.wp) best = { row: r, wp };
+    }
+    return best;
+  }, [liveRows, odds, wk]);
   return (
     <>
       <Band label={`Week ${wk} · ${season}`}
@@ -130,6 +194,47 @@ export function LiveWeek({ season, wk, mw, weekly, nameOf }: {
             );
           })}
         </div>
+      )}
+      {figs && (
+        <>
+          {figs.median != null && (
+            <div className="lgx-median">
+              <span className="k">League median</span>
+              <span className="v">{fmt(figs.median, 1)}</span>
+              <span className="s">of the points so far</span>
+            </div>
+          )}
+          <Band label="Week figures" note={ctx.done ? "every game final · not yet scored" : "so far · moving with the games"} />
+          <div className="lgx-even">
+            <Strip figures={[
+              /* THE LIVE WEEK TALKS LIKE A SCOREBOARD SHOW (Max, 2026-09-28):
+                 "upset watch", "nail-biter", "in the basement" — the same four
+                 figures a final week prints, named for a week still moving. */
+              { key: "top", label: ctx.done ? "Top score" : "Leading the league",
+                value: <span className="lgx-good">{fmt(figs.top.pts, 1)}</span>, sub: nameOf(figs.top.rid) },
+              { key: "low", label: ctx.done ? "Low score" : "In the basement",
+                value: <span className="lgx-bad">{fmt(figs.low.pts, 1)}</span>, sub: nameOf(figs.low.rid) },
+              { key: "upset", label: ctx.done ? "Upset" : "Upset watch",
+                value: upset ? <span className="lgx-warn">{`${Math.round(upset.wp * 100)}%`}</span> : DASH,
+                sub: upset
+                  ? `${nameOf(upset.row.rid)} ${ctx.done ? "beat" : "leads"} ${upset.row.opp != null ? nameOf(upset.row.opp) : "—"} by ${fmt(upset.row.pts - (upset.row.oppPts ?? 0), 1)} · pregame odds`
+                  : ctx.done ? "every favorite won" : "every favorite leads" },
+              { key: "close", label: ctx.done ? "Nail-biter" : "Nail-biter watch",
+                value: figs.closest ? fmt(figs.closest.pts - figs.closest.oppPts, 1) : DASH,
+                sub: figs.closest
+                  ? `${nameOf(figs.closest.rid)} ${ctx.done ? "edged" : "leads"} ${nameOf(figs.closest.opp)}, ${fmt(figs.closest.pts, 1)}–${fmt(figs.closest.oppPts, 1)}`
+                  : "no game under way" },
+            ]} />
+          </div>
+          <PosLeaders
+            leaders={POSITIONS.map(pos => {
+              const t = figs.posTop[pos];
+              return t ? { pid: t.pid, value: `${fmt(t.pts, 1)} pts`, note: teamOf(t.pid) ?? "unrostered" } : null;
+            })}
+            settled={!!liveWeekly}
+            empty={pos => `no ${pos} scored yet`} />
+          <Performers wk={wk} rows={liveRows} weekly={liveWeekly} nameOf={nameOf} betaPath={betaPath} est />
+        </>
       )}
       <div className="tnote screen">
         The week in progress, off Sleeper's live scoring. Tap a game for both lineups with an estimated WAR
