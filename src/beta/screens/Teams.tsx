@@ -1,12 +1,15 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import type { Team, Values } from "../../lib/types";
+import type { MatrixFile, Team, Values } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { useCviQuery, useDviQuery, useProjWar1 } from "../../lib/useIndices";
 import { ktcOf } from "../../lib/values";
-import { lineupOf, pInfo, POS_CHIPS, rosterSeasonOf } from "../../lib/league";
+import { latestSeasonOf, lineupOf, pInfo, POS_CHIPS, rosterSeasonOf } from "../../lib/league";
+import { fmt } from "../../lib/stats";
+import ScopeControl, { useScope, type ScopeSel } from "../Scope";
+import TeamsStats from "./TeamsStats";
 import { starterSet } from "../model";
 import { useMobile } from "../../lib/useWidth";
 import {
@@ -62,7 +65,7 @@ import "./teams.css";
    COLUMNS
    ======================================================================== */
 
-type Key = "dvi" | "cvi" | "war" | "ktc" | "fc";
+type Key = "dvi" | "cvi" | "war" | "ktc" | "fc" | "age";
 
 interface Col {
   id: Key;
@@ -75,6 +78,8 @@ interface Col {
   width: string;
   /** first column of a group: takes the group divider */
   edge?: boolean;
+  /** smallest first on the first press */
+  asc?: boolean;
 }
 
 /* The same left-to-right reading as the Players board: our own model first,
@@ -86,18 +91,23 @@ const COLS: Col[] = [
   { id: "war", label: "Proj WAR", short: "WAR", width: "15%" },
   { id: "ktc", label: "KTC", width: "12%", edge: true },
   { id: "fc", label: "FantasyCalc", short: "FC", width: "13%" },
+  /* AGE, back from the classic board (Max, 2026-09-28): the mean age of the
+     slice — under Starters, of DVI's own best lineup, which is the classic
+     board's reading. Not a currency and never summed: it is the one column
+     here that is an average, and the one that sorts youngest first. */
+  { id: "age", label: "Age", width: "8%", edge: true, asc: true },
 ];
 
 /** which group a currency belongs to, and therefore which capability decides
  *  whether this league has a column for it at all */
-const GROUP_OF: Record<Key, "model" | "market"> = {
-  dvi: "model", cvi: "model", war: "model", ktc: "market", fc: "market",
+const GROUP_OF: Record<Key, "model" | "market" | "roster"> = {
+  dvi: "model", cvi: "model", war: "model", ktc: "market", fc: "market", age: "roster",
 };
-const GROUP_LABEL = { model: "Our model", market: "Dynasty market" } as const;
+const GROUP_LABEL = { model: "Our model", market: "Dynasty market", roster: "Roster" } as const;
 
 /** four is the ceiling at 390px — see players.css. FantasyCalc stays on the
  *  desktop header and in the drawer, where there is room to sort by it. */
-const STRIP: Key[] = ["dvi", "cvi", "war", "ktc"];
+const STRIP: Key[] = ["dvi", "cvi", "war", "ktc", "age"];
 
 /**
  * A TEAM TOTAL IS AN INTEGER in every currency but WAR.
@@ -114,12 +124,13 @@ const FMT: Record<Key, (v: number) => string> = {
   war: fmtWar,
   ktc: v => Math.round(v).toLocaleString(),
   fc: v => Math.round(v).toLocaleString(),
+  age: v => fmt(v, 1),
 };
 
 /** what a figure is measured in, under the drawer's cells */
 const UNIT: Record<Key, string> = {
   dvi: "index pts", cvi: "index pts", war: "wins, year 1",
-  ktc: "market pts", fc: "market pts",
+  ktc: "market pts", fc: "market pts", age: "years, mean",
 };
 
 const figOf = (id: Key, v: number | null): ReactNode => v == null ? NUL : FMT[id](v);
@@ -169,7 +180,10 @@ interface Row {
 }
 
 const ZERO = (): Record<Key, number | null> =>
-  ({ dvi: null, cvi: null, war: null, ktc: null, fc: null });
+  ({ dvi: null, cvi: null, war: null, ktc: null, fc: null, age: null });
+
+/** the currencies — every key but age, which rides on DVI's lineup */
+const CURRENCIES: Key[] = ["dvi", "cvi", "war", "ktc", "fc"];
 
 /** Sum a currency over a set of assets. A player the source never priced is
  *  ABSENT, not zero — and a set in which nobody was priced returns null, so an
@@ -181,14 +195,57 @@ function total(assets: Asset[], k: Key): number | null {
     if (v == null) continue;
     sum += v; seen++;
   }
-  return seen ? sum : null;
+  // age is the one figure that is a mean, not a sum
+  return seen ? (k === "age" ? sum / seen : sum) : null;
 }
 
 /* ========================================================================
    THE SCREEN
    ======================================================================== */
 
+/**
+ * TEAMS IS TWO TENSES, LIKE PLAYERS (Max, 2026-09-28): Value — what the
+ * rosters are worth, the board below — and Stats — what the franchises did,
+ * in one season or all-time (TeamsStats.tsx). The same control, the same
+ * words, the same URL (`?scope=history&season=2025`), so the two boards read
+ * as one site; the classic board's Standings and All-time tables live on the
+ * right-hand segment now.
+ */
 export default function Teams() {
+  const { meta, league } = useLeague();
+  const caps = useLeagueCaps();
+  const latest = latestSeasonOf(meta);
+  const rosterSeason = rosterSeasonOf(league);
+  /* every season with games, newest first, the one being played included */
+  const played = useMemo(
+    () => meta.seasons.filter(s => s <= (rosterSeason > latest ? rosterSeason : latest))
+      .slice().reverse(),
+    [meta.seasons, latest, rosterSeason]);
+  const [urlScope, setScope] = useScope(played, { allowAll: true });
+  /* a league with no price board opens on Stats, as Players does */
+  const hasValue = caps.indices || caps.market;
+  const scope: ScopeSel = hasValue || urlScope.scope === "history"
+    ? urlScope : { scope: "history", season: played[0] };
+  const hist = scope.scope === "history";
+  const seasons = useMemo(() => played.map(id => ({ id })), [played]);
+  return (
+    <>
+      <div className="v3-head">
+        <h1>Teams</h1>
+        <span className="sub">
+          {hist
+            ? (scope.season === "all" ? "what they did, every season" : `what they did in ${scope.season}`)
+            : "what the twelve rosters are worth"}
+        </span>
+      </div>
+      <ScopeControl value={scope} onChange={setScope} seasons={seasons}
+        currentLabel="Value" historyLabel="Stats" allTime pickOnReturn />
+      {hist ? <TeamsStats season={scope.season} played={played} /> : <ValueBoard />}
+    </>
+  );
+}
+
+function ValueBoard() {
   const { meta, players, league } = useLeague();
   /* Every column on this board is a figure one league's pipeline computes:
      three from the nightly index and projection runs, two from the dynasty
@@ -209,9 +266,10 @@ export default function Teams() {
   /** the columns this league HAS. Each is one pipeline's output, and a column
    *  of em dashes twelve rows deep is not a column. */
   const cols = useMemo(
-    () => COLS.filter(c => GROUP_OF[c.id] === "model" ? caps.indices : caps.market),
-    [caps.indices, caps.market]);
-  const groups = useMemo(() => (["model", "market"] as const)
+    () => COLS.filter(c => GROUP_OF[c.id] === "model" ? caps.indices
+      : GROUP_OF[c.id] === "market" ? caps.market : caps.projections && caps.indices),
+    [caps.indices, caps.market, caps.projections]);
+  const groups = useMemo(() => (["model", "market", "roster"] as const)
     .map(g => ({ label: GROUP_LABEL[g], span: cols.filter(c => GROUP_OF[c.id] === g).length }))
     .filter(g => g.span > 0), [cols]);
   const strip = useMemo(
@@ -231,6 +289,8 @@ export default function Teams() {
   const valsQ = useJson<Values>(
     caps.market ? "data/values.json" : null, "globalDaily");
   const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
+  /* ages, off the projection matrix — the file the outlook already fetches */
+  const mxQ = useJson<MatrixFile>(caps.projections ? "projections_matrix.json" : null);
 
   /* ---- every roster, priced ---------------------------------------------- */
 
@@ -244,6 +304,7 @@ export default function Teams() {
     if (caps.indices && (!dvi || !cvi || !projWar)) return null;
     if (caps.market && !valsQ.data) return null;
     const lineup = lineupOf(meta);
+    const ageOf = new Map((mxQ.data?.players ?? []).map(m => [m.pid, m.age ?? null]));
     return teams.map(t => {
       const assets: Asset[] = t.players.map(pid => {
         const d = dvi?.players[pid];
@@ -264,6 +325,7 @@ export default function Teams() {
             // prices a TE-premium league's tight ends in the wrong market.
             ktc: ktcOf(v, meta.tep),
             fc: v?.fc ?? null,
+            age: ageOf.get(pid) ?? null,
           },
         };
       });
@@ -273,14 +335,16 @@ export default function Teams() {
          count it is summing over. */
       const seatable = assets.map(a => ({ id: a.pid, pos: a.pos, f: a.f }));
       const startersBy = {} as Record<Key, Set<string>>;
-      for (const k of Object.keys(ZERO()) as Key[])
+      for (const k of CURRENCIES)
         startersBy[k] = starterSet(seatable, a => a.f[k], lineup);
+      // age has no lineup of its own: the classic board's, DVI's best nine
+      startersBy.age = startersBy.dvi;
       return {
         rid: t.roster_id, team: t.team, manager: t.manager,
         all: assets, startersBy,
       };
     });
-  }, [dviQ.data, cviQ.data, teamsQ.data, valsQ.data, projWar, players, meta, caps]);
+  }, [dviQ.data, cviQ.data, teamsQ.data, valsQ.data, projWar, players, meta, caps, mxQ.data]);
 
   const rows = useMemo<Row[] | null>(() => {
     if (!priced) return null;
@@ -346,13 +410,6 @@ export default function Teams() {
 
   return (
     <>
-      <div className="v3-head">
-        <h1>Teams</h1>
-        <span className="sub">
-          what the twelve rosters are worth
-          {pos === "ALL" ? "" : ` · ${pos} only`}
-        </span>
-      </div>
 
       {/* TWO CHIP GROUPS, ONE ROW, and neither of them is gold. Both FILTER —
           they change which players a row is built from, not how the rows are
@@ -374,12 +431,15 @@ export default function Teams() {
 
       {mobile && (
         <div className="plx-sort">
-          <span className="k">Sort</span>
+          {/* THE DIRECTION, as its own control — the Players board's, so a
+              phone can flip a column here too (Max, 2026-09-28) */}
+          <button type="button" className="plx-dir" aria-label={s.dir === -1 ? "Most first" : "Least first"}
+            onClick={() => s.onSort(s.sort)}>{s.dir === -1 ? "▾" : "▴"}</button>
           {/* A key picker, not a toggle: a mis-tap on the segment that is
               already lit silently reversing the whole board is not a control
               anyone can read. Re-tapping the lit segment is a no-op. */}
           <LensStrip label="Sort" value={s.sort}
-            onChange={k => { if (k !== s.sort) s.onSort(k); }}
+            onChange={k => { if (k !== s.sort) s.onSort(k, colOf(k).asc); }}
             options={strip.map(k => {
               const c = colOf(k);
               return { id: k, label: c.short ?? c.label };
@@ -418,7 +478,7 @@ export default function Teams() {
                 <th className="t">Franchise</th>
                 {cols.map(c => (
                   <Th key={c.id} id={c.id} label={c.label} align="n" width={c.width}
-                    sort={s.sort} onSort={s.onSort} />
+                    asc={c.asc} sort={s.sort} onSort={s.onSort} />
                 ))}
               </tr>
             </thead>
@@ -545,7 +605,7 @@ function Drawer({ r, k, slice, to }: {
         <Fig k="Players" v={r.n} sub={`in the ${sliceLabel}`} />
         {/* The largest single holding, which is what a sum hides: two rosters
             can total the same and one of them is one player. */}
-        <Fig k="Biggest" v={r.top?.name ?? NUL} word
+        <Fig k={k === "age" ? "Oldest" : "Biggest"} v={r.top?.name ?? NUL} word
           sub={r.top ? `${FMT[k](r.top.v)} ${UNIT[k]}` : "nobody priced"} />
       </div>
       <div className="plx-note">

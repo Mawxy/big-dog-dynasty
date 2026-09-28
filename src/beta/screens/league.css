@@ -98,6 +98,19 @@
   font: 500 10.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim2);
 }
 .lgx-drawer .sd-side .v.miss { color: var(--bad); }
+/* THE SLOT'S WAR (Max, 2026-09-28), the third line of the stack on the
+   matchup page: signed ink for an official figure, the quiet ramp for an
+   estimate, italic while his game is still on. */
+.lgx-drawer .sd-side .w {
+  font: 500 10.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim2);
+  white-space: nowrap;
+}
+.lgx-drawer .sd-side .w.pos { color: var(--good); }
+.lgx-drawer .sd-side .w.neg { color: var(--bad); }
+.lgx-drawer .sd-side .w.est { opacity: .8; }
+.lgx-drawer .sd-side .w.live { opacity: .7; font-style: italic; }
+.lgx-drawer .sd-side .w.nul { color: var(--dim3); }
+.lgx-drawer .sd-tot .sd-side .w { font-size: 11px; font-weight: 600; }
 /* and --good once it has settled over it (Max, 2026-09-11) */
 .lgx-drawer .sd-side .v.beat { color: var(--good); }
 /* a miss outranks the winning-side gold: red is the fact, gold the comparison */

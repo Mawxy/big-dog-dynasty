@@ -11,6 +11,8 @@ import { Band, DataError, IdCell, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath
 import ScopeControl, { type ScopeSeason, type ScopeSel } from "../Scope";
 import { PosLeaders, SlotDrawer, useFranchiseIndex, type SlotEntry } from "./League";
 import { playedPlayoffWeeks, playedWeeks, weekFigures, weekGames, weekRows, type WeekGame, type WeekRow } from "../week";
+import { useSeasonPhase } from "../model";
+import { LiveMatchup, LiveWeek } from "./SeasonsLive";
 import "./league.css";
 import "./seasons.css";
 
@@ -79,6 +81,13 @@ export default function Seasons() {
   const poWeeks = useMemo(() => playedPlayoffWeeks(mw), [mw]);
   const ps = mw?.playoff_start || 15;
   const hasPlayoffs = !!bracket || poWeeks.length > 0;
+  /* THE WEEK IN PROGRESS (Max, 2026-09-28): a destination now. The files do
+     not carry it until the nightly build scores it, so it is read off the
+     live feed (SeasonsLive.tsx) with an estimated WAR, and the League card's
+     "Full matchup →" lands on a page instead of "No game for that team". */
+  const seasonPhase = useSeasonPhase();
+  const liveWk = isCurrent && seasonPhase.week != null && !weeks.includes(seasonPhase.week)
+    ? seasonPhase.week : null;
 
   /* ---- the week ------------------------------------------------------------
      The path's week, else the newest played. "playoffs" is a week in the
@@ -126,7 +135,8 @@ export default function Seasons() {
         <div className="v3-lens ssx-weeks" role="group" aria-label="Week">
           {Array.from({ length: ps - 1 }, (_, i) => i + 1).map(w => (
             <button key={w} type="button" className={!playoffs && w === wk ? "on" : ""}
-              disabled={!weeks.includes(w)}
+              disabled={!weeks.includes(w) && w !== liveWk}
+              title={w === liveWk ? "in progress" : undefined}
               onClick={() => nav(betaPath(`/seasons/${season}/${w}`))}>W{w}</button>
           ))}
           {hasPlayoffs && (
@@ -140,6 +150,10 @@ export default function Seasons() {
         : !mw ? <div className="empty">Loading…</div>
         : playoffs ? (
           <Playoffs season={season} mw={mw} bracket={bracket} odds={odds} nameOf={nameOf} ptsOf={ptsOf} />
+        ) : wk != null && wk === liveWk ? (
+          mid != null
+            ? <LiveMatchup season={season} wk={wk} rid={mid} mw={mw} weekly={weekly} teams={teams} nameOf={nameOf} />
+            : <LiveWeek season={season} wk={wk} mw={mw} weekly={weekly} nameOf={nameOf} />
         ) : wk == null ? (
           <div className="empty">No week of {season} has been played yet.</div>
         ) : mid != null ? (
@@ -302,7 +316,7 @@ function Games({ season, wk, games, odds, nameOf, ptsOf, solo = false }: WeekPro
 /** a side's starting lineup as it was scored, one entry per slot in the
  *  league's lineup order, each slot carrying the points it returned. An
  *  empty slot is a real 0.0 — that IS the weakness. */
-function useSlots(wk: number, ptsOf: PtsOf) {
+function useSlots(wk: number, ptsOf: PtsOf, weekly?: Weekly | null) {
   const { meta } = useLeague();
   return useMemo(() => {
     const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
@@ -315,10 +329,12 @@ function useSlots(wk: number, ptsOf: PtsOf) {
         const pid = r.starters[i];
         const real = !!pid && pid !== "0";
         const v = real ? pts(pid) : 0;
-        return { slot: lineup[i] ?? "FLEX", pid: real ? pid : null, v, over: true, est: v };
+        // the week's official WAR, off weekly.json (regular season only)
+        const war = real ? weekly?.[pid]?.find(x => x[0] === wk)?.[5] ?? null : null;
+        return { slot: lineup[i] ?? "FLEX", pid: real ? pid : null, v, over: true, est: v, war };
       });
     };
-  }, [meta, wk, ptsOf]);
+  }, [meta, wk, ptsOf, weekly]);
 }
 
 /* ---- top performers -------------------------------------------------------
@@ -406,7 +422,7 @@ function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf }: WeekProps
   const betaPath = useBetaPath();
   const rows = useMemo(() => weekRows(mw, wk), [mw, wk]);
   const games = useMemo(() => weekGames(rows), [rows]);
-  const slots = useSlots(wk, ptsOf);
+  const slots = useSlots(wk, ptsOf, weekly);
   const g = games.find(x => x.a.rid === rid || x.b.rid === rid);
   if (!g) return <div className="empty">No game for that team in week {wk}.</div>;
   const scored = [...g.a.starters, ...g.b.starters].some(pid => pid && pid !== "0" && ptsOf(pid, wk) != null);
@@ -459,7 +475,7 @@ function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf }: WeekProps
           <SlotDrawer
             a={{ rid: g.a.rid, name: nameOf(g.a.rid), slots: slots(g.a) }}
             b={{ rid: g.b.rid, name: nameOf(g.b.rid), slots: slots(g.b) }}
-            played players={players} board={null} />
+            played players={players} board={null} war={wk < (mw.playoff_start || 15)} />
         </div>
       )}
       <div className="ssx-two">

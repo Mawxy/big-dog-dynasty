@@ -43,3 +43,6 @@
   color: var(--acc);
 }
 .band button.lgx-all:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* an estimated WAR still moving with a live game (SeasonsLive.tsx) */
+.v3tbl td .f.q.ssx-live { font-style: italic; opacity: .8; }

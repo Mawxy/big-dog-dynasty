@@ -32,7 +32,7 @@ import {
   useDynMovers, useGapRows, useMarketMovers,
 } from "../movers";
 import {
-  Band, DataError, fmtWar, IdCell, NUL, Spine, Strip, TapRow, useBetaPath, type Figure,
+  Band, DataError, fmtWar, IdCell, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath, type Figure,
 } from "../ui";
 import ScopeControl, { ALL_SEASONS, useScope, type ScopeSeason } from "../Scope";
 import "./league.css";
@@ -834,6 +834,31 @@ export interface SlotEntry {
   miss?: boolean;
   /** settled over it (Max, 2026-09-11) */
   beat?: boolean;
+  /** the slot's WAR for the week (Max, 2026-09-28): official off weekly.json
+   *  once the pipeline has scored the week, an estimate (lib/liveWar) before.
+   *  Null for a man with no figure yet — his game has not kicked off. */
+  war?: number | null;
+  /** how settled `war` is: "est" once his game is over, "live" while it is
+   *  still on (points so far). Absent on an official figure. */
+  warEst?: "est" | "live";
+}
+
+/**
+ * A SLOT'S WAR, under its points (Max, 2026-09-28). Signed and coloured like
+ * every WAR on the board; an estimate carries a leading "≈" and the quiet
+ * ramp, and one still moving with a live game is italic on top of that, so a
+ * figure the pipeline has not signed off on can never pass for one it has.
+ */
+function WarFig({ v, est }: { v: number | null; est?: "est" | "live" }) {
+  if (v == null) return <span className="w nul">—</span>;
+  const cls = Math.abs(v) < 0.005 ? "" : v > 0 ? " pos" : " neg";
+  return (
+    <span className={`w${cls}${est ? ` ${est}` : ""}`}
+      title={est === "live" ? "estimated on points so far — his game is still on"
+        : est ? "estimated — the pipeline scores the week once it is over" : "WAR for the week"}>
+      {est ? "≈" : ""}{sgnWar(v)}
+    </span>
+  );
 }
 
 /**
@@ -886,8 +911,11 @@ function gameLine(team: string, board: Scoreboard | null): string {
   return `${who} · ${when}`;
 }
 
-export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
+export function SlotDrawer({ a, b, played, live = false, players, board, to, war = false }: {
   a: SlotSide; b: SlotSide; played: boolean;
+  /** print each slot's WAR under its points, and each side's total — the
+   *  matchup page does; the League card's drawer keeps to points */
+  war?: boolean;
   /** the week in progress: the figures are points so far */
   live?: boolean;
   players: PlayersMin;
@@ -933,9 +961,20 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
             under it (Max, 2026-09-10) — the result is what missed */}
         <span className={`v${x?.miss ? " miss" : x?.beat ? " beat" : ""}`}>{x ? fmt(x.v, 1) : DASH}</span>
         {x?.proj != null && <span className="p">{fmt(x.proj, 1)}</span>}
+        {war && x?.pid && <WarFig v={x.war ?? null} est={x.warEst} />}
       </span>
     </div>
   );
+  /* a side's WAR is the sum of its slots' — an estimate if any part of it is */
+  const warTot = (side: SlotSide) => {
+    const got = side.slots.filter(x => x.pid && x.war != null);
+    if (!got.length) return null;
+    const open = side.slots.some(x => x.pid && (x.warEst === "live" || x.war == null));
+    const est = open ? "live" as const
+      : side.slots.some(x => x.pid && x.warEst) ? "est" as const : undefined;
+    return { v: got.reduce((t, x) => t + (x.war as number), 0), est };
+  };
+  const wtA = war ? warTot(a) : null, wtB = war ? warTot(b) : null;
   // the totals' projections, and whether a side finished short of its own
   const hasProj = a.slots.some(x => x.proj != null) || b.slots.some(x => x.proj != null);
   const projA = a.slots.reduce((t, x) => t + (x.proj ?? 0), 0);
@@ -957,7 +996,8 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
   return (
     <div className="lgx-drawer">
       <div className="sd-head">
-        <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live" : "Slot by slot · projected"}</span>
+        <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live" : "Slot by slot · projected"}
+          {war ? " · points over WAR" : ""}</span>
         {to && <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>}
       </div>
       {Array.from({ length: n }, (_, i) => {
@@ -992,6 +1032,7 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
           <span className="vs">
             <span className={`v${missA ? " miss" : beatA ? " beat" : ""}`}>{fmt(totA, 1)}</span>
             {hasProj && <span className="p">{fmt(projA, 1)}</span>}
+            {war && <WarFig v={wtA?.v ?? null} est={wtA?.est} />}
           </span>
         </div>
         <div className="sd-mid">
@@ -1007,6 +1048,7 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to }: {
           <span className="vs">
             <span className={`v${missB ? " miss" : beatB ? " beat" : ""}`}>{fmt(totB, 1)}</span>
             {hasProj && <span className="p">{fmt(projB, 1)}</span>}
+            {war && <WarFig v={wtB?.v ?? null} est={wtB?.est} />}
           </span>
         </div>
       </div>

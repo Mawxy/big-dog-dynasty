@@ -233,9 +233,12 @@ export default function TeamRecords({ fkey, fr, seasons }: {
       detail: `${bestPf.wins}-${bestPf.losses}${bestPf.ties ? `-${bestPf.ties}` : ""} · ${fmt(bestPf.ppg, 1)} ppg`,
       when: bestPf.season, to: betaPath(`/seasons/${bestPf.season}`),
     });
-    const pct = (s: { wins: number; losses: number; ties: number }) =>
-      (s.wins + s.ties / 2) / (s.wins + s.losses + s.ties);
-    const bestRec = maxBy(fseasons, s => pct(s) * 1000 + s.wins);
+    /* MOST WINS, NOT BEST PERCENTAGE (Max, 2026-09-28): by percentage a 1-0
+       start in the season being played outranks every 12-2 there has ever
+       been, so the record changed hands every September. Wins first (a tie is
+       half of one), then fewer losses, then points as the last word. */
+    const bestRec = maxBy(fseasons,
+      s => (s.wins + s.ties / 2) * 1e6 - s.losses * 1e3 + s.fpts / 1e4);
     if (bestRec) push({
       key: "rec", label: "Best record, season",
       value: `${bestRec.wins}-${bestRec.losses}${bestRec.ties ? `-${bestRec.ties}` : ""}`,

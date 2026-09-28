@@ -535,6 +535,10 @@
   .plx-tbl.plx-hist thead tr.plx-cols th:nth-child(7) {
     border-left: 1px solid var(--rule);
   }
+  /* no Snap % column (a week window, or a league without usage.json): the
+     Won-lost edge moves one cell left */
+  .plx-tbl.plx-hist.plx-nosnap thead tr.plx-cols th:nth-child(7) { border-left: 0; }
+  .plx-tbl.plx-hist.plx-nosnap thead tr.plx-cols th:nth-child(6) { border-left: 1px solid var(--rule); }
 
   .plx-figs {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -547,3 +551,30 @@
    each group. `--rule` for the group edge, `--hair` between rows — which is
    what lets a wide table scan sideways instead of dissolving into a grid. */
 .plx-edge { border-left: 1px solid var(--rule); }
+
+/* ---- the weeks row (Max, 2026-09-28) --------------------------------------
+   The Show row's shape — a key, then chips — with a from/to pair on the end.
+   The selects are League's week picker at chip height: zero radius, the deep
+   fill, the condensed caps the chips use. */
+.plx-wkrow .plx-wkrange {
+  display: inline-flex; align-items: center; gap: 6px; flex: 0 0 auto;
+  margin-left: 4px;
+}
+.plx-wkpick {
+  font: 600 12px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  font-variant-numeric: tabular-nums;
+  color: var(--txt); background: var(--deep);
+  border: 1px solid var(--rule); border-radius: 0;
+  padding: 5px 4px; cursor: pointer;
+}
+.plx-wkpick:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
+.plx-wkpick:disabled { opacity: .45; cursor: not-allowed; }
+.plx-wkto {
+  font: 600 9.5px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--dim2);
+}
+/* on a phone the weeks row wraps its from/to pair onto a second line rather
+   than scrolling the pickers off the edge */
+@media (max-width: 899px) {
+  .plx-filters2.plx-wkrow { flex-wrap: wrap; overflow-x: visible; row-gap: 8px; }
+}

@@ -48,6 +48,11 @@ import {
   serializeFilters, type FactsIndex, type Filter,
 } from "../filters";
 import FilterSheet from "../FilterSheet";
+import { playedWeeks } from "../week";
+import {
+  effectiveSpan, inSpan, parseSpan, spanLine, spanParam, spanRecords, spanText,
+  spanWinShare, type WeekSpan,
+} from "../weekSpan";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, readSticky, SheetRow, Spine, sortBy,
   useSticky, writeSticky,
@@ -540,7 +545,7 @@ function combine(
   };
 }
 
-function startsBy(mw: Matchups, teams: Team[]) {
+function startsBy(mw: Matchups, teams: Team[], span?: WeekSpan | null) {
   const ps = mw.playoff_start || 15;
   const name = new Map<number, string>(teams.map(t => [t.roster_id, t.team]));
   const per = new Map<string, Map<number, number>>();
@@ -548,6 +553,7 @@ function startsBy(mw: Matchups, teams: Team[]) {
     const r = Number(rid);
     for (const e of list) {
       if (e[0] >= ps) continue;                       // regular season only
+      if (span && !inSpan(span, e[0])) continue;      // …and the week window
       for (const pid of e[4] ?? []) {
         // Sleeper writes "0" into a lineup slot nobody filled
         if (!pid || pid === "0") continue;
@@ -656,6 +662,19 @@ export default function Players() {
     navF({ pathname: loc.pathname, search: str ? `?${str}` : "" });
   };
   const [filterOpen, setFilterOpen] = useState(false);
+  /* THE WEEK WINDOW (Max, 2026-09-28) — see weekSpan.ts. In the URL beside
+     the criteria (`?wk=3-7`) and pushed the same way, so a narrowed board is a
+     shareable one and Back widens it again. What the URL asks for is clamped
+     to the weeks the season has settled further down, once matchups.json has
+     said which those are. */
+  const spanAsked = useMemo(
+    () => parseSpan(new URLSearchParams(loc.search).get("wk")), [loc.search]);
+  const setSpan = (sp: WeekSpan | null) => {
+    const qs = new URLSearchParams(loc.search);
+    if (sp) qs.set("wk", spanParam(sp)); else qs.delete("wk");
+    const str = qs.toString();
+    navF({ pathname: loc.pathname, search: str ? `?${str}` : "" });
+  };
   const needs = filterNeeds(filters);
   /** the criteria this league's pipeline can actually answer. Offering "DVI ≥
    *  50" where no dvi.json is written is a control whose only outcome is an
@@ -892,10 +911,20 @@ export default function Players() {
   const sumQ = useJson<SummaryRow[]>(oneSeason ? `${oneSeason}/summary.json` : null);
   const hTeamQ = useJson<Team[]>(oneSeason ? `${oneSeason}/teams.json` : null);
   const mwQ = useJson<Matchups>(oneSeason ? `${oneSeason}/matchups.json` : null);
+  /** the regular-season weeks this season has settled — the window's options */
+  const weeks = useMemo(() => playedWeeks(mwQ.data), [mwQ.data]);
+  /** the window narrows ONE season's regular-season box score: not a career,
+   *  not the bracket, and not Maxalytics, whose usage.json carries season
+   *  rates only */
+  const weekable = hist && !!oneSeason && phase === "reg";
+  const wspan = useMemo(
+    () => (weekable && !usage ? effectiveSpan(spanAsked, weeks) : null),
+    [weekable, usage, spanAsked, weeks]);
   /* weekly.json is 140 KB and answers exactly one figure in the drawer, so it
      is fetched when a drawer is open and not before. Opening a second row keeps
-     the same path, so the file is fetched once per season, not once per tap. */
-  const wkQ = useJson<Weekly>(oneSeason && open ? `${oneSeason}/weekly.json` : null);
+     the same path, so the file is fetched once per season, not once per tap.
+     A week window is the other reader: it IS the window's population. */
+  const wkQ = useJson<Weekly>(oneSeason && (open || wspan) ? `${oneSeason}/weekly.json` : null);
   /* THE BYE FLAGS, on the same trigger. A few KB beside weekly.json's 140, and
      without it every bye in the season strip reads as a missing week — which is
      a different fact and the one thing that grid exists to keep apart. */
@@ -908,6 +937,18 @@ export default function Players() {
     // render, and building rows against a null season would key the record and
     // honor lookups on nothing.
     if (!sum || !oneSeason || !hTeamQ.data || !mwQ.data) return null;
+    if (wspan && !wkQ.data) return null;
+    /* THE WINDOW'S ROWS, in summary.json's own shape, so everything below —
+       the finish, the affiliation, the columns — reads one tuple whichever
+       board this is. WAA (slot 5) and VoWP are not on the board and are left
+       out rather than summed into something nobody reads. */
+    const src: SummaryRow[] = wspan
+      ? sum.flatMap((r): SummaryRow[] => {
+        const l = spanLine(wkQ.data?.[r[0]], wspan);
+        return l ? [[r[0], r[1], l.gp, l.pts, l.ppg, 0, l.war, l.sdv ?? undefined]] : [];
+      })
+      : sum;
+    const spanWl = wspan ? spanRecords(mwQ.data, wspan) : null;
     /* POSITION FINISH — rank within position by that season's POINTS, over
        every row in the file. Computed before the games floor below, because a
        finish is a fact about the season and not about this board's inclusion
@@ -917,25 +958,27 @@ export default function Players() {
        drawer labels this one. */
     const finish = new Map<string, number>();
     const seen: Record<string, number> = {};
-    for (const r of sum.slice().sort((a, b) => b[3] - a[3])) {
+    for (const r of src.slice().sort((a, b) => b[3] - a[3])) {
       seen[r[1]] = (seen[r[1]] ?? 0) + 1;
       finish.set(r[0], seen[r[1]]);
     }
-    const started = startsBy(mwQ.data, hTeamQ.data);
+    const started = startsBy(mwQ.data, hTeamQ.data, wspan);
     /* WHO HELD HIM, for the rows `started` has nothing for. End-of-season
        rosters in a settled year; the live ones in the year being played, which
        is the season this fallback was asked for. */
     const held = ownerOf(hTeamQ.data);
     // WAR is optional in the row tuple and a row missing it arithmetics into
     // NaN, which sorts unpredictably. Drop the row rather than zeroing it.
-    const all = sum.filter(r => typeof r[6] === "number").map((r): Row => {
+    const all = src.filter(r => typeof r[6] === "number").map((r): Row => {
       const [pid, p, gp, pts, ppg, , war, sdv] = r;
       const st = started.get(pid) ?? null;
       /* The two records for THIS season. `recs` is still null on the first
          render after a scope change, which is why both columns are nullable
          figures rather than a zeroed record: "not read yet" and "never won a
          week" must not print the same thing. */
-      const wl = recordsOf(recs, pid, [oneSeason!]);
+      const wl = spanWl
+        ? spanWl.get(pid) ?? { start: emptyWL(), roster: emptyWL() }
+        : recordsOf(recs, pid, [oneSeason!]);
       return {
         kind: "hist",
         pid, name: pInfo(players, pid)[0], pos: p,
@@ -949,7 +992,9 @@ export default function Players() {
         wl,
         f: {
           gp, pts, ppg, war,
-          ws: winShareOf(wins, pid, [oneSeason]),
+          ws: wspan
+            ? spanWinShare(wins?.byPlayer[pid]?.[oneSeason]?.wk, wspan, wlGames(wl.start))
+            : winShareOf(wins, pid, [oneSeason]),
           wls: wlByWins(wl.start),
           wlr: wlByWins(wl.roster),
         },
@@ -958,7 +1003,8 @@ export default function Players() {
           wls: wlText(wl.start) ?? undefined,
           wlr: wlText(wl.roster) ?? undefined,
         },
-        marks: honors?.byPlayer[pid]?.[oneSeason!]?.length
+        // a season's honors are a fact about the season, not about a window
+        marks: !wspan && honors?.byPlayer[pid]?.[oneSeason!]?.length
           ? honorTotals([{ season: oneSeason!, keys: honors.byPlayer[pid][oneSeason!] }])
           : undefined,
       };
@@ -971,7 +1017,8 @@ export default function Players() {
        cannot inflate. Every player the season scored is listed; the reader can
        see the sample and decide. */
     return all;
-  }, [sumQ.data, hTeamQ.data, mwQ.data, players, recs, honors, wins, oneSeason]);
+  }, [sumQ.data, hTeamQ.data, mwQ.data, players, recs, honors, wins, oneSeason,
+    wspan, wkQ.data]);
 
   /* ---- STATS: every settled season at once ------------------------------
      One row per player, totals rather than a season. `loadCareer` has already
@@ -1161,23 +1208,27 @@ export default function Players() {
      onto the league rows under the phase in force. Until usage.json lands
      the column reads the em dash and nothing else waits on it. */
   const snapPop = useMemo<Row[] | null>(() => {
-    if (!hist || usage || !boxPop) return boxPop;
+    // a season rate has no week window to be read over
+    if (!hist || usage || !boxPop || wspan) return boxPop;
     if (!usg_) return boxPop;
     return boxPop.map(r => {
       const v = usageOf(usg_, r.pid, viewSeasons, phase)?.snap_pct;
       return v == null ? r : { ...r, f: { ...r.f, snap_pct: v } };
     });
-  }, [hist, usage, boxPop, usg_, viewSeasons, phase]);
+  }, [hist, usage, boxPop, usg_, viewSeasons, phase, wspan]);
   const population = usage ? usagePop : snapPop;
   /* The box score's snap-share column is one figure borrowed from usage.json,
      so it goes where that file does. A column that is an em dash in every row
      of every season is not a column. */
+  /* …and a week window drops it too: snap share is a season rate, with no
+     window to be read over (weekSpan.ts) */
+  const snapCol = caps.usage && !wspan;
   const histCols = useMemo(
-    () => (caps.usage ? HIST_COLS : HIST_COLS.filter(c => c.id !== "snap_pct")),
-    [caps.usage]);
+    () => (snapCol ? HIST_COLS : HIST_COLS.filter(c => c.id !== "snap_pct")),
+    [snapCol]);
   const histGrps = useMemo(
-    () => (caps.usage ? HIST_GRPS : [{ label: "Production", span: 3 }, ...HIST_GRPS.slice(1)]),
-    [caps.usage]);
+    () => (snapCol ? HIST_GRPS : [{ label: "Production", span: 3 }, ...HIST_GRPS.slice(1)]),
+    [snapCol]);
   /** THE HEADER FOLLOWS THE FIGURE. Mid-season the Current tense's WAR cell is
    *  an outlook, not a full-season projection, so the header stops claiming
    *  otherwise; `short` stays "WAR" because the phone strip has 66px a segment
@@ -1335,7 +1386,7 @@ export default function Players() {
   /* The Both board reads the season files too — its regular half is the same
      population — so only the Playoffs board is free of them. */
   const queries = hist
-    ? (allTime || phase === "post" ? [] : [sumQ, hTeamQ, mwQ])
+    ? (allTime || phase === "post" ? [] : [sumQ, hTeamQ, mwQ, ...(wspan ? [wkQ] : [])])
     : [dviQ, cviQ, mxQ, valsQ, ecrQ, rosQ];
   const failed = rows == null
     && ((phase !== "reg" && postErr)
@@ -1366,7 +1417,9 @@ export default function Players() {
         <h1>Players</h1>
         <span className="sub">
           {hist
-            ? (allTime ? "what they did, every season" : `what they did in ${season}`)
+            ? (allTime ? "what they did, every season"
+              : wspan ? `what they did in ${season}, ${spanText(wspan).toLowerCase()}`
+                : `what they did in ${season}`)
             : "what they're worth now"}
           {rows ? ` · ${rows.length} shown` : ""}
         </span>
@@ -1424,6 +1477,52 @@ export default function Players() {
             onClick={() => setMeasure("usage")}>Maxalytics</button>
         </div>
       )}
+
+      {/* THE WEEKS ROW (Max, 2026-09-28): one season's regular season, narrowed
+          to a run of its weeks. Two presets for the question a reader asks
+          most — who is hot right now — and a from/to pair for everything else.
+          Shown only where a window means something (one season, regular
+          phase), and disabled rather than hidden under Maxalytics, whose
+          figures are season rates. */}
+      {weekable && weeks.length > 1 && (() => {
+        const lo = weeks[0], hi = weeks[weeks.length - 1];
+        const cur = wspan ?? { from: lo, to: hi };
+        const last = (n: number): WeekSpan => ({ from: Math.max(lo, hi - n + 1), to: hi });
+        const isLast = (n: number) => !!wspan && wspan.to === hi && wspan.from === Math.max(lo, hi - n + 1);
+        const off = usage;
+        const why = off ? "the Maxalytics figures are season rates, so they have no week window" : undefined;
+        return (
+          <div className="v3-filters plx-filters plx-filters2 plx-wkrow">
+            <span className="plx-fk">Weeks</span>
+            <button type="button" className={`chip${!wspan ? " on" : ""}`} disabled={off} title={why}
+              onClick={() => setSpan(null)}>All</button>
+            {[3, 5].filter(n => n < weeks.length).map(n => (
+              <button key={n} type="button" className={`chip${isLast(n) ? " on" : ""}`}
+                disabled={off} title={why}
+                onClick={() => setSpan(last(n))}>Last {n}</button>
+            ))}
+            <span className="plx-wkrange">
+              <select className="plx-wkpick" aria-label="From week" value={cur.from}
+                disabled={off} title={why}
+                onChange={e => {
+                  const f = Number(e.target.value);
+                  setSpan({ from: f, to: Math.max(f, cur.to) });
+                }}>
+                {weeks.map(w => <option key={w} value={w}>W{w}</option>)}
+              </select>
+              <span className="plx-wkto">to</span>
+              <select className="plx-wkpick" aria-label="To week" value={cur.to}
+                disabled={off} title={why}
+                onChange={e => {
+                  const t = Number(e.target.value);
+                  setSpan({ from: Math.min(cur.from, t), to: t });
+                }}>
+                {weeks.map(w => <option key={w} value={w}>W{w}</option>)}
+              </select>
+            </span>
+          </div>
+        );
+      })()}
 
       <div className="v3-filters plx-filters plx-row1">
         {POS_CHIPS.map(p => (
@@ -1527,7 +1626,8 @@ export default function Players() {
            written out. */
         label={hist
           ? `${allTime ? "All-time" : season} · ${
-            PHASES.find(p => p.id === phase)!.label} · ${usage ? "Maxalytics" : "Box score"}`
+            wspan ? spanText(wspan) : PHASES.find(p => p.id === phase)!.label} · ${
+            usage ? "Maxalytics" : "Box score"}`
           : `Value · ${rosterSeason} rosters`}
         right={
           /* THE BAND CARRIES BOTH, and the note comes first: it is the thing a
@@ -1609,7 +1709,7 @@ export default function Players() {
                 : "Nothing matches those filters."}
           </div>
         ) : (
-        <table className={`v3tbl plx-tbl ${hist ? "plx-hist" : "plx-cur"}`}>
+        <table className={`v3tbl plx-tbl ${hist ? "plx-hist" : "plx-cur"}${hist && !usage && !snapCol ? " plx-nosnap" : ""}`}>
           {!mobile && (
             <thead>
               <tr className="plx-grp">
@@ -1736,7 +1836,7 @@ export default function Players() {
                           : <HistDrawer r={r} season={oneSeason!} to={betaPath(`/player/${r.pid}`)}
                             weekly={wkQ.data?.[r.pid] ?? null} loading={wkQ.loading}
                             absent={absQ.data?.[r.pid]}
-                            playoffStart={mwQ.data?.playoff_start ?? 15} />}
+                            playoffStart={mwQ.data?.playoff_start ?? 15} wspan={wspan} />}
                     </td>
                   </tr>
                 )}
@@ -2124,47 +2224,52 @@ function AllDrawer({ r, to, scores, loading }: {
   );
 }
 
-function HistDrawer({ r, season, to, weekly, loading, absent, playoffStart }: {
+function HistDrawer({ r, season, to, weekly, loading, absent, playoffStart, wspan }: {
   r: HistRow; season: string; to: string;
   weekly: WeeklyRow[] | null;
   loading: boolean;
   /** week -> "BYE" / "DNP" for this player, from the season's absence.json */
   absent?: Record<string, string>;
   playoffStart: number;
+  /** the board's week window, when one is set: the figures are the window's,
+   *  the fourteen-cell strip stays the whole season so the window has context */
+  wspan?: WeekSpan | null;
 }) {
+  const inWin = (wk: number) => wk < playoffStart && (!wspan || inSpan(wspan, wk));
   // best REGULAR-SEASON week: the board's whole tense is the regular season, and
   // a playoff explosion under a "regular season" band would be the wrong week.
   const best = useMemo(() => {
     if (!weekly) return null;
     let bw = 0, bp = -Infinity;
     for (const w of weekly) {
-      if (w[0] >= playoffStart) continue;
+      if (!inWin(w[0])) continue;
       if (w[1] > bp) { bp = w[1]; bw = w[0]; }
     }
     return bw ? { week: bw, pts: bp } : null;
-  }, [weekly, playoffStart]);
+  }, [weekly, playoffStart, wspan]);
 
   /* The same weeks the best-week figure reads, kept whole for the spread. One
      fetch, two answers: weekly.json is already in flight for this drawer. */
   const scores = useMemo(
-    () => (weekly ?? []).filter(w => w[0] < playoffStart).map(w => w[1]),
-    [weekly, playoffStart]);
+    () => (weekly ?? []).filter(w => inWin(w[0])).map(w => w[1]),
+    [weekly, playoffStart, wspan]);
 
   return (
     <div className="plx-draw">
       <div className="hd">
         <span className="nm">{r.name}</span>
-        <span className="mt">{r.pos} · {season} regular season</span>
+        <span className="mt">{r.pos} · {season} {wspan ? spanText(wspan).toLowerCase() : "regular season"}</span>
       </div>
       <div className="plx-figs">
-        <Fig k="GP" v={figOf("gp", r.f.gp ?? null)} sub="regular season" />
+        <Fig k="GP" v={figOf("gp", r.f.gp ?? null)} sub={wspan ? spanText(wspan).toLowerCase() : "regular season"} />
         <Fig k="Volatility" v={r.sdv == null ? NUL : fmt(r.sdv, 1)}
           sub={r.sdv == null ? "not published for this season" : "weekly σ, lower is steadier"} />
         <Fig k="WAR/G" v={r.warG == null ? NUL : fmtWar(r.warG)} sub="per game played" />
         {/* The badge on the row ranks him by whatever the board is sorted by;
             this is the finish, which is by points and does not move. Two
             numbers of the same shape, so this one names its ruler. */}
-        <Fig k="Pos finish" v={r.finish ? `${r.pos}${r.finish}` : NUL} sub="by points" />
+        <Fig k="Pos finish" v={r.finish ? `${r.pos}${r.finish}` : NUL}
+          sub={wspan ? "by points in the window" : "by points"} />
         {/* the week scores arrive on their own file, opened with the drawer —
             so "still reading" and "he never scored" are different sub-labels,
             and neither of them is a zero */}
