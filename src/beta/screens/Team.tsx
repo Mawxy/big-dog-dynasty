@@ -1,7 +1,8 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
-  Franchises, Insights, PicksOwned, ProjectionsFile, Team as TeamT, Values,
+  Franchises, Insights, Matchups, PicksOwned, ProjectionsFile, SummaryRow,
+  Team as TeamT, Values,
 } from "../../lib/types";
 import { useMobile } from "../../lib/useWidth";
 import QuickJump from "../../components/QuickJump";
@@ -14,7 +15,8 @@ import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useProjWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
-import { fmt, ord } from "../../lib/stats";
+import { fmt, ord, sgn } from "../../lib/stats";
+import { ridOf, seasonRowOf } from "../../lib/seasons";
 import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf,
 } from "../../lib/league";
@@ -24,6 +26,7 @@ import { rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
 import Moved from "../moved";
 import TeamSeasons from "./TeamSeasons";
 import TeamRivals from "./TeamRivals";
+import TeamRecords from "./TeamRecords";
 import {
   Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, TapRow, useBetaPath,
   type IdTag,
@@ -61,14 +64,23 @@ import "./team.css";
  * δ-weighted value replaces this proxy when the WAR-stream model lands.
  */
 
-type Lens = "dvi" | "cvi";
+/** the two index currencies — what the rank figure, the band totals and the
+ *  strengths tier rule are read in */
+type IdxLens = "dvi" | "cvi";
+/** THE ROSTER'S LENS (Max, 2026-09-27): the two indices, plus STATS — the
+ *  season as played. Stats swaps the three figure columns for accrued WAR,
+ *  points and games, and re-sorts the bench and taxi squad by accrued WAR. It
+ *  is not a currency, so everything else on the screen that reads an index
+ *  keeps the last one the reader picked (`idxLens`). */
+type Lens = IdxLens | "stats";
 
 /** The one toggle on this screen. Declared as data so it rides `LensStrip` —
- *  the same control the leaderboard uses — rather than two hand-rolled buttons
+ *  the same control the leaderboard uses — rather than hand-rolled buttons
  *  that happen to carry the same classes. */
-const LENSES: { id: Lens; label: string }[] = [
+const lensesFor = (statsSeason: string): { id: Lens; label: string }[] => [
   { id: "dvi", label: "DVI · dynasty" },
   { id: "cvi", label: "CVI · win now" },
+  { id: "stats", label: `Stats · ${statsSeason}` },
 ];
 
 /** Surnames only in a strengths seat row — the holder gets ~84px and the full
@@ -115,6 +127,12 @@ interface RosterRow {
   idx: number | null;
   war: number | null;
   market: number | null;
+  /** THE STATS LENS: the season as played, off `<season>/summary.json`.
+   *  `war` is realized regular-season WAR (the stats page's column, the
+   *  outlook's `banked`), `gp` games dressed under the played rule, and `gs`
+   *  the weeks THIS franchise put him in its starting lineup, off
+   *  matchups.json. Null where he has no line — never a zero he did not post. */
+  st?: { war: number | null; pts: number | null; gp: number | null; gs: number | null };
   /** LINEUP ONLY: the seat this row sits in, which takes the spine's ordinal
    *  slot. Straight out of meta.rosterPositions through SLOT_LABEL. */
   seat?: string;
@@ -184,7 +202,19 @@ export default function Team() {
   // its ORIGINAL owner's projected finish, not its holder's
   const tiers = usePickTiers();
 
-  const [lens, setLens] = useState<Lens>("dvi");
+  const [lens, setLensRaw] = useState<Lens>("dvi");
+  const [idxLens, setIdxLens] = useState<IdxLens>("dvi");
+  const setLens = (v: Lens) => {
+    setLensRaw(v);
+    if (v !== "stats") setIdxLens(v);
+  };
+
+  /* THE STATS LENS'S SEASON: the newest one with games in it. In season that
+     is the roster season; between the title game and week 1 it is the season
+     just finished, which is the one a reader asking "how did he do" means. */
+  const statsSeason = meta.latest ?? rosterSeason;
+  const sumQ = useJson<SummaryRow[]>(`${statsSeason}/summary.json`);
+  const mwStats = useJson<Matchups>(`${statsSeason}/matchups.json`).data;
 
   /**
    * THE PLAYER PAGE'S SHELL (Max, 2026-09-08): one subject, so the split rail
@@ -207,6 +237,7 @@ export default function Team() {
     moved: useRef<HTMLDivElement>(null),
     seasons: useRef<HTMLDivElement>(null),
     rivals: useRef<HTMLDivElement>(null),
+    records: useRef<HTMLDivElement>(null),
     strengths: useRef<HTMLDivElement>(null),
   };
   const goto = (k: keyof typeof refs) =>
@@ -225,11 +256,46 @@ export default function Team() {
        undefined means "this league has no such index", which every figure
        below resolves to the em dash — the same answer a player the index does
        not cover already got. */
-    const idxFile = lens === "dvi" ? dvi?.players : cvi?.players;
+    const idxFile = idxLens === "dvi" ? dvi?.players : cvi?.players;
     const idxOf = (pid: string) => {
       const r = idxFile?.[pid] as { dvi?: number; cvi?: number } | undefined;
-      return r ? (lens === "dvi" ? r.dvi ?? null : r.cvi ?? null) : null;
+      return r ? (idxLens === "dvi" ? r.dvi ?? null : r.cvi ?? null) : null;
     };
+
+    /* ---- the season as played (the Stats lens) --------------------------
+       summary.json: [pid, pos, gp, pts, ppg, WAA, WAR, …]. Starts are this
+       franchise's, counted off the lineups it actually set in the regular
+       season — the roster slot it held THAT season, which in a redraft league
+       is not always today's `rid` (lib/seasons.ridOf). */
+    const sumBy = new Map((sumQ.data ?? []).map(r => [r[0], r] as const));
+    const fkeyNow = String(team.fkey ?? rid);
+    const statsRid = statsSeason === rosterSeason
+      ? rid
+      : ridOf(fkeyNow, seasonRowOf(fr?.[fkeyNow], statsSeason));
+    const starts = new Map<string, number>();
+    if (mwStats && statsRid != null) {
+      const ps = mwStats.playoff_start || 15;
+      for (const e of mwStats.teams[String(statsRid)] ?? []) {
+        if (e[0] >= ps) continue;                     // regular season only
+        for (const pid of e[4] ?? []) {
+          // Sleeper writes "0" into a lineup slot nobody filled
+          if (pid && pid !== "0") starts.set(pid, (starts.get(pid) ?? 0) + 1);
+        }
+      }
+    }
+    const statOf = (pid: string): RosterRow["st"] => {
+      const r = sumBy.get(pid);
+      return {
+        war: r ? r[6] : null,
+        pts: r ? r[3] : null,
+        gp: r ? r[2] : null,
+        // a start is a fact only once the lineups have loaded
+        gs: mwStats ? starts.get(pid) ?? 0 : null,
+      };
+    };
+    /** what a row sorts on within its band: the featured column */
+    const sortVal = (r: RosterRow) =>
+      (lens === "stats" ? r.st?.war : r.idx) ?? -1e9;
     const posRankOf = (pid: string) => idxFile?.[pid]?.pos_rank ?? null;
     // DVI's position, not the featured lens's — the two files agree, and
     // reading ONE of them is what stops the lineup re-seating itself when the
@@ -281,6 +347,7 @@ export default function Team() {
         // player nobody there can keep, so the column is the em dash rather
         // than a figure from the wrong format.
         market: caps.market ? ktcOf(vals?.players?.[pid], meta.tep) : null,
+        st: statOf(pid),
       };
     };
 
@@ -352,18 +419,19 @@ export default function Team() {
        The value inside a group is the LENS in force, not DVI specifically — the
        column beside it is that lens, and ordering by the other one would put
        the rows in an order the visible figure does not explain. DVI is the
-       default, so the default board is exactly the ask. */
+       default, so the default board is exactly the ask. Under Stats it is
+       accrued WAR, the first of that lens's columns. */
     const benchRows = team.players
       .filter(pid => !starters.has(pid) && !taxi.has(pid))
       .map(pid => rowOf(pid, { ir: ir.has(pid) }))
       .sort((a, b) =>
-        posOrder(a.pos) - posOrder(b.pos) || (b.idx ?? -1) - (a.idx ?? -1));
+        posOrder(a.pos) - posOrder(b.pos) || sortVal(b) - sortVal(a));
 
     /* ---- TAXI ------------------------------------------------------------ */
     const taxiRows = team.players
       .filter(pid => taxi.has(pid))
       .map(pid => rowOf(pid, { taxi: true }))
-      .sort((a, b) => (b.idx ?? -1) - (a.idx ?? -1));
+      .sort((a, b) => sortVal(b) - sortVal(a));
 
     // capacities are league settings, read from the league's own files
     const benchSlots = lineup.filter(s => s === "BN").length;
@@ -429,8 +497,11 @@ export default function Team() {
      *  ever projected is the zero this board spends its em dashes avoiding. */
     const bandTotal = (rows: RosterRow[]): ReactNode => {
       if (!rows.length) return undefined;
+      // under Stats the band totals what its rows BANKED, and says so
+      if (lens === "stats")
+        return sumQ.data ? `${sgnWar(sum(rows, r => r.st?.war ?? null))} WAR banked` : undefined;
       if (war != null) return `${sgnWar(sum(rows, r => r.war))} WAR`;
-      if (idxFile) return `${Math.round(sum(rows, r => r.idx))} ${lens.toUpperCase()}`;
+      if (idxFile) return `${Math.round(sum(rows, r => r.idx))} ${idxLens.toUpperCase()}`;
       return undefined;
     };
 
@@ -468,9 +539,11 @@ export default function Team() {
       // currency its rows actually carry, and names it. An EMPTY taxi squad
       // gets no total at all rather than "0 DVI" — four unused slots are not
       // four worthless players.
-      total: taxiRows.length && idxFile
-        ? `${Math.round(sum(taxiRows, r => r.idx))} ${lens.toUpperCase()}`
-        : undefined,
+      total: lens === "stats"
+        ? bandTotal(taxiRows)
+        : taxiRows.length && idxFile
+          ? `${Math.round(sum(taxiRows, r => r.idx))} ${idxLens.toUpperCase()}`
+          : undefined,
       empty: "Taxi squad empty.",
     });
     if (pickRows.length) bands.push({
@@ -485,7 +558,8 @@ export default function Team() {
       empty: "No picks on the books.",
     });
     return { bands, lineupWar, asSet };
-  }, [team, dvi, cvi, war, vals, owned, players, meta, lens, rid, teams, tiers, caps.market]);
+  }, [team, dvi, cvi, war, vals, owned, players, meta, lens, idxLens, rid, teams, tiers,
+    caps.market, sumQ.data, mwStats, fr, statsSeason, rosterSeason]);
 
   /* ---- strengths --------------------------------------------------------
      rosterShapes' own output, unchanged: the optimal starting eight and the
@@ -550,7 +624,7 @@ export default function Team() {
   const season = franchise?.seasons.slice().reverse()
     .find(s => s.wins + s.losses + s.ties > 0);
   const idxRank = tvals
-    ? rankMap(tvals, t => (lens === "dvi" ? t.dvi : t.cvi), t => t.rid).get(rid) ?? null
+    ? rankMap(tvals, t => (idxLens === "dvi" ? t.dvi : t.cvi), t => t.rid).get(rid) ?? null
     : null;
   const mine = tvals?.find(t => t.rid === rid);
   const marketRank = tvals ? rankMap(tvals, t => t.market, t => t.rid).get(rid) ?? null : null;
@@ -565,14 +639,14 @@ export default function Team() {
       sub: season ? `${season.season} · ${fmt(season.ppg, 1)} ppg` : "no season played",
     },
     {
-      key: "rk", label: `${lens.toUpperCase()} rank`,
+      key: "rk", label: `${idxLens.toUpperCase()} rank`,
       value: idxRank ?? "—", acc: true,
       /* THE STRIP FIGURE AND THE BOARD READ ONE NUMBER (2026-09-21). Both are
          `model.starterSum` — each index over its OWN best legal lineup, the
          classic Value board's rule — where the Teams board used to sum DVI
          over the projected-WAR lineup and land 50 points away from this. */
       sub: mine
-        ? `${Math.round(lens === "dvi" ? mine.dvi : mine.cvi)} index pts, starters`
+        ? `${Math.round(idxLens === "dvi" ? mine.dvi : mine.cvi)} index pts, starters`
         : caps.indices ? undefined : "not published for this league",
     },
     {
@@ -630,6 +704,7 @@ export default function Team() {
       <button onClick={() => goto("moved")}>Recent activity</button>
       <button onClick={() => goto("seasons")}>Seasons</button>
       <button onClick={() => goto("rivals")}>Head to head</button>
+      <button onClick={() => goto("records")}>Record book</button>
       {shape && <button onClick={() => goto("strengths")}>Strengths</button>}
     </>
   );
@@ -753,10 +828,10 @@ export default function Team() {
                 two lookalikes. */}
             <div ref={refs.roster}>
               {/* A CONTROL WITH NOTHING TO SWITCH BETWEEN IS NOT A CONTROL.
-                  Where the pipeline publishes neither index, the two segments
-                  select between two empty columns. */}
+                  Where the pipeline publishes neither index, the index
+                  segments select between empty columns. */}
               {caps.indices && (
-                <LensStrip options={LENSES} value={lens} onChange={setLens} label="Index" />
+                <LensStrip options={lensesFor(statsSeason)} value={lens} onChange={setLens} label="Lens" />
               )}
 
               {roster.bands.map(b => (
@@ -811,6 +886,14 @@ export default function Team() {
                 seasons={meta.seasons} rosterSeason={rosterSeason} />
             </div>
 
+            {/* ---- the record book ----
+                "A personal record book for each team" (Max, 2026-09-27): the
+                franchise's best and worst games, its streaks, and the best
+                games and seasons its starters ever gave it. */}
+            <div ref={refs.records}>
+              <TeamRecords fkey={fkey} fr={fr} seasons={meta.seasons} />
+            </div>
+
             {/* ---- strengths ----
                 The classic board's TeamStrengths, transposed: it draws one row
                 per currency across nine seat columns, which is a grid that has
@@ -823,10 +906,10 @@ export default function Team() {
               <div ref={refs.strengths}>
                 <Band label="Strengths"
                   note={`Each seat against the same seat on the other ${n - 1} rosters · rank of ${n}`} />
-                <Seats rows={shape.ranks} n={n} lens={lens} />
+                <Seats rows={shape.ranks} n={n} lens={idxLens} />
                 <Band label="Second string"
                   note="The same seats again, refilled from everyone who missed the first cut" />
-                <Seats rows={shape.benchRanks} n={n} lens={lens} />
+                <Seats rows={shape.benchRanks} n={n} lens={idxLens} />
               </div>
             )}
           </div>
@@ -841,6 +924,7 @@ export default function Team() {
 function RosterTable({ band, lens, betaPath }: {
   band: RosterBand; lens: Lens; betaPath: (p: string) => string;
 }) {
+  const stats = lens === "stats";
   return (
     <>
       <Band label={band.label} total={band.total} note={band.note} />
@@ -849,9 +933,17 @@ function RosterTable({ band, lens, betaPath }: {
           <tr>
             <th className="c sp">{band.spLabel}</th>
             <th className="t">Player</th>
-            <th className="n lens">{lens.toUpperCase()}</th>
-            <th className="n war">WAR</th>
-            <th className="n mkt">Market</th>
+            {/* the column budget is positional (beta.css), so the Stats
+                lens's three columns ride the same three classes */}
+            {stats ? <>
+              <th className="n lens" title="Realized regular-season WAR, per game under it">WAR</th>
+              <th className="n war" title="Fantasy points, per game under it">Pts</th>
+              <th className="n mkt" title="Games played, lineup starts for this franchise under it">GP</th>
+            </> : <>
+              <th className="n lens">{lens.toUpperCase()}</th>
+              <th className="n war">WAR</th>
+              <th className="n mkt">Market</th>
+            </>}
           </tr>
         </thead>
         <tbody>
@@ -876,15 +968,37 @@ function RosterTable({ band, lens, betaPath }: {
                     a footnote to the index; decision #12's "market trails" now
                     rides the column ORDER and nothing else. Size lives on
                     `.v3tbl.roster td .f` in team.css. */}
-                <td className="n">
-                  <span className="f">{r.idx == null ? NUL : fmt(r.idx, 1)}</span>
-                </td>
-                <td className="n">
-                  <span className="f">{r.war == null ? NUL : sgnWar(r.war)}</span>
-                </td>
-                <td className="n">
-                  <span className="f">{r.market == null ? NUL : r.market.toLocaleString()}</span>
-                </td>
+                {stats ? (() => {
+                  /* THE SEASON AS PLAYED: each figure over its rate. WAR per
+                     game at three places — the rate lives in the third digit
+                     the way a season total lives in the second. */
+                  const st = r.st;
+                  const gp = st?.gp ?? null;
+                  return <>
+                    <td className="n">
+                      <span className="f">{st?.war == null ? NUL : sgnWar(st.war)}</span>
+                      <div className="idc-s r">{st?.war != null && gp ? `${sgn(st.war / gp, 3)}/g` : ""}</div>
+                    </td>
+                    <td className="n">
+                      <span className="f">{st?.pts == null ? NUL : fmt(st.pts, 1)}</span>
+                      <div className="idc-s r">{st?.pts != null && gp ? `${fmt(st.pts / gp, 1)} ppg` : ""}</div>
+                    </td>
+                    <td className="n">
+                      <span className="f">{gp == null ? NUL : gp}</span>
+                      <div className="idc-s r">{st?.gs != null ? `${st.gs} GS` : ""}</div>
+                    </td>
+                  </>;
+                })() : <>
+                  <td className="n">
+                    <span className="f">{r.idx == null ? NUL : fmt(r.idx, 1)}</span>
+                  </td>
+                  <td className="n">
+                    <span className="f">{r.war == null ? NUL : sgnWar(r.war)}</span>
+                  </td>
+                  <td className="n">
+                    <span className="f">{r.market == null ? NUL : r.market.toLocaleString()}</span>
+                  </td>
+                </>}
               </>
             );
             const cls = [i % 2 ? "zebra" : "", r.sf ? "mtx-sf" : "", r.gone ? "mtx-gone" : ""]
@@ -914,7 +1028,7 @@ function RosterTable({ band, lens, betaPath }: {
  * twelfth of it — so the bar reads as "how much of the league is behind this
  * seat" rather than as a value.
  */
-function Seats({ rows, n, lens }: { rows: RankRow[]; n: number; lens: Lens }) {
+function Seats({ rows, n, lens }: { rows: RankRow[]; n: number; lens: IdxLens }) {
   if (!rows.length) return null;
   return (
     <div className="mtx-str">

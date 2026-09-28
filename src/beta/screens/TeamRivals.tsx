@@ -34,7 +34,7 @@ import { Band, IdCell, LensStrip, NUL, TapRow, useBetaPath } from "../ui";
 /** true once `ref`'s element has come within a screen of the viewport, and
  *  true for ever after. Falls back to true where the API is missing — an
  *  environment with no observer should load the table, not withhold it. */
-function useNearViewport(ref: React.RefObject<HTMLElement | null>) {
+export function useNearViewport(ref: React.RefObject<HTMLElement | null>) {
   const [seen, setSeen] = useState(false);
   useEffect(() => {
     if (seen) return;
