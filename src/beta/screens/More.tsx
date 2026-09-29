@@ -252,6 +252,9 @@ export default function More() {
         <Row to={betaPath("/history")} name="History"
           sub={`Year by year from ${meta.seasons[0]} — champions, finishes, streaks`}
           state={settled ? `${settled} season${settled === 1 ? "" : "s"}` : NUL} />
+        <Row to={betaPath("/records")} name="Record book"
+          sub="The league's bests and worsts — games, seasons, players — and who holds them"
+          state={meta.seasons.length ? `since ${meta.seasons[0]}` : NUL} />
         <Row to={betaPath("/insights")} name="Insights"
           sub="Per-franchise outlooks, written from the preseason read"
           state={insights?.meta.generated ?? NUL} />

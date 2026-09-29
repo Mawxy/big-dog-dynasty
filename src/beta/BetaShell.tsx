@@ -22,6 +22,7 @@ import Players from "./screens/Players";
 import Teams from "./screens/Teams";
 import Trade from "./screens/Trade";
 import More from "./screens/More";
+import RecordBook from "./screens/RecordBook";
 import Movers from "./screens/Movers";
 import Trends from "./screens/Trends";
 import PlayerTrades from "./screens/PlayerTrades";
@@ -310,6 +311,7 @@ function BetaBoard() {
                 <Route path="seasons/:season/:wk" element={<Seasons />} />
                 <Route path="seasons/:season/:wk/:mid" element={<Seasons />} />
                 <Route path="history" element={<History />} />
+                <Route path="records" element={<RecordBook />} />
                 <Route path="insights" element={<Insights />} />
                 {/* THE CLASSIC BOARD'S OLD BARE ADDRESSES. Every link anyone
                     shared before 2026-09-02 named a classic view at

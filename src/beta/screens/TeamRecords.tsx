@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { BracketFile, Franchises, Matchups, Weekly } from "../../lib/types";
+import type { BracketFile, Franchises, FranchiseSeason, Matchups, Weekly } from "../../lib/types";
 import { jl } from "../../lib/data";
 import { useLeague } from "../../lib/context";
 import { POS_COLOR } from "../../lib/league";
-import { fmt, sgn } from "../../lib/stats";
+import { fmt, ord, sgn } from "../../lib/stats";
+import { settledSeasons } from "../../lib/seasons";
 import { Band, IdCell, LensStrip, NUL, sgnWar, Spine, TapRow, useBetaPath } from "../ui";
 import { useNearViewport } from "./TeamRivals";
+import { RouteLink } from "../../components/RouteLink";
 
 /**
  * THE RECORD BOOK (Max, 2026-09-27) — this franchise's own all-time bests and
@@ -52,13 +54,18 @@ interface Rec {
   when: string; to?: string;
 }
 
-type Top = "games" | "pts" | "war";
+type Top = "games" | "pts" | "war" | "seasons" | "pseasons";
 const TOPS: { id: Top; label: string }[] = [
   { id: "games", label: "Team games" },
   { id: "pts", label: "Player points" },
   { id: "war", label: "Player WAR" },
+  { id: "seasons", label: "Team seasons" },
+  { id: "pseasons", label: "Player seasons" },
 ];
-const TOP_N = 10;
+/** THE LISTS OPEN FURTHER (Max, 2026-09-29): folded to `fold` rows (10 on a
+ *  page that carries other modules, more on the book's own page), one tap
+ *  out to TOP_ALL. */
+const TOP_ALL = 100;
 
 /** "W7 ’24", "PO W16 ’24" — the Head to head table's shorthand */
 const whenOf = (season: string, wk: number, po: boolean) =>
@@ -66,11 +73,16 @@ const whenOf = (season: string, wk: number, po: boolean) =>
 const score = (g: Game) => `${fmt(g.pf, 1)}–${fmt(g.pa, 1)}`;
 const resLetter = (g: Game) => (g.res === "w" ? "W" : g.res === "l" ? "L" : "T");
 
-export default function TeamRecords({ fkey, fr, seasons }: {
+export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
   /** one franchise's book, or null for the whole league's */
   fkey: string | null; fr: Franchises | null | undefined; seasons: string[];
+  /** rows a top list shows before it is opened */
+  fold?: number;
+  /** where the book's own page lives, when this is a copy of it */
+  bookTo?: string;
 }) {
   const leagueWide = fkey == null;
+  const [all, setAll] = useState(false);
   const betaPath = useBetaPath();
   const { league, players } = useLeague();
   const [top, setTop] = useState<Top>("games");
@@ -196,13 +208,13 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     };
 
     /* ---- a player's seasons and career FOR THIS FRANCHISE ---- */
-    const seasonWar = new Map<string, { pid: string; season: string; team: string; war: number; n: number }>();
+    const seasonWar = new Map<string, { pid: string; season: string; team: string; war: number; pts: number; n: number }>();
     const career = new Map<string, { pid: string; starts: number; pts: number }>();
     for (const w of weeks) {
       if (!w.po && w.war != null) {
         const k = `${w.pid}|${w.season}|${w.fk}`;
-        const s = seasonWar.get(k) ?? { pid: w.pid, season: w.season, team: w.team, war: 0, n: 0 };
-        s.war += w.war; s.n++;
+        const s = seasonWar.get(k) ?? { pid: w.pid, season: w.season, team: w.team, war: 0, pts: 0, n: 0 };
+        s.war += w.war; s.pts += w.pts ?? 0; s.n++;
         seasonWar.set(k, s);
       }
       const c = career.get(w.pid) ?? { pid: w.pid, starts: 0, pts: 0 };
@@ -214,6 +226,20 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     const fseasons = (leagueWide
       ? Object.values(fr ?? {}).flatMap(f => f.seasons)
       : fr?.[fkey]?.seasons ?? []).filter(s => s.wins + s.losses + s.ties > 0);
+    /** A SEASON'S LOW MARKS ARE SETTLED SEASONS' ONLY: the one in progress
+     *  holds the fewest points and the worst record of all every September. */
+    const settled = new Set(settledSeasons(fr, seasons));
+    const doneSeasons = fseasons.filter(s => settled.has(s.season));
+    /** regular-season points against, per franchise-season (off the games) */
+    const paOf = new Map<string, number>();
+    for (const g of games) if (!g.po) paOf.set(`${g.fk}|${g.season}`, (paOf.get(`${g.fk}|${g.season}`) ?? 0) + g.pa);
+    const fkOfSeason = (s: FranchiseSeason) => {
+      if (!leagueWide) return fkey!;
+      for (const [k, f] of Object.entries(fr ?? {})) if (f.seasons.includes(s)) return k;
+      return "";
+    };
+    const recStr = (s: FranchiseSeason) => `${s.wins}-${s.losses}${s.ties ? `-${s.ties}` : ""}`;
+    const finStr = (s: FranchiseSeason) => (s.finish != null ? `finished ${ord(s.finish)}` : "unfinished");
     /** the holder, on the league's book: "Team · " before a detail line */
     const who = (team: string) => (leagueWide ? `${team} · ` : "");
 
@@ -267,9 +293,34 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     if (bestRec) push({
       key: "rec", label: "Best record, season",
       value: `${bestRec.wins}-${bestRec.losses}${bestRec.ties ? `-${bestRec.ties}` : ""}`,
-      detail: `${who(bestRec.name)}${fmt(bestRec.fpts, 1)} points · ${bestRec.finish != null ? `finished ${bestRec.finish}` : "unfinished"}`,
+      detail: `${who(bestRec.name)}${fmt(bestRec.fpts, 1)} points · ${finStr(bestRec)}`,
       when: bestRec.season, to: betaPath(`/seasons/${bestRec.season}`),
     });
+
+    /* ---- more of the seasons (Max, 2026-09-29) ---- */
+    const seasonRec = (key: string, label: string, s: FranchiseSeason | null,
+      value: (s: FranchiseSeason) => ReactNode, detail: (s: FranchiseSeason) => string) =>
+      s && push({
+        key, label, value: value(s), detail: `${who(s.name)}${detail(s)}`,
+        when: s.season, to: betaPath(`/seasons/${s.season}`),
+      });
+    seasonRec("pflo", "Fewest points, season", maxBy(doneSeasons, s => -s.fpts),
+      s => fmt(s.fpts, 1), s => `${recStr(s)} · ${fmt(s.ppg, 1)} ppg`);
+    seasonRec("reclo", "Worst record, season",
+      maxBy(doneSeasons, s => -((s.wins + s.ties / 2) * 1e6 - s.losses * 1e3 + s.fpts / 1e4)),
+      s => recStr(s), s => `${fmt(s.fpts, 1)} points · ${finStr(s)}`);
+    seasonRec("ppg", "Most points per game, season", maxBy(fseasons, s => s.ppg),
+      s => fmt(s.ppg, 1), s => `${recStr(s)} · ${fmt(s.fpts, 1)} points`);
+    const paSeasons = doneSeasons.filter(s => paOf.has(`${fkOfSeason(s)}|${s.season}`));
+    const paVal = (s: FranchiseSeason) => paOf.get(`${fkOfSeason(s)}|${s.season}`) ?? 0;
+    seasonRec("pahi", "Most points against, season", maxBy(paSeasons, paVal),
+      s => fmt(paVal(s), 1), s => `${recStr(s)} · ${fmt(s.fpts, 1)} for · regular season`);
+    seasonRec("palo", "Fewest points against, season", maxBy(paSeasons, s => -paVal(s)),
+      s => fmt(paVal(s), 1), s => `${recStr(s)} · ${fmt(s.fpts, 1)} for · regular season`);
+    seasonRec("warhi", "Most lineup WAR, season", maxBy(fseasons, s => s.war),
+      s => sgnWar(s.war), s => `${recStr(s)} · the starters' WAR, vs replacement`);
+    seasonRec("warlo", "Least lineup WAR, season", maxBy(doneSeasons, s => -s.war),
+      s => sgnWar(s.war), s => `${recStr(s)} · the starters' WAR, vs replacement`);
 
     const pRec = (key: string, label: string, w: PWeek | null, value: (w: PWeek) => ReactNode) =>
       w && push({
@@ -286,6 +337,12 @@ export default function TeamRecords({ fkey, fr, seasons }: {
       detail: `${name(sw.pid)} · ${who(sw.team)}${sw.n} start${sw.n === 1 ? "" : "s"}, regular season`,
       when: sw.season, to: betaPath(`/player/${sw.pid}`),
     });
+    const sp = maxBy([...seasonWar.values()], s => s.pts);
+    if (sp) push({
+      key: "spts", label: "Best player season, points", value: fmt(sp.pts, 1),
+      detail: `${name(sp.pid)} · ${who(sp.team)}${sp.n} start${sp.n === 1 ? "" : "s"}, regular season`,
+      when: sp.season, to: betaPath(`/player/${sp.pid}`),
+    });
     const ms = maxBy([...career.values()], c => c.starts * 1e6 + c.pts);
     if (ms) push({
       key: "starts", label: "Most starts", value: ms.starts,
@@ -299,14 +356,22 @@ export default function TeamRecords({ fkey, fr, seasons }: {
       when: "all-time", to: betaPath(`/player/${mp.pid}`),
     });
 
-    const topGames = games.slice().sort((a, b) => b.pf - a.pf).slice(0, TOP_N);
+    const topGames = games.slice().sort((a, b) => b.pf - a.pf).slice(0, TOP_ALL);
     const topPts = weeks.filter(w => w.pts != null)
-      .sort((a, b) => (b.pts ?? 0) - (a.pts ?? 0)).slice(0, TOP_N);
+      .sort((a, b) => (b.pts ?? 0) - (a.pts ?? 0)).slice(0, TOP_ALL);
     const topWar = weeks.filter(w => w.war != null)
-      .sort((a, b) => (b.war ?? 0) - (a.war ?? 0)).slice(0, TOP_N);
+      .sort((a, b) => (b.war ?? 0) - (a.war ?? 0)).slice(0, TOP_ALL);
+    const topSeasons = fseasons.slice().sort((a, b) => b.fpts - a.fpts).slice(0, TOP_ALL);
+    const topPSeasons = [...seasonWar.values()].sort((a, b) => b.war - a.war).slice(0, TOP_ALL);
 
-    return { recs, topGames, topPts, topWar, n: games.length };
+    return { recs, topGames, topPts, topWar, topSeasons, topPSeasons, n: games.length };
   }, [files, fr, fkey, leagueWide, seasons.join(","), players, betaPath]);
+  const cap = all ? TOP_ALL : fold;
+  const listLen = !book ? 0 : ({
+    games: book.topGames.length, pts: book.topPts.length, war: book.topWar.length,
+    seasons: book.topSeasons.length, pseasons: book.topPSeasons.length,
+  })[top];
+  const isSeason = top === "seasons" || top === "pseasons";
 
   const loading = <tr><td colSpan={4} className="t"><span className="f q">Loading…</span></td></tr>;
   const none = <tr><td colSpan={4} className="t"><span className="f q">No games on file.</span></td></tr>;
@@ -314,6 +379,7 @@ export default function TeamRecords({ fkey, fr, seasons }: {
   return (
     <div ref={box}>
       <Band label="Record book"
+        right={bookTo && <RouteLink to={bookTo} className="lgx-all">Full book →</RouteLink>}
         note={leagueWide
           ? "all-time · every franchise · regular season and winners bracket · a player's game counts only when he was started"
           : "all-time · regular season and winners bracket · a player's game counts only when he started here"} />
@@ -343,8 +409,13 @@ export default function TeamRecords({ fkey, fr, seasons }: {
         </tbody>
       </table>
 
-      <Band label={`Top ${TOP_N}`}
-        note={`the ${leagueWide ? "league's" : "franchise's"} best single games, by the measure picked`} />
+      <Band label={`Top ${Math.min(cap, listLen || cap)}`}
+        note={`the ${leagueWide ? "league's" : "franchise's"} best ${isSeason ? "seasons, regular season" : "single games"}, by the measure picked`}
+        right={listLen > fold && (
+          <button type="button" className="lgx-all" onClick={() => setAll(a => !a)}>
+            {all ? `Top ${fold} ▴` : `All ${listLen} ▾`}
+          </button>
+        )} />
       <LensStrip options={TOPS} value={top} onChange={setTop} label="Top list" />
       <table className="v3tbl">
         <thead>
@@ -354,6 +425,13 @@ export default function TeamRecords({ fkey, fr, seasons }: {
               <th className="t">Game</th>
               <th className="n sorted" style={{ width: "20%" }}>Pts</th>
               <th className="n" style={{ width: "20%" }}>When</th>
+            </tr>
+          ) : isSeason ? (
+            <tr>
+              <th className="c sp">#</th>
+              <th className="t">{top === "seasons" ? "Team" : "Player"}</th>
+              <th className={`n${top === "seasons" ? " sorted" : ""}`} style={{ width: "18%" }}>Pts</th>
+              <th className={`n${top === "pseasons" ? " sorted" : ""}`} style={{ width: "18%" }}>WAR</th>
             </tr>
           ) : (
             <tr>
@@ -367,7 +445,31 @@ export default function TeamRecords({ fkey, fr, seasons }: {
         <tbody>
           {!book && loading}
           {book && !book.n && none}
-          {book && top === "games" && book.topGames.map((g, i) => (
+          {book && top === "seasons" && book.topSeasons.slice(0, cap).map((s, i) => (
+            <TapRow key={`${s.name}-${s.season}-${i}`} to={betaPath(`/seasons/${s.season}`)}
+              className={i % 2 ? "zebra" : ""}>
+              <Spine rank={i + 1} top={i === 0} />
+              <IdCell name={s.name}
+                sub={`${s.season} · ${s.wins}-${s.losses}${s.ties ? `-${s.ties}` : ""} · ${s.finish === 1 ? "champion" : s.finish != null ? ord(s.finish) : "unfinished"}`} />
+              <td className="n"><span className="f hd">{fmt(s.fpts, 1)}</span></td>
+              <td className="n"><span className="f">{sgnWar(s.war)}</span></td>
+            </TapRow>
+          ))}
+          {book && top === "pseasons" && book.topPSeasons.slice(0, cap).map((s, i) => {
+            const info = players[s.pid];
+            const pos = info?.[1] ?? "";
+            return (
+              <TapRow key={`${s.pid}-${s.season}-${s.team}`} to={betaPath(`/player/${s.pid}`)}
+                className={i % 2 ? "zebra" : ""}>
+                <Spine color={POS_COLOR[pos]} rank={i + 1} top={i === 0} />
+                <IdCell name={info?.[0] ?? `#${s.pid}`}
+                  sub={`${pos ? `${pos} · ` : ""}${s.season}${leagueWide ? ` · ${s.team}` : ""} · ${s.n} start${s.n === 1 ? "" : "s"}`} />
+                <td className="n"><span className="f">{fmt(s.pts, 1)}</span></td>
+                <td className="n"><span className="f hd">{sgnWar(s.war)}</span></td>
+              </TapRow>
+            );
+          })}
+          {book && top === "games" && book.topGames.slice(0, cap).map((g, i) => (
             <TapRow key={`${g.fk}-${g.season}-${g.wk}-${g.po}`} to={betaPath(`/seasons/${g.season}/${g.wk}`)}
               className={i % 2 ? "zebra" : ""}>
               <Spine rank={i + 1} top={i === 0} />
@@ -377,7 +479,7 @@ export default function TeamRecords({ fkey, fr, seasons }: {
               <td className="n"><span className="f q">{whenOf(g.season, g.wk, g.po)}</span></td>
             </TapRow>
           ))}
-          {book && top !== "games" && (top === "pts" ? book.topPts : book.topWar).map((w, i) => {
+          {book && (top === "pts" || top === "war") && (top === "pts" ? book.topPts : book.topWar).slice(0, cap).map((w, i) => {
             const info = players[w.pid];
             const pos = info?.[1] ?? "";
             return (

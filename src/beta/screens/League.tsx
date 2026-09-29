@@ -2118,7 +2118,7 @@ function AllTimeView({ played }: { played: string[] }) {
 
       {/* THE LEAGUE'S RECORD BOOK (Max, 2026-09-29): the Team page's book,
           read across every franchise — each record names who holds it. */}
-      <TeamRecords fkey={null} fr={fr} seasons={meta.seasons} />
+      <TeamRecords fkey={null} fr={fr} seasons={meta.seasons} bookTo={betaPath("/records")} />
     </>
   );
 }
