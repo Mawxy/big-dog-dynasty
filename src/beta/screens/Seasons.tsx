@@ -180,7 +180,8 @@ export default function Seasons() {
             : <LiveWeek season={season} wk={wk} mw={mw} weekly={weekly} odds={odds} teams={teams} nameOf={nameOf} />
         ) : wk != null && futureWks.has(wk) ? (
           mid != null
-            ? <FutureMatchup season={season} wk={wk} rid={mid} mw={mw} odds={odds} teams={teams} nameOf={nameOf} />
+            ? <FutureMatchup season={season} wk={wk} rid={mid} mw={mw} odds={odds} teams={teams} nameOf={nameOf}
+                board={nfl?.board ?? null} clubOf={nfl?.clubOf} />
             : <FutureWeek season={season} wk={wk} mw={mw} odds={odds} nameOf={nameOf} />
         ) : wk == null ? (
           <div className="empty">No week of {season} has been played yet.</div>
@@ -225,10 +226,14 @@ interface NflWeek {
 function nflWeek(games: NflGames | null | undefined, clubs: Record<string, string> | null | undefined,
   wk: number, players: ReturnType<typeof useLeague>["players"]): NflWeek {
   const g = games?.[String(wk)];
+  /* A GAME WITH NO SCORE YET IS A GAME TO COME (2026-09-29), not "Final":
+     the file carries all eighteen weeks, kickoffs included, so a future week's
+     matchup reads "vs PHI · Sun 1:00 PM" under every man the way the live
+     card does before kickoff. */
   const board: Scoreboard | null = g ? Object.fromEntries(Object.entries(g).map(([club, [opp, home, pts, oppPts, date]]) => {
-    const res = pts == null || oppPts == null ? "Final"
-      : `${pts > oppPts ? "W" : pts < oppPts ? "L" : "T"} ${pts}–${oppPts}`;
-    return [club, { state: "post" as const, remaining: 0, opp, home: !!home, date, detail: res }];
+    const done = pts != null && oppPts != null;
+    const res = done ? `${pts > oppPts ? "W" : pts < oppPts ? "L" : "T"} ${pts}–${oppPts}` : "";
+    return [club, { state: done ? "post" as const : "pre" as const, remaining: 0, opp, home: !!home, date, detail: res }];
   })) : null;
   const clubOf = (pid: string) => clubs?.[pid] || pInfo(players, pid)[2] || "";
   const line = (pid: string) => {
@@ -236,7 +241,7 @@ function nflWeek(games: NflGames | null | undefined, clubs: Record<string, strin
     if (!c) return "FA";
     if (!board) return c;
     const x = board[c];
-    return x ? `${c} · ${x.home ? "vs" : "@"} ${x.opp} · ${x.detail}` : `${c} · Bye`;
+    return x ? `${c} · ${x.home ? "vs" : "@"} ${x.opp}${x.detail ? ` · ${x.detail}` : ""}` : `${c} · Bye`;
   };
   return { board, clubOf, line };
 }

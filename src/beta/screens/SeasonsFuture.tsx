@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import type { Matchups, SleeperProjFile, Team, WeekOdds } from "../../lib/types";
+import type { Scoreboard } from "../../lib/liveScores";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { useLeagueCaps } from "../../lib/caps";
@@ -166,10 +167,13 @@ export function FutureWeek({ season, wk, mw, odds, nameOf }: {
 
 /* ---- one matchup --------------------------------------------------------- */
 
-export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf }: {
+export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board = null, clubOf }: {
   season: string; wk: number; rid: number; mw: Matchups;
   odds: WeekOdds | null | undefined; teams: Team[] | null | undefined;
   nameOf: (rid: number) => string;
+  /** the week's NFL games, all still to be played (nfl_games.json), so every
+   *  man reads his opponent and kickoff; and each player's club that season */
+  board?: Scoreboard | null; clubOf?: (pid: string) => string;
 }) {
   const { meta, players } = useLeague();
   const caps = useLeagueCaps();
@@ -230,11 +234,17 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf }: {
             </thead>
             <tbody>
               {list.map((x, i) => {
-                const [name, pos, club] = pInfo(players, x.pid);
+                const [name, pos, today] = pInfo(players, x.pid);
+                const club = clubOf?.(x.pid) || today;
+                /* HIS GAME, OR HIS BYE (Max, 2026-09-29): a man on bye reads
+                   "bye", not "no line" — the missing projection is the bye */
+                const g = board && club ? board[club] : undefined;
+                const bye = !!board && !!club && !g;
+                const game = g ? ` · ${g.home ? "vs" : "@"} ${g.opp}` : bye ? " · bye" : "";
                 return (
                   <tr key={x.pid} className={i % 2 ? "zebra" : ""}>
                     <Spine color={POS_COLOR[pos]} rank="" />
-                    <IdCell name={name} sub={`${club || "FA"} · ${pos}${x.proj == null ? " · no line" : ""}`} />
+                    <IdCell name={name} sub={`${club || "FA"} · ${pos}${game}${x.proj == null && !bye ? " · no line" : ""}`} />
                     <td className="n">{x.proj == null ? NUL : <span className="f">{fmt(x.proj, 1)}</span>}</td>
                   </tr>
                 );
@@ -257,7 +267,7 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf }: {
           <SlotDrawer
             a={{ rid: a.rid, name: nameOf(a.rid), slots: la.slots }}
             b={{ rid: b.rid, name: nameOf(b.rid), slots: lb.slots }}
-            played={false} players={players} board={null} />
+            played={false} players={players} board={board} clubOf={clubOf} />
         </div>
       )}
       <div className="ssx-two">
