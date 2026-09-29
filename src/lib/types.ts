@@ -94,7 +94,7 @@ export type Weekly = Record<string, WeeklyRow[]>;
  *  built before it was carried. teams.json can't stand in for it: that's the
  *  end-of-season roster, not the roster as it was in week N. */
 export type MatchEntry =
-  [number, number, number | null, number | null, string[], string[]?];
+  [number, number, number | null, number | null, string[], string[]?, Record<string, number>?];
 export interface Matchups {
   playoff_start: number; teams: Record<string, MatchEntry[]>;
   /** future-week pairings from Sleeper (preseason): week -> [[ridA, ridB], ...] */

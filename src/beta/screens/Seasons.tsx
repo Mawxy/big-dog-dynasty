@@ -47,8 +47,17 @@ const POSITIONS = POS_CHIPS.filter(p => p !== "ALL");
  *  playoff weeks are scored only for winners-bracket starters, in
  *  bracket.json's `stars`. Null is "not recorded", never 0.0. */
 type PtsOf = (pid: string, wk: number) => number | null;
-const ptsSource = (weekly: Weekly | null | undefined, bracket: BracketFile | null | undefined): PtsOf =>
-  (pid, wk) => weekly?.[pid]?.find(x => x[0] === wk)?.[1] ?? bracket?.stars?.[pid]?.wk?.[String(wk)] ?? null;
+const ptsSource = (weekly: Weekly | null | undefined, bracket: BracketFile | null | undefined,
+  mw?: Matchups | null): PtsOf => {
+  /* PLAYOFF WEEKS' POINTS FOR EVERYONE ROSTERED (2026-09-29): matchups.json
+     carries Sleeper's per-player points on playoff-week entries, so a bench
+     and a consolation lineup read their points like a regular week's. */
+  const po = new Map<string, number>();
+  for (const list of Object.values(mw?.teams ?? {}))
+    for (const e of list) for (const [pid, v] of Object.entries(e[6] ?? {})) po.set(`${pid}|${e[0]}`, v);
+  return (pid, wk) => weekly?.[pid]?.find(x => x[0] === wk)?.[1]
+    ?? bracket?.stars?.[pid]?.wk?.[String(wk)] ?? po.get(`${pid}|${wk}`) ?? null;
+};
 const DASH = <span className="lgx-nul">—</span>;
 /** rows the top-performers table shows folded, and unfolded */
 const PERF_FOLDED = 12;
@@ -131,7 +140,7 @@ export default function Seasons() {
     nav(betaPath(`/seasons/${s.scope === "current" ? rosterSeason : s.season}`));
 
   const nameOf = (rid: number) => teams?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
-  const ptsOf = useMemo(() => ptsSource(weekly, bracket), [weekly, bracket]);
+  const ptsOf = useMemo(() => ptsSource(weekly, bracket, mw), [weekly, bracket, mw]);
   const { players } = useLeague();
   const nflGames = useJson<NflGames>(`${season}/nfl_games.json`).data;
   const nflClubs = useJson<Record<string, string>>(`${season}/nfl_teams.json`).data;

@@ -277,10 +277,23 @@ def main():
                     # is the END-of-season roster, not the week's.
                     st = t.get("starters") or []
                     bench = [p for p in (t.get("players") or []) if p not in st]
-                    mws.setdefault(str(rid), []).append(
-                        [wk, round(pts.get(rid, 0), 2), o,
-                         round(pts.get(o, 0), 2) if o else None,
-                         st, bench])
+                    ent = [wk, round(pts.get(rid, 0), 2), o,
+                           round(pts.get(o, 0), 2) if o else None,
+                           st, bench]
+                    # PLAYOFF WEEKS CARRY EVERY MAN'S POINTS (Max, 2026-09-29).
+                    # weekly.json scores the regular season only and
+                    # bracket.json's `stars` only winners-bracket starters, so
+                    # a playoff week's bench — and a consolation lineup — had
+                    # no points anywhere and read "no bench recorded". Sleeper's
+                    # own players_points fills it: starters as scored, bench
+                    # men only when they scored (a 0 there is usually a man
+                    # who did not play, which the regular season leaves out).
+                    if wk >= (league.get("settings") or {}).get("playoff_week_start", 15):
+                        pp = t.get("players_points") or {}
+                        ent.append({p: round(float(pp[p]), 2) for p in (st + bench)
+                                    if p and p != "0" and pp.get(p) is not None
+                                    and (p in st or pp[p])})
+                    mws.setdefault(str(rid), []).append(ent)
         # NFL bye weeks (team -> week), derived by sleeper_pull from the NFL
         # schedule feed; project_war attaches each player's bye to projections
         bf = sdir / "byes.json"
