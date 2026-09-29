@@ -73,6 +73,11 @@ interface Half {
   war: number | null;
   /** WAR left on the bench — regular season only */
   bench: number | null;
+  /** MAX WAR (Max, 2026-09-29): the WAR perfect start/sit would have banked —
+   *  each week's best legal lineup out of that week's roster, from
+   *  franchises.json `max_war` (build_site_data.py). Regular season only;
+   *  null where the file predates it. */
+  maxw: number | null;
   medW: number; medL: number; medT: number;
   weeks: WeekCell[];
 }
@@ -92,7 +97,7 @@ export interface TeamSeason {
 const REG_LEN = 14;
 
 const emptyHalf = (): Half => ({
-  w: 0, l: 0, t: 0, byes: 0, pf: 0, pa: 0, scores: [], war: 0, bench: 0,
+  w: 0, l: 0, t: 0, byes: 0, pf: 0, pa: 0, scores: [], war: 0, bench: 0, maxw: null,
   medW: 0, medL: 0, medT: 0, weeks: [],
 });
 
@@ -104,11 +109,12 @@ function loadSeason(season: string): Promise<TeamSeason[]> {
   const hit = cache.get(ck);
   if (hit) return hit;
   const pending = (async () => {
-    const [teams, mw, weekly, br] = await Promise.all([
+    const [teams, mw, weekly, br, fr] = await Promise.all([
       jl<Team[]>(`${season}/teams.json`),
       jl<Matchups>(`${season}/matchups.json`),
       jl<Weekly>(`${season}/weekly.json`).catch(() => ({} as Weekly)),
       jl<BracketFile>(`${season}/bracket.json`).catch(() => null),
+      jl<Franchises>("franchises.json").catch(() => null),
     ]);
     const ps = mw.playoff_start || 15;
     const war = new Map<string, number>();
@@ -182,8 +188,10 @@ function loadSeason(season: string): Promise<TeamSeason[]> {
         }
         if (!mine.length && !post.byes) post = null;
       }
+      const fkey = t.fkey ?? String(rid);
+      reg.maxw = fr?.[fkey]?.seasons.find(x => x.season === season)?.max_war ?? null;
       return {
-        season, rid, fkey: t.fkey ?? String(rid), team: t.team, manager: t.manager,
+        season, rid, fkey, team: t.team, manager: t.manager,
         reg, post, bracket: played.length > 0,
       };
     });
@@ -195,7 +203,7 @@ function loadSeason(season: string): Promise<TeamSeason[]> {
 
 /* ---- the board's row --------------------------------------------------- */
 
-type Key = "rec" | "fin" | "pct" | "titles" | "med" | "luck" | "pf" | "pa" | "ppg" | "sdv" | "war";
+type Key = "rec" | "fin" | "pct" | "titles" | "med" | "luck" | "pf" | "pa" | "ppg" | "sdv" | "war" | "maxw";
 
 interface Col {
   id: Key; label: string; short?: string; width: string;
@@ -207,15 +215,16 @@ interface Col {
 const C: Record<Key, Col> = {
   rec: { id: "rec", label: "Record", short: "W-L", width: "9%", grp: "res" },
   fin: { id: "fin", label: "Finish", short: "Fin", width: "7%", asc: true, grp: "res" },
-  pct: { id: "pct", label: "Win %", width: "7%", grp: "res" },
-  titles: { id: "titles", label: "Titles", width: "6%", grp: "res" },
+  pct: { id: "pct", label: "Win %", width: "6%", grp: "res" },
+  titles: { id: "titles", label: "Titles", width: "5%", grp: "res" },
   med: { id: "med", label: "Vs median", short: "Vs med", width: "9%", grp: "res" },
   luck: { id: "luck", label: "Luck", width: "6%", grp: "res" },
   pf: { id: "pf", label: "PF", width: "8%", grp: "score" },
   pa: { id: "pa", label: "PA", width: "8%", grp: "score" },
   ppg: { id: "ppg", label: "PPG", width: "7%", grp: "score" },
   sdv: { id: "sdv", label: "σ", width: "6%", grp: "score" },
-  war: { id: "war", label: "Accrued WAR", short: "WAR", width: "11%", grp: "war" },
+  war: { id: "war", label: "Accrued WAR", short: "WAR", width: "10%", grp: "war" },
+  maxw: { id: "maxw", label: "Max WAR", short: "Max", width: "8%", grp: "war" },
 };
 
 /** the columns for a scope and a phase — median and luck are the regular
@@ -223,8 +232,10 @@ const C: Record<Key, Col> = {
 function colsFor(allTime: boolean, phase: Phase): Col[] {
   const reg = phase === "reg";
   const ids: Key[] = allTime
-    ? ["rec", "pct", "titles", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "ppg", "sdv", "war"]
-    : ["rec", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "pa", "ppg", "sdv", "war"];
+    ? ["rec", "pct", "titles", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "ppg", "sdv", "war",
+      ...(phase !== "post" ? ["maxw" as Key] : [])]
+    : ["rec", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "pa", "ppg", "sdv", "war",
+      ...(phase !== "post" ? ["maxw" as Key] : [])];
   return ids.map(k => (k === "fin" && allTime ? { ...C.fin, label: "Best" } : C[k]));
 }
 const GRP_LABEL = { res: "Results", score: "Scoring", war: "WAR" } as const;
@@ -250,6 +261,7 @@ const DEF: Record<Key, string> = {
   pa: "Points against.",
   ppg: "Points per game played — a bye is not a game.",
   sdv: "Game-to-game standard deviation of the team's score. Lower is steadier.",
+  maxw: "The WAR perfect start/sit would have banked: every regular-season week's best legal lineup out of that week's own roster, starters and bench, on the same weekly WAR. Accrued WAR over it is how much of the roster's value the lineups used. Regular season only.",
   war: "The WAR the lineups actually fielded banked, summed game by game — each starter's points against his position's replacement level, turned into wins. A running total while the season is on. Playoff WAR is the bracket's, elimination games only.",
 };
 
@@ -264,7 +276,7 @@ interface Row {
   text: Partial<Record<Key, string>>;
   best: { fin: number; season: string } | null;
   titles: number;
-  war: number | null; bench: number | null;
+  war: number | null; bench: number | null; maxw: number | null;
   /** games actually played in the phase */
   games: number;
 }
@@ -287,7 +299,7 @@ function rowOf(
   const sum = (k: "w" | "l" | "t" | "byes" | "pf" | "pa" | "medW" | "medL" | "medT") =>
     hs.reduce((a, h) => a + h[k], 0);
   /** null only where every half is null — "not priced" is not zero */
-  const sumN = (k: "war" | "bench") =>
+  const sumN = (k: "war" | "bench" | "maxw") =>
     hs.every(h => h[k] == null) ? null : hs.reduce((a, h) => a + (h[k] ?? 0), 0);
   const w = sum("w"), l = sum("l"), t = sum("t"), byes = sum("byes");
   const pf = sum("pf"), pa = sum("pa");
@@ -301,10 +313,14 @@ function rowOf(
     (b, x) => (!b || x.fin < b.fin || (x.fin === b.fin && x.season > b.season) ? x : b), null);
   const titles = finishes.filter(x => x.fin === 1).length;
   const war = sumN("war"), bench = sumN("bench");
+  /** a total only when every regular half under it carries the figure */
+  const regHs = halves.filter(x => parts.some(p => p.reg === x.h)).map(x => x.h);
+  const maxw = regHs.length && regHs.every(h => h.maxw != null)
+    ? regHs.reduce((a, h) => a + h.maxw!, 0) : null;
   const reg = phase === "reg";
   return {
     rid: last.rid, fkey: last.fkey, team: last.team, manager: last.manager,
-    parts, halves, w, l, t, byes, pf, pa, best, titles, war, bench, games,
+    parts, halves, w, l, t, byes, pf, pa, best, titles, war, bench, maxw, games,
     f: {
       rec: dec ? (w + t / 2) * 1e6 + pf : null,
       fin: allTime ? best?.fin ?? null : fin(last),
@@ -317,6 +333,7 @@ function rowOf(
       ppg: games ? pf / games : null,
       sdv: games > 1 ? sd(scores) : null,
       war: games ? war : null,
+      maxw: games ? maxw : null,
     },
     text: {
       rec: dec ? wlStr(w, l, t) : undefined,
@@ -337,6 +354,7 @@ const FMT: Record<Key, (v: number, r: Row) => ReactNode> = {
   ppg: v => fmt(v, 1),
   sdv: v => fmt(v, 1),
   war: v => fmtWar(v),
+  maxw: v => fmtWar(v),
 };
 const cellOf = (k: Key, r: Row): ReactNode => {
   const v = r.f[k];
