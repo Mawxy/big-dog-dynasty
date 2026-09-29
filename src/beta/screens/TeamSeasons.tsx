@@ -9,6 +9,7 @@ import { ridOf, seasonRowOf, settledSeasons } from "../../lib/seasons";
 import TeamHonorMarks from "../../components/TeamHonorMarks";
 import { teamHonorTotals, type TeamHonorKey } from "../../lib/teamHonors";
 import { Band, IdCell, NUL, sgnWar, TapRow, useBetaPath } from "../ui";
+import { useUpcoming, type Upcoming } from "./TeamSchedule";
 
 /**
  * THE SEASON LEDGER (Max, 2026-09-15) — "how did my season go", on My Team.
@@ -23,6 +24,10 @@ import { Band, IdCell, NUL, sgnWar, TapRow, useBetaPath } from "../ui";
  * weeks banded after the regular season. A week taps through to that
  * matchup on Seasons, slot by slot. The week files load when a season is
  * opened, not before — five seasons is ten files nobody asked for.
+ *
+ * THE SEASON BEING PLAYED OPENS INTO ITS WHOLE SCHEDULE (Max, 2026-09-29):
+ * the weeks scored so far, then the week in progress and every regular-season
+ * week still to come, each on the pregame line (TeamSchedule.useUpcoming).
  *
  * The rail's season ladder (desktop) stays what it is: navigation to the
  * League screen's year. This is the record.
@@ -261,13 +266,41 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
     });
   }, [mw, rid, weekly]);
 
+  const upcoming = useUpcoming(season, rid, mw);
+
   if (mwQ.error) return <div className="tms-draw"><div className="empty">The season's weeks didn't load.</div></div>;
   if (!mw) return <div className="tms-draw"><div className="empty">Loading…</div></div>;
-  if (!rows.length) return <div className="tms-draw"><div className="empty">No week of {season} on file for this franchise.</div></div>;
+  if (!rows.length && !upcoming.length) return <div className="tms-draw"><div className="empty">No week of {season} on file for this franchise.</div></div>;
 
   const wins = rows.filter(r => r.oppPts != null && r.pts > r.oppPts && r.wk < ps).length;
   const losses = rows.filter(r => r.oppPts != null && r.pts < r.oppPts && r.wk < ps).length;
   const reg = rows.filter(r => r.wk < ps), po = rows.filter(r => r.wk >= ps);
+  /* the line's own expectation for what is left: the sum of the win odds */
+  const exp = upcoming.length && upcoming.every(u => u.wp != null)
+    ? upcoming.reduce((a, u) => a + u.wp!, 0) : null;
+  const recStr = (x: [number, number, number]) => `${x[0]}-${x[1]}${x[2] ? `-${x[2]}` : ""}`;
+  /** a week still to come: the pairing, the projected totals and the odds;
+   *  the projected margin in the quieter ink so it never reads as a result */
+  const ahead = (u: Upcoming, i: number) => {
+    const pd = u.mu != null && u.oppMu != null ? u.mu - u.oppMu : null;
+    return (
+      <TapRow key={`u${u.wk}`} to={betaPath(`/seasons/${season}/${u.wk}/${rid}`)} className={i % 2 ? "zebra" : ""}>
+        <td className="t tms-yr"><span className="f q">W{u.wk}</span></td>
+        <IdCell name={<>vs {nameOf(u.opp)}</>}
+          sub={<>
+            {u.live ? "in progress"
+              : u.mu != null && u.oppMu != null ? `proj ${fmt(u.mu, 1)}–${fmt(u.oppMu, 1)}` : "no line yet"}
+            {u.wp != null && ` · ${Math.round(u.wp * 100)}% to win`}
+            {u.oppRec && ` · opp ${recStr(u.oppRec)}`}
+          </>} />
+        <td className="n">
+          {u.live ? <span className="f q">Live</span>
+            : pd == null ? NUL
+            : <span className="f q">{(pd > 0 ? "+" : pd < 0 ? "−" : "") + fmt(Math.abs(pd), 1)}</span>}
+        </td>
+      </TapRow>
+    );
+  };
   const line = (r: typeof rows[number], i: number) => {
     const d = r.oppPts != null ? r.pts - r.oppPts : null;
     const won = d != null && d > 0, lost = d != null && d < 0;
@@ -289,7 +322,7 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
     <div className="tms-draw">
       <div className="hd">
         <span className="k">{season} · week by week</span>
-        <span className="mt">{wins}-{losses} in the regular season{po.length ? ` · ${po.length} playoff week${po.length === 1 ? "" : "s"}` : ""} · tap a week for the matchup</span>
+        <span className="mt">{wins}-{losses} in the regular season{upcoming.length ? ` · ${upcoming.length} to play` : ""}{exp != null ? ` · ${fmt(exp, 1)} more wins expected off the line` : ""}{po.length ? ` · ${po.length} playoff week${po.length === 1 ? "" : "s"}` : ""} · tap a week for the matchup</span>
       </div>
       <table className="v3tbl lgx-grid tms-weeks">
         <thead>
@@ -301,6 +334,10 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
         </thead>
         <tbody>
           {reg.map(line)}
+          {upcoming.length > 0 && reg.length > 0 && (
+            <tr className="tms-grp"><td colSpan={3}>Still to play · the pregame line</td></tr>
+          )}
+          {upcoming.map((u, i) => ahead(u, reg.length + i))}
           {po.length > 0 && (
             <tr className="tms-grp"><td colSpan={3}>Playoffs</td></tr>
           )}
