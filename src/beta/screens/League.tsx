@@ -2361,7 +2361,9 @@ function HistoryView({ season }: { season: string }) {
             </div>
           </div>
         </div>
-        <Strip figures={figures} />
+        {/* on the MVP row's grid: two regular-season figures under Season
+            MVP, two playoff figures under Playoff MVP (Max, 2026-09-29) */}
+        <div className="lgx-hstrip"><Strip figures={figures} /></div>
       </>}
 
       {/* ---- final standings ---------------------------------------------- */}
@@ -2467,7 +2469,7 @@ function HistoryView({ season }: { season: string }) {
           <Band label={`${season} ${draftKind === "rookie" ? "rookie draft" : "startup draft"}`}
             note={`${draftRows.length} picks · columns are the original holders of each first-round pick · a cell names the franchise that made the pick when it was not theirs`}
             right={<ViewAll to={betaPath(`/drafts/history/${season}`)} />} />
-          <DraftBoardGrid rows={draftRows} />
+          <DraftBoardGrid rows={draftRows} season={season} />
         </>
       )}
 

@@ -189,7 +189,7 @@ export default function DraftDetail() {
 
       {/* (a) the board */}
       {secBand("board", "Draft board", `${rows.length} picks`)}
-      {openSec.board && <DraftBoardGrid rows={rows} />}
+      {openSec.board && <DraftBoardGrid rows={rows} season={season} />}
 
       {/* (b) WAR by year, pick by pick */}
       {secBand("returns", "Returns by pick",

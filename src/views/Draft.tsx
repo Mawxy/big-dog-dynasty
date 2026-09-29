@@ -649,7 +649,7 @@ function DraftBoards({ history }: { history: History }) {
                 </span>
               </span>
             </button>
-            {isOpen && <DraftBoardGrid rows={rows} />}
+            {isOpen && <DraftBoardGrid rows={rows} season={season} />}
           </div>
         );
       })}

@@ -1,5 +1,6 @@
 import { LEAGUE_TEAMS, POS_COLOR } from "../lib/league";
 import { useShellPath } from "../lib/context";
+import { useJson } from "../lib/useJson";
 import { nameSplit, pickLabel, type HistRow } from "../lib/draftHistory";
 import { RouteLink } from "./RouteLink";
 import TScroll from "./TScroll";
@@ -16,14 +17,19 @@ import TScroll from "./TScroll";
  * cell is already that color, so the spine said it twice and read as a bar
  * that stops partway for no reason. Position stays literal on the pick row.
  */
-export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {
+export default function DraftBoardGrid({ rows, season }: {
+  rows: HistRow[];
+  /** the draft's season: its nfl_teams.json names each player's club THAT
+   *  season — the draft-day club, where today's players_min would not be */
+  season?: string;
+}) {
   const lp = useShellPath();
-  // The NFL club briefly lived on the pick row, read off players_min[pid][2].
-  // It came back out to pay for 90px columns — it was the widest thing on that
-  // row and the board fitting a laptop without sideways scroll was worth more.
-  // To restore it: `{players[r.pid]?.[2]}` beside {r.pos}, plus a flex wrapper
-  // with min-width:0. Note players_min carries the CURRENT club, not the
-  // draft-day one, which nothing in the repo stores.
+  /* THE NFL CLUB IS BACK ON THE PICK ROW (Max, 2026-09-29), the draft
+     season's own: <season>/nfl_teams.json (build_site_data), the club he
+     played for that year — the rookie's drafting team, the veteran's team at
+     the startup. It rides the position ("LV RB") in the dimmer ink, and
+     drops out of the row rather than squeezing it when a column is narrow. */
+  const clubs = useJson<Record<string, string>>(season ? `${season}/nfl_teams.json` : null).data;
   const rounds = [...new Set(rows.map(r => r.round))].sort((a, b) => a - b);
   const bySlot = new Map(rows.map(r => [r.slot, r]));
   /**
@@ -86,7 +92,10 @@ export default function DraftBoardGrid({ rows }: { rows: HistRow[] }) {
                 style={{
                   background: c ? `color-mix(in srgb, ${c} 16%, var(--bg))` : "var(--zebra)",
                 }}>
-                <div className="pk"><span>{pickLabel(r)}</span><span>{r.pos}</span></div>
+                <div className="pk">
+                  <span>{pickLabel(r)}</span>
+                  <span className="dpos">{clubs?.[r.pid] && <span className="dclub">{clubs[r.pid]}</span>}{r.pos}</span>
+                </div>
                 <RouteLink to={to} className="nm tlink">
                   {nameSplit(r.name).map((part, i) => <span key={i}>{part}</span>)}
                 </RouteLink>

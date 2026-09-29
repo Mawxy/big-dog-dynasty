@@ -1194,12 +1194,19 @@ button.dband:hover .band-label { color: var(--txt2); }
   padding: 6px 5px;
   min-height: 52px;
   overflow: hidden;
+  /* the club on the pick row drops out below 96px (DraftBoardGrid) */
+  container-type: inline-size;
 }
 .dcell.empty { background: var(--zebra); }
 .dcell .pk {
   display: flex; justify-content: space-between; gap: 5px;
   font: 600 11.5px/1 var(--cond); letter-spacing: .03em; color: var(--dim);
 }
+/* the draft-season NFL club beside the position (DraftBoardGrid) — dimmer, and
+   the first thing to go when the column is too narrow for both */
+.dcell .pk .dpos { display: flex; gap: 4px; min-width: 0; overflow: hidden; }
+.dcell .pk .dclub { color: var(--dim3, var(--dim)); white-space: nowrap; }
+@container (max-width: 96px) { .dcell .pk .dclub { display: none; } }
 /* ALWAYS two lines: first name over surname, every cell the same shape. A
    mix of one- and two-line names reads as misalignment, not economy.
    13px rather than 14: the drafting franchise left the cell for the column

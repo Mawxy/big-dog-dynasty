@@ -386,6 +386,22 @@
   background: var(--rule); border-bottom: 1px solid var(--rule);
 }
 .lgx-mvp { background: var(--deep); padding: 11px var(--v3pad) 12px; min-width: 0; }
+/* THE SEASON'S FIGURE STRIP ON THE MVP ROW'S GRID (Max, 2026-09-29). The strip
+   sizes its cells to their content, so its middle rule landed ~9px off the MVP
+   row's divider directly above it. Here the cells are equal columns — four
+   across, two per MVP block, so the season's half and the playoffs' half share
+   one vertical rule; on a phone a 2×2 grid under the two-up MVP row. */
+.lgx-hstrip .v3strip { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); overflow: visible; }
+.lgx-hstrip .v3strip .cell { min-width: 0; padding-left: var(--v3pad); }
+.lgx-hstrip .v3strip .cell:nth-child(odd) { border-left: 0; }
+.lgx-hstrip .v3strip .cell:nth-child(n+3) { border-top: 1px solid var(--rule); }
+.lgx-hstrip .v3strip .s { max-width: none; }
+@media (min-width: 900px) {
+  .lgx-hstrip .v3strip { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .lgx-hstrip .v3strip .cell:nth-child(odd) { border-left: 1px solid var(--rule); }
+  .lgx-hstrip .v3strip .cell:first-child { border-left: 0; }
+  .lgx-hstrip .v3strip .cell:nth-child(n+3) { border-top: 0; }
+}
 .lgx-mvp .k {
   font: 600 10.5px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
   color: var(--dim);
