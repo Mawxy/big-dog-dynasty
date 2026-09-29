@@ -15,6 +15,7 @@ import { PosLeaders, SlotDrawer, useFranchiseIndex, type SlotEntry } from "./Lea
 import { playedPlayoffWeeks, playedWeeks, weekFigures, weekGames, weekRows, type WeekGame, type WeekRow } from "../week";
 import { useSeasonPhase } from "../model";
 import { LiveMatchup, LiveWeek } from "./SeasonsLive";
+import { FutureMatchup, FutureWeek } from "./SeasonsFuture";
 import "./league.css";
 import "./seasons.css";
 
@@ -96,6 +97,15 @@ export default function Seasons() {
   const seasonPhase = useSeasonPhase();
   const liveWk = isCurrent && seasonPhase.week != null && !weeks.includes(seasonPhase.week)
     ? seasonPhase.week : null;
+  /* EVERY WEEK STILL TO COME (Max, 2026-09-28): the schedule's regular-season
+     weeks that are neither played nor live — pairings and the pregame line
+     (SeasonsFuture.tsx). Only the roster season has any. */
+  const futureWks = useMemo(() => {
+    if (!isCurrent || !mw) return new Set<number>();
+    const ps0 = mw.playoff_start || 15;
+    return new Set(Object.keys(mw.schedule ?? {}).map(Number)
+      .filter(w => w < ps0 && !weeks.includes(w) && w !== liveWk));
+  }, [isCurrent, mw, weeks, liveWk]);
 
   /* ---- the week ------------------------------------------------------------
      The path's week, else the newest played. "playoffs" is a week in the
@@ -142,14 +152,15 @@ export default function Seasons() {
         currentLabel={rosterSeason} />
 
       {/* THE WEEK STRIP: one segment per regular-season week, then the
-          playoffs. Unplayed weeks stay in the strip so the season keeps its
-          shape, but are not destinations. */}
+          playoffs. Played, live and upcoming weeks are all destinations
+          (Max, 2026-09-28); an upcoming week reads in the quieter ink. */}
       {mw && (
         <div className="v3-lens ssx-weeks" role="group" aria-label="Week">
           {Array.from({ length: ps - 1 }, (_, i) => i + 1).map(w => (
-            <button key={w} type="button" className={!playoffs && w === wk ? "on" : ""}
-              disabled={!weeks.includes(w) && w !== liveWk}
-              title={w === liveWk ? "in progress" : undefined}
+            <button key={w} type="button"
+              className={`${!playoffs && w === wk ? "on" : ""}${futureWks.has(w) ? " ssx-up" : ""}`}
+              disabled={!weeks.includes(w) && w !== liveWk && !futureWks.has(w)}
+              title={w === liveWk ? "in progress" : futureWks.has(w) ? "upcoming" : undefined}
               onClick={() => nav(betaPath(`/seasons/${season}/${w}`))}>W{w}</button>
           ))}
           {hasPlayoffs && (
@@ -167,6 +178,10 @@ export default function Seasons() {
           mid != null
             ? <LiveMatchup season={season} wk={wk} rid={mid} mw={mw} weekly={weekly} teams={teams} nameOf={nameOf} />
             : <LiveWeek season={season} wk={wk} mw={mw} weekly={weekly} odds={odds} teams={teams} nameOf={nameOf} />
+        ) : wk != null && futureWks.has(wk) ? (
+          mid != null
+            ? <FutureMatchup season={season} wk={wk} rid={mid} mw={mw} odds={odds} teams={teams} nameOf={nameOf} />
+            : <FutureWeek season={season} wk={wk} mw={mw} odds={odds} nameOf={nameOf} />
         ) : wk == null ? (
           <div className="empty">No week of {season} has been played yet.</div>
         ) : mid != null ? (

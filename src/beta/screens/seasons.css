@@ -47,3 +47,7 @@
 /* an estimated WAR still moving with a live game (SeasonsLive.tsx) */
 .v3tbl td .f.ssx-war { color: var(--acc); }
 .v3tbl td .f.ssx-live { font-style: italic; }
+
+/* an upcoming week (SeasonsFuture.tsx): a destination, in the quieter ink,
+   so the strip still reads played-then-coming at a glance */
+.ssx-weeks button.ssx-up:not(.on) { color: var(--dim2); }
