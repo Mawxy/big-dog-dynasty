@@ -25,16 +25,26 @@ import { useNearViewport } from "./TeamRivals";
  * Keyed by FRANCHISE through franchises.json, so a redraft owner who changed
  * roster slots keeps one record book. Loads when scrolled near, like Head to
  * head: it needs every season's matchups, weekly and bracket files.
+ *
+ * THE LEAGUE'S BOOK (Max, 2026-09-29): `fkey={null}` reads every franchise at
+ * once — the same records, held by whoever holds them, on League · All-time.
+ * Each game is a team's game, so a single matchup can sit in the book twice
+ * (both sides' scores); a streak is one franchise's run; a player's season
+ * WAR is his season FOR ONE FRANCHISE, and a career is his starts for anyone.
+ * Every detail line names the team, which a franchise's own book leaves out.
  */
 
 interface Game {
   season: string; wk: number; po: boolean;
+  /** whose game: the franchise key and its name that season */
+  fk: string; team: string;
   opp: string; pf: number; pa: number;
   /** the result: a bracket game by the bracket's winner, a regular one by score */
   res: "w" | "l" | "t";
 }
 interface PWeek {
   season: string; wk: number; po: boolean; pid: string;
+  fk: string; team: string;
   pts: number | null; war: number | null; opp: string;
 }
 interface Rec {
@@ -57,8 +67,10 @@ const score = (g: Game) => `${fmt(g.pf, 1)}–${fmt(g.pa, 1)}`;
 const resLetter = (g: Game) => (g.res === "w" ? "W" : g.res === "l" ? "L" : "T");
 
 export default function TeamRecords({ fkey, fr, seasons }: {
-  fkey: string; fr: Franchises | null | undefined; seasons: string[];
+  /** one franchise's book, or null for the whole league's */
+  fkey: string | null; fr: Franchises | null | undefined; seasons: string[];
 }) {
+  const leagueWide = fkey == null;
   const betaPath = useBetaPath();
   const { league, players } = useLeague();
   const [top, setTop] = useState<Top>("games");
@@ -92,8 +104,8 @@ export default function TeamRecords({ fkey, fr, seasons }: {
         const s = f.seasons.find(x => x.season === season);
         if (s) ids.set(s.rid ?? Number(k), k);
       }
-      const me = [...ids.entries()].find(([, k]) => k === fkey)?.[0];
-      if (me == null) return;
+      const mine = leagueWide ? [...ids.entries()] : [...ids.entries()].filter(([, k]) => k === fkey);
+      if (!mine.length) return;
       const b = files.b[i];
       const oppName = (rid: number | null) => {
         if (rid == null) return "—";
@@ -102,55 +114,59 @@ export default function TeamRecords({ fkey, fr, seasons }: {
           ?? b?.names[String(rid)] ?? `Roster ${rid}`;
       };
 
-      /* ---- the regular season ---- */
-      const m = files.m[i];
-      const wk = files.w[i];
-      if (m) {
-        const ps = m.playoff_start || 15;
-        for (const e of m.teams[String(me)] ?? []) {
-          const [w, pf, opp, pa] = e;
-          // no opponent score = not played yet (or a bye): not a game
-          if (w >= ps || opp == null || pa == null) continue;
-          const on = oppName(opp);
-          games.push({
-            season, wk: w, po: false, opp: on, pf, pa,
-            res: pf > pa ? "w" : pf < pa ? "l" : "t",
-          });
-          for (const pid of e[4] ?? []) {
-            if (!pid || pid === "0") continue;
-            const r = wk?.[pid]?.find(x => x[0] === w);
-            // started and never scored a line: a start, not a record
-            if (!r) continue;
-            weeks.push({ season, wk: w, po: false, pid, pts: r[1], war: r[5], opp: on });
+      for (const [me, myKey] of mine) {
+        const team = oppName(me);
+
+        /* ---- the regular season ---- */
+        const m = files.m[i];
+        const wk = files.w[i];
+        if (m) {
+          const ps = m.playoff_start || 15;
+          for (const e of m.teams[String(me)] ?? []) {
+            const [w, pf, opp, pa] = e;
+            // no opponent score = not played yet (or a bye): not a game
+            if (w >= ps || opp == null || pa == null) continue;
+            const on = oppName(opp);
+            games.push({
+              season, wk: w, po: false, fk: myKey, team, opp: on, pf, pa,
+              res: pf > pa ? "w" : pf < pa ? "l" : "t",
+            });
+            for (const pid of e[4] ?? []) {
+              if (!pid || pid === "0") continue;
+              const r = wk?.[pid]?.find(x => x[0] === w);
+              // started and never scored a line: a start, not a record
+              if (!r) continue;
+              weeks.push({ season, wk: w, po: false, pid, fk: myKey, team, pts: r[1], war: r[5], opp: on });
+            }
           }
         }
-      }
 
-      /* ---- the winners bracket ---- */
-      if (b) {
-        const oppByWeek = new Map<number, string>();
-        for (const g of b.winners) {
-          if (g.t1 == null || g.t2 == null || g.w == null) continue;
-          if (g.t1 !== me && g.t2 !== me) continue;
-          const mine1 = g.t1 === me;
-          const on = oppName(mine1 ? g.t2 : g.t1);
-          oppByWeek.set(g.week, on);
-          games.push({
-            season, wk: g.week, po: true, opp: on,
-            pf: (mine1 ? g.t1_pts : g.t2_pts) ?? 0,
-            pa: (mine1 ? g.t2_pts : g.t1_pts) ?? 0,
-            res: g.w === me ? "w" : "l",
-          });
-        }
-        for (const [pid, st] of Object.entries(b.stars ?? {})) {
-          if (st.rid !== me) continue;
-          const pw = b.war?.[pid];
-          for (const [w, pts] of Object.entries(st.wk)) {
-            weeks.push({
-              season, wk: Number(w), po: true, pid, pts,
-              war: pw && pw.rid === me ? pw.wk[w] ?? null : null,
-              opp: oppByWeek.get(Number(w)) ?? "—",
+        /* ---- the winners bracket ---- */
+        if (b) {
+          const oppByWeek = new Map<number, string>();
+          for (const g of b.winners) {
+            if (g.t1 == null || g.t2 == null || g.w == null) continue;
+            if (g.t1 !== me && g.t2 !== me) continue;
+            const mine1 = g.t1 === me;
+            const on = oppName(mine1 ? g.t2 : g.t1);
+            oppByWeek.set(g.week, on);
+            games.push({
+              season, wk: g.week, po: true, fk: myKey, team, opp: on,
+              pf: (mine1 ? g.t1_pts : g.t2_pts) ?? 0,
+              pa: (mine1 ? g.t2_pts : g.t1_pts) ?? 0,
+              res: g.w === me ? "w" : "l",
             });
+          }
+          for (const [pid, st] of Object.entries(b.stars ?? {})) {
+            if (st.rid !== me) continue;
+            const pw = b.war?.[pid];
+            for (const [w, pts] of Object.entries(st.wk)) {
+              weeks.push({
+                season, wk: Number(w), po: true, pid, fk: myKey, team, pts,
+                war: pw && pw.rid === me ? pw.wk[w] ?? null : null,
+                opp: oppByWeek.get(Number(w)) ?? "—",
+              });
+            }
           }
         }
       }
@@ -166,21 +182,26 @@ export default function TeamRecords({ fkey, fr, seasons }: {
 
     /* ---- streaks: consecutive results, a tie breaks both ---- */
     const streak = (k: "w" | "l") => {
-      let run: Game[] = [], best: Game[] = [];
-      for (const g of games) {
-        if (g.res === k) { run.push(g); if (run.length > best.length) best = run.slice(); }
-        else run = [];
+      let best: Game[] = [];
+      const byFk = new Map<string, Game[]>();
+      for (const g of games) byFk.set(g.fk, [...(byFk.get(g.fk) ?? []), g]);
+      for (const gs of byFk.values()) {
+        let run: Game[] = [];
+        for (const g of gs) {
+          if (g.res === k) { run.push(g); if (run.length > best.length) best = run.slice(); }
+          else run = [];
+        }
       }
       return best;
     };
 
     /* ---- a player's seasons and career FOR THIS FRANCHISE ---- */
-    const seasonWar = new Map<string, { pid: string; season: string; war: number; n: number }>();
+    const seasonWar = new Map<string, { pid: string; season: string; team: string; war: number; n: number }>();
     const career = new Map<string, { pid: string; starts: number; pts: number }>();
     for (const w of weeks) {
       if (!w.po && w.war != null) {
-        const k = `${w.pid}|${w.season}`;
-        const s = seasonWar.get(k) ?? { pid: w.pid, season: w.season, war: 0, n: 0 };
+        const k = `${w.pid}|${w.season}|${w.fk}`;
+        const s = seasonWar.get(k) ?? { pid: w.pid, season: w.season, team: w.team, war: 0, n: 0 };
         s.war += w.war; s.n++;
         seasonWar.set(k, s);
       }
@@ -190,7 +211,11 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     }
 
     /* ---- the franchise's seasons, off franchises.json ---- */
-    const fseasons = (fr?.[fkey]?.seasons ?? []).filter(s => s.wins + s.losses + s.ties > 0);
+    const fseasons = (leagueWide
+      ? Object.values(fr ?? {}).flatMap(f => f.seasons)
+      : fr?.[fkey]?.seasons ?? []).filter(s => s.wins + s.losses + s.ties > 0);
+    /** the holder, on the league's book: "Team · " before a detail line */
+    const who = (team: string) => (leagueWide ? `${team} · ` : "");
 
     const name = (pid: string) => players[pid]?.[0] ?? `#${pid}`;
     const gameTo = (g: Game) => betaPath(`/seasons/${g.season}/${g.wk}`);
@@ -199,7 +224,7 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     const gameRec = (key: string, label: string, g: Game | null, value: (g: Game) => ReactNode) =>
       g && push({
         key, label, value: value(g),
-        detail: `${resLetter(g)} ${score(g)} vs ${g.opp}`,
+        detail: `${who(g.team)}${resLetter(g)} ${score(g)} vs ${g.opp}`,
         when: whenOf(g.season, g.wk, g.po), to: gameTo(g),
       });
 
@@ -220,9 +245,9 @@ export default function TeamRecords({ fkey, fr, seasons }: {
       const a = s[0], z = s[s.length - 1];
       push({
         key: `st${k}`, label, value: s.length,
-        detail: s.length > 1
+        detail: who(z.team) + (s.length > 1
           ? `${whenOf(a.season, a.wk, a.po)} to ${whenOf(z.season, z.wk, z.po)}`
-          : whenOf(a.season, a.wk, a.po),
+          : whenOf(a.season, a.wk, a.po)),
         when: a.season === z.season ? a.season : `${a.season}–${z.season.slice(2)}`,
       });
     }
@@ -230,7 +255,7 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     const bestPf = maxBy(fseasons, s => s.fpts);
     if (bestPf) push({
       key: "pfs", label: "Most points, season", value: fmt(bestPf.fpts, 1),
-      detail: `${bestPf.wins}-${bestPf.losses}${bestPf.ties ? `-${bestPf.ties}` : ""} · ${fmt(bestPf.ppg, 1)} ppg`,
+      detail: `${who(bestPf.name)}${bestPf.wins}-${bestPf.losses}${bestPf.ties ? `-${bestPf.ties}` : ""} · ${fmt(bestPf.ppg, 1)} ppg`,
       when: bestPf.season, to: betaPath(`/seasons/${bestPf.season}`),
     });
     /* MOST WINS, NOT BEST PERCENTAGE (Max, 2026-09-28): by percentage a 1-0
@@ -242,14 +267,14 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     if (bestRec) push({
       key: "rec", label: "Best record, season",
       value: `${bestRec.wins}-${bestRec.losses}${bestRec.ties ? `-${bestRec.ties}` : ""}`,
-      detail: `${fmt(bestRec.fpts, 1)} points · ${bestRec.finish != null ? `finished ${bestRec.finish}` : "unfinished"}`,
+      detail: `${who(bestRec.name)}${fmt(bestRec.fpts, 1)} points · ${bestRec.finish != null ? `finished ${bestRec.finish}` : "unfinished"}`,
       when: bestRec.season, to: betaPath(`/seasons/${bestRec.season}`),
     });
 
     const pRec = (key: string, label: string, w: PWeek | null, value: (w: PWeek) => ReactNode) =>
       w && push({
         key, label, value: value(w),
-        detail: `${name(w.pid)} · vs ${w.opp}`,
+        detail: `${name(w.pid)} · ${leagueWide ? `${w.team} vs` : "vs"} ${w.opp}`,
         when: whenOf(w.season, w.wk, w.po), to: betaPath(`/player/${w.pid}`),
       });
     pRec("ppts", "Best player game, points", maxBy(weeks, w => w.pts), w => fmt(w.pts ?? 0, 1));
@@ -258,7 +283,7 @@ export default function TeamRecords({ fkey, fr, seasons }: {
     const sw = maxBy([...seasonWar.values()], s => s.war);
     if (sw) push({
       key: "swar", label: "Best player season, WAR", value: sgnWar(sw.war),
-      detail: `${name(sw.pid)} · ${sw.n} start${sw.n === 1 ? "" : "s"}, regular season`,
+      detail: `${name(sw.pid)} · ${who(sw.team)}${sw.n} start${sw.n === 1 ? "" : "s"}, regular season`,
       when: sw.season, to: betaPath(`/player/${sw.pid}`),
     });
     const ms = maxBy([...career.values()], c => c.starts * 1e6 + c.pts);
@@ -281,7 +306,7 @@ export default function TeamRecords({ fkey, fr, seasons }: {
       .sort((a, b) => (b.war ?? 0) - (a.war ?? 0)).slice(0, TOP_N);
 
     return { recs, topGames, topPts, topWar, n: games.length };
-  }, [files, fr, fkey, seasons.join(","), players, betaPath]);
+  }, [files, fr, fkey, leagueWide, seasons.join(","), players, betaPath]);
 
   const loading = <tr><td colSpan={4} className="t"><span className="f q">Loading…</span></td></tr>;
   const none = <tr><td colSpan={4} className="t"><span className="f q">No games on file.</span></td></tr>;
@@ -289,7 +314,9 @@ export default function TeamRecords({ fkey, fr, seasons }: {
   return (
     <div ref={box}>
       <Band label="Record book"
-        note="all-time · regular season and winners bracket · a player's game counts only when he started here" />
+        note={leagueWide
+          ? "all-time · every franchise · regular season and winners bracket · a player's game counts only when he was started"
+          : "all-time · regular season and winners bracket · a player's game counts only when he started here"} />
       <table className="v3tbl">
         <thead>
           <tr>
@@ -316,7 +343,8 @@ export default function TeamRecords({ fkey, fr, seasons }: {
         </tbody>
       </table>
 
-      <Band label={`Top ${TOP_N}`} note="the franchise's best single games, by the measure picked" />
+      <Band label={`Top ${TOP_N}`}
+        note={`the ${leagueWide ? "league's" : "franchise's"} best single games, by the measure picked`} />
       <LensStrip options={TOPS} value={top} onChange={setTop} label="Top list" />
       <table className="v3tbl">
         <thead>
@@ -340,10 +368,11 @@ export default function TeamRecords({ fkey, fr, seasons }: {
           {!book && loading}
           {book && !book.n && none}
           {book && top === "games" && book.topGames.map((g, i) => (
-            <TapRow key={`${g.season}-${g.wk}-${g.po}`} to={betaPath(`/seasons/${g.season}/${g.wk}`)}
+            <TapRow key={`${g.fk}-${g.season}-${g.wk}-${g.po}`} to={betaPath(`/seasons/${g.season}/${g.wk}`)}
               className={i % 2 ? "zebra" : ""}>
               <Spine rank={i + 1} top={i === 0} />
-              <IdCell name={`vs ${g.opp}`} sub={`${resLetter(g)} ${score(g)}`} />
+              <IdCell name={leagueWide ? g.team : `vs ${g.opp}`}
+                sub={`${resLetter(g)} ${score(g)}${leagueWide ? ` vs ${g.opp}` : ""}`} />
               <td className="n"><span className="f hd">{fmt(g.pf, 1)}</span></td>
               <td className="n"><span className="f q">{whenOf(g.season, g.wk, g.po)}</span></td>
             </TapRow>
@@ -352,11 +381,11 @@ export default function TeamRecords({ fkey, fr, seasons }: {
             const info = players[w.pid];
             const pos = info?.[1] ?? "";
             return (
-              <TapRow key={`${w.pid}-${w.season}-${w.wk}-${w.po}`} to={betaPath(`/player/${w.pid}`)}
+              <TapRow key={`${w.pid}-${w.fk}-${w.season}-${w.wk}-${w.po}`} to={betaPath(`/player/${w.pid}`)}
                 className={i % 2 ? "zebra" : ""}>
                 <Spine color={POS_COLOR[pos]} rank={i + 1} top={i === 0} />
                 <IdCell name={info?.[0] ?? `#${w.pid}`}
-                  sub={`${pos ? `${pos} · ` : ""}${whenOf(w.season, w.wk, w.po)} vs ${w.opp}`} />
+                  sub={`${pos ? `${pos} · ` : ""}${whenOf(w.season, w.wk, w.po)}${leagueWide ? ` · ${w.team}` : ""} vs ${w.opp}`} />
                 <td className="n">
                   <span className={`f${top === "pts" ? " hd" : ""}`}>{w.pts == null ? NUL : fmt(w.pts, 1)}</span>
                 </td>

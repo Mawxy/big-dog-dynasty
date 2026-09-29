@@ -655,6 +655,10 @@ export interface FranchiseSeason {
   rid?: number;
   wins: number; losses: number; ties: number;
   fpts: number; ppg: number; war: number;
+  /** regular-season WAR with perfect start/sit: each week's best legal lineup
+   *  out of that week's roster (build_site_data.py). Absent in data built
+   *  before 2026-09-29; null for a franchise with no scored week. */
+  max_war?: number | null;
   /** Sleeper's potential points (Max PF). Absent in data built before
    *  2026-09-09; null when Sleeper has none for that season. */
   ppts?: number | null;

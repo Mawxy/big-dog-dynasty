@@ -701,11 +701,11 @@ export default function Team() {
   const jumps = (
     <>
       <button onClick={() => goto("roster")}>Roster</button>
+      {shape && <button onClick={() => goto("strengths")}>Strengths</button>}
       <button onClick={() => goto("moved")}>Recent activity</button>
       <button onClick={() => goto("seasons")}>Seasons</button>
       <button onClick={() => goto("rivals")}>Head to head</button>
       <button onClick={() => goto("records")}>Record book</button>
-      {shape && <button onClick={() => goto("strengths")}>Strengths</button>}
     </>
   );
 
@@ -858,21 +858,43 @@ export default function Team() {
               )}
             </div>
 
+            {/* ---- strengths ----
+                RIGHT UNDER THE ROSTER (Max, 2026-09-29): the page reads
+                current roster, draft capital, strengths, then the history.
+                The classic board's TeamStrengths, transposed: it draws one row
+                per currency across nine seat columns, which is a grid that has
+                to scroll sideways on a phone and loses the seat the moment it
+                does. Here the SEAT is the row and the currencies are two
+                labeled meters inside it, so a thumb reads down the depth chart
+                instead of across a scroll. The figures, the ranks and the
+                meter scale are that component's, unchanged. */}
+            {shape && (
+              <div ref={refs.strengths}>
+                <Band label="Strengths"
+                  note={`Each seat against the same seat on the other ${n - 1} rosters · rank of ${n}`} />
+                <Seats rows={shape.ranks} n={n} lens={idxLens} />
+                <Band label="Second string"
+                  note="The same seats again, refilled from everyone who missed the first cut" />
+                <Seats rows={shape.benchRanks} n={n} lens={idxLens} />
+              </div>
+            )}
+
             {/* ---- what moved ----
                 The League screen's module, scoped to this franchise (Max,
                 2026-09-08): its trades and roster moves over the last seven
                 days, the biggest deal as a card, and the ledger link
-                pre-filtered to it. Between the roster and its strengths,
-                because a roster read yesterday is not the roster on screen. */}
+                pre-filtered to it. After the strengths and before the
+                history, because a roster read yesterday is not the roster on
+                screen. */}
             <div ref={refs.moved}>
               <Moved rid={rid} fkey={fkey} teamName={team.team} />
             </div>
 
             {/* ---- the seasons ----
                 "How did my season go" (Max, 2026-09-15): the record, one row
-                per season, each opening into its weeks. After what moved and
-                before the strengths: the roster is why the reader came, the
-                history is what he asks second. */}
+                per season, each opening into its weeks. After the roster, its
+                strengths and what moved: the roster is why the reader came,
+                the history is what he asks second. */}
             <div ref={refs.seasons}>
               <TeamSeasons fkey={fkey} rid={rid} fr={fr}
                 honors={honorBySeason} rosterSeason={rosterSeason} />
@@ -894,24 +916,6 @@ export default function Team() {
               <TeamRecords fkey={fkey} fr={fr} seasons={meta.seasons} />
             </div>
 
-            {/* ---- strengths ----
-                The classic board's TeamStrengths, transposed: it draws one row
-                per currency across nine seat columns, which is a grid that has
-                to scroll sideways on a phone and loses the seat the moment it
-                does. Here the SEAT is the row and the currencies are two
-                labeled meters inside it, so a thumb reads down the depth chart
-                instead of across a scroll. The figures, the ranks and the
-                meter scale are that component's, unchanged. */}
-            {shape && (
-              <div ref={refs.strengths}>
-                <Band label="Strengths"
-                  note={`Each seat against the same seat on the other ${n - 1} rosters · rank of ${n}`} />
-                <Seats rows={shape.ranks} n={n} lens={idxLens} />
-                <Band label="Second string"
-                  note="The same seats again, refilled from everyone who missed the first cut" />
-                <Seats rows={shape.benchRanks} n={n} lens={idxLens} />
-              </div>
-            )}
           </div>
         </div>
       </div>

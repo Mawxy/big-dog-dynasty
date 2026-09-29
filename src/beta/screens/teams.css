@@ -49,5 +49,7 @@
 .tmx-stats .tmx-pos { color: var(--good); }
 .tmx-stats .tmx-neg { color: var(--bad); }
 .tmx-stats .tmx-acc { color: var(--acc); }
+/* σ inside an uppercased label: text-transform would make it Σ, a sum */
+.tmx-lc { text-transform: none; }
 /* the week strip's third line is a result and an opponent, not a WAR */
 .tmx-stats .weekcell .war { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

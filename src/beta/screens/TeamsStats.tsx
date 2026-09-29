@@ -223,11 +223,21 @@ const C: Record<Key, Col> = {
 function colsFor(allTime: boolean, phase: Phase): Col[] {
   const reg = phase === "reg";
   const ids: Key[] = allTime
-    ? ["rec", "pct", "titles", "fin", ...(reg ? ["luck" as Key] : []), "pf", "ppg", "sdv", "war"]
+    ? ["rec", "pct", "titles", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "ppg", "sdv", "war"]
     : ["rec", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "pa", "ppg", "sdv", "war"];
   return ids.map(k => (k === "fin" && allTime ? { ...C.fin, label: "Best" } : C[k]));
 }
 const GRP_LABEL = { res: "Results", score: "Scoring", war: "WAR" } as const;
+
+/** A LABEL THAT KEEPS ITS CASE (Max, 2026-09-29). The header, the sort strip
+ *  and the key all set their labels uppercase in CSS, which turns σ into Σ —
+ *  a different symbol (a sum, not a standard deviation). The Greek letter
+ *  rides in a span that opts out of the transform; everything else is the
+ *  label as it was. */
+const lbl = (s: string): ReactNode =>
+  s.includes("σ")
+    ? s.split(/(σ)/).map((x, i) => (x === "σ" ? <span key={i} className="tmx-lc">σ</span> : x))
+    : s;
 
 const DEF: Record<Key, string> = {
   rec: "Wins, losses and ties. Sorts by wins (a tie is half of one), then points for. In the playoffs a first-round bye counts as a win.",
@@ -406,6 +416,17 @@ export default function TeamsStats({ season, played, phase }: {
   const anyGames = !!rows?.some(r => r.games > 0 || r.byes > 0);
   const noBracket = phase === "post" && !!data && !data.some(l => l.some(t => t.bracket));
   const micro: Key[] = (["ppg", "war", "rec"] as Key[]).filter(k => k !== s.sort).slice(0, 2);
+  /** THE LEAD FIGURE'S COMPANION on the phone (Max, 2026-09-29): the record
+   *  carries the record against the median, points for and points per game
+   *  carry what was scored against. One column wide, so the pair a desktop
+   *  reads across two columns reads down one. */
+  const subOf = (k: Key, r: Row): { k: string; v: ReactNode } | null => {
+    if (!r.games) return null;
+    if (k === "rec" && r.text.med) return { k: "Vs med", v: r.text.med };
+    if (k === "pf") return { k: "PA", v: fmt(r.pa, 1) };
+    if (k === "ppg") return { k: "PA/g", v: fmt(r.pa / r.games, 1) };
+    return null;
+  };
   const span = mobile ? 3 : 2 + cols.length;
   const [keyOpen, setKeyOpen] = useState(false);
   const phaseLabel = PHASES.find(p => p.id === phase)!.label;
@@ -418,7 +439,7 @@ export default function TeamsStats({ season, played, phase }: {
             onClick={() => s.onSort(s.sort)}>{s.dir === -1 ? "▾" : "▴"}</button>
           <LensStrip label="Sort" value={s.sort}
             onChange={k => { if (k !== s.sort) s.onSort(k, col(k).asc); }}
-            options={cols.map(c => ({ id: c.id, label: c.short ?? c.label }))} />
+            options={cols.map(c => ({ id: c.id, label: lbl(c.short ?? c.label) }))} />
         </div>
       )}
       <Band label={`${allTime ? "All-time" : season} · ${phaseLabel}`}
@@ -438,7 +459,7 @@ export default function TeamsStats({ season, played, phase }: {
         <dl className="plx-keylist">
           {cols.map(c => (
             <Fragment key={c.id}>
-              <dt>{c.label}</dt>
+              <dt>{lbl(c.label)}</dt>
               <dd>{DEF[c.id]}</dd>
             </Fragment>
           ))}
@@ -463,7 +484,7 @@ export default function TeamsStats({ season, played, phase }: {
                 <th className="c sp">#</th>
                 <th className="t">Franchise</th>
                 {cols.map((c, i) => (
-                  <Th key={c.id} id={c.id} label={c.label} align="n" width={c.width}
+                  <Th key={c.id} id={c.id} label={lbl(c.label)} align="n" width={c.width}
                     asc={c.asc} sort={s.sort} onSort={s.onSort}
                     className={edge(c, i) ? "plx-edge" : undefined} />
                 ))}
@@ -483,6 +504,14 @@ export default function TeamsStats({ season, played, phase }: {
                   {mobile ? (
                     <td className="n plx-lead">
                       <span className="f hd">{cellOf(s.sort, r)}</span>
+                      {(() => {
+                        const sub = subOf(s.sort, r);
+                        return sub && (
+                          <div className="plx-micro">
+                            <span className="o">{sub.k.toUpperCase()}<b>{sub.v}</b></span>
+                          </div>
+                        );
+                      })()}
                       <div className="plx-micro">
                         {micro.map(k => (
                           <span key={k} className="o">

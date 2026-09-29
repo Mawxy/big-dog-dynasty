@@ -26,6 +26,7 @@ import {
   isStale, useLiveWeekFeed, useNflBoardFeed, type LiveSide, type Scoreboard,
 } from "../../lib/liveScores";
 import Moved from "../moved";
+import TeamRecords from "./TeamRecords";
 import { playedWeeks, weekFigures, weekGames, weekRows } from "../week";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
@@ -1675,7 +1676,7 @@ interface StarterRecord {
  * reader will look for.
  */
 function AllTimeView({ played }: { played: string[] }) {
-  const { players, league } = useLeague();
+  const { players, league, meta } = useLeague();
   const betaPath = useBetaPath();
   const rosterSeason = rosterSeasonOf(league);
   const frQ = useJson<Franchises>("franchises.json");
@@ -2115,6 +2116,9 @@ function AllTimeView({ played }: { played: string[] }) {
         </table>
       )}
 
+      {/* THE LEAGUE'S RECORD BOOK (Max, 2026-09-29): the Team page's book,
+          read across every franchise — each record names who holds it. */}
+      <TeamRecords fkey={null} fr={fr} seasons={meta.seasons} />
     </>
   );
 }

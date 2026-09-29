@@ -203,6 +203,8 @@
 .v3tbl.tms-tbl tr.tms-sum + tr.tms-sum td { border-top: 1px solid var(--hair); }
 .v3tbl.tms-tbl tr.tms-avg .idc-n { color: var(--dim); font-weight: 400; }
 .v3tbl.tms-tbl td .hmark-row { display: inline-flex; vertical-align: middle; }
+/* the phone's max WAR, under the WAR figure (the desktop gives it a column) */
+.v3tbl.tms-tbl td .tms-sub { display: block; margin-top: 3px; font: 400 11px/1 var(--mono); color: var(--dim); font-variant-numeric: tabular-nums; white-space: nowrap; }
 /* the drawer, in the table flow: the row-drawer grammar (players.css
    .plx-draw) — 3px accent top rule on --band, then the weeks as a table of
    their own so the week rows are tap targets like any other row */

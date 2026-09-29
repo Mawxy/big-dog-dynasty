@@ -42,7 +42,7 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
      the phone's four-column table grew four ghost columns the moment a
      drawer opened and the Team cell collapsed to 37px. */
   const mobile = useMobile("(max-width: 899px)");
-  const span = mobile ? 4 : 8;
+  const span = mobile ? 4 : 9;
   const seasons = useMemo(
     () => (fr?.[fkey]?.seasons ?? []).slice().sort((a, b) => b.season.localeCompare(a.season)),
     [fr, fkey]);
@@ -86,7 +86,16 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
   const sum = (rows: FranchiseSeason[]) => rows.reduce((a, s) => ({
     w: a.w + s.wins, l: a.l + s.losses, t: a.t + s.ties, pf: a.pf + s.fpts, war: a.war + s.war,
     g: a.g + s.wins + s.losses + s.ties,
-  }), { w: 0, l: 0, t: 0, pf: 0, war: 0, g: 0 });
+    max: a.max == null || s.max_war == null ? null : a.max + s.max_war,
+  }), { w: 0, l: 0, t: 0, pf: 0, war: 0, g: 0, max: 0 as number | null });
+  /* MAX WAR (Max, 2026-09-29): the WAR perfect start/sit would have banked —
+     every regular-season week's best legal lineup out of that week's own
+     roster (build_site_data.py). A total is only printed when every season
+     under it carries the figure, so data built before it reads — rather than
+     a sum that quietly left seasons out. On the phone it rides under WAR. */
+  const maxFig = (v: number | null | undefined) => (v == null ? NUL : sgnWar(v));
+  const maxSub = (v: number | null | undefined) =>
+    mobile && v != null ? <span className="tms-sub">max {sgnWar(v)}</span> : null;
   const career = sum(played);
   const avg = sum(done);
   /** the finishes among the settled seasons — a franchise can be settled-in
@@ -96,7 +105,7 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
     teamHonorTotals(rows.map(s => ({ season: s.season, keys: honors.get(s.season) ?? [] })));
   return (
     <>
-      <Band label="Seasons" note="tap a season for its weeks · WAR is the lineup's, vs replacement" />
+      <Band label="Seasons" note="tap a season for its weeks · WAR is the lineup's, vs replacement · max WAR is perfect start/sit" />
       <table className="v3tbl lgx-grid tms-tbl">
         <thead>
           <tr>
@@ -104,8 +113,9 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
             <th className="t">Team</th>
             <th className="n v3-desk" style={{ width: "10%" }}>W-L</th>
             <th className="n v3-desk" style={{ width: "10%" }}>PF</th>
-            <th className="n" style={{ width: "15%" }}>PPG</th>
-            <th className="n sorted" style={{ width: "17%" }}>WAR</th>
+            <th className="n" style={{ width: mobile ? "15%" : "10%" }}>PPG</th>
+            <th className="n sorted" style={{ width: mobile ? "17%" : "12%" }}>WAR</th>
+            <th className="n v3-desk" style={{ width: "11%" }}>Max WAR</th>
             <th className="n v3-desk" style={{ width: "10%" }}>Finish</th>
             <th className="t v3-desk" style={{ width: "16%" }}>Honors</th>
           </tr>
@@ -129,7 +139,8 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
                   <td className="n v3-desk"><span className="f q">{live ? "—" : rec(s.wins, s.losses, s.ties)}</span></td>
                   <td className="n v3-desk"><span className="f">{live ? NUL : fmt(s.fpts, 0)}</span></td>
                   <td className="n"><span className="f">{live ? NUL : fmt(s.ppg, 1)}</span></td>
-                  <td className="n"><span className="f hd">{live ? NUL : sgnWar(s.war)}</span></td>
+                  <td className="n"><span className="f hd">{live ? NUL : sgnWar(s.war)}</span>{!live && maxSub(s.max_war)}</td>
+                  <td className="n v3-desk"><span className="f q">{live ? NUL : maxFig(s.max_war)}</span></td>
                   <td className="n v3-desk">{finish(s)}</td>
                   <td className="t v3-desk">{marks.length ? <TeamHonorMarks marks={marks} size={14} showCounts={false} /> : NUL}</td>
                 </TapRow>
@@ -152,7 +163,8 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
             <td className="n v3-desk"><span className="f q">{rec(career.w, career.l, career.t)}</span></td>
             <td className="n v3-desk"><span className="f">{fmt(career.pf, 0)}</span></td>
             <td className="n"><span className="f">{career.g ? fmt(career.pf / career.g, 1) : NUL}</span></td>
-            <td className="n"><span className="f acc">{sgnWar(career.war)}</span></td>
+            <td className="n"><span className="f acc">{sgnWar(career.war)}</span>{maxSub(career.max)}</td>
+            <td className="n v3-desk"><span className="f q">{maxFig(career.max)}</span></td>
             <td className="n v3-desk">{NUL}</td>
             <td className="t v3-desk">{honorsOf(played).length ? <TeamHonorMarks marks={honorsOf(played)} size={14} /> : NUL}</td>
           </tr>
@@ -168,7 +180,8 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
               <td className="n v3-desk"><span className="f q">{fmt(avg.w / done.length, 1)}-{fmt(avg.l / done.length, 1)}</span></td>
               <td className="n v3-desk"><span className="f q">{fmt(avg.pf / done.length, 0)}</span></td>
               <td className="n"><span className="f q">{avg.g ? fmt(avg.pf / avg.g, 1) : NUL}</span></td>
-              <td className="n"><span className="f q">{sgnWar(avg.war / done.length)}</span></td>
+              <td className="n"><span className="f q">{sgnWar(avg.war / done.length)}</span>{maxSub(avg.max == null ? null : avg.max / done.length)}</td>
+              <td className="n v3-desk"><span className="f q">{maxFig(avg.max == null ? null : avg.max / done.length)}</span></td>
               {/* 0 / 0 is NaN, and "NaN" in a Finish column is worse than no
                   figure: a franchise whose settled seasons carry no placing
                   reads — */}
@@ -192,7 +205,8 @@ export default function TeamSeasons({ fkey, rid, fr, honors, rosterSeason }: {
                 <td className="n v3-desk"><span className="f q">{rec(t.w, t.l, t.t)}</span></td>
                 <td className="n v3-desk"><span className="f">{fmt(t.pf, 0)}</span></td>
                 <td className="n"><span className="f">{t.g ? fmt(t.pf / t.g, 1) : NUL}</span></td>
-                <td className="n"><span className="f">{sgnWar(t.war)}</span></td>
+                <td className="n"><span className="f">{sgnWar(t.war)}</span>{maxSub(t.max)}</td>
+                <td className="n v3-desk"><span className="f q">{maxFig(t.max)}</span></td>
                 <td className="n v3-desk">{NUL}</td>
                 <td className="t v3-desk">{honorsOf(mine).length ? <TeamHonorMarks marks={honorsOf(mine)} size={14} /> : NUL}</td>
               </tr>

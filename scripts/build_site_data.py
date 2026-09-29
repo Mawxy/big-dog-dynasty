@@ -17,6 +17,7 @@ from pathlib import Path
 
 from crawl_schema import tep_class
 from ioutil import atomic_write
+from sleeper_war import FLEX_ORDER, FLEX_SLOTS, NON_STARTING_SLOTS
 
 ALLOW_EMPTY = False   # set by --allow-empty
 
@@ -480,18 +481,55 @@ def main():
             for w in rows_w:
                 war_idx[(pid, w[0])] = w[5]          # WAR_week
         team_war, team_top, team_low = {}, {}, {}
+        # MAX WAR (Max, 2026-09-29): the WAR the franchise would have banked
+        # with perfect start/sit every regular-season week — the best legal
+        # lineup out of that week's own roster (starters + bench, as carried in
+        # matchups.json), priced on the same weekly WAR team_war sums. A player
+        # with no row that week (bye, inactive) is worth 0.0 there too, so the
+        # two figures are on one scale and max_war >= war for any lineup that
+        # filled its seats. Seats: dedicated first, then flex narrowest-first,
+        # best WAR down — sleeper_war.py's rule, exact for nested flex sets.
+        seats = [s for s in (league.get("roster_positions") or []) if s not in NON_STARTING_SLOTS]
+        def best_week(pids, wk):
+            pool = []
+            for p in set(pids):
+                if not p or p == "0":
+                    continue
+                pos = (players.get(p) or {}).get("position")
+                if pos:
+                    pool.append((war_idx.get((p, wk), 0.0), pos))
+            pool.sort(key=lambda x: -x[0])
+            open_ = {}
+            for s in seats:
+                open_[s] = open_.get(s, 0) + 1
+            total, left = 0.0, []
+            for w, pos in pool:
+                if open_.get(pos, 0) > 0:
+                    open_[pos] -= 1; total += w
+                else:
+                    left.append((w, pos))
+            for w, pos in left:
+                for s in FLEX_ORDER:
+                    if pos in FLEX_SLOTS[s] and open_.get(s, 0) > 0:
+                        open_[s] -= 1; total += w
+                        break
+            return total
+        team_max = {}
         for rid_str, ents in mws.items():
             tw = 0.0
+            mx = 0.0
             pstats = {}                              # pid -> [WAR while starting, starts]
             for e in ents:
                 if e[0] >= ps_wk:                    # regular season only
                     continue
+                mx += best_week(list(e[4]) + list(e[5] if len(e) > 5 else []), e[0])
                 for p in e[4]:                       # starters
                     w = war_idx.get((p, e[0]), 0.0)
                     tw += w
                     s = pstats.setdefault(p, [0.0, 0]); s[0] += w; s[1] += 1
             rid = int(rid_str)
             team_war[rid] = round(tw, 3)
+            team_max[rid] = round(mx, 3)
             if pstats:
                 tp = max(pstats.items(), key=lambda kv: kv[1][0])
                 team_top[rid] = {"pid": tp[0], "war": round(tp[1][0], 2)}
@@ -621,7 +659,8 @@ def main():
                 "fpts": t["fpts"], "ppg": round(t["fpts"] / g, 1) if g else 0,
                 # Max PF, for the all-time standings (Max, 2026-09-09)
                 "ppts": t.get("ppts"),
-                "war": team_war.get(rid, 0.0), "seed": seed.get(rid),
+                "war": team_war.get(rid, 0.0), "max_war": team_max.get(rid),
+                "seed": seed.get(rid),
                 "finish": finish.get(rid),
                 "top": team_top.get(rid), "low": team_low.get(rid),
             })
