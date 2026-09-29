@@ -86,6 +86,9 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
   const betaPath = useBetaPath();
   const { league, players } = useLeague();
   const [top, setTop] = useState<Top>("games");
+  /** THE SEASON FILTER (Max, 2026-09-29): the book across every season, or
+   *  one season's own — its best and worst games, streaks and players. */
+  const [scope, setScope] = useState<string>("all");
   const [files, setFiles] = useState<{
     m: (Matchups | null)[]; w: (Weekly | null)[]; b: (BracketFile | null)[];
   } | null>(null);
@@ -110,6 +113,7 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
     const weeks: PWeek[] = [];
 
     seasons.forEach((season, i) => {
+      if (scope !== "all" && season !== scope) return;
       /* this season's roster slots -> franchise keys, and which slot is ours */
       const ids = new Map<number, string>();
       for (const [k, f] of Object.entries(fr ?? {})) {
@@ -225,7 +229,8 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
     /* ---- the franchise's seasons, off franchises.json ---- */
     const fseasons = (leagueWide
       ? Object.values(fr ?? {}).flatMap(f => f.seasons)
-      : fr?.[fkey]?.seasons ?? []).filter(s => s.wins + s.losses + s.ties > 0);
+      : fr?.[fkey]?.seasons ?? []).filter(s => s.wins + s.losses + s.ties > 0
+        && (scope === "all" || s.season === scope));
     /** A SEASON'S LOW MARKS ARE SETTLED SEASONS' ONLY: the one in progress
      *  holds the fewest points and the worst record of all every September. */
     const settled = new Set(settledSeasons(fr, seasons));
@@ -347,14 +352,21 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
     if (ms) push({
       key: "starts", label: "Most starts", value: ms.starts,
       detail: `${name(ms.pid)} · ${fmt(ms.pts, 1)} points as a starter`,
-      when: "all-time", to: betaPath(`/player/${ms.pid}`),
+      when: scope === "all" ? "all-time" : scope, to: betaPath(`/player/${ms.pid}`),
     });
     const mp = maxBy([...career.values()], c => c.pts);
     if (mp) push({
       key: "cpts", label: "Most points as a starter", value: fmt(mp.pts, 1),
       detail: `${name(mp.pid)} · ${mp.starts} starts`,
-      when: "all-time", to: betaPath(`/player/${mp.pid}`),
+      when: scope === "all" ? "all-time" : scope, to: betaPath(`/player/${mp.pid}`),
     });
+
+    /* one franchise, one season: every season record would name that one
+       season, so they leave the book rather than repeat it nine times */
+    const SEASON_KEYS = new Set(["pfs", "rec", "pflo", "reclo", "ppg", "pahi", "palo", "warhi", "warlo"]);
+    if (!leagueWide && scope !== "all") {
+      for (let k = recs.length - 1; k >= 0; k--) if (SEASON_KEYS.has(recs[k].key)) recs.splice(k, 1);
+    }
 
     const topGames = games.slice().sort((a, b) => b.pf - a.pf).slice(0, TOP_ALL);
     const topPts = weeks.filter(w => w.pts != null)
@@ -365,7 +377,15 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
     const topPSeasons = [...seasonWar.values()].sort((a, b) => b.war - a.war).slice(0, TOP_ALL);
 
     return { recs, topGames, topPts, topWar, topSeasons, topPSeasons, n: games.length };
-  }, [files, fr, fkey, leagueWide, seasons.join(","), players, betaPath]);
+  }, [files, fr, fkey, leagueWide, scope, seasons.join(","), players, betaPath]);
+  /** the seasons the filter offers: every one with a game, newest first */
+  const scopeOpts = useMemo(() => [
+    { id: "all", label: "All-time" },
+    ...seasons.filter(s => (leagueWide
+      ? Object.values(fr ?? {}).some(f => f.seasons.some(x => x.season === s && x.wins + x.losses + x.ties > 0))
+      : fr?.[fkey!]?.seasons.some(x => x.season === s && x.wins + x.losses + x.ties > 0)))
+      .slice().reverse().map(s => ({ id: s, label: s })),
+  ], [seasons.join(","), fr, fkey, leagueWide]);
   const cap = all ? TOP_ALL : fold;
   const listLen = !book ? 0 : ({
     games: book.topGames.length, pts: book.topPts.length, war: book.topWar.length,
@@ -380,9 +400,12 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
     <div ref={box}>
       <Band label="Record book"
         right={bookTo && <RouteLink to={bookTo} className="lgx-all">Full book →</RouteLink>}
-        note={leagueWide
-          ? "all-time · every franchise · regular season and winners bracket · a player's game counts only when he was started"
-          : "all-time · regular season and winners bracket · a player's game counts only when he started here"} />
+        note={`${scope === "all" ? "all-time" : scope} · ${leagueWide
+          ? "every franchise · regular season and winners bracket · a player's game counts only when he was started"
+          : "regular season and winners bracket · a player's game counts only when he started here"}`} />
+      {scopeOpts.length > 2 && (
+        <LensStrip options={scopeOpts} value={scope} onChange={setScope} label="Season" />
+      )}
       <table className="v3tbl">
         <thead>
           <tr>
