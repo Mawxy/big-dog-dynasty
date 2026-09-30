@@ -245,6 +245,12 @@ export default function More() {
           sub="Win now vs dynasty, dynasty movers, market movers — the full lists"
           state={!caps.indices && !caps.market ? "Not published"
             : movers ? (movers.asOf ? `market as of ${movers.asOf.slice(5).replace("-", "/")}` : "market fresh today") : NUL} />
+        {/* THE LINEUP BUILDER'S GRID (Max, 2026-09-30): every defense against
+            QB, RB, WR and TE, rebuilt nightly as the NFL week is played — the
+            same cadence as the rows above it. */}
+        <Row to={betaPath("/defenses")} name="Defense vs position"
+          sub="Points each defense gives up to QBs, RBs, WRs and TEs over what they normally score"
+          state={caps.dvp ? "rebuilt nightly" : "Not published"} />
       </div>
 
       <Band label="The long view" note="What the board has already settled" />

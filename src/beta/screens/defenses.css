@@ -1,0 +1,46 @@
+/* ==========================================================================
+   Defense vs position — the lineup builder's grid (screens/Defenses.tsx).
+
+   The four position columns are heat cells: the background carries the
+   estimate's shade (set inline, on a fixed ±3-point scale), the ink is picked
+   per cell for contrast, and each cell stacks the figure over its rank. The
+   figure leads; the ordinal is a step down in size and weight.
+   ========================================================================== */
+
+.v3 .dvp-legend {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px var(--v3pad) 8px;
+  font: 400 11.5px/1 var(--sans); color: var(--dim);
+}
+.v3 .dvp-legend .sw { display: flex; gap: 1px; }
+.v3 .dvp-legend .sw i { display: block; width: 17px; height: 11px; }
+.v3 .dvp-legend .scale { margin-left: auto; color: var(--dim3); }
+
+/* a hairline of board color between heat cells, so neighbors of similar
+   shade still read as separate cells */
+.v3 .dvp-tbl td.dvp-cell {
+  padding: 0 8px;
+  border-left: 2px solid var(--bg);
+  border-bottom: 2px solid var(--bg);
+  vertical-align: middle;
+}
+.v3 .dvp-tbl td.dvp-cell:last-child { padding-right: var(--v3pad); }
+.v3 .dvp-tbl .dvp-cell .v {
+  display: block;
+  font: 600 14.5px/1.1 var(--mono); font-variant-numeric: tabular-nums;
+}
+.v3 .dvp-tbl .dvp-cell .r {
+  display: block; margin-top: 2px;
+  font: 400 10.5px/1 var(--mono); opacity: .8;
+}
+/* the sorted column's figures take full weight; the rest step back a little */
+.v3 .dvp-tbl .dvp-cell.on .v { font-weight: 700; }
+
+/* on a desktop the auto layout hands the spare width to the name column and
+   squeezes the grid into the right edge; fixed layout holds each position at
+   the 17% its header declares and gives the defense column the remainder */
+@media (min-width: 900px) {
+  .v3 .dvp-tbl { table-layout: fixed; }
+  .v3 .dvp-tbl .dvp-cell .v { font-size: 16px; }
+  .v3 .dvp-tbl .dvp-cell .r { font-size: 11px; }
+}

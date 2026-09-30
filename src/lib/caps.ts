@@ -47,11 +47,14 @@ export interface LeagueCaps {
   picks: boolean;
   /** dynasty market prices (KTC / FantasyCalc) describe this league's assets */
   market: boolean;
+  /** <season>/defense_vs_position.json — the defense grid, in Big Dog scoring */
+  dvp: boolean;
 }
 
 const NONE: LeagueCaps = {
   indices: false, projections: false, shards: false, trades: false,
   drafts: false, odds: false, usage: false, picks: false, market: false,
+  dvp: false,
 };
 
 /**
@@ -74,6 +77,7 @@ export function leagueCaps(
     trades: full, drafts: full, odds: full, usage: full,
     picks: full && dynasty,
     market: dynasty,
+    dvp: full,
   };
 }
 

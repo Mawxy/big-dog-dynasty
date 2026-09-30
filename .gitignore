@@ -34,3 +34,7 @@ bt/
 
 # the Claude desktop app's drop folder — never part of the repo
 Claude outputs/
+
+# PFF Premium Stats exports: personal-use license, never published. Only the
+# derived labels in data/pff/roles_<season>.json are tracked (scripts/ingest_pff.py).
+data/pff/*/

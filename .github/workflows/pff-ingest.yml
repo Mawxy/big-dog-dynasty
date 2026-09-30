@@ -1,0 +1,31 @@
+name: PFF ingest
+# Fires when ingest_pff.bat pushes a new PFF export (Max, 2026-09-30). The
+# exports are pulled by hand from PFF Premium Stats in Max's own browser and
+# committed to data/pff/<season>/ by scripts/ingest_pff.py; nothing in CI
+# touches PFF.
+#
+# Today this job only re-validates what landed (header, row count, 32 teams,
+# rates in range, sha256 against the manifest), so a bad drop fails loudly on
+# the push instead of quietly feeding the matchup build. The defense-vs-role
+# build hangs off this same trigger once it exists.
+#
+# Read-only: it commits nothing, so it stays out of the data-push group.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "data/pff/**"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # stdlib only; no install step needed
+      - name: Validate committed PFF exports
+        run: python scripts/ingest_pff.py --check

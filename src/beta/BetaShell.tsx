@@ -38,6 +38,9 @@ const Player = lazy(() => import("../views/Player"));
 const Draft = lazy(() => import("../views/Draft"));
 const DraftDetail = lazy(() => import("../views/DraftDetail"));
 const Seasons = lazy(() => import("./screens/Seasons"));
+/* the lineup builder's defense grid (Max, 2026-09-30); lazy like Seasons, so
+   its stylesheet and heat math ride their own chunk */
+const Defenses = lazy(() => import("./screens/Defenses"));
 const History = lazy(() => import("../views/History"));
 const Insights = lazy(() => import("../views/Insights"));
 
@@ -63,7 +66,7 @@ const TABS = [
  *  destination but a scope of Trade, and its route redirects there. */
 const HUB_OF: Record<string, string> = {
   player: "players", claim: "team", drafts: "more", seasons: "more",
-  history: "more", insights: "more", teams: "more",
+  history: "more", insights: "more", teams: "more", defenses: "more",
 };
 
 /**
@@ -296,6 +299,7 @@ function BetaBoard() {
                 <Route path="more" element={<More />} />
                 {/* the mover hub, and the whole of one module: value | dynasty | market */}
                 <Route path="trends" element={<Trends />} />
+                <Route path="defenses" element={<Defenses />} />
                 <Route path="movers/:kind" element={<Movers />} />
                 <Route path="player/:pid" element={<PlayerRoute />} />
                 {/* every trade he was in this window — the player page shows three */}
@@ -366,6 +370,8 @@ function BetaBoard() {
             /* Trends lights for its hub AND for the Movers screens under it —
                they are one destination with three floors (Max, 2026-09-08). */
             { id: "trends", label: "Trends", to: `${base}/trends`, lit: ["trends", "movers"] },
+            /* the lineup builder's defense grid (Max, 2026-09-30) */
+            { id: "defenses", label: "Defenses", to: `${base}/defenses` },
             /* Ledger keeps its place in Explore and loses its page: it points
                at Trade's History scope, the same address the `ledger` route
                redirects to. It never lights, because the Trade tab above it

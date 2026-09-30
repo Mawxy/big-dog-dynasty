@@ -859,3 +859,34 @@ export interface Benchmarks {
     avg_place_move: BenchFig;
   };
 }
+
+/* ---- <season>/defense_vs_position.json (scripts/defense_vs_position.py) --
+   How many fantasy points each NFL defense gives up to each position over
+   what those players normally score, in Big Dog scoring. Built nightly for
+   the default league only. Club codes are Sleeper's. */
+export interface DvpCell {
+  /** points per game over expectation allowed, shrunk toward last season —
+   *  the figure to lead with */
+  est: number;
+  /** 1 = softest (most allowed over expectation), 32 = toughest, on est */
+  rank: number;
+  /** this season's raw points over expectation per game (null: no games) */
+  poe: number | null;
+  /** this season's raw points allowed per game */
+  pa: number | null;
+  games: number;
+}
+export interface DefenseVsPosition {
+  season: number;
+  /** last NFL week in the data; 0 before week 1 */
+  through_week: number;
+  positions: string[];
+  method: {
+    k_player: number;
+    k: Record<string, number>;
+    b_yoy: Record<string, number>;
+    scoring: string;
+  };
+  /** club -> position -> cell */
+  defenses: Record<string, Record<string, DvpCell>>;
+}
