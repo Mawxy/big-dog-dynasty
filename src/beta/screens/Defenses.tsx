@@ -122,7 +122,7 @@ export default function Defenses() {
         <span className="scale">±{SCALE} pts = full shade</span>
       </div>
       {dvp.error ? <DataError what="The defense grid didn't load"
-          note="It's rebuilt nightly; if it was never built, the nightly hasn't run with it yet." />
+          note="It's rebuilt weekly, on Wednesdays; if it was never built, the weekly run hasn't made it yet." />
         : !rows ? <div className="empty">Loading…</div>
         : (
           <table className="v3tbl dvp-tbl">

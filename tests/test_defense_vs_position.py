@@ -10,7 +10,9 @@ the softest defense.
 
   python -m unittest discover -s tests
 """
+import json
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -89,6 +91,45 @@ class TestBuild(unittest.TestCase):
             self.assertGreater(M.K[p], 0)
             self.assertLess(abs(M.B_YOY[p]), 1)
 
+
+
+class TestUnattendedGuards(unittest.TestCase):
+    """The two checks that make the weekly workflow safe to run unwatched."""
+
+    GAMES = {"1": {"AAA": ["BBB", 1, 20, 17, "t"], "BBB": ["AAA", 0, 17, 20, "t"]},
+             "2": {"AAA": ["BBB", 0, 24, 10, "t"], "BBB": ["AAA", 1, 10, 24, "t"]}}
+
+    def rows(self, wk2_teams=("AAA", "BBB")):
+        r = [row("p1", "WR", "BBB", 1, 10.0), row("p2", "WR", "AAA", 1, 8.0, team="BBB")]
+        r += [row(f"q{t}", "WR", "AAA" if t == "BBB" else "BBB", 2, 9.0, team=t)
+              for t in wk2_teams]
+        return r
+
+    def test_a_fully_posted_week_is_kept(self):
+        self.assertEqual({r["week"] for r in M.complete_rows(self.rows(), self.GAMES)}, {1, 2})
+
+    def test_a_club_missing_from_the_stat_feed_drops_its_week(self):
+        """THE MONDAY-NIGHT CASE: nflverse has 30 of 32 clubs."""
+        out = M.complete_rows(self.rows(wk2_teams=("AAA",)), self.GAMES)
+        self.assertEqual({r["week"] for r in out}, {1})
+
+    def test_a_game_without_a_final_score_drops_its_week(self):
+        g = json.loads(json.dumps(self.GAMES))
+        g["2"]["AAA"][2] = None
+        self.assertEqual({r["week"] for r in M.complete_rows(self.rows(), g)}, {1})
+
+    def test_no_games_file_trims_nothing(self):
+        self.assertEqual(len(M.complete_rows(self.rows(), {})), len(self.rows()))
+
+    def test_a_prior_only_grid_never_replaces_a_real_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            p = Path(d) / "dvp.json"
+            p.write_text(json.dumps({"season": 2026, "through_week": 4}))
+            self.assertTrue(M.regresses(p, {"season": 2026, "through_week": 0}))
+            self.assertFalse(M.regresses(p, {"season": 2026, "through_week": 5}))
+            self.assertFalse(M.regresses(p, {"season": 2027, "through_week": 0}))
+            self.assertFalse(M.regresses(Path(d) / "absent.json",
+                                         {"season": 2026, "through_week": 0}))
 
 if __name__ == "__main__":
     unittest.main()

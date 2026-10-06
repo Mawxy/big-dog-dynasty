@@ -480,10 +480,17 @@ class Freshness(Base):
         self.t.write("2026/defense_vs_position.json", {"season": 2026, "through_week": 3})
         self.assertEqual(self.run_check(), "")
 
-    def test_a_grid_behind_the_scored_weeks_warns(self):
+    def test_a_grid_one_week_behind_is_the_tuesday_normal(self):
+        """The nightly scores week 4 on Tuesday; the weekly grid catches up
+        on Wednesday."""
         self.t.season(2026, weeks=(1, 2, 3, 4))
         self.t.write("2026/defense_vs_position.json", {"season": 2026, "through_week": 3})
-        self.assertIn("through week 3 but 4 weeks are scored", self.run_check())
+        self.assertEqual(self.run_check(), "")
+
+    def test_a_grid_two_weeks_behind_warns(self):
+        self.t.season(2026, weeks=(1, 2, 3, 4, 5))
+        self.t.write("2026/defense_vs_position.json", {"season": 2026, "through_week": 3})
+        self.assertIn("through week 3 but 5 weeks are scored", self.run_check())
 
     def test_absent_files_are_skipped(self):
         self.assertEqual(self.run_check(), "")

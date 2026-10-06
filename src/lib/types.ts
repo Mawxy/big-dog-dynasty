@@ -862,8 +862,8 @@ export interface Benchmarks {
 
 /* ---- <season>/defense_vs_position.json (scripts/defense_vs_position.py) --
    How many fantasy points each NFL defense gives up to each position over
-   what those players normally score, in Big Dog scoring. Built nightly for
-   the default league only. Club codes are Sleeper's. */
+   what those players normally score, in Big Dog scoring. Built weekly
+   (Wednesdays, players-refresh.yml) for the default league only. Club codes are Sleeper's. */
 export interface DvpCell {
   /** points per game over expectation allowed, shrunk toward last season —
    *  the figure to lead with */

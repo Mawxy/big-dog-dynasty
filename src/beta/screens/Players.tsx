@@ -612,7 +612,10 @@ export default function Players() {
      making it the default: the segment still opens on the newest settled
      season, which is what a reader almost always wants, and all-time is one tap
      further rather than a tense of its own. */
-  const [urlScope, setScope] = useScope(played, { allowAll: true });
+  /* THE BOARD OPENS ON STATS (Max, 2026-10-06): tapping Players lands on the
+     newest season (the one being played), regular season, Maxalytics lens.
+     Value is one tap away and is the tense a link has to name. */
+  const [urlScope, setScope] = useScope(played, { allowAll: true, defaultHistory: true });
   /* Forced rather than redirected: the Value tense is the ABSENCE of the scope
      params (Scope.tsx — "a link to the site as it ships carries no setting that
      only means unchanged"), so a league with no price board opens on Stats
@@ -695,7 +698,7 @@ export default function Players() {
      under it too: usage_stats.py sums the weekly table over the league's own
      regular season, bracket weeks and both, so the windows line up with the
      box score's. */
-  const [measure, setMeasure] = useSticky<"box" | "usage">(stick("measure"), "box");
+  const [measure, setMeasure] = useSticky<"box" | "usage">(stick("measure"), "usage");
   /** the Maxalytics lens is on. Named "usage" in the code since the day it was
    *  built; the chip says Maxalytics (Max, 2026-09-17). It needs usage.json,
    *  which `usage_stats.py` writes for the home league only — without it every

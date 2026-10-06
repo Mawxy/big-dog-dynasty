@@ -649,6 +649,9 @@ def check_record_vs_matchups(season):
 # values.json is written by values-refresh (11:23 UTC) and read by the nightly
 # (06:17 UTC), so a healthy file is at most a day old when the nightly sees it.
 VALUES_MAX_AGE_DAYS = 1
+# the defense grid is weekly (Wednesday) and the nightly scores a week on
+# Tuesday, so it trails by one scored week for a day by design
+DVP_MAX_LAG_WEEKS = 1
 
 
 def check_freshness(today=None):
@@ -662,8 +665,10 @@ def check_freshness(today=None):
         day-old market file as OK. Failing the nightly over it would throw away
         a good league build because a different workflow had a bad day.
       * the defense grid's `through_week` against the scored weeks in that
-        season's matchups.json. defense_vs_position.py is hand-run, so the grid
-        falls behind every week nobody runs it.
+        season's matchups.json. The grid is rebuilt WEEKLY (Wednesdays,
+        players-refresh.yml) while the nightly scores a fantasy week on
+        Tuesday, so one week of lag is the normal state for a day; two means
+        the weekly run missed.
     """
     today = today or datetime.datetime.now(datetime.timezone.utc).date()
     vf = DATA / "values.json"
@@ -685,9 +690,10 @@ def check_freshness(today=None):
     if gf.exists():
         through = jload(gf).get("through_week") or 0
         scored = inseason.weeks_played(inseason.load_matchups(DATA, season))
-        if through < scored:
+        if through < scored - DVP_MAX_LAG_WEEKS:
             warn(f"{season}/defense_vs_position.json is through week {through} "
-                 f"but {scored} weeks are scored — run "
+                 f"but {scored} weeks are scored — check "
+                 f"players-refresh.yml (weekly) or run "
                  f"scripts/defense_vs_position.py.", title="Defense grid stale")
 
 

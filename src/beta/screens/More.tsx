@@ -246,11 +246,11 @@ export default function More() {
           state={!caps.indices && !caps.market ? "Not published"
             : movers ? (movers.asOf ? `market as of ${movers.asOf.slice(5).replace("-", "/")}` : "market fresh today") : NUL} />
         {/* THE LINEUP BUILDER'S GRID (Max, 2026-09-30): every defense against
-            QB, RB, WR and TE, rebuilt nightly as the NFL week is played — the
-            same cadence as the rows above it. */}
+            QB, RB, WR and TE, rebuilt weekly (Wednesdays) once the NFL week is
+            played — defenses only change once a week (Max, 2026-10-06). */}
         <Row to={betaPath("/defenses")} name="Defense vs position"
           sub="Points each defense gives up to QBs, RBs, WRs and TEs over what they normally score"
-          state={caps.dvp ? "rebuilt nightly" : "Not published"} />
+          state={caps.dvp ? "rebuilt weekly" : "Not published"} />
       </div>
 
       <Band label="The long view" note="What the board has already settled" />

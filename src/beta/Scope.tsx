@@ -46,13 +46,20 @@ export function useScope(seasons: string[], opts?: {
    *  the picker offers it as a row — but the default History is still the
    *  newest season. League uses this for its all-time table. */
   allowAll?: boolean;
+  /** HISTORY IS THE BARE ADDRESS (Max, 2026-10-06, Players only). With no
+   *  `scope` param the screen opens on History at the newest season, and
+   *  Current is the one that has to be spelled out (`?scope=current`). The
+   *  bare link still carries no setting; it just lands on the other tense. */
+  defaultHistory?: boolean;
 }): [ScopeSel, (s: ScopeSel) => void] {
   const loc = useLocation();
   const nav = useNavigate();
   const all = !!opts?.all, allowAll = !!opts?.allowAll;
+  const defaultHistory = !!opts?.defaultHistory;
   const sel = useMemo<ScopeSel>(() => {
     const q = new URLSearchParams(loc.search);
-    if (q.get("scope") !== "history" || seasons.length === 0) return { scope: "current" };
+    const raw = q.get("scope") ?? (defaultHistory ? "history" : "current");
+    if (raw !== "history" || seasons.length === 0) return { scope: "current" };
     const want = q.get("season");
     if (all) {
       // a set of known seasons, in the list's own order; nothing known = all
@@ -62,15 +69,18 @@ export function useScope(seasons: string[], opts?: {
     if (allowAll && want === ALL_SEASONS) return { scope: "history", season: ALL_SEASONS };
     const season = want && seasons.includes(want) ? want : seasons[0];
     return { scope: "history", season };
-  }, [loc.search, seasons, all, allowAll]);
+  }, [loc.search, seasons, all, allowAll, defaultHistory]);
   const set = useCallback((s: ScopeSel) => {
     const q = new URLSearchParams(loc.search);
-    if (s.scope === "current") { q.delete("scope"); q.delete("season"); }
+    if (s.scope === "current") {
+      q.delete("season");
+      if (defaultHistory) q.set("scope", "current"); else q.delete("scope");
+    }
     else { q.set("scope", "history"); q.set("season", s.season); }
     const qs = q.toString();
     // push, not replace — the tense change is a place the reader can back out of
     nav({ pathname: loc.pathname, search: qs ? `?${qs}` : "" });
-  }, [loc.pathname, loc.search, nav]);
+  }, [loc.pathname, loc.search, nav, defaultHistory]);
   return [sel, set];
 }
 

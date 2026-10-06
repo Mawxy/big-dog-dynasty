@@ -49,6 +49,11 @@ Club codes are Sleeper's (nflverse LA -> LAR), matching nfl_games.json and
 players_min.json. Regular season only.
 
     python scripts/defense_vs_position.py [--out data] [--season 2026]
+
+Runs WEEKLY in players-refresh.yml (Wednesdays, Max 2026-10-06): defenses only
+change once a week, and Wednesday gives nflverse a full day after the
+Monday-night game. complete_rows() and regresses() are the two guards that
+make an unattended run safe.
 """
 import argparse
 import json
@@ -189,6 +194,44 @@ def build(cur_rows, prev_rows, season):
     }
 
 
+def complete_rows(rows, games):
+    """Drop trailing weeks nflverse has not finished posting.
+
+    `games` is <season>/nfl_games.json ({week: {club: [opp, home, pts,
+    opp_pts, kickoff]}}). A week counts once every club scheduled that week
+    has a final score AND appears in the nflverse rows. The weekly run lands
+    early Wednesday, but a late Monday-night stat feed would otherwise publish
+    "through week N" built from 30 of 32 clubs and hold it for a week. An
+    incomplete week is dropped rather than published, so the grid stays one
+    honest week behind until the next run. No games file = no trim."""
+    if not games:
+        return rows
+    have = defaultdict(set)
+    for r in rows:
+        have[r["week"]].add(r["team"])
+    keep = max(have, default=0)
+    while keep:
+        sched = (games.get(str(keep)) or {})
+        if sched and all(v[2] is not None for v in sched.values()) \
+                and set(sched) <= have[keep]:
+            break
+        keep -= 1
+    return [r for r in rows if r["week"] <= keep]
+
+
+def regresses(path, doc):
+    """True when `path` already holds a grid further along than `doc`.
+
+    A failed nflverse pull for this season publishes last season's prior only
+    (through_week 0); that must never replace a real grid."""
+    try:
+        old = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return False
+    return (old.get("season") == doc["season"]
+            and (old.get("through_week") or 0) > doc["through_week"])
+
+
 def validate(doc):
     """Refuse to publish a document the site can't trust."""
     d = doc["defenses"]
@@ -233,10 +276,23 @@ def main(argv=None):
     except Exception as e:                                  # noqa: BLE001
         print(f"  ! no {season} stats yet ({e}); publishing last season's prior only")
         cur_raw = []
-    cur = add_expected(cur_raw, prior_ppg(prev))
+    sdir = a.out / "leagues" / key / str(season)
+    try:
+        games = json.loads((sdir / "nfl_games.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        games = {}
+    full = complete_rows(cur_raw, games)
+    if len(full) < len(cur_raw):
+        dropped = sorted({r["week"] for r in cur_raw} - {r["week"] for r in full})
+        print(f"  ! week(s) {dropped} not fully posted by nflverse yet; left out")
+    cur = add_expected(full, prior_ppg(prev))
     doc = build(cur, prev, season)
     validate(doc)
-    path = a.out / "leagues" / key / str(season) / "defense_vs_position.json"
+    path = sdir / "defense_vs_position.json"
+    if regresses(path, doc):
+        print(f"  ! refusing to replace a grid through a later week with one "
+              f"through week {doc['through_week']}", file=sys.stderr)
+        return 1
     atomic_write(path, json.dumps(doc, separators=(",", ":")) + "\n")
     softest = {p: min(doc["defenses"], key=lambda d: doc["defenses"][d][p]["rank"])
                for p in POSITIONS}
