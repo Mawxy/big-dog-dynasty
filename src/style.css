@@ -981,7 +981,22 @@ table.dtbl { table-layout: fixed; min-width: 640px; background: var(--band); }
 .dlink:hover, .dexpand:hover {
   border-color: var(--dim2); color: var(--txt2); text-decoration: none;
 }
-.dtbl td .v { font: 700 16px/1.3 var(--cond); font-variant-numeric: tabular-nums; }
+.dtbl td .v { font: 700 16px/1.3 var(--cond); font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* the phone lens over the returns table — Summary / By season (Draft.tsx) */
+.dlens { display: flex; gap: 6px; margin: 2px 0 10px; }
+@media (max-width: 640px) {
+  table.dtbl.narrow { min-width: 0; }
+  .dtbl.narrow thead th, .dtbl.narrow td { padding-left: 7px; padding-right: 7px; }
+  .dtbl.narrow td.med, .dtbl.narrow thead th.med { padding-right: 9px; }
+  .dtbl.narrow thead th { letter-spacing: .1em; }
+  .dtbl.narrow tr.lvl1 td.lbl { padding-left: 18px; }
+  .dtbl.narrow tr.lvl2 td.lbl { padding-left: 32px; }
+  /* the round/tier/pick column holds while the seasons scroll under it; it
+     inherits its row's band color so the pinned cell never shows through */
+  .dtbl.narrow .pin { position: sticky; left: 0; z-index: 1; background: inherit;
+    box-shadow: 1px 0 0 var(--rule); }
+  .dtbl.narrow thead th.pin { background: var(--band); }
+}
 .dtbl td.med { border-left: 1px solid var(--rule); padding-right: 14px; }
 .dtbl td.med .v { font-size: 18px; }
 /* Hit % is a share, not a signed WAR figure — neutral so it can't be mistaken

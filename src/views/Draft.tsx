@@ -9,6 +9,7 @@ import { buildHistory, type History } from "../lib/draftHistory";
 import DraftBoardGrid from "../components/DraftBoardGrid";
 import PickTable from "../components/PickTable";
 import TScroll from "../components/TScroll";
+import { useMobile } from "../lib/useWidth";
 import { boxStats } from "../components/BoxMarks";
 const ROUNDS = [1, 2, 3, 4];
 const SLOTS = ROUNDS.flatMap(rd =>
@@ -96,6 +97,14 @@ export default function Draft() {
   const scope = useParams().sub === "history" ? "history" : "returns";
   // one nested table now: keys are "1" (round), "1E" (tier), "1.01" (slot)
   const [open, setOpen] = useState<Record<string, boolean>>({ "1": true });
+  /* THE RETURNS TABLE ON A PHONE (Max, 2026-10-06): eleven figure columns at
+     375px ran into each other ("+0.29+0.41+0.42") and pushed the three summary
+     columns off the right edge. Below 640px the table takes a lens instead:
+     Summary (median, hit %, franchise %) fits the screen with no scroll, and
+     By season shows the year columns at a width that cannot collide, scrolling
+     sideways with the round/tier/pick column pinned. Desktop shows both. */
+  const narrow = useMobile();
+  const [dlens, setDlens] = useState<"sum" | "yrs">("sum");
 
   const draftsFile = useJson<Drafts>("drafts.json");
   const drafts = draftsFile.data;
@@ -326,8 +335,19 @@ export default function Draft() {
 
   const yearCols = corpus ? [...corpus.ages.map(a => ({ label: `Yr ${a}`, pending: false })),
     ...corpus.pendingAges.map(a => ({ label: `Yr ${a}*`, pending: true }))] : [];
-  const W_FIRST = 19, W_MED = 13, W_HIT = 10, W_OUT = 11;
-  const W_YEAR = ((100 - W_FIRST - W_MED - W_HIT - W_OUT) / Math.max(1, yearCols.length)).toFixed(2) + "%";
+  const showYears = !narrow || dlens === "yrs";
+  const showSum = !narrow || dlens === "sum";
+  /* Widths per layout. A year figure ("+0.29", "−0.53") needs ~58px in the
+     mono face, so the full table's minimum width grows with the year count
+     rather than sitting at a fixed 640px that let figures overrun their cells. */
+  const YR_PX = 62, LBL_PX = narrow ? 112 : 170;
+  const minW = narrow
+    ? (showYears ? LBL_PX + yearCols.length * YR_PX : 0)
+    : Math.max(640, LBL_PX + yearCols.length * YR_PX + 280);
+  const W_FIRST = narrow ? (showYears ? +(LBL_PX / minW * 100).toFixed(2) : 37) : 19;
+  const W_MED = narrow ? 23 : 13, W_HIT = narrow ? 18 : 10, W_OUT = narrow ? 22 : 11;
+  const W_YEAR = ((100 - W_FIRST - (showSum ? W_MED + W_HIT + W_OUT : 0))
+    / Math.max(1, yearCols.length)).toFixed(2) + "%";
 
   // The table is a tree flattened to rows: a node is visible when every
   // ancestor is open, which is exactly "push, then recurse if open".
@@ -491,18 +511,29 @@ export default function Draft() {
             </button>
           </div>
           <div className="dwrap">
-          <TScroll box="dscroll">
-            <table className="dtbl">
+          {narrow && (
+            <div className="dlens" role="group" aria-label="Columns">
+              <button type="button" className={`chip ${dlens === "sum" ? "on" : ""}`}
+                aria-pressed={dlens === "sum"} onClick={() => setDlens("sum")}>Summary</button>
+              <button type="button" className={`chip ${dlens === "yrs" ? "on" : ""}`}
+                aria-pressed={dlens === "yrs"} onClick={() => setDlens("yrs")}>By season</button>
+            </div>
+          )}
+          <TScroll box="dscroll" hint={narrow && showYears ? "Seasons scroll sideways." : undefined}>
+            <table className={`dtbl${narrow ? " narrow" : ""}`} style={minW ? { minWidth: minW } : undefined}>
               <thead>
                 <tr>
-                  <th scope="col" className="t" style={{ width: `${W_FIRST}%` }}>Round · Tier · Pick</th>
-                  {yearCols.map(c => (
+                  <th scope="col" className="t pin" style={{ width: `${W_FIRST}%` }}>
+                    {narrow ? "Pick" : "Round · Tier · Pick"}</th>
+                  {showYears && yearCols.map(c => (
                     <th scope="col" key={c.label} className="n"
                       style={{ width: W_YEAR, color: c.pending ? "var(--dim3)" : undefined }}>{c.label}</th>
                   ))}
-                  <th scope="col" className="n med" style={{ width: `${W_MED}%` }}>Median</th>
-                  <th scope="col" className="n" style={{ width: `${W_HIT}%` }}>Hit %</th>
-                  <th scope="col" className="n" style={{ width: `${W_OUT}%` }}>Franchise %</th>
+                  {showSum && <>
+                    <th scope="col" className="n med" style={{ width: `${W_MED}%` }}>Median</th>
+                    <th scope="col" className="n" style={{ width: `${W_HIT}%` }}>Hit %</th>
+                    <th scope="col" className="n" style={{ width: `${W_OUT}%` }}>{narrow ? "Fran %" : "Franchise %"}</th>
+                  </>}
                 </tr>
               </thead>
               <tbody>
@@ -525,20 +556,21 @@ export default function Draft() {
                           setOpen(s => ({ ...s, [n.key]: !s[n.key] }));
                         }
                       } : undefined}>
-                      <td className="lbl">
+                      <td className="lbl pin">
                         <span className="caret" style={{ color: !kids ? "transparent" : isOpen ? "var(--acc)" : "var(--dim)" }}>
                           {kids ? (isOpen ? "▾" : "▸") : "·"}
                         </span>
                         {n.label}
                         {n.sub && <div className="who">{n.sub}</div>}
                       </td>
-                      {n.cells.map((c, i) => (
+                      {showYears && n.cells.map((c, i) => (
                         <td key={i} className="n">
                           <span className="v" style={{ color: c.pending || c.v == null ? "var(--dim3)" : warInk(c.v) }}>
                             {c.v == null ? "—" : sgnWar(c.v)}
                           </span>
                         </td>
                       ))}
+                      {showSum && <>
                       <td className="n med">
                         <span className="v" style={{ color: n.med == null ? "var(--dim3)" : warInk(n.med) }}>
                           {n.med == null ? "—" : sgnWar(n.med)}
@@ -553,6 +585,7 @@ export default function Draft() {
                           {n.fran == null ? "—" : `${Math.round(n.fran * 100)}%`}
                         </span>
                       </td>
+                      </>}
                     </tr>
                   );
                 })}
