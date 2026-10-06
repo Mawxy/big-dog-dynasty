@@ -447,6 +447,47 @@ class InSeasonBlock(Base):
         vd.check_inseason()
 
 
+class Freshness(Base):
+    """check_freshness WARNS and never fails: a stale file from another job
+    must show up on the nightly's run page without discarding the nightly."""
+
+    TODAY = __import__("datetime").date(2026, 10, 6)
+
+    def run_check(self):
+        """(stderr text) of one check_freshness run; SystemExit fails the test."""
+        import contextlib, io
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            vd.check_freshness(today=self.TODAY)
+        return err.getvalue()
+
+    def test_yesterdays_values_are_fresh(self):
+        self.t.write("values.json", {"fetched": "2026-10-05"})
+        self.assertEqual(self.run_check(), "")
+
+    def test_the_2026_10_05_miss_warns(self):
+        """values-refresh never got a runner on 10-05; the 10-06 nightly saw
+        a file fetched 10-04."""
+        self.t.write("values.json", {"fetched": "2026-10-04"})
+        self.assertIn("values.json was fetched 2026-10-04", self.run_check())
+
+    def test_an_unparseable_stamp_warns(self):
+        self.t.write("values.json", {"fetched": None})
+        self.assertIn("is not a date", self.run_check())
+
+    def test_a_grid_level_with_the_scored_weeks_is_fresh(self):
+        self.t.season(2026, weeks=(1, 2, 3))
+        self.t.write("2026/defense_vs_position.json", {"season": 2026, "through_week": 3})
+        self.assertEqual(self.run_check(), "")
+
+    def test_a_grid_behind_the_scored_weeks_warns(self):
+        self.t.season(2026, weeks=(1, 2, 3, 4))
+        self.t.write("2026/defense_vs_position.json", {"season": 2026, "through_week": 3})
+        self.assertIn("through week 3 but 4 weeks are scored", self.run_check())
+
+    def test_absent_files_are_skipped(self):
+        self.assertEqual(self.run_check(), "")
+
 class ValuesOnlyPath(unittest.TestCase):
     """The values-refresh workflow runs `--values-only`, which must stay a
     market-values check. None of the league checks above may reach it — that

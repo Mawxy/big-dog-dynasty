@@ -25,7 +25,7 @@ its floor is part of that change.
   python scripts/validate_data.py                # full check (data-refresh)
   python scripts/validate_data.py --values-only  # market-values workflow
 """
-import argparse, json, sys
+import argparse, datetime, json, os, sys
 from pathlib import Path
 from leaguepaths import DataDir
 # the eight lineup slots, from the crawler's own schema — a validator that
@@ -109,6 +109,17 @@ WAR_RANGE = (-5.0, 10.0)
 def fail(msg):
     print(f"VALIDATION FAILED: {msg}", file=sys.stderr)
     sys.exit(1)
+
+
+def warn(msg, title="Stale data"):
+    """A finding that must be SEEN but must not block the commit.
+
+    Printed to stderr always, and as a GitHub Actions annotation when running
+    in Actions, so it lands on the run's summary page instead of in a log
+    nobody opens."""
+    print(f"VALIDATION WARNING: {msg}", file=sys.stderr)
+    if os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::warning title={title}::{msg}")
 
 
 def jload(p):
@@ -635,6 +646,51 @@ def check_record_vs_matchups(season):
                  f"matchups.json scores {played} regular-season weeks")
 
 
+# values.json is written by values-refresh (11:23 UTC) and read by the nightly
+# (06:17 UTC), so a healthy file is at most a day old when the nightly sees it.
+VALUES_MAX_AGE_DAYS = 1
+
+
+def check_freshness(today=None):
+    """Files a SEPARATE job is supposed to refresh, checked for their date.
+
+    Warn-only, on purpose. Both gaps this catches were invisible to every
+    other check here, because a stale file still has the right shape:
+
+      * values.json `fetched`. On 2026-10-05 values-refresh never got a GitHub
+        runner and failed with no commit; the nightly then validated a
+        day-old market file as OK. Failing the nightly over it would throw away
+        a good league build because a different workflow had a bad day.
+      * the defense grid's `through_week` against the scored weeks in that
+        season's matchups.json. defense_vs_position.py is hand-run, so the grid
+        falls behind every week nobody runs it.
+    """
+    today = today or datetime.datetime.now(datetime.timezone.utc).date()
+    vf = DATA / "values.json"
+    if vf.exists():
+        fetched = jload(vf).get("fetched")
+        try:
+            age = (today - datetime.date.fromisoformat(str(fetched)[:10])).days
+        except ValueError:
+            warn(f"values.json fetched {fetched!r} is not a date")
+        else:
+            if age > VALUES_MAX_AGE_DAYS:
+                warn(f"values.json was fetched {fetched}, {age} days ago — "
+                     f"values-refresh has not committed since. Check its runs "
+                     f"in Actions.", title="Market values stale")
+    season = _roster_season()
+    if season is None:
+        return
+    gf = DATA / str(season) / "defense_vs_position.json"
+    if gf.exists():
+        through = jload(gf).get("through_week") or 0
+        scored = inseason.weeks_played(inseason.load_matchups(DATA, season))
+        if through < scored:
+            warn(f"{season}/defense_vs_position.json is through week {through} "
+                 f"but {scored} weeks are scored — run "
+                 f"scripts/defense_vs_position.py.", title="Defense grid stale")
+
+
 def check_full():
     meta = jload(DATA / "meta.json")
     seasons = meta.get("seasons") or []
@@ -709,6 +765,7 @@ def check_full():
     check_benchmarks()
     check_slot_values()
     check_values()
+    check_freshness()
 
 
 def main():
