@@ -1213,17 +1213,33 @@ export default function Players() {
     if (!usage) return null;
     const base = allTime ? allPop : histPop;
     if (!base) return null;
+    /* WAR AND WS FOLLOW THE PHASE TOO (Max, 2026-10-07). The base is the
+       regular-season population, so under Playoffs or Both these two used to
+       stay regular-season figures beneath a "Playoff WAR" heading — Bijan 2025
+       read 1.40 here against 0.46 on the box score's Playoffs board. They now
+       come off that board's own rows (postPop / bothPop), so the two lenses
+       quote one number; a player with no bracket line reads the em dash. */
+    const phaseRows = phase === "post" ? postPop : phase === "both" ? bothPop : null;
+    const phased = phase !== "reg" && !wspan;
+    // wait for the bracket index; if it failed, the two read the em dash
+    if (phased && !phaseRows && !postErr) return null;
+    const phaseOf = new Map((phaseRows ?? []).map(r => [r.pid, r]));
     return base.map(r => {
       const u = wspan
         ? usageOfWeeks(usgWk, r.pid, wk => inSpan(wspan, wk))
         : usageOf(usg_, r.pid, viewSeasons, phase);
       // the row's own box-score figures stay: WAR and WS lead this lens too
       const f: Row["f"] = { ...r.f };
+      if (phased) {
+        const pr = phaseOf.get(r.pid);
+        f.war = pr?.f.war ?? null;
+        f.ws = pr?.f.ws ?? null;
+      }
       for (const k of Object.keys(f)) if (k in USAGE_LABEL) delete f[k as UsageKey];
       if (u) for (const [k, v] of Object.entries(u)) if (k !== "g") f[k as UsageKey] = v as number;
       return { ...r, f };
     });
-  }, [usage, allTime, allPop, histPop, usg_, viewSeasons, phase, wspan, usgWk]);
+  }, [usage, allTime, allPop, histPop, usg_, viewSeasons, phase, wspan, usgWk, postPop, bothPop, postErr]);
   /* THE BOX SCORE BORROWS ONE FIGURE from the same file: snap share, merged
      onto the league rows under the phase in force. Until usage.json lands
      the column reads the em dash and nothing else waits on it. */
@@ -1260,7 +1276,7 @@ export default function Players() {
    *  and the band above it already names the split. */
   const curCols = useMemo(
     () => (ol.inseason
-      ? CUR_COLS.map(c => (c.id === "war" ? { ...c, label: "WAR outlook" } : c))
+      ? CUR_COLS.map(c => (c.id === "war" ? { ...c, label: "WAR pace" } : c))
       : CUR_COLS),
     [ol.inseason]);
   const cols = usage ? maxaCols(pos) : hist ? histCols : curCols;
@@ -1937,7 +1953,7 @@ export default function Players() {
           <>
             DVI prices the dynasty horizon and CVI the coming season, both 0–100.{" "}
             {ol.inseason
-              ? `WAR outlook is what ${ol.inseason.season} is tracking to finish at — the WAR `
+              ? `WAR pace is what ${ol.inseason.season} is tracking to finish at — the WAR `
                 + `he has banked so far plus the rest of the full-season projection, prorated `
                 + `to the weeks still to be played. The indices beside it, and every price on `
                 + `the site, stay on the full-season rate: banked WAR has no trade value.`

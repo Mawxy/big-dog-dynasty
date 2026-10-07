@@ -36,6 +36,7 @@ import datetime
 import json
 from pathlib import Path
 from curves import CURVES, DEFAULT_CURVE, war_reader
+from ktc_cols import ktc_of, league_tep
 from ioutil import atomic_write
 from leaguepaths import DataDir
 
@@ -108,6 +109,12 @@ def load_inputs():
     proj = {p["pid"]: p
             for p in json.load(open(DATA / "projections.json", encoding="utf-8"))["players"]}
     vals = json.load(open(DATA / "values.json", encoding="utf-8")).get("players", {})
+    # THE LEAGUE'S KTC COLUMN (2026-10-07), the one the site prints beside the
+    # index: `ktc` below is ktc_of(row, meta.tep), so a TE-premium league's
+    # tight ends enter the market half — and its clamp distribution — at the
+    # premium price rather than the base one nobody here trades at.
+    tep = league_tep(DATA)
+    vals = {pid: {**v, "ktc": ktc_of(v, tep)} for pid, v in vals.items()}
     # crawl signals are optional — before the first crawl DVI still computes from
     # market + production, just without roster%/start%
     sf = DATA / "league_signals.json"

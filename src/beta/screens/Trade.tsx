@@ -10,6 +10,7 @@ import { useLeague } from "../../lib/context";
 import { fmt } from "../../lib/stats";
 import { POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
+import { ktcOf } from "../../lib/values";
 import { readTrades } from "../../lib/trades";
 import { useMobile } from "../../lib/useWidth";
 import {
@@ -1505,11 +1506,12 @@ function Sides({ t, at, vals, pickKtc, nameOf }: {
   nameOf: (rid: number) => string;
 }) {
   const betaPath = useBetaPath();
+  const { meta } = useLeague();
   return (
         <div className="trx-drin">
           {ordered(t).map(s => {
             const then = at.side(s.rid).mkt;
-            const now = marketNow(s, vals, pickKtc);
+            const now = marketNow(s, vals, pickKtc, meta.tep);
             const real = sideRealized(s);
             return (
               <div className="trx-drside" key={s.rid}>
@@ -1599,18 +1601,20 @@ function Sides({ t, at, vals, pickKtc, nameOf }: {
  *    CONVERTED pick is the PLAYER (Max, 2026-09-02): once made it prices by
  *    the drafted player's pid, here and in the writer from draft day on.
  *  - FAAB IS SKIPPED, not declined — same as the writer's `continue`.
- *  - THE BASE KTC LADDER, not `lib/values.ktcOf`. This is the one deliberate
- *    exception to the site-wide TE-premium rule. The writer's `price_now` reads
- *    `row.get("ktc")` and the frozen history rows are the same base column, so
- *    pricing today's end on the premium ladder would credit a scoring rule to
- *    the market and show every tight end gaining value he never gained. Like
- *    for like, and the like is what was written down on the day.
+ *  - THE LEAGUE'S KTC COLUMN, LIKE FOR LIKE (2026-10-07). The writer now prices
+ *    players on `ktc_of(row, meta.tep)` at both ends (history rows scaled by
+ *    today's league/base ratio) and stamps each side's `mktBasis`. A side on
+ *    "tier+tep" prices today's end through `lib/values.ktcOf`, the column every
+ *    other KTC figure on the site uses; a side frozen before the history
+ *    reached (older basis) keeps the base ladder at both ends, because pricing
+ *    one end on the premium would credit a scoring rule to the market.
  *  - ONE UNPRICEABLE ASSET VOIDS THE SIDE, which is the writer's rule too: it
  *    sets the running total to None the moment a source can't price an asset.
  */
 function marketNow(
-  s: TradeSide, vals: Values | null, pickKtc: Map<string, number>,
+  s: TradeSide, vals: Values | null, pickKtc: Map<string, number>, tep?: string,
 ): number | null {
+  const premium = s.mktBasis === "tier+tep";
   if (!vals) return null;
   let sum = 0;
   for (const a of s.got) {
@@ -1623,7 +1627,8 @@ function marketNow(
     } else if (a.pid) {
       // a player — including a pick that has been MADE, which is the player
       // now (Max, 2026-09-02): "what the slot cost -> what he is worth"
-      v = vals.players[a.pid]?.ktc;
+      const row = vals.players[a.pid];
+      v = (premium ? ktcOf(row, tep) : row?.ktc) ?? undefined;
     }
     if (!v) return null;
     sum += v;

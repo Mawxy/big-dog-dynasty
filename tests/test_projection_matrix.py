@@ -442,7 +442,10 @@ class TestOneOwnerPerNumber(unittest.TestCase):
             self.skipTest("no built data")
         meta = json.loads(f_s.read_text()).get("meta") or {}
         if str(meta.get("model") or "").startswith("points-first"):
-            self.skipTest("committed data predates the points model's removal")
+            # data committed before the first nightly after 2026-10-07: the
+            # matrix in that tree was built off the parked scalar file. Not a
+            # skip — tests.yml pins the skip count.
+            f_s = d / "projections_scalar.json"
         sc = {str(p["pid"]): p for p in json.loads(f_s.read_text())["players"]}
         for m in json.loads(f_m.read_text())["players"]:
             p = sc.get(m["pid"])

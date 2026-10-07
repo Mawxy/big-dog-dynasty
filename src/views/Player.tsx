@@ -324,7 +324,15 @@ export default function Player({ pid }: { pid: string }) {
     return [
       // value prices in this league's TE-premium column; ranks/trends stay the
       // base feed's (KTC publishes them for one ladder only)
-      { src: "KeepTradeCut", value: ktcOf(v, meta.tep), ovr: v.ktcRank, posRank: v.ktcPosRank, t: v.ktcT, imp: v.impWar?.ktc ?? null, picks: vals?.picks?.ktc },
+      // the trend on the same ladder as the value: base change × today's
+      // league/base ratio (see beta/movers.tsx, scripts/ktc_cols.tep_ratio)
+      { src: "KeepTradeCut", value: ktcOf(v, meta.tep), ovr: v.ktcRank, posRank: v.ktcPosRank,
+        t: (() => {
+          const lc = ktcOf(v, meta.tep), r = lc != null && v.ktc ? lc / v.ktc : 1;
+          return v.ktcT && Object.fromEntries(Object.entries(v.ktcT)
+            .map(([w, d]) => [w, d == null ? d : Math.round(d * r)])) as typeof v.ktcT;
+        })(),
+        imp: v.impWar?.ktc ?? null, picks: vals?.picks?.ktc },
       { src: "FantasyCalc", value: v.fc, ovr: v.fcRank, posRank: v.fcPosRank, t: v.fcT, imp: v.impWar?.fc ?? null, picks: vals?.picks?.fc },
     ].filter(m => m.value != null).map(m => ({
       ...m, value: m.value as number, pick: closest(m.picks, m.value as number),
@@ -386,8 +394,24 @@ export default function Player({ pid }: { pid: string }) {
       .sort((a, b) => a[0] - b[0])
     : null;
 
-  /** ladder rows, newest first: projected years above played ones */
-  const played: [number, number][] = proj?.career ?? leagueCareer ?? [];
+  /** ladder rows, newest first: projected years above played ones.
+   *
+   *  LEAGUE YEARS READ THE CAREER TABLE (Max, 2026-10-07). The rungs used to
+   *  be `proj.career` whole — project_war's corpus, which stops at the seed
+   *  season and fills any year with no league row from NFL-wide WAR — so the
+   *  ladder and the Career WAR tile disagreed with the table below for 295 of
+   *  315 players. Now a year with a league row shows that row's WAR; a year
+   *  without one (before the league, or a season he was never rostered) keeps
+   *  its NFL figure as context in the rail ONLY, unclickable, and counts in no
+   *  total, rank or tile. Projected years are the projection's rungs. */
+  const leagueWarOf = new Map((leagueCareer ?? []).map(([y, w]) => [y, w]));
+  const played: [number, number][] = (() => {
+    const byYear = new Map<number, number>((proj?.career ?? []).map(([y, w]) => [y, w]));
+    for (const [y, w] of leagueWarOf) byYear.set(y, w);
+    return [...byYear.entries()]
+      .filter(([y]) => !years.includes(y))
+      .sort((a, b) => a[0] - b[0]);
+  })();
   /* THE LADDER IS WHERE THE FULL-SEASON RATE READ WORST: a projected 2026 sat
      directly above a played 2025 in the same column of season figures, and in
      week 4 those two were measuring different amounts of football. The roster
@@ -397,8 +421,10 @@ export default function Player({ pid }: { pid: string }) {
     : [];
   const ladder = [...projected.slice().reverse(), ...played.slice().reverse()];
   const ladderMax = Math.max(0.001, ...ladder.map(([, w]) => Math.max(0, w)));
-  const careerWar = played.reduce((s, [, w]) => s + w, 0);
-  const firstYear = played.length ? played[0][0] : null;
+  /** the Career WAR tile: league seasons only, exactly the career table's
+   *  total (2026 banked included), never the NFL-only rungs */
+  const careerWar = tot ? tot.war : null;
+  const firstYear = leagueCareer?.length ? leagueCareer[0][0] : null;
 
   const barColor = (w: number) =>
     w >= 1.5 ? "var(--acc)" : w >= 0.75 ? "var(--acc-dim)" : "var(--dim)";
@@ -500,7 +526,9 @@ export default function Player({ pid }: { pid: string }) {
         // sitting back. Leaving it clickable pointed at a row that
         // was never rendered.
         const inLeague = meta.seasons.includes(String(y));
-        const pick = !isProj && inLeague;
+        // pickable only where the career table HAS the row: a league year he
+        // was never rostered in is NFL context, like a pre-league year
+        const pick = !isProj && leagueWarOf.has(y);
         const on = pick && String(y) === wkSeason;
         return (
           <div key={y} role={pick ? "button" : undefined}
@@ -508,7 +536,9 @@ export default function Player({ pid }: { pid: string }) {
             title={pick ? `Open ${y} in the career table`
               : isProj
                 ? (inseason && y === inseason.season ? outlookNote(inseason) : undefined)
-                : `${y} — before the league began`}
+                : inLeague
+                  ? `${y} — not on a league roster; NFL WAR, not counted in league figures`
+                  : `${y} — before the league began; NFL WAR, not counted in league figures`}
             className={`rail-war${isProj ? " proj" : pick ? " pick" : " pre"}${on ? " mark" : ""}`}
             onClick={pick ? () => openSeason(String(y), true) : undefined}
             onKeyDown={pick ? e => {
@@ -609,8 +639,8 @@ export default function Player({ pid }: { pid: string }) {
               </div>
               <div className="figcell">
                 <div className="figkey">Career WAR</div>
-                <div className="figval">{played.length ? fmtWar(careerWar) : "—"}</div>
-                <div className="figsub">{firstYear ? `since ${firstYear}` : "no seasons"}</div>
+                <div className="figval">{careerWar != null ? fmtWar(careerWar) : "—"}</div>
+                <div className="figsub">{firstYear ? `in league, since ${firstYear}` : "no league seasons"}</div>
               </div>
               <div className="figcell">
                 {/* THE PROJECTION'S OWN YEARS, never the roster season. The

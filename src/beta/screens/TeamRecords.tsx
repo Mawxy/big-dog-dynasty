@@ -231,8 +231,11 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
       ? Object.values(fr ?? {}).flatMap(f => f.seasons)
       : fr?.[fkey]?.seasons ?? []).filter(s => s.wins + s.losses + s.ties > 0
         && (scope === "all" || s.season === scope));
-    /** A SEASON'S LOW MARKS ARE SETTLED SEASONS' ONLY: the one in progress
-     *  holds the fewest points and the worst record of all every September. */
+    /** SEASON RECORDS ARE SETTLED SEASONS ONLY (Max, 2026-10-07). The low
+     *  marks always were — the season in progress holds the fewest points and
+     *  the worst record every September — and now the highs are too: a
+     *  4-game 2026 held the league's points-per-game record at 177.4 against
+     *  a real 143.9. Single-game records still count every scored week. */
     const settled = new Set(settledSeasons(fr, seasons));
     const doneSeasons = fseasons.filter(s => settled.has(s.season));
     /** regular-season points against, per franchise-season (off the games) */
@@ -283,7 +286,7 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
       });
     }
 
-    const bestPf = maxBy(fseasons, s => s.fpts);
+    const bestPf = maxBy(doneSeasons, s => s.fpts);
     if (bestPf) push({
       key: "pfs", label: "Most points, season", value: fmt(bestPf.fpts, 1),
       detail: `${who(bestPf.name)}${bestPf.wins}-${bestPf.losses}${bestPf.ties ? `-${bestPf.ties}` : ""} · ${fmt(bestPf.ppg, 1)} ppg`,
@@ -293,7 +296,7 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
        start in the season being played outranks every 12-2 there has ever
        been, so the record changed hands every September. Wins first (a tie is
        half of one), then fewer losses, then points as the last word. */
-    const bestRec = maxBy(fseasons,
+    const bestRec = maxBy(doneSeasons,
       s => (s.wins + s.ties / 2) * 1e6 - s.losses * 1e3 + s.fpts / 1e4);
     if (bestRec) push({
       key: "rec", label: "Best record, season",
@@ -314,7 +317,7 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
     seasonRec("reclo", "Worst record, season",
       maxBy(doneSeasons, s => -((s.wins + s.ties / 2) * 1e6 - s.losses * 1e3 + s.fpts / 1e4)),
       s => recStr(s), s => `${fmt(s.fpts, 1)} points · ${finStr(s)}`);
-    seasonRec("ppg", "Most points per game, season", maxBy(fseasons, s => s.ppg),
+    seasonRec("ppg", "Most points per game, season", maxBy(doneSeasons, s => s.ppg),
       s => fmt(s.ppg, 1), s => `${recStr(s)} · ${fmt(s.fpts, 1)} points`);
     const paSeasons = doneSeasons.filter(s => paOf.has(`${fkOfSeason(s)}|${s.season}`));
     const paVal = (s: FranchiseSeason) => paOf.get(`${fkOfSeason(s)}|${s.season}`) ?? 0;
@@ -322,7 +325,7 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
       s => fmt(paVal(s), 1), s => `${recStr(s)} · ${fmt(s.fpts, 1)} for · regular season`);
     seasonRec("palo", "Fewest points against, season", maxBy(paSeasons, s => -paVal(s)),
       s => fmt(paVal(s), 1), s => `${recStr(s)} · ${fmt(s.fpts, 1)} for · regular season`);
-    seasonRec("warhi", "Most lineup WAR, season", maxBy(fseasons, s => s.war),
+    seasonRec("warhi", "Most lineup WAR, season", maxBy(doneSeasons, s => s.war),
       s => sgnWar(s.war), s => `${recStr(s)} · the starters' WAR, vs replacement`);
     seasonRec("warlo", "Least lineup WAR, season", maxBy(doneSeasons, s => -s.war),
       s => sgnWar(s.war), s => `${recStr(s)} · the starters' WAR, vs replacement`);
@@ -336,13 +339,15 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
     pRec("ppts", "Best player game, points", maxBy(weeks, w => w.pts), w => fmt(w.pts ?? 0, 1));
     pRec("pwar", "Best player game, WAR", maxBy(weeks, w => w.war), w => sgnWar(w.war ?? 0));
 
-    const sw = maxBy([...seasonWar.values()], s => s.war);
+    /** player-season records, settled seasons only — same rule as above */
+    const doneSeasonWar = [...seasonWar.values()].filter(s => settled.has(s.season));
+    const sw = maxBy(doneSeasonWar, s => s.war);
     if (sw) push({
       key: "swar", label: "Best player season, WAR", value: sgnWar(sw.war),
       detail: `${name(sw.pid)} · ${who(sw.team)}${sw.n} start${sw.n === 1 ? "" : "s"}, regular season`,
       when: sw.season, to: betaPath(`/player/${sw.pid}`),
     });
-    const sp = maxBy([...seasonWar.values()], s => s.pts);
+    const sp = maxBy(doneSeasonWar, s => s.pts);
     if (sp) push({
       key: "spts", label: "Best player season, points", value: fmt(sp.pts, 1),
       detail: `${name(sp.pid)} · ${who(sp.team)}${sp.n} start${sp.n === 1 ? "" : "s"}, regular season`,
@@ -373,8 +378,8 @@ export default function TeamRecords({ fkey, fr, seasons, fold = 10, bookTo }: {
       .sort((a, b) => (b.pts ?? 0) - (a.pts ?? 0)).slice(0, TOP_ALL);
     const topWar = weeks.filter(w => w.war != null)
       .sort((a, b) => (b.war ?? 0) - (a.war ?? 0)).slice(0, TOP_ALL);
-    const topSeasons = fseasons.slice().sort((a, b) => b.fpts - a.fpts).slice(0, TOP_ALL);
-    const topPSeasons = [...seasonWar.values()].sort((a, b) => b.war - a.war).slice(0, TOP_ALL);
+    const topSeasons = doneSeasons.slice().sort((a, b) => b.fpts - a.fpts).slice(0, TOP_ALL);
+    const topPSeasons = doneSeasonWar.slice().sort((a, b) => b.war - a.war).slice(0, TOP_ALL);
 
     return { recs, topGames, topPts, topWar, topSeasons, topPSeasons, n: games.length };
   }, [files, fr, fkey, leagueWide, scope, seasons.join(","), players, betaPath]);

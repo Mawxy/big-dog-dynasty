@@ -712,6 +712,10 @@ export interface TradeSide {
   /** frozen at-trade market price (KTC points, players-only sides); the
    *  backfilled fallback where only values_history reaches */
   mktThen?: number | null;
+  /** which ladder `mktThen` was frozen on: "tier+tep" = picks at their tier,
+   *  players on the league's KTC column (lib/values.ktcOf); anything else = base
+   *  KTC. The "now" end must use the same one (2026-10-07). */
+  mktBasis?: string;
   /** frozen at-trade FantasyCalc price, same rules as mktThen */
   fcThen?: number | null;
 }

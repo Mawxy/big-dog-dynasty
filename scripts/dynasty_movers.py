@@ -201,10 +201,8 @@ def build_pick_table(picks):
 # by sleeper_crawl.tep_class) picks the KTC column its trades are priced in.
 # Fallback walks DOWN the ladder so a missing variant degrades to the nearest
 # milder premium rather than to nothing.
-TEP_FIELDS = {"": ("ktc",),
-              "tep": ("ktcTep", "ktc"),
-              "tepp": ("ktcTepp", "ktcTep", "ktc"),
-              "teppp": ("ktcTeppp", "ktcTepp", "ktcTep", "ktc")}
+# One copy, in ktc_cols.py (2026-10-07) — the league pipeline reads it too.
+from ktc_cols import TEP_FIELDS  # noqa: E402
 
 
 def player_value(row, cls=""):

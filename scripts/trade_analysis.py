@@ -59,6 +59,7 @@ from pathlib import Path
 import inseason
 from curves import DEFAULT_CURVE, curve_paths
 from ioutil import write_json
+from ktc_cols import ktc_of, league_tep, tep_ratio
 from leaguepaths import DataDir
 
 
@@ -447,6 +448,12 @@ def main():
     snaps = load(snap_path) or {}
     values_file = load(ROOT / "data" / "values.json") or {}
     valsg = values_file.get("players", {})
+    # THE LEAGUE'S KTC COLUMN (2026-10-07): players price on ktc_of(row,
+    # meta.tep), the column the site prints, at both ends of then -> now. The
+    # history records BASE KTC only, so a history row is scaled by today's
+    # league/base ratio for that player (1.0 for all but premium tight ends) —
+    # the same move tier_scale makes for a pre-tier pick ladder.
+    tep = league_tep(DATA)
     # deep backfill (years, static) under the nightly rolling window — merged
     # per-field, nightly rows winning where both price a date
     hist = load(ROOT / "data" / "values_history_deep.json") or {}
@@ -544,7 +551,12 @@ def main():
                        - datetime.date.fromisoformat(day)).days
                 if gap <= AFTER_TOL_DAYS:
                     best = after
-            return {"ktc": best[1], "fc": best[2]} if best else None
+            if not best:
+                return None
+            ktc = best[1]
+            if ktc is not None and not key.startswith("pick:"):
+                ktc = round(ktc * tep_ratio(valsg.get(key), tep))
+            return {"ktc": ktc, "fc": best[2]}
 
         def p(key):
             row = rows_at(key)
@@ -566,7 +578,7 @@ def main():
         if key.startswith("pick:"):
             return cur_pick.get(key)
         row = valsg.get(key) or {}
-        return {"ktc": row.get("ktc"), "fc": row.get("fc")}
+        return {"ktc": ktc_of(row, tep), "fc": row.get("fc")}
 
     # ---- draft-day splice (settled with Max, 2026-08-21) -----------------
     # A converted pick carries the pick's mid-tier market price ON DRAFT DAY,
@@ -599,7 +611,11 @@ def main():
     # snapshot without `basis: "tier"` gets its mkt/fc RE-FROZEN off the
     # immutable history at its own day — same source, same day, new basis —
     # and stamped. `exp` is sacred and untouched.
-    BASIS = "tier"
+    # "tier+tep" since 2026-10-07: players on the league's KTC column. A
+    # snapshot on an older basis is re-frozen off the history where it reaches;
+    # one it cannot reach keeps its old basis, and `mktBasis` on each side tells
+    # the site which ladder its "now" must use so the delta stays like for like.
+    BASIS = "tier+tep"
 
     n_new = 0
     for t in trades:
@@ -693,6 +709,7 @@ def main():
             for s in t["sides"]:
                 rec = sn["sides"].get(str(s["rid"])) or {}
                 s["expThen"], s["mktThen"] = rec.get("exp"), rec.get("mkt")
+                s["mktBasis"] = sn.get("basis") or "mid"
                 s["fcThen"] = rec.get("fc")
                 for a, tier in zip(s["got"], tiers[str(s["rid"])]):
                     if tier:

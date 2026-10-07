@@ -190,9 +190,12 @@ export const SOURCE_NAME: Record<MarketSource, string> = { ktc: "KeepTradeCut", 
  * A market's change over a window (Max, 2026-09-08: source and window are
  * both the reader's to pick on the Movers screen; League reads KTC over 7).
  *
- * KTC's VALUE is priced in this league's TE-premium column through `ktcOf`;
- * its TREND stays the base feed's, because KTC publishes no per-tier trends
- * — direction and magnitude read the same either way. FantasyCalc has one
+ * KTC's VALUE is priced in this league's TE-premium column through `ktcOf`,
+ * and so is its TREND (2026-10-07): the history records base KTC only, so the
+ * base change is scaled by today's league/base ratio for that player — 1.0
+ * for everyone but a premium tight end, whose +200 base move is a bigger move
+ * on the premium ladder his price is quoted on. The same ratio
+ * trade_analysis.py applies to a history row (scripts/ktc_cols.tep_ratio). FantasyCalc has one
  * column. Every trend is our own, off the daily snapshots in
  * values_history.json (fetch_values.py), so the three windows are measured
  * the same way for both sources.
@@ -207,7 +210,9 @@ export function useMarketMovers(
     for (const [pid, v] of Object.entries(vals.players)) {
       const info = players[pid];
       const price = source === "ktc" ? ktcOf(v, meta.tep) : v.fc ?? null;
-      const d = (source === "ktc" ? v.ktcT : v.fcT)?.[String(window)];
+      const raw = (source === "ktc" ? v.ktcT : v.fcT)?.[String(window)];
+      const ratio = source === "ktc" && price != null && v.ktc ? price / v.ktc : 1;
+      const d = raw == null ? raw : Math.round(raw * ratio);
       if (!info || price == null || d == null || d === 0) continue;
       rows.push({ pid, name: info[0], pos: info[1], nfl: info[2], price, d });
     }

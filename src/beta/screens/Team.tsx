@@ -13,7 +13,7 @@ import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamH
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
-import { useCvi, useDvi, useProjWar1 } from "../../lib/useIndices";
+import { useCvi, useDvi, useOutlook1, usePaceWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { fmt, ord, sgn } from "../../lib/stats";
 import { ridOf, seasonRowOf } from "../../lib/seasons";
@@ -193,10 +193,13 @@ export default function Team() {
     caps.projections ? "projections.json" : null).data;
   const dvi = useDvi();
   const cvi = useCvi();
-  // YEAR-ONE composite, matching the League screen and the price board: a
-  // lineup card is next season's lineup, and the 3-year stream tripled it
-  // (Max, 2026-09-02).
-  const war = useProjWar1();
+  // WAR PACE (Max, 2026-10-07): the same per-player figure as the Teams board,
+  // the Players board and the player page — banked + the rest of the season in
+  // season, the full-season year 1 out of it. Was the full-season year 1 alone,
+  // so Gibbs read 1.95 here and 2.09 everywhere else. (Year one, never the
+  // 3-year stream, which tripled a lineup card — Max, 2026-09-02.)
+  const war = usePaceWar1();
+  const inseason = useOutlook1().inseason;
   const tvals = useTeamValues(rosterSeason);
   // where each franchise's own picks project to land — a pick is tiered by
   // its ORIGINAL owner's projected finish, not its holder's
@@ -654,11 +657,12 @@ export default function Team() {
       // lineup", but this screen's excludes the taxi squad and IR the way a
       // lineup card does, and a strip figure that disagreed with the total two
       // bands below it would be a bug the reader can see.
-      key: "war", label: "Proj WAR",
+      key: "war", label: inseason ? "WAR pace" : "Proj WAR",
       value: roster.lineupWar == null ? "—" : sgnWar(roster.lineupWar),
       sub: roster.lineupWar == null
         ? "not published for this league"
-        : `best legal lineup, ${rosterSeason}`,
+        : inseason ? `best legal lineup, banked + rest of ${rosterSeason}`
+          : `best legal lineup, ${rosterSeason}`,
     },
     {
       key: "mkt", label: "Market",
@@ -835,7 +839,7 @@ export default function Team() {
               )}
 
               {roster.bands.map(b => (
-                <RosterTable key={b.key} band={b} lens={lens} betaPath={betaPath} />
+                <RosterTable key={b.key} band={b} lens={lens} betaPath={betaPath} pace={!!inseason} />
               ))}
 
               {/* SAID ONCE, UNDER THE TABLES THAT SHOW IT. Three columns of em
@@ -925,8 +929,10 @@ export default function Team() {
 
 /* ---- one banded roster table -------------------------------------------- */
 
-function RosterTable({ band, lens, betaPath }: {
+function RosterTable({ band, lens, betaPath, pace }: {
   band: RosterBand; lens: Lens; betaPath: (p: string) => string;
+  /** in season the WAR column is WAR pace and its header says so */
+  pace: boolean;
 }) {
   const stats = lens === "stats";
   return (
@@ -945,7 +951,7 @@ function RosterTable({ band, lens, betaPath }: {
               <th className="n mkt" title="Games played, lineup starts for this franchise under it">GP</th>
             </> : <>
               <th className="n lens">{lens.toUpperCase()}</th>
-              <th className="n war">WAR</th>
+              <th className="n war" title={pace ? "WAR pace: banked so far plus the rest of the season projected" : "Projected WAR, full season"}>{pace ? "Pace" : "WAR"}</th>
               <th className="n mkt">Market</th>
             </>}
           </tr>

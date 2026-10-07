@@ -238,6 +238,30 @@ export function useOutlook1(): Outlook1 {
 }
 
 /**
+ * WAR PACE, pid -> figure (Max, 2026-10-07): what every screen that shows a
+ * player's CURRENT-season WAR prints — the outlook in season (banked + the rest
+ * of the season on the picked curve) and the full-season year 1 out of season,
+ * where the two are the same number. One map so the Team roster, the Team
+ * strip, the Teams board, the Players board and the player page's WAR pace
+ * cannot quote three different figures for one man, which they did.
+ *
+ * Null until the matrix lands, like useProjWar1, so a caller can tell loading
+ * from "not published". No extra fetch: both hooks read the same cached file.
+ * Model inputs (indices, pick tiers, power rankings) keep useProjWar1.
+ */
+export function usePaceWar1(): Record<string, number> | null {
+  const y1 = useProjWar1();
+  const o = useOutlook1();
+  return useMemo(() => {
+    if (!y1) return null;
+    if (!o.inseason) return y1;
+    const out: Record<string, number> = { ...y1 };
+    for (const [pid, r] of Object.entries(o.rows)) out[pid] = r.outlook;
+    return out;
+  }, [y1, o]);
+}
+
+/**
  * `useIndexFallbacks(pid)` lived here and had no callers — it read
  * `has_analog` / `has_sleeper` off index_models.json for a player, which the
  * player page gets from its own shard's matrix row instead. Removed 2026-09-01.

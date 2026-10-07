@@ -4,7 +4,7 @@ import type { MatrixFile, Team, Values } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
-import { useCviQuery, useDviQuery, useProjWar1 } from "../../lib/useIndices";
+import { useCviQuery, useDviQuery, useOutlook1, usePaceWar1 } from "../../lib/useIndices";
 import { ktcOf } from "../../lib/values";
 import { latestSeasonOf, lineupOf, pInfo, POS_CHIPS, rosterSeasonOf } from "../../lib/league";
 import { fmt } from "../../lib/stats";
@@ -148,7 +148,7 @@ const SLICES: { id: Slice; label: string }[] = [
 
 const SLICE_NOTE: Record<Slice, string> = {
   all: "Every rostered player, taxi and IR included — draft picks are not priced here",
-  start: "Each column prices its own best legal lineup, not the lineup as set",
+  start: "Each column prices its own best legal lineup, not the lineup as set · WAR seats active players only",
   bench: "Everyone that column's own best legal lineup leaves out, taxi and IR included",
 };
 
@@ -279,12 +279,15 @@ function ValueBoard() {
      where the nav bar becomes a rail and the tables gain their padding. */
   const mobile = useMobile("(max-width: 899px)");
 
+  /** in season the WAR column is the pace figure, and says so */
+  const inseason = useOutlook1().inseason;
   /** the columns this league HAS. Each is one pipeline's output, and a column
    *  of em dashes twelve rows deep is not a column. */
   const cols = useMemo(
     () => COLS.filter(c => GROUP_OF[c.id] === "model" ? caps.indices
-      : GROUP_OF[c.id] === "market" ? caps.market : caps.projections && caps.indices),
-    [caps.indices, caps.market, caps.projections]);
+      : GROUP_OF[c.id] === "market" ? caps.market : caps.projections && caps.indices)
+      .map(c => c.id === "war" && inseason ? { ...c, label: "WAR pace", short: "Pace" } : c),
+    [caps.indices, caps.market, caps.projections, inseason]);
   const groups = useMemo(() => (["model", "market", "roster"] as const)
     .map(g => ({ label: GROUP_LABEL[g], span: cols.filter(c => GROUP_OF[c.id] === g).length }))
     .filter(g => g.span > 0), [cols]);
@@ -299,9 +302,11 @@ function ValueBoard() {
 
   const dviQ = useDviQuery();
   const cviQ = useCviQuery();
-  // YEAR-1 projected WAR, the same figure the Players board's Proj WAR column
-  // carries and the same one the League screen's power rankings sum.
-  const projWar = useProjWar1();
+  // WAR PACE (Max, 2026-10-07): the same per-player figure the Players board,
+  // the Team screen and the player page print — banked + the rest of the
+  // season in season, the full-season year 1 out of it. The League screen's
+  // power rankings keep the full-season figure; they rank strength, not pace.
+  const projWar = usePaceWar1();
   const valsQ = useJson<Values>(
     caps.market ? "data/values.json" : null, "globalDaily");
   const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`);
@@ -350,9 +355,17 @@ function ValueBoard() {
          seat eight where another seats nine, and why the drawer states the
          count it is summing over. */
       const seatable = assets.map(a => ({ id: a.pid, pos: a.pos, f: a.f }));
+      /* WAR SEATS ACTIVE PLAYERS ONLY (Max, 2026-10-07): a taxi or IR body
+         cannot be started, so the WAR lineup leaves them out — the Team
+         screen's lineup band and its Proj WAR strip always have. The indices
+         and the market price an asset, so they keep the whole roster, which
+         is also what the Team strip's DVI/CVI starters read. */
+      const inactive = new Set([...(t.taxi ?? []), ...(t.reserve ?? [])]);
       const startersBy = {} as Record<Key, Set<string>>;
       for (const k of CURRENCIES)
-        startersBy[k] = starterSet(seatable, a => a.f[k], lineup);
+        startersBy[k] = starterSet(
+          k === "war" ? seatable.filter(a => !inactive.has(a.id)) : seatable,
+          a => a.f[k], lineup);
       // age has no lineup of its own: the classic board's, DVI's best nine
       startersBy.age = startersBy.dvi;
       return {
@@ -542,7 +555,7 @@ function ValueBoard() {
                 {open === r.rid && (
                   <tr className="plx-drawrow">
                     <td colSpan={span}>
-                      <Drawer r={r} k={s.sort} slice={slice}
+                      <Drawer r={r} k={s.sort} label={colOf(s.sort).label} slice={slice}
                         to={betaPath(`/team/${r.rid}`)} />
                     </td>
                   </tr>
@@ -599,11 +612,10 @@ function Fig({ k, v, sub, word }: {
   );
 }
 
-function Drawer({ r, k, slice, to }: {
-  r: Row; k: Key; slice: Slice; to: string;
+function Drawer({ r, k, label, slice, to }: {
+  r: Row; k: Key; label: string; slice: Slice; to: string;
 }) {
   const nav = useNavigate();
-  const label = COLS.find(c => c.id === k)!.label;
   const sliceLabel = SLICES.find(x => x.id === slice)!.label.toLowerCase();
   return (
     <div className="plx-draw">

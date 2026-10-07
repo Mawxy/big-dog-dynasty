@@ -55,6 +55,7 @@ import json
 from pathlib import Path
 from ioutil import atomic_write
 from curves import DEFAULT_CURVE, curve_paths
+from ktc_cols import ktc_of, league_tep
 from leaguepaths import DataDir
 from seasons import last_completed_season
 
@@ -206,12 +207,20 @@ def main():
                     "sources": {}},
            "fits": {}, "fits_by_pos": {}, "picks": {}}
 
+    # THE LEAGUE'S KTC COLUMN (2026-10-07): the fit and the implied WAR read
+    # ktc_of(row, meta.tep) — the price the player page prints beside them —
+    # not base `ktc`. FantasyCalc has one column.
+    tep = league_tep(DATA)
+
+    def price(d, src):
+        return ktc_of(d, tep) if src == "ktc" else d.get(src)
+
     for src in ("ktc", "fc"):
         # -- joins ----------------------------------------------------------
-        pj = [(d[src], proj[pid]) for pid, d in values["players"].items()
-              if d.get(src) and pid in proj]
-        rl = [(d[src], war_real[pid]) for pid, d in values["players"].items()
-              if d.get(src) and pid in war_real]
+        pj = [(price(d, src), proj[pid]) for pid, d in values["players"].items()
+              if price(d, src) and pid in proj]
+        rl = [(price(d, src), war_real[pid]) for pid, d in values["players"].items()
+              if price(d, src) and pid in war_real]
 
         # -- fits -----------------------------------------------------------
         proj_fit = {}
@@ -274,7 +283,7 @@ def main():
         pos = proj.get(pid, {}).get("pos")
         imp = {}
         for src in ("ktc", "fc"):
-            if d.get(src) is None:
+            if price(d, src) is None:
                 continue
             knots = out["fits_by_pos"].get(src, {}).get(pos)
             if knots:
@@ -282,7 +291,7 @@ def main():
             else:
                 knots = out["fits"].get(src, {}).get("proj", {}).get("total")
             if knots:
-                imp[src] = round(interp(knots, d[src]), 3)
+                imp[src] = round(interp(knots, price(d, src)), 3)
         d.pop("impWar", None), d.pop("modelWar", None)
         if imp:
             d["impWar"] = imp

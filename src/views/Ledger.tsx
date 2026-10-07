@@ -102,7 +102,9 @@ export default function Ledger() {
       let k: number | null | undefined, f: number | null | undefined;
       if (a.pid) {
         const row = vals.players[a.pid];
-        k = ktcOf(row, meta.tep); f = row?.fc;
+        // the ladder the side's "then" was frozen on (trade_analysis
+        // `mktBasis`, 2026-10-07): league column on "tier+tep", base otherwise
+        k = s.mktBasis === "tier+tep" ? ktcOf(row, meta.tep) : row?.ktc; f = row?.fc;
       } else if (a.kind === "pick" && a.ps && a.rnd) {
         const p = pickNow.get(`${a.ps} Mid ${ORDW[a.rnd] ?? `${a.rnd}th`}`);
         k = p?.ktc; f = p?.fc;
