@@ -26,6 +26,7 @@ import RecordBook from "./screens/RecordBook";
 import Movers from "./screens/Movers";
 import Trends from "./screens/Trends";
 import PlayerTrades from "./screens/PlayerTrades";
+import Recaps from "./screens/Recaps";
 import "./beta.css";
 
 /* The deep destinations More points at are the classic board's views, mounted
@@ -316,6 +317,9 @@ function BetaBoard() {
                 <Route path="seasons/:season/:wk/:mid" element={<Seasons />} />
                 <Route path="history" element={<History />} />
                 <Route path="records" element={<RecordBook />} />
+                {/* the weekly recap archive; /recaps/<id> opens that one */}
+                <Route path="recaps" element={<Recaps />} />
+                <Route path="recaps/:id" element={<Recaps />} />
                 <Route path="insights" element={<Insights />} />
                 {/* THE CLASSIC BOARD'S OLD BARE ADDRESSES. Every link anyone
                     shared before 2026-09-02 named a classic view at

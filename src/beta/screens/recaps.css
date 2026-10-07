@@ -1,0 +1,69 @@
+/* ==========================================================================
+   WEEKLY RECAP (screens/Recaps.tsx) — League's recap band and the archive.
+
+   A headline row that opens into the article under it: the row-drawer
+   grammar, --band surface with the 3px accent top rule when open. Prose is
+   Archivo at --txt2 with the verdict panel's measure; headings are Saira
+   Condensed the way bands are. Defines NO tokens. Prefixed `rcp-`.
+   ========================================================================== */
+
+.rcp-item { border-bottom: 1px solid var(--rule); background: var(--bg); }
+.rcp-head {
+  display: flex; flex-direction: column; gap: 6px; width: 100%;
+  padding: 12px var(--v3pad, 22px) 13px;
+  background: transparent; color: inherit; border: 0; font: inherit; text-align: left; cursor: pointer;
+}
+.rcp-head:hover { background: var(--sel); }
+.rcp-head:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.rcp-kick {
+  font: 600 11px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase; color: var(--acc);
+}
+.rcp-title {
+  font: 700 22px/1.15 var(--cond); letter-spacing: .02em; text-transform: uppercase; color: var(--txt);
+  text-wrap: balance;
+}
+.rcp-dek { font: 400 13.5px/1.55 var(--sans); color: var(--txt2); text-wrap: pretty; max-width: 72ch; }
+.rcp-dek strong, .rcp-body strong { color: var(--txt); font-weight: 600; }
+.rcp-more {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--acc);
+  margin-top: 2px;
+}
+.rcp-head:hover .rcp-more { color: var(--txt); }
+
+.rcp-item.open .rcp-head { background: var(--band); }
+.rcp-body {
+  background: var(--band); border-top: 3px solid var(--acc);
+  padding: 4px var(--v3pad, 22px) 18px;
+  font: 400 13.5px/1.6 var(--sans); color: var(--txt2);
+}
+.rcp-body > p, .rcp-body > ul { max-width: 72ch; text-wrap: pretty; }
+.rcp-body p { margin: 10px 0 0; }
+.rcp-body h3 {
+  margin: 20px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  font: 600 12px/1.4 var(--cond); letter-spacing: .22em; text-transform: uppercase; color: var(--dim);
+}
+.rcp-body h4 {
+  margin: 14px 0 0; font: 600 12px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
+}
+.rcp-body ul { margin: 10px 0 0; padding-left: 18px; }
+.rcp-body li + li { margin-top: 6px; }
+.rcp-body li::marker { color: var(--dim3); }
+
+/* the article's tables: the board's table rules at prose scale — header on
+   --deep, --hair between rows, figures right-aligned and tabular. They scroll
+   sideways inside their own wrap on a phone rather than pushing the page. */
+.rcp-tblwrap { margin: 12px 0 0; overflow-x: auto; border: 1px solid var(--rule); background: var(--bg); }
+.rcp-tbl { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.rcp-tbl th {
+  background: var(--deep); padding: 7px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap;
+  font: 600 11.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
+}
+.rcp-tbl td { padding: 7px 10px; border-top: 1px solid var(--hair); font: 400 13.5px/1.35 var(--sans); color: var(--txt2); }
+.rcp-tbl tbody tr:nth-child(odd) td { background: var(--zebra); }
+.rcp-tbl .t { text-align: left; white-space: nowrap; }
+/* names stay on one line and the wrap scrolls: a three-line team name in a
+   six-row table reads as eighteen rows */
+.rcp-tbl .r { text-align: right; white-space: nowrap; }
+.rcp-tbl td.r { font: 600 15px/1.2 var(--cond); color: var(--txt); }
+
+.rcp-foot { margin-top: 16px; font: 400 11.5px/1.4 var(--sans); color: var(--dim3); }

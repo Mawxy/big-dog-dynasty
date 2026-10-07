@@ -27,6 +27,7 @@ import {
 } from "../../lib/liveScores";
 import Moved from "../moved";
 import TeamRecords from "./TeamRecords";
+import { RecapBand } from "./Recaps";
 import { playedWeeks, weekFigures, weekGames, weekRows } from "../week";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
@@ -761,6 +762,10 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
           })}
         </div>
       )}
+
+      {/* THE WEEKLY RECAP (Max, 2026-10-07): the newest article, directly
+          above the figures it is about. Draws nothing when none is published. */}
+      <RecapBand />
 
       <Band label={lastWeek ? `Last week · ${lwSeason} wk ${lastWeek.wk}` : "Last week"}
         note="Regular season" />
