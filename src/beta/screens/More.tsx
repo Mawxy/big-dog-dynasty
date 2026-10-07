@@ -357,7 +357,7 @@ export default function More() {
               );
             })}
             <div className="tnote mox-note">
-              Four models × two streams. The choice rides the URL — so a link you share
+              Three models × two streams. The choice rides the URL — so a link you share
               shows the numbers you were reading — and is remembered on this device
               between visits.
             </div>

@@ -23,7 +23,7 @@ import { MATRIX_CURVES, type MatrixCurve } from "./types";
  * choice between sessions; the URL is what makes it shareable, so the URL wins
  * when the two disagree.
  */
-export const MODELS = ["scalar", "analog", "blend", "points"] as const;
+export const MODELS = ["scalar", "analog", "blend"] as const;
 export const STREAMS = ["natural", "composite"] as const;
 export type Model = typeof MODELS[number];
 export type Stream = typeof STREAMS[number];
@@ -33,7 +33,8 @@ export type Stream = typeof STREAMS[number];
  *  is the only input that knows about this season's depth charts. Mirrors
  *  DEFAULT_CURVE in scripts/curves.py — the pipeline publishes dvi.json on it. */
 /* Points from 2026-09-11 to 2026-09-16; BLEND · COMPOSITE since (Max): the
-   default the price board, DVI/CVI and every proj-WAR figure open on. */
+   default the price board, DVI/CVI and every proj-WAR figure open on. The
+   points-first model was removed outright on 2026-10-07. */
 export const DEFAULT_CURVE: MatrixCurve = "blend_composite";
 
 export const curveOf = (m: Model, s: Stream) => `${m}_${s}` as MatrixCurve;
@@ -48,7 +49,6 @@ export const MODEL_NOTE: Record<Model, string> = {
   scalar: "One number per career: a recency- and games-weighted rate. Shape is lost.",
   analog: "The k most similar historical player-seasons, and what they did next.",
   blend: "The two above, weighted by how much the analog cohort is worth.",
-  points: "Points per game and games projected first, from his record and his usage; WAR from the projected pool.",
 };
 export const STREAM_NOTE: Record<Stream, string> = {
   natural: "What the model believes from a player's own record, and nothing else.",

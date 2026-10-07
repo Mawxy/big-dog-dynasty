@@ -23,7 +23,7 @@ Output:
   data/player/<pid>.json
     {"years":[...], "proj":{...}|null, "sproj":{...}|null,
      "mx":{...}, "blend_w":[...], "inseason":{...}, "banked":0.0, "gp":0,
-     "knn":{...}, "pts":{...}}
+     "knn":{...}, "pre":{...}}
 
 WHAT GOES IN, AND WHAT DOES NOT. The shard carries exactly what
 `src/views/Player.tsx` renders and nothing else — its whole reason to exist is
@@ -51,9 +51,11 @@ that a page should not download a league-wide file to read one row:
     scripts/inseason.py). ~60 B a shard for the same reason blend_w is here: a
     player page must not fetch a league-wide file to prorate one man's year.
 
-  * `pts` is his row from projections_points.json (Max, 2026-09-10) — the
-    points-first arm: ppg, games, points, and the WAR derived from the
-    projected pool with its bands. ~300 B, all of it on screen.
+  * `pre` is his row from proj_preseason/<year 1>.json (Max, 2026-10-07):
+    every curve's 3-year path and position finish as frozen before kickoff
+    (project_matrix.freeze_preseason). The player page's WAR PROJ column for
+    the season being played. Absent for a player that snapshot never priced.
+    (`pts`, the points-first arm, was dropped with that model on 2026-10-07.)
 
 A field is OMITTED, never written as null, when the player has no row in that
 source — the page reads `shard?.mx ?? null` either way, and an absent key keeps
@@ -85,7 +87,6 @@ from leaguepaths import DataDir
 
 #: the fields of a KnnProjection the player page actually renders
 KNN_KEYS = ("n", "sim_med", "low", "high", "near")
-PTS_KEYS = ("ppg", "games", "pts", "war", "war13", "war13_low", "war13_high")
 
 def load(p):
     try:
@@ -112,8 +113,10 @@ def main():
     sprojf = load(out / "proj_sleeper.json") or {}
     mxf = load(out / "projections_matrix.json") or {}
     knnf = load(out / "projections_knn_hybrid.json") or {}
-    ptsf = load(out / "projections_points.json") or {}
     years = ((projf.get("meta") or {}).get("years")) or []
+    pref = (load(out / "proj_preseason" / f"{years[0]}.json") or {}) if years else {}
+    pre = pref.get("players") or {}
+    pre_at = (pref.get("meta") or {}).get("captured")
     blend_w = ((mxf.get("meta") or {}).get("blend_w")) or None
     # absent out of season, and then so are `banked`/`gp` on every row — see
     # the docstring; a shard that carries neither is the offseason shape
@@ -123,9 +126,6 @@ def main():
     mx = by_pid(mxf.get("players"))
     knn = {pid: {k: r[k] for k in KNN_KEYS if k in r}
            for pid, r in by_pid(knnf.get("players")).items()}
-    # keyed by pid already — a dict, not a list of rows carrying `pid`
-    pts = {pid: {k: r[k] for k in PTS_KEYS if k in r}
-           for pid, r in (ptsf.get("players") or {}).items()}
     reachable = set(load(out / "players_min.json") or {})
     # THE USAGE FIGURES (Max, 2026-09-16): each season's usage.json
     # (usage_stats.py) folded into the shard as {season: row}, so the player
@@ -144,7 +144,7 @@ def main():
     # page draws the comparables table, which before enrichment came out of the
     # whole-file fetch. Dropping him here would delete that table from ~200
     # pages while calling it a performance fix.
-    wanted = core | ((set(mx) | set(knn) | set(pts)) & reachable)
+    wanted = core | ((set(mx) | set(knn)) & reachable)
     # never wipe committed shards because the inputs were missing — that's a
     # silent local-run data-loss mode, not a legitimate rebuild
     if not reachable:
@@ -175,9 +175,11 @@ def main():
         k = knn.get(pid)
         if k:
             rec["knn"] = k
-        pt = pts.get(pid)
-        if pt:
-            rec["pts"] = pt
+        pr = pre.get(pid)
+        if pr:
+            rec["pre"] = pr
+            if pre_at:
+                rec["pre_at"] = pre_at
         us = usage.get(pid)
         if us:
             rec["usage"] = us

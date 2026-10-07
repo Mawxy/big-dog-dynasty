@@ -2080,13 +2080,9 @@ function CurDrawer({ r, season, to }: { r: CurRow; season: string; to: string })
       <div className="plx-figs">
         <Fig k="Age" v={r.age == null ? NUL : r.age} sub={`at ${season} kickoff`} />
         <Fig k="NFL" v={r.nfl || NUL} word sub={r.nfl ? "club" : "no club listed"} />
-        {/* ANALOG — the comparables arm of the projection, beside the scalar
-            one the Proj WAR column carries. Where the two disagree is the point
-            of showing both; where the model found no cohort it is the em dash,
-            because in that case the analog curve is literally the scalar curve
-            and a matching figure would read as two models agreeing. */}
-        <Fig k="Analog" v={r.analog == null ? NUL : fmtWar(r.analog)}
-          sub={r.analog == null ? "no cohort" : "3-yr, analog curve"} />
+        {/* The Analog figure that stood here is gone (Max, 2026-10-07): the
+            scalar and analog arms are only shown when the reader picks one on
+            More › Projection model; the board itself speaks the site curve. */}
         <Fig k="FantasyCalc" v={figOf("fc", r.f.fc ?? null)} sub="dynasty market" />
         <Fig k="ECR" v={figOf("ecr", r.f.ecr ?? null)} sub="redraft, 1 is best" />
         {/* OWNERSHIP is a fact, and "free agent" is a fact too — not a missing

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type {
-  Absences, MatrixModel, Matchups, Ownership, PlayerShard, RecentAsset, RecentTrades, Team,
+  Absences, Matchups, Ownership, PlayerShard, RecentAsset, RecentTrades, Team,
   Values, Weekly, WeeklyRow,
 } from "../lib/types";
 import { jl } from "../lib/data";
@@ -9,12 +9,12 @@ import { useJson } from "../lib/useJson";
 import { useCvi, useDvi } from "../lib/useIndices";
 import type { InSeason } from "../lib/outlook";
 import { isInSeason, outlookLabel, outlookNote, weeksLeft } from "../lib/outlook";
-import { fmt, sgn, mean } from "../lib/stats";
+import { fmt, sgn } from "../lib/stats";
 // WAR at the beta shell's two places (Max, 2026-09-10): the player page is a
 // beta screen now, and "0.382" was the one three-place figure left on it
 import { fmtWar, sgnWar } from "../beta/ui";
 import { fmtUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageKey, type UsagePhase } from "../lib/usage";
-import { splitCurve, useModel } from "../lib/model";
+import { useModel } from "../lib/model";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
 import { leagueSeg, useLeague } from "../lib/context";
 import { useLeagueCaps } from "../lib/caps";
@@ -53,7 +53,7 @@ const WINDOWS = ["7", "14", "30"] as const;
  *
  * It sits under the SEASON, not under a figure, because it is true of every
  * figure in the row — the same realized WAR and the same remaining fraction
- * apply to all eight curves and to both ends of the band. Sentence-case body
+ * apply to the whole row. Sentence-case body
  * face at caption size, so it reads as the qualifier it is and never competes
  * with the year above it; the full sentence is on hover.
  */
@@ -82,45 +82,6 @@ const RECENT_PREVIEW = 3;
 const NO_OWNERSHIP: Ownership = {};
 const NO_ABSENCES: Record<string, string> = {};
 
-/** The projection streams, restored as a lens. Every one is a full 3-year path
- *  in projections.json; the control picks which is the headline and whose 80%
- *  band the Range column draws. All three stay visible as columns — the lens
- *  changes emphasis, not what you are allowed to see.
- *
- *  There is deliberately no separate Sleeper stream. Composite is 90% Sleeper
- *  in year 1, so the near-year figure already IS the points read; a fourth
- *  column would have restated it within a rounding error. */
-const STREAMS = [
-  { key: "composite", label: "Composite", line: "composite", lo: "comp_low", hi: "comp_high",
-    desc: "Sleeper's points blended into the model — 90/50/10 by year" },
-  { key: "proj", label: "Age curve", line: "proj", lo: "nat_low", hi: "nat_high",
-    desc: "the model alone, if healthy — a full 13-game season" },
-  { key: "expected", label: "Adjusted", line: "expected", lo: "adj_low", hi: "adj_high",
-    desc: "the model × availability — carries injury risk" },
-] as const;
-type StreamKey = typeof STREAMS[number]["key"];
-
-/** The six curves, as three models x two streams. The lens picks which MODEL
- *  carries the accent; all six stay on screen, because the disagreement between
- *  them is the thing worth reading. Hiding four of six behind a control would
- *  turn a comparison into a single answer with extra steps. */
-const MODELS: { key: MatrixModel; label: string; desc: string }[] = [
-  { key: "scalar", label: "Scalar",
-    desc: "the shipped model — one recency-weighted level, aged forward" },
-  { key: "analog", label: "Analog",
-    desc: "nearest historical comparables and what they actually returned" },
-  { key: "blend", label: "Blend",
-    desc: "the two naturals mixed by how good the analog's cohort is" },
-  // THE POINTS-FIRST ARM (Max, 2026-09-10/11): points projected first, WAR
-  // derived from the projected pool — so his WAR moves only when his points
-  // do, not when the replacement line at his position moves. It was the site
-  // model from 2026-09-11 to 2026-09-16; `blend_composite` is the default now
-  // (DEFAULT_CURVE in lib/model.ts is the one place that answers it). Its two
-  // curves ride the matrix row like the others.
-  { key: "points", label: "Points",
-    desc: "points per game and games projected first, from his record and usage; WAR from the projected pool's replacement level" },
-];
-
 /**
  * Player page (3A): split rail. The rail carries identity and the career WAR
  * ladder — projected years above played ones, so decline is visible in the
@@ -135,8 +96,6 @@ export default function Player({ pid }: { pid: string }) {
   const [usagePhase, setUsagePhase] = useState<UsagePhase>("reg");
   const [wks, setWks] = useState<WeeklyRow[] | null>(null);
   const [abs, setAbs] = useState<Record<string, string>>(NO_ABSENCES);
-  /** which projection stream leads the table (the restored lens) */
-  const [stream, setStream] = useState<StreamKey>("composite");
   /** which PLAYED season the week grid shows — the career ladder sets it */
   const [weekSeason, setWeekSeason] = useState<string | null>(null);
   /** league-wide honor index — loaded once per page load, shared by every player */
@@ -145,8 +104,6 @@ export default function Player({ pid }: { pid: string }) {
   const [career, setCareer] = useState<CareerSeason[] | null>(null);
   /** career split by the franchise that held him — the table's footer */
   const [splits, setSplits] = useState<OwnerSplit[]>([]);
-  /** which model the six-curve comparison table accents */
-  const [model, setModel] = useState<MatrixModel>("blend");
   /**
    * THE PHONE SHAPE (≤640px, the same breakpoint `.hm` hides columns at).
    *
@@ -209,7 +166,6 @@ export default function Player({ pid }: { pid: string }) {
    */
   const knn = shard?.knn ?? null;
   const mx = shard?.mx ?? null;
-  const blendW = shard?.blend_w ?? null;
 
   /**
    * HOW MUCH OF THE ROSTER SEASON IS ALREADY A FACT (Max, 2026-09-21).
@@ -324,26 +280,32 @@ export default function Player({ pid }: { pid: string }) {
    *  number. */
   const owY = (v: number, i: number): number =>
     owRow(i) && inseason ? banked + v * inseason.remaining_frac : v;
-  /** the accented model, forced back to scalar for a player with no cohort.
-   *  Derived rather than corrected in state: the lens remembers what the reader
-   *  picked, so navigating from a player who has an analog read to one who does
-   *  not and back does not silently reset their choice. */
-  const ptsArm = shard?.pts ?? null;
-  /* WHICH THREE MODELS THE TABLE SHOWS (Max, 2026-09-11): the site model
-     picker (More › Projection model) decides. With the points model picked,
-     the table is Scalar · Analog · Points, the blend hidden; with any other
-     model picked, Scalar · Analog · Blend as before, the points arm hidden.
-     Three columns pairs either way — the phone has room for one model at a
-     time and the desktop for three, not four. */
-  const siteModel = splitCurve(useModel().curve).model;
-  const pointsMode = siteModel === "points";
-  const models = MODELS.filter(m => pointsMode ? m.key !== "blend" : m.key !== "points");
-  // the lens the page opens on follows the site model; a lens hidden by the
-  // picker falls back to the visible default rather than to a blank table
-  const lensDefault: MatrixModel = pointsMode ? "points" : "blend";
-  const lens: MatrixModel = models.some(m => m.key === model) ? model : lensDefault;
-  const modelOn: MatrixModel = lens === "points" ? (mx?.has_points ? "points" : "scalar")
-    : mx && !mx.has_analog ? "scalar" : lens;
+  /* ONE PROJECTION, ONE SOURCE (Max, 2026-10-07). The page used to quote two
+     models at once: the six-curve table read the matrix while the ladder, the
+     verdict, the figure strip and the finish badges read the shard's `proj`
+     row — projections.json, which was the points-first model's file from
+     2026-09-11. Now every projected figure here reads ONE path: the matrix on
+     the site's curve (blend · composite unless the reader changed it on More).
+     `proj` is only the fallback for a deploy whose data predates the matrix.
+
+     WAR PROJ is the projection; for the season being played it is the
+     PRESEASON read (shard `pre`, frozen before kickoff by project_matrix), so
+     it states what we expected rather than drifting with every week. WAR PACE
+     is banked WAR plus the rest of the season on today's projection — only
+     the season being played has one. */
+  const { curve } = useModel();
+  const path: number[] = (mx ? mx[curve] : null) ?? proj?.composite ?? [];
+  const preRow = shard?.pre ?? null;
+  /** WAR PROJ for row i */
+  const projOf = (i: number): number | null =>
+    owRow(i) ? (preRow?.[curve]?.[0] ?? null) : (path[i] ?? null);
+  /** the projected position finish beside WAR PROJ — the same read it ranks */
+  const finOf = (i: number): number | null =>
+    (owRow(i) ? preRow?.posFin?.[curve]?.[0]
+      : mx ? mx.posFin?.[curve]?.[i] : proj?.posFin?.[i]) ?? null;
+  /** WAR PACE for row i: the season being played only */
+  const paceOf = (i: number): number | null =>
+    owRow(i) && path[i] != null ? owY(path[i], i) : null;
   const owner = useMemo(() => {
     const t = teams?.find(x => x.players.includes(pid));
     return t ? t.team : null;
@@ -368,36 +330,6 @@ export default function Player({ pid }: { pid: string }) {
       ...m, value: m.value as number, pick: closest(m.picks, m.value as number),
     }));
   }, [v, vals, meta]);
-
-  /**
-   * The 80% band for the model the six-curve table is accenting.
-   *
-   * Each model owns its own uncertainty and they are not interchangeable: the
-   * scalar band is the residual spread of the fitted aging curve, the analog
-   * band is p20/p80 of THIS player's cohort. Blend interpolates by the same
-   * `trust` that mixes the two point estimates, so the band and the figure it
-   * sits under are always built from the same weighting.
-   *
-   * Declared HERE, above the `shard === undefined` guard below, with every
-   * other hook. Hooks must run in the same order on every render, and this one
-   * originally sat down with the render-time derivations past that early
-   * return — so the first paint ran one fewer hook than the second and React
-   * bailed out with "rendered more hooks than during the previous render".
-   */
-  const band = useMemo(() => {
-    const none = { lo: null as number[] | null, hi: null as number[] | null };
-    const p = shard?.proj ?? null;
-    if (!p) return none;
-    const sc = { lo: p.nat_low, hi: p.nat_high };
-    if (modelOn === "points") return ptsArm ? { lo: ptsArm.war13_low, hi: ptsArm.war13_high } : sc;
-    if (modelOn === "scalar" || !knn?.low || !knn?.high) return sc;
-    const an = { lo: knn.low, hi: knn.high };
-    if (modelOn === "analog") return an;
-    const t = mx?.trust ?? 0;
-    const mix = (a: number[], b: number[]) =>
-      b.map((val, i) => t * val + (1 - t) * (a[i] ?? val));
-    return { lo: mix(sc.lo, an.lo), hi: mix(sc.hi, an.hi) };
-  }, [shard, knn, mx, modelOn, ptsArm]);
 
   if (shard === undefined) return <div className="empty">Loading player…</div>;
 
@@ -460,8 +392,8 @@ export default function Player({ pid }: { pid: string }) {
      directly above a played 2025 in the same column of season figures, and in
      week 4 those two were measuring different amounts of football. The roster
      season's rung is the OUTLOOK, which is the figure it will settle at. */
-  const projected: [number, number][] = proj
-    ? years.map((y, i) => [y, owY(proj.composite[i] ?? 0, i)] as [number, number])
+  const projected: [number, number][] = path.length
+    ? years.map((y, i) => [y, paceOf(i) ?? path[i] ?? 0] as [number, number])
     : [];
   const ladder = [...projected.slice().reverse(), ...played.slice().reverse()];
   const ladderMax = Math.max(0.001, ...ladder.map(([, w]) => Math.max(0, w)));
@@ -476,61 +408,41 @@ export default function Player({ pid }: { pid: string }) {
   const honorBySeason = new Map(honorRows.map(r => [r.season, r.keys]));
   const honorCareer = honorTotals(honorRows);
 
-  /** verdict prose — generated from the payload, never hand-written */
-  const verdict = proj && years.length >= 3 ? (() => {
-    const c = proj.composite;
-    const lastIdx = Math.min(2, c.length - 1);
-    const dir = (c[lastIdx] ?? 0) - (c[0] ?? 0);
+  /** verdict prose — generated from the payload, never hand-written. Every
+   *  figure in it is off `path` (the site curve), the same as the table. */
+  const verdict = years.length >= 3 && path.length >= 3 ? (() => {
+    const lastIdx = Math.min(2, path.length - 1);
+    const dir = (path[lastIdx] ?? 0) - (path[0] ?? 0);
     const trend = dir > 0.15 ? "rising" : dir < -0.15 ? "declining" : "holding";
-    const curveGap = mean(c.map((x, i) => x - (proj.proj[i] ?? 0)));
-    const width = (proj.comp_high[0] ?? 0) - (proj.comp_low[0] ?? 0);
-    const fin = proj.posFin?.[0] ? `, a ${pos}${proj.posFin[0]} finish` : "";
-    /* THE SENTENCE THAT NAMES YEAR 1 SAYS OUTLOOK, in season. The three-year
-       path below it deliberately does not: a trend is a statement about the
-       model's rates, and comparing a four-week-old season against two whole
-       ones would read as a collapse that nothing measured. So the first
-       sentence states what 2026 will finish at and the rest is labeled as the
-       full-season rate it has always been. The band is scaled with the figure
-       it sits under — same fraction, same arithmetic — rather than left at
-       fourteen weeks' worth of uncertainty over ten weeks of football. */
-    const o0 = owY(c[0] ?? 0, 0);
-    const rest = inseason ? (c[0] ?? 0) * inseason.remaining_frac : 0;
-    const left = inseason ? inseason.reg_weeks - inseason.weeks_played : 0;
+    const f0 = finOf(0);
+    const fin = f0 ? `, a ${pos}${f0} finish` : "";
+    const pace = paceOf(0);
+    const pre = projOf(0);
     const wk = inseason ? inseason.weeks_played : 0;
+    const trendLine = `The three-year path is ${trend}: ${fmtWar(path[0])} in ${years[0]} `
+      + `to ${fmtWar(path[lastIdx])} by ${years[lastIdx]}`
+      + `${inseason ? ", on the full-season rate" : ""}.`;
+    if (inseason && pace != null) {
+      const gap = pre != null ? pace - pre : null;
+      return {
+        meta: `${years[0]} pace ${fmtWar(pace)} WAR · ${fmtWar(banked)} banked in `
+          + `${wk} wk${wk === 1 ? "" : "s"}`
+          + (pre != null ? ` · preseason proj ${fmtWar(pre)}` : ""),
+        body: `${years[0]} is on pace for ${fmtWar(pace)} WAR: ${fmtWar(banked)} banked over `
+          + `${wk} of ${inseason.reg_weeks} weeks plus the rest of a ${fmtWar(path[0])} `
+          + `full-season projection. `
+          + (gap == null || pre == null ? ""
+            : Math.abs(gap) < 0.05 ? `That is in line with his ${fmtWar(pre)} preseason projection${fin}. `
+              : `That is ${fmtWar(Math.abs(gap))} WAR ${gap > 0 ? "ahead of" : "behind"} his `
+                + `${fmtWar(pre)} preseason projection${fin}. `)
+          + trendLine,
+      };
+    }
     return {
-      meta: inseason
-        ? `${years[0]} outlook ${fmtWar(o0)} WAR · ${fmtWar(banked)} banked in `
-          + `${wk} wk${wk === 1 ? "" : "s"} + ${fmtWar(rest)} still projected`
-        : `${years[0]} composite ${fmtWar(c[0])} WAR · band ${fmtWar(proj.comp_low[0])} to ${fmtWar(proj.comp_high[0])}`,
-      // NAMED YEARS, not "year one": the reader cannot tell from the phrase
-      // whether the first projected year is the roster season or the one
-      // after it, and the two have been different (the pipeline shipped a
-      // [2027..] horizon once). `years` is the projection's own answer.
-      body: (inseason
-        ? `${years[0]} is tracking to ${fmtWar(o0)} WAR${fin} — ${fmtWar(banked)} already `
-          + `banked over ${wk} of ${inseason.reg_weeks} weeks, plus ${left}/${inseason.reg_weeks} `
-          + `of a ${fmtWar(c[0])} full-season projection. `
-        : `${years[0]} projects ${fmtWar(c[0])} WAR${fin}. `)
-        + `The three-year path is ${trend} — `
-        + `${fmtWar(c[0])} in ${years[0]} to ${fmtWar(c[lastIdx])} by ${years[lastIdx]}`
-        + `${inseason ? ", on the full-season rate" : ""}. `
-        + `The composite reads ${curveGap >= 0 ? "above" : "below"} the pure age-curve path by `
-        + `${fmtWar(Math.abs(curveGap))} WAR a year, and the 80% band on ${years[0]} spans `
-        + `${fmtWar(inseason ? width * inseason.remaining_frac : width)} WAR.`,
+      meta: `${years[0]} projection ${fmtWar(path[0])} WAR`,
+      body: `${years[0]} projects ${fmtWar(path[0])} WAR${fin}. ${trendLine}`,
     };
   })() : null;
-
-  const st = STREAMS.find(s => s.key === stream) ?? STREAMS[0];
-  /** the selected stream's path; Sleeper is absent for most of the file */
-  const stLine: number[] | null = proj ? (proj[st.line] as number[]) : null;
-  const stLo = proj ? (proj[st.lo] as number[]) : null;
-  const stHi = proj ? (proj[st.hi] as number[]) : null;
-  // the axis has to hold whichever band is showing, not always the composite's
-  // — and it is measured on the DRAWN figures, so an outlook row that prorates
-  // its band does not leave the axis scaled to a season nobody is looking at
-  const rangeMax = proj
-    ? Math.max(0.001, ...((mx ? band.hi : stHi) ?? proj.comp_high).map((v, i) => owY(v, i)))
-    : 1;
 
   /* ---- the rail's parts, built once and placed by shape ------------------
      Desktop puts all of them in the 232px rail; the phone puts identity and
@@ -708,8 +620,9 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="figkey">
                   {years.length ? `${years[0]}–${years[years.length - 1]}` : "Next 3 years"}
                 </div>
-                <div className="figval">{proj ? fmtWar(proj.total_comp) : "—"}</div>
-                <div className="figsub">composite WAR</div>
+                <div className="figval">{projected.length
+                  ? fmtWar(projected.reduce((s, [, w]) => s + w, 0)) : "—"}</div>
+                <div className="figsub">{inseason ? `${years[0]} on pace + projected` : "projected WAR"}</div>
               </div>
             </div>
 
@@ -739,275 +652,63 @@ export default function Player({ pid }: { pid: string }) {
               </div>
             )}
 
-            {/* The projection section is the six-curve table when the matrix is
-                available. The three-stream table below is the fallback for a
-                deploy whose data predates projections_matrix.json — same band,
-                same slot, so the page never loses its projection. */}
-            {proj && years.length > 0 && mx && (
-              <div ref={refs.projection}>
-                <div className="band">
-                  <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
-                  {/* One line. The figures that drive the table but appear
-                      nowhere in it — trust, and Sleeper's year-one share — ride
-                      here as tokens with the explanation on hover, rather than
-                      as a paragraph underneath. */}
-                  <span className="band-note">
-                    {models.find(m => m.key === modelOn)?.desc} · 80% band
-                    {/* THE ONE THING THE HEADERS CANNOT SAY. "Natural" and
-                        "Composite" still label their columns truthfully — every
-                        cell in them is that curve — but on the roster season's
-                        row each is banked WAR plus its own remainder, and the
-                        reader has to be told once, where the table's other
-                        cross-cutting facts are told. */}
-                    {inseason && <>
-                      {" · "}
-                      <span title={outlookNote(inseason)}>{outlookLabel(inseason)}</span>
-                    </>}
-                    {mx.trust != null && <>
-                      {" · "}
-                      <span title={`How dense his cohort of comparables is (median distance ${fmt(mx.d_med ?? 0, 2)}${mx.padded ? ", padded past the cutoff" : ""}). A tight cohort keeps the analog's own read; a thin one hands the answer to the scalar model and to Sleeper.`}>
-                        trust {fmt(mx.trust, 2)}
-                      </span>
-                    </>}
-                    {modelOn === "points" && proj?.ppg_nat && proj.games && <>
-                      {" · "}
-                      <span title="points per game if he plays, then expected games, per projected season (natural)">
-                        {proj.ppg_nat.map((v, i) => `${fmt(v, 1)} ppg · ${fmt(proj.games![i], 0)} gp`).join(" / ")}
-                      </span>
-                    </>}
-                    {mx.w_sleeper != null && <>
-                      {" · "}
-                      <span title={`Sleeper projects ${num(Math.round(mx.pts13))} points over 13 games, worth ${fmtWar(mx.sleeper_war ?? 0)} WAR. The analog composite takes it at this weight in ${years[0]}; scalar and blend take it at ${Math.round((blendW?.[0] ?? 0.9) * 100)}%.`}>
-                        Sleeper {Math.round(mx.w_sleeper * 100)}%
-                      </span>
-                    </>}
-                  </span>
-                </div>
-                <div className="lens">
-                  {models.map(m => (
-                    <button key={m.key} type="button" title={m.desc}
-                      className={`seg${m.key === modelOn ? " on" : ""}`}
-                      disabled={m.key === "points" ? !mx.has_points : m.key !== "scalar" && !mx.has_analog}
-                      onClick={() => setModel(m.key)}>{m.label}</button>
-                  ))}
-                </div>
-                <TScroll>
-                <table style={{ tableLayout: "fixed" }}>
-                  <thead>
-                    {/* ON A PHONE, ONE MODEL AT A TIME (Max, 2026-09-05). Six
-                        curves across a 375px screen is a scroll with the
-                        subject off-screen; the lens above already picks a
-                        model, so on a phone it picks which pair of columns
-                        is on the table rather than which pair is inked. The
-                        other two stay one tap away. Desktop keeps all six,
-                        because there the disagreement is readable at a glance. */}
-                    <tr className="grp">
-                      <th colSpan={2}></th>
-                      {models.map(m => (
-                        <th key={m.key} scope="colgroup" colSpan={2}
-                          className={`edge${m.key === modelOn ? " value" : " hm"}`}>
-                          {m.label}
-                        </th>
-                      ))}
-                      <th scope="colgroup" className="edge" colSpan={2}>
-                        {models.find(m => m.key === modelOn)?.label} view
-                      </th>
-                    </tr>
-                    <tr>
-                      {/* the Season column widens for the outlook row's second
-                          line, and the Range column gives up what it takes —
-                          a 9% column of "0.25 banked + 13/14 proj" would spill
-                          into the Age figure beside it */}
-                      <th scope="col" className="t" style={{ width: inseason ? "13%" : "9%" }}>Season</th>
-                      <th scope="col" className="n" style={{ width: "6%" }}>Age</th>
-                      {models.map(m => {
-                        const hm = m.key === modelOn ? "" : " hm";
-                        return (
-                          <Fragment key={m.key}>
-                            <th scope="col" className={`n edge${hm}`} style={{ width: "10%" }}>Natural</th>
-                            <th scope="col" className={`n${hm}`} style={{ width: "10%" }}>Composite</th>
-                          </Fragment>
-                        );
-                      })}
-                      <th scope="col" className="t key edge" style={{ width: inseason ? "23%" : "27%" }}>Range</th>
-                      <th scope="col" className="n" style={{ width: "8%" }}>Position finish</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mx.blend_natural.map((_, i) => (
-                      <tr key={i} className={i % 2 ? "zebra" : ""}>
-                        <td className="t fig strong">
-                          {years[i] ?? `Year ${i + 1}`}
-                          {/* THE DECOMPOSITION, on the row it applies to. It
-                              belongs here rather than under one figure because
-                              it is true of every figure in the row: the same
-                              banked WAR and the same remaining fraction. */}
-                          {owRow(i) && inseason && <OutlookSub banked={banked} inseason={inseason} />}
-                        </td>
-                        <td className="n fig quiet">{mx.age == null ? "—" : mx.age + i}</td>
-                        {models.map(m => {
-                          /* A model with no cohort has no read. The JSON carries
-                             the scalar fallback so downstream consumers get a
-                             number, but repeating it here under an "Analog"
-                             header would claim a measurement that never
-                             happened — so it reads as an em dash instead. */
-                          const off = m.key === "points" ? !mx.has_points : m.key !== "scalar" && !mx.has_analog;
-                          const on = m.key === modelOn && !off;
-                          return (
-                            <Fragment key={m.key}>
-                              {(["natural", "composite"] as const).map((s, k) => {
-                                const v = owY((mx[`${m.key}_${s}` as const] ?? mx.scalar_natural)[i], i);
-                                /* no Sleeper above the pts13 floor means the
-                                   composite IS the natural — shown, but never
-                                   accented, so an echo cannot read as a second
-                                   opinion */
-                                const echo = s === "composite" && !mx.has_sleeper;
-                                return (
-                                  <td key={s} className={`n${k === 0 ? " edge" : ""}${on && !echo ? "" : " fig quiet"}${m.key === modelOn ? "" : " hm"}`}>
-                                    {off ? <span className="fig quiet">—</span>
-                                      : on && !echo
-                                        ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(v)}</span>
-                                        : fmtWar(v)}
-                                  </td>
-                                );
-                              })}
-                            </Fragment>
-                          );
-                        })}
-                        <td className="t edge" style={{ whiteSpace: "normal" }}>
-                          {/* THE BAND TRAVELS WITH THE FIGURE. On the outlook
-                              row both ends take the same affine step the cells
-                              did — banked, then the projection's own share of
-                              what is left — so the 80% band is uncertainty
-                              about the games still to be played rather than
-                              about four weeks that are already settled. */}
-                          {band.lo && band.hi ? (() => {
-                            const lo = owY(band.lo[i] ?? 0, i), hi = owY(band.hi[i] ?? 0, i);
-                            const tick = owY((mx[`${modelOn}_natural` as const] ?? mx.scalar_natural)[i], i);
-                            return <>
-                            <div className="range-band">
-                              <div className="fill" style={{
-                                left: `${(Math.max(0, lo) / rangeMax * 100).toFixed(1)}%`,
-                                width: `${(Math.max(0, hi - Math.max(0, lo)) / rangeMax * 100).toFixed(1)}%`,
-                              }} />
-                              <div className="tick" style={{ left: `${(Math.max(0, tick) / rangeMax * 100).toFixed(1)}%` }} />
-                            </div>
-                            <div className="range-ends">
-                              <span>{fmtWar(lo)}</span>
-                              <span>{fmtWar(hi)}</span>
-                            </div>
-                            </>;
-                          })() : <span className="fig quiet">—</span>}
-                        </td>
-                        <td className="n last">
-                          {proj.posFin?.[i]
-                            ? <PosBadge pos={pos} size="wide" rank={proj.posFin[i]} color={POS_COLOR[pos] || "var(--rule-2)"} />
-                            : <span className="fig quiet">—</span>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                </TScroll>
-              </div>
-            )}
-
-            {proj && years.length > 0 && !mx && (
+            {/* THE PROJECTION (Max, 2026-10-07): two figures per season. WAR
+                PROJ is what we projected — the preseason read for the season
+                being played, today's projection for the years after it. WAR
+                PACE is where the season being played is tracking: banked WAR
+                plus the rest of the season on today's projection. Future years
+                have no pace, and say so with a dash. One curve, the site's,
+                for every cell; the model comparison lives on More. */}
+            {years.length > 0 && path.length > 0 && (
               <div ref={refs.projection}>
                 <div className="band">
                   <span className="band-label">Projection · {years[0]}–{years[years.length - 1]}</span>
                   <span className="band-note">
-                    {st.desc} · range is the 80% band
-                    {inseason && <>
-                      {" · "}
-                      <span title={outlookNote(inseason)}>{outlookLabel(inseason)}</span>
-                    </>}
+                    {inseason
+                      ? <>{years[0]} proj is the preseason projection
+                        {shard?.pre_at ? ` (${shard.pre_at})` : ""} · pace is banked WAR plus the
+                        rest of the season projected</>
+                      : "Projected WAR by season · pace starts once the season does"}
                   </span>
                 </div>
-                <div className="lens">
-                  {STREAMS.map(s => (
-                    <button key={s.key} type="button" title={s.desc}
-                      className={`seg${s.key === stream ? " on" : ""}`}
-                      onClick={() => setStream(s.key)}>{s.label}</button>
-                  ))}
-                </div>
-                <TScroll>
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>
-                    <tr className="grp">
-                      <th colSpan={2}></th>
-                      {/* one path on a phone (the lens picks it), three on a desktop */}
-                      <th scope="colgroup" className="edge" colSpan={mobile ? 1 : 3}>Paths</th>
-                      <th scope="colgroup" className="edge value" colSpan={2}>{st.label} view</th>
-                    </tr>
                     <tr>
-                      {/* as in the six-curve table above: the Season column
-                          widens for the outlook row's second line */}
-                      <th scope="col" className="t" style={{ width: inseason ? "13%" : "9%" }}>Season</th>
-                      <th scope="col" className="n" style={{ width: "7%" }}>Age</th>
-                      {/* every path is named for what it is; the lens only
-                          decides which one carries the accent — and, on a
-                          phone, which one is on the table at all */}
-                      {STREAMS.map((s, k) => (
-                        <th key={s.key} scope="col"
-                          className={`n${k === 0 ? " edge" : ""}${s.key === stream ? "" : " hm"}`}
-                          style={{ width: "11%" }}>{s.label}</th>
-                      ))}
-                      <th scope="col" className="t key edge" style={{ width: inseason ? "33%" : "37%" }}>Range</th>
-                      <th scope="col" className="n" style={{ width: "14%" }}>Position finish</th>
+                      <th scope="col" className="t" style={{ width: "24%" }}>Season</th>
+                      <th scope="col" className="n" style={{ width: "14%" }}>Age</th>
+                      <th scope="col" className="n edge" style={{ width: "20%" }}>WAR proj</th>
+                      <th scope="col" className="n" style={{ width: "22%" }}>WAR pace</th>
+                      <th scope="col" className="n edge" style={{ width: "20%" }}>Proj finish</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {years.map((y, i) => (
-                      <tr key={y} className={i % 2 ? "zebra" : ""}>
-                        <td className="t fig strong">
-                          {y}
-                          {owRow(i) && inseason && <OutlookSub banked={banked} inseason={inseason} />}
-                        </td>
-                        <td className="n fig quiet">{proj.age + i}</td>
-                        {STREAMS.map((s, k) => {
-                          const raw = (proj[s.line] as number[])[i];
-                          const v = raw == null ? raw : owY(raw, i);
-                          const on = s.key === stream;
-                          return (
-                            <td key={s.key} className={`n${k === 0 ? " edge" : ""}${on ? "" : " fig quiet hm"}`}>
-                              {v == null ? <span className="fig quiet">—</span>
-                                : on ? <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(v)}</span>
-                                  : fmtWar(v)}
-                            </td>
-                          );
-                        })}
-                        <td className="t edge" style={{ whiteSpace: "normal" }}>
-                          {/* the band takes the same step the figures did — see
-                              the six-curve table above */}
-                          {(() => {
-                            const lo = owY(stLo?.[i] ?? 0, i), hi = owY(stHi?.[i] ?? 0, i);
-                            const tick = owY(stLine?.[i] ?? 0, i);
-                            return <>
-                            <div className="range-band">
-                              <div className="fill" style={{
-                                left: `${(Math.max(0, lo) / rangeMax * 100).toFixed(1)}%`,
-                                width: `${(Math.max(0, hi - Math.max(0, lo)) / rangeMax * 100).toFixed(1)}%`,
-                              }} />
-                              <div className="tick" style={{ left: `${(Math.max(0, tick) / rangeMax * 100).toFixed(1)}%` }} />
-                            </div>
-                            <div className="range-ends">
-                              <span>{fmtWar(lo)}</span>
-                              <span>{fmtWar(hi)}</span>
-                            </div>
-                            </>;
-                          })()}
-                        </td>
-                        <td className="n last">
-                          {proj.posFin?.[i]
-                            ? <PosBadge pos={pos} size="wide" rank={proj.posFin[i]} color={POS_COLOR[pos] || "var(--rule-2)"} />
-                            : <span className="fig quiet">—</span>}
-                        </td>
-                      </tr>
-                    ))}
+                    {years.map((y, i) => {
+                      const pj = projOf(i), pc = paceOf(i), fin = finOf(i);
+                      const age = mx?.age ?? proj?.age ?? null;
+                      return (
+                        <tr key={y} className={i % 2 ? "zebra" : ""}>
+                          <td className="t fig strong">{y}</td>
+                          <td className="n fig quiet">{age == null ? "—" : age + i}</td>
+                          <td className="n edge">
+                            {pj == null ? <span className="fig quiet">—</span>
+                              : <span className="head-fig sm">{fmtWar(pj)}</span>}
+                          </td>
+                          <td className="n">
+                            {pc == null ? <span className="fig quiet">—</span> : <>
+                              <span className="head-fig sm" style={{ color: "var(--acc)" }}>{fmtWar(pc)}</span>
+                              {inseason && <OutlookSub banked={banked} inseason={inseason} />}
+                            </>}
+                          </td>
+                          <td className="n edge last">
+                            {fin
+                              ? <PosBadge pos={pos} size="wide" rank={fin} color={POS_COLOR[pos] || "var(--rule-2)"} />
+                              : <span className="fig quiet">—</span>}
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-                </TScroll>
               </div>
             )}
 

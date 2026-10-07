@@ -57,6 +57,7 @@ Usage: python scripts/trade_analysis.py
 import argparse, datetime, json, re, sys, time
 from pathlib import Path
 import inseason
+from curves import DEFAULT_CURVE, curve_paths
 from ioutil import write_json
 from leaguepaths import DataDir
 
@@ -77,6 +78,15 @@ def tier_of_slot(slot, n_teams):
     return TIERS[min(2, int((slot - 1) // per))]
 
 
+def _curve_paths(data_dir):
+    """curves.curve_paths on DEFAULT_CURVE, or {} when there is no projection
+    on disk yet (the same tolerance `load` gave the old projections.json read)."""
+    try:
+        return curve_paths(data_dir, DEFAULT_CURVE)
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
 def projected_slots(data_dir, load):
     """roster_id -> (projected draft slot, tier) for every franchise, off the
     projected year-one lineup WAR of the CURRENT rosters (Max, 2026-09-02).
@@ -91,8 +101,10 @@ def projected_slots(data_dir, load):
     slots = meta.get("rosterPositions") or []
     if not teams or not slots:
         return {}
-    y1 = {r["pid"]: ((r.get("composite") or [0.0])[0], r.get("pos"))
-          for r in projf.get("players", [])}
+    # on the site's curve (2026-10-07) — usePickTiers reads useProjWar1, which
+    # is the matrix on the picked curve; projections.json was the points model
+    y1 = {pid: ((c["path"] or [0.0])[0], c["pos"])
+          for pid, c in _curve_paths(data_dir).items()}
     strength = []
     for t in teams:
         cands = [(pid, y1[pid][1], y1[pid][0]) for pid in (t.get("players") or []) if pid in y1]
@@ -225,7 +237,9 @@ def main():
     # that haven't been drafted yet.
     projf = load(DATA / "projections.json") or {}
     proj_season = int((projf.get("meta") or {}).get("roster_season") or max(seasons))
-    comp = {r["pid"]: (r.get("composite") or []) for r in projf.get("players", [])}
+    # the default curve's 3-year path (2026-10-07; was projections.json's
+    # `composite`, i.e. the points-first model from 2026-09-11)
+    comp = {pid: c["path"] for pid, c in _curve_paths(DATA).items()}
 
     pv = load(DATA / "pick_values.json") or {}
     pv_years = sorted(int(y) for y in ((pv.get("meta") or {}).get("years_published") or []))

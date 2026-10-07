@@ -107,12 +107,12 @@ export const STARTERS_NOTE =
  * which is what a roster with nothing on it would do.
  *
  * THE FIGURE FOLLOWS THE MODEL PICKER (2026-09-21). This ranked franchises on
- * `projections.json`'s `composite[0]` — the scalar composite, one of six
- * curves — while the League screen's power rankings, which the comment above
- * claims it agrees with, have followed the site-wide control since it was
- * built. On the default curve the two numbers are identical and on the other
- * five they are not, so flipping the model repriced every board on the site
- * except the one that decides what a pick is worth. `useProjWar1` is that
+ * `projections.json`'s `composite[0]` — a fixed file, not the site curve
+ * (scalar, then the points-first model from 2026-09-11 to 2026-10-07) — while
+ * the League screen's power rankings, which the comment above claims it agrees
+ * with, have followed the site-wide control since it was built. So flipping
+ * the model repriced every board on the site except the one that decides what
+ * a pick is worth. `useProjWar1` is that
  * same year-one figure under whichever curve the reader is on; DVI supplies
  * the position, as it does everywhere a bare pid -> WAR map has to be seated.
  */

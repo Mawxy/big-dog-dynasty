@@ -42,7 +42,7 @@ jobs:
           data/ecr.json is unchanged and is now at least a day stale. It \
           scrapes an embedded payload FantasyPros can restyle without warning, \
           so check the parser before assuming a transient error."
-      - name: Bridge B (market value -> WAR, needs data/projections.json)
+      - name: Bridge B (market value -> WAR, needs the committed projection matrix)
         run: python scripts/value_bridge.py
       - name: Validate values before committing
         run: python scripts/validate_data.py --values-only

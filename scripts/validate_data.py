@@ -87,7 +87,7 @@ FLOORS = {
     # slot_values.json is hand-run (no workflow writes it), so it is validated
     # only when present. Its own corpus is the same one benchmarks merges.
     "slot_value_seasons": 500,
-    # the eight-curve matrix, same population as projections (currently 365)
+    # the six-curve matrix, same population as projections (currently 376)
     "matrix": 200,
     # rows the points-first model actually priced from a player's own history;
     # currently 300 of 365 (the rest are 56 rookies and 9 unjoined names)
@@ -374,10 +374,11 @@ def check_odds(sd, weeks_seen, scored):
 # nightly and agree only by construction — which is why nothing noticed when one
 # of them moved on 2026-09-15 and the others did not.
 PROJECTION_FILES = (
-    ("projections.json", True),             # the site model (points-first)
-    ("projections_scalar.json", False),     # per-13 rate model (project_war.py)
-    ("projections_points.json", False),     # the points model's own file, hand-run
-    ("projections_matrix.json", False),     # the eight curves
+    ("projections.json", True),             # per-13 rate model (project_war.py)
+    # projections_scalar.json / projections_points.json are relics of the
+    # points-first era (2026-09-11..2026-10-07): nothing writes them nightly,
+    # so they are not checked — a stale relic would fail the next rollover.
+    ("projections_matrix.json", False),     # the six curves
     ("projections_knn_hybrid.json", False),  # the analog arm
 )
 

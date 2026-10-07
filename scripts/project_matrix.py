@@ -193,24 +193,43 @@ def sleeper_scale(pts13, gate=None):
     return (pts13 - PTS13_FLOOR) / (PTS13_FULL - PTS13_FLOOR)
 
 
-# BOTH ARMS OF THE POINTS-FIRST MODEL COUNT. project_points.py prices veterans
-# from their own history (`src: points`) and incoming rookies from draft
-# capital (`src: rookie`); only rows it could not price at all are left on the
-# scalar (`src: scalar`). Reading the first arm alone silently handed all 56
-# rookies the SCALAR pair under a points_* heading with has_points false —
-# Jeremiyah Love read [0.735, ...] here against [0.835, ...] in
-# projections.json, one player priced two ways in two files.
-POINTS_SRC = ("points", "rookie")
+# THE POINTS-FIRST CURVES ARE GONE (Max, 2026-10-07). The 2026-09-18 backtest
+# had points natural behind blend natural at every horizon among startable
+# players, so project_points.py no longer runs nightly and the matrix carries
+# the six scalar / analog / blend curves only. project_points.py stays in the
+# repo for hand runs and the backtest harness.
+
+# The curves in publication order. Mirrors CURVES in scripts/curves.py.
+CURVE_KEYS = ("scalar_natural", "scalar_composite",
+              "analog_natural", "analog_composite",
+              "blend_natural", "blend_composite")
 
 
-def points_streams(players):
-    """pid -> (natural, composite) for every row the points-first model priced.
+def position_finishes(rows, curves=CURVE_KEYS):
+    """Write `posFin[curve] = [rank_y1, rank_y2, ...]` onto every row.
 
-    `has_points` is a claim about the MODEL, not about the arm: a rookie the
-    rookie arm priced was priced by the points-first model.
+    A projected position finish PER CURVE (2026-10-07). Before this the only
+    finish on the site was projections.json's, ranked on whichever model wrote
+    that file, so the player page printed an RB4 badge from one model beside a
+    WAR figure from another. Ranked within position over every row the matrix
+    carries, highest WAR first — the same population and rule project_war.py
+    has always used for its own posFin.
     """
-    return {r["pid"]: (r["proj"], r["composite"]) for r in players
-            if r.get("src") in POINTS_SRC}
+    by_pos = defaultdict(list)
+    for r in rows:
+        by_pos[r["pos"]].append(r)
+        r["posFin"] = {}
+    for grp in by_pos.values():
+        for c in curves:
+            horizon = max(len(r[c]) for r in grp)
+            ranks = {id(r): [None] * horizon for r in grp}
+            for y in range(horizon):
+                order = sorted((r for r in grp if len(r[c]) > y and r[c][y] is not None),
+                               key=lambda r: -r[c][y])
+                for i, r in enumerate(order, 1):
+                    ranks[id(r)][y] = i
+            for r in grp:
+                r["posFin"][c] = ranks[id(r)]
 
 
 def trust_of(k, d_ref):
@@ -327,6 +346,46 @@ def check_arm_freshness(scalar_meta, knn_meta, knn_path, last_done=None):
     return "stale"
 
 
+PRESEASON_DIR = "proj_preseason"
+
+
+def freeze_preseason(data_dir, rows, years, today=None):
+    """Keep proj_preseason/<season>.json as the LAST pre-kickoff read of year 1.
+
+    THE PRESEASON PROJECTION (Max, 2026-10-07). The player page shows WAR PROJ
+    (what we projected before the season) beside WAR PACE (banked + the rest of
+    the season on today's projection). Every curve here is refit nightly, so
+    \"what we said in August\" has to be frozen or it does not exist.
+
+    Rule: while year 1's season has NO scored regular-season week, overwrite the
+    file every night; from the first scored week on, never touch it again. The
+    last write is therefore the final read before kickoff. A season that is
+    already under way the first time this runs gets no file rather than a
+    mid-season number labelled preseason. 2026 was backfilled by hand from the
+    2026-09-10 matrix (git 048b4e9a).
+
+    Returns \"wrote\", \"locked\" or \"skipped\".
+    """
+    if not years:
+        return "skipped"
+    season = int(years[0])
+    dest = data_dir / PRESEASON_DIR / f"{season}.json"
+    if insn.weeks_played(insn.load_matchups(data_dir, season)) > 0:
+        return "locked"
+    doc = {
+        "meta": {"season": season, "years": list(years),
+                 "captured": (today or datetime.date.today()).isoformat(),
+                 "source": "project_matrix.py nightly, last write before kickoff",
+                 "curves": list(CURVE_KEYS)},
+        "players": {r["pid"]: {**{c: r[c] for c in CURVE_KEYS},
+                               "posFin": r.get("posFin") or {}}
+                     for r in rows},
+    }
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write(dest, json.dumps(doc, separators=(",", ":")) + "\n")
+    return "wrote"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", default="projections_matrix.json")
@@ -336,21 +395,13 @@ def main():
     if args.sleeper_gate:
         SLEEPER_GATE = args.sleeper_gate
 
-    # THE SCALAR ARM IS ITS OWN FILE NOW (Max, 2026-09-11): projections.json
-    # is the points-first model's, and project_points.py --site parks the
-    # per-13 rate model's output at projections_scalar.json so this lens keeps
-    # reading the scalar it was built to compare. Falls back to projections.json
-    # for a data directory the points model has not written.
-    scalar_path = DATA / "projections_scalar.json"
-    if not scalar_path.exists():
-        scalar_path = DATA / "projections.json"
+    # THE SCALAR ARM IS projections.json AGAIN (2026-10-07). From 2026-09-11
+    # to 2026-10-07 project_points.py --site rewrote that file and parked the
+    # scalar at projections_scalar.json; with the points model off the nightly,
+    # project_war.py's output stays where it is written. projections_scalar.json
+    # is a stale relic from then and is deliberately NOT read.
+    scalar_path = DATA / "projections.json"
     scalar = json.loads(scalar_path.read_text())
-    # the points-first model's streams, keyed by pid, for the two curves it
-    # adds; a row it did not price (src:scalar) falls back to the scalar pair
-    points = {}
-    ppath = DATA / "projections.json"
-    if scalar_path != ppath and ppath.exists():
-        points = points_streams(json.loads(ppath.read_text())["players"])
     knn_path = DATA / "projections_knn_hybrid.json"
     knnf = json.loads(knn_path.read_text())
     sproj = json.loads((DATA / "proj_sleeper.json").read_text())["players"]
@@ -440,15 +491,12 @@ def main():
             an_cmp = composite_path(an_nat, sl_war, sc_nat, w_an * scale)
             bl_cmp = composite_path(bl_nat, sl_war, sc_nat, BLEND_W[0] * scale)
 
-        pt_nat, pt_cmp = points.get(pid, (sc_nat, sc_cmp))
         row = {
             "pid": pid, "name": p["name"], "pos": pos, "team": p.get("team"),
             "age": p.get("age"),
             "scalar_natural": sc_nat, "scalar_composite": sc_cmp,
             "analog_natural": an_nat, "analog_composite": an_cmp,
             "blend_natural": bl_nat, "blend_composite": bl_cmp,
-            "points_natural": pt_nat, "points_composite": pt_cmp,
-            "has_points": pid in points,
             # diagnostics — the curves are only readable next to these
             "has_analog": k is not None,
             "has_sleeper": sl_war is not None,
@@ -462,8 +510,7 @@ def main():
             "totals": {n: round(sum(v), 3) for n, v in (
                 ("scalar_natural", sc_nat), ("scalar_composite", sc_cmp),
                 ("analog_natural", an_nat), ("analog_composite", an_cmp),
-                ("blend_natural", bl_nat), ("blend_composite", bl_cmp),
-                ("points_natural", pt_nat), ("points_composite", pt_cmp))},
+                ("blend_natural", bl_nat), ("blend_composite", bl_cmp))},
         }
         if inblock:
             # A rostered player the summary has no row for has not dressed for
@@ -473,13 +520,11 @@ def main():
             row["banked"], row["gp"] = round(b, 3), g
         rows.append(row)
 
+    position_finishes(rows)
     rows.sort(key=lambda r: -r["totals"]["blend_composite"])
     out = {
         "meta": {
-            "curves": ["scalar_natural", "scalar_composite",
-                       "analog_natural", "analog_composite",
-                       "blend_natural", "blend_composite",
-                       "points_natural", "points_composite"],
+            "curves": list(CURVE_KEYS),
             "horizon": len(BLEND_W),
             # WHICH SEASON THESE CURVES PROJECT FROM. Copied off the scalar
             # arm, which is the frame every row is built on. Carried so the
@@ -510,6 +555,9 @@ def main():
     }
     dest = DATA / args.out
     atomic_write(dest, json.dumps(out, separators=(",", ":")) + "\n")
+    if args.out == "projections_matrix.json":
+        pre = freeze_preseason(DATA, rows, years)
+        print(f"  preseason snapshot for {years[0] if years else '?'}: {pre}")
 
     tv = [r["trust"] for r in rows if r["trust"] is not None]
     print(f"wrote {dest} · {len(rows)} players")

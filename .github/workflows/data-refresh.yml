@@ -216,23 +216,18 @@ jobs:
         run: python scripts/week_odds.py
       - name: Recompute WAR projections (scalar model)
         run: python scripts/project_war.py
-      # THE PRICING MODEL (Max, 2026-09-11): points first, WAR from the
-      # projected pool. Reads the scalar's projections.json just written, parks
-      # it at projections_scalar.json for the comparison lens, and rewrites
-      # projections.json in the same schema — so everything after this step
-      # (value_bridge, the matrix, shards, index_models) prices on it. It is
-      # what the site QUOTES, but since scripts/curves.py landed on 2026-09-16
-      # it is no longer "the" model in the singular: points-first is one of four
-      # arms in the six-curve matrix and the published default curve is
-      # blend_composite. `--site` stays — pricing off the points arm is Max's
-      # decision, and only the wording here was wrong.
-      #
-      # Needs scikit-learn (~2 min to fit 24 tree ensembles); every data input
-      # is committed (nfl_history/*.csv, proj_sleeper.json, players_min.json).
+      # THE POINTS-FIRST MODEL IS OFF THE NIGHTLY (Max, 2026-10-07). It ran here
+      # as `project_points.py --site` from 2026-09-11, rewriting projections.json
+      # in place, so value_bridge, trade_analysis and the player page's ladder
+      # priced on points while DVI/CVI sat on blend_composite. The 2026-09-18
+      # backtest had points natural behind blend natural at every horizon among
+      # startable players, so it is gone: projections.json stays project_war.py's
+      # scalar output, and every consumer reads the matrix on DEFAULT_CURVE.
+      # project_points.py remains for hand runs and backtest_curves.py.
       #
       # PINNED, not `pip install scikit-learn` — see requirements-ci.txt for the
-      # three-day outage that bought these pins. nflreadpy/polars come from the
-      # same file, which is why this one step covers the usage block below too.
+      # three-day outage that bought these pins. nflreadpy/polars for the usage
+      # block below come from the same file.
       - name: Install pinned Python libraries
         id: deps
         continue-on-error: true
@@ -241,55 +236,9 @@ jobs:
         if: steps.deps.outcome == 'failure'
         run: |
           echo "::warning title=Dependency install failed::pip install -r \
-          requirements-ci.txt failed — the points model and the nflverse usage \
+          requirements-ci.txt failed — the nflverse usage \
           refresh below will fail and fall back to yesterday's outputs. The \
           pull/WAR/build and the commit continue."
-      # FAIL-SOFT, same shape as the Pizza block above. This step is mid-chain:
-      # before 2026-09-21 a modelling-library break here took the whole night
-      # with it — the pull, the WAR recompute, the build and the commit had all
-      # already run and were discarded. Now it is allowed to fail and the
-      # outputs it would have rewritten are restored from the checkout.
-      #
-      # WHY RESTORING IS THE COHERENT CHOICE, not leaving what is on disk:
-      # project_points --site rewrites projections.json in place, and everything
-      # downstream (value_bridge, project_war_knn, project_matrix,
-      # trade_analysis, shard_players, index_models) reads it. If the step dies
-      # partway the tree holds project_war.py's SCALAR projections.json under a
-      # points-model schema stamp — a set that disagrees with itself. Checking
-      # the four files back out gives the downstream chain yesterday's
-      # points-model projections: one day stale, but internally consistent, and
-      # every consumer below prices off the same numbers. The final
-      # validate_data gate still runs and still blocks the commit if it isn't.
-      #
-      # scripts/project_points.py now exits NON-ZERO under --site when it
-      # rewrote nothing, so this step genuinely fails instead of passing
-      # quietly — which is the whole reason it needs a restore.
-      - name: Points-first projections (the pricing arm)
-        id: points
-        continue-on-error: true
-        run: python scripts/project_points.py --site
-      - name: Restore yesterday's projections if the points model failed
-        if: steps.points.outcome == 'failure'
-        run: |
-          # One pathspec per checkout, not one call with four: git checkout
-          # aborts the WHOLE call if any single pathspec matches nothing
-          # tracked, so a league that has no projections_scalar.json yet would
-          # otherwise block the restore of the three that do exist.
-          for p in 'data/leagues/*/projections.json' \
-                   'data/leagues/*/projections_points.json' \
-                   'data/leagues/*/projections_scalar.json' \
-                   'nfl_history/projections_points.json'; do
-            git checkout -- "$p" 2>/dev/null \
-              || echo "  (nothing tracked at $p — skipped)"
-          done
-          echo "::warning title=Points model failed::project_points.py --site \
-          failed; projections.json / projections_points.json / \
-          projections_scalar.json were restored from the checkout. Every \
-          downstream price (value_bridge, the matrix, trades, shards, DVI/CVI) \
-          is therefore ONE DAY STALE but coherent — they all read the same \
-          restored projections. Investigate before trusting tonight's values."
-      - name: Bridge B (market value -> WAR, refit on fresh projections)
-        run: python scripts/value_bridge.py
       # after project_war and the analog model: the matrix reads both, so it
       # cannot run earlier or it publishes six curves off a stale scalar arm
       # The analog arm of the six-curve matrix. Hand-run until 2026-08-12, which
@@ -308,7 +257,7 @@ jobs:
       # side of the join) and BEFORE project_matrix, which consumes it.
       - name: Analog projection (kNN comparables -> projections_knn_hybrid.json)
         run: python scripts/project_war_knn.py --space hybrid
-      # FAIL-SOFT for the same reason as the points step: it reads two arms and
+      # FAIL-SOFT: it reads two arms and
       # writes one file, and scripts/project_matrix.py now exits NON-ZERO on a
       # seed mismatch between arms rather than publishing curves that were fitted
       # against different draws. That is the right call — and it means this step
@@ -316,7 +265,7 @@ jobs:
       # projections_matrix.json leaves the shards and the player page reading
       # yesterday's six curves, which is one day stale and self-consistent;
       # publishing a mismatched matrix would not be.
-      - name: Six-curve projection matrix (scalar / analog / blend / points)
+      - name: Six-curve projection matrix (scalar / analog / blend) + preseason freeze
         id: matrix
         continue-on-error: true
         run: python scripts/project_matrix.py
@@ -329,11 +278,15 @@ jobs:
           failed (a seed mismatch between arms exits non-zero by design); \
           projections_matrix.json was restored from the checkout, so the \
           six-curve table and the shards below carry YESTERDAY's curves."
+      # AFTER the matrix since 2026-10-07: it fits the market against the matrix
+      # on DEFAULT_CURVE (curves.curve_paths), not projections.json.
+      - name: Bridge B (market value -> WAR, refit on fresh projections)
+        run: python scripts/value_bridge.py
       # MOVED HERE 2026-09-21 (was ~35 lines above, between draft_analysis and
-      # playoff_wpa). trade_analysis reads data/<league>/projections.json for
-      # `future`, for the projected draft slots and for the frozen-once `exp`
-      # snapshot — and projections.json is not final until project_points
-      # rewrites it. Run up there it compared tonight's teams.json against
+      # playoff_wpa). trade_analysis reads the projection matrix on DEFAULT_CURVE
+      # (projections.json before 2026-10-07) for `future`, for the projected
+      # draft slots and for the frozen-once `exp` snapshot — and the matrix is
+      # not final until project_matrix runs. Run up there it compared tonight's teams.json against
       # yesterday's projections, and the `exp` snapshot froze that skew
       # permanently. It also reads values.json, which value_bridge refits just
       # above, and pick_values.json, which pick_value.py wrote earlier.
@@ -341,7 +294,7 @@ jobs:
       # validate_data.py's trade floor is the only downstream reader in the
       # pipeline (playoff_wpa / playoff_war / season_wpa / the projection chain
       # do not touch it), and that gate still runs at the end.
-      - name: Trade tracker (after the projection chain — reads projections.json)
+      - name: Trade tracker (after the projection chain — reads the matrix)
         run: python scripts/trade_analysis.py
       # ---- usage and efficiency (Max, 2026-09-16) ---------------------------
       # The nflverse skill features on the site. Past seasons' CSVs are
@@ -373,8 +326,8 @@ jobs:
       # until 2026-09-01 — published shards holding the PREVIOUS night's curves
       # beside the current night's scalar projection, which is worse than stale:
       # the six-curve table would have disagreed with itself by one day.
-      # Its other inputs all land earlier — projections.json (project_war, then
-      # rewritten by project_points), proj_sleeper.json (fetch_projections),
+      # Its other inputs all land earlier — projections.json (project_war),
+      # proj_preseason/ (project_matrix), proj_sleeper.json (fetch_projections),
       # players_min.json (build_site_data) and usage.json (just above) — so the
       # move is safe in both directions.
       # (This block described the shard step all along; until 2026-09-21 it had

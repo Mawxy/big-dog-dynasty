@@ -412,35 +412,17 @@ export interface KnnFile {
  *  weight scales with `trust` rather than sitting at the scalar model's flat
  *  0.9. At a flat 0.9 the scalar and analog composites agree to a mean of
  *  0.020 WAR — the same curve twice, not two curves. */
-// The last pair is the points-first model (Max, 2026-09-11). It was the site's
-// default for five days; `blend_composite` has been the default since
-// 2026-09-16 — see DEFAULT_CURVE in lib/model.ts, which is the one place that
-// answers it. No comments INSIDE the literal: tests/test_curves.py tokenizes it.
+// `blend_composite` is the default — see DEFAULT_CURVE in lib/model.ts, which
+// is the one place that answers it. The points-first pair (2026-09-11) was
+// dropped on 2026-10-07 after trailing blend in the backtest. No comments
+// INSIDE the literal: tests/test_curves.py tokenizes it.
 export const MATRIX_CURVES = [
   "scalar_natural", "scalar_composite",
   "analog_natural", "analog_composite",
   "blend_natural", "blend_composite",
-  "points_natural", "points_composite",
 ] as const;
 export type MatrixCurve = typeof MATRIX_CURVES[number];
-export type MatrixModel = "scalar" | "analog" | "blend" | "points";
-
-/** data/projections_points.json — the POINTS-FIRST arm (Max, 2026-09-10):
- *  ppg and games from gradient-boosted trees on history and nflverse skill
- *  features, WAR derived from the projected pool's replacement level. The
- *  shard carries one player's row. */
-export interface PointsProj {
-  /** points per game if he plays, per horizon year, in league scoring */
-  ppg: number[];
-  /** expected games (0..13) */
-  games: number[];
-  /** ppg × games */
-  pts: number[];
-  /** WAR over expected games, and over a full 13 ("natural") */
-  war: number[]; war13: number[];
-  /** the 80% band, in natural WAR */
-  war13_low: number[]; war13_high: number[];
-}
+export type MatrixModel = "scalar" | "analog" | "blend";
 
 export type MatrixRow = {
   pid: string; name: string; pos: string; team: string | null;
@@ -450,15 +432,6 @@ export type MatrixRow = {
    *  the pts13 floor means every composite is its own natural. Both have to be
    *  said out loud or the table shows agreement that was never measured. */
   has_analog: boolean; has_sleeper: boolean;
-  /** the points-first model priced him. It has TWO arms (project_matrix.py's
-   *  POINTS_SRC): `src:"points"` prices a player from his own history, and
-   *  `src:"rookie"` prices an incoming rookie from draft capital — both are
-   *  the points-first model, so both read true. False means only `src:
-   *  "scalar"`, a row neither arm could price at all, whose two `points_*`
-   *  curves are the scalar pair. (It used to be documented as false for every
-   *  rookie, which was true of the first arm alone and handed all 56 of them
-   *  the scalar pair under a points heading.) */
-  has_points?: boolean;
   sleeper_war: number | null;
   pts13: number;
   /** the share of Sleeper's weight this row earned, in [0,1]
@@ -471,12 +444,22 @@ export type MatrixRow = {
   w_sleeper: number | null;
   d_med: number | null; padded: boolean | null;
   totals: Record<MatrixCurve, number>;
+  /** projected position finish per curve and horizon year, ranked within
+   *  position over the whole matrix (project_matrix.position_finishes, since
+   *  2026-10-07). Absent in files built before that. */
+  posFin?: Partial<Record<MatrixCurve, (number | null)[]>>;
   /* `banked` and `gp` ride along from BankedRow: his realized regular-season
    *  WAR in the roster season and the games behind it, written by
    *  scripts/inseason.py ONLY while that season is in progress. Absent
    *  everywhere else — and in every file built before the field existed, which
    *  is why nothing may read them without `meta.inseason` beside them. */
 } & BankedRow & Record<MatrixCurve, number[]>;
+
+/** one player's row in proj_preseason/<season>.json — each curve's path as
+ *  frozen at the last nightly before kickoff, with its position finishes */
+export type PreseasonRow = Partial<Record<MatrixCurve, number[]>> & {
+  posFin?: Partial<Record<MatrixCurve, (number | null)[]>>;
+};
 
 export interface MatrixFile {
   meta: {
@@ -553,8 +536,13 @@ export interface PlayerShard extends BankedRow {
    *  header. Written only alongside `mx`, since nothing else reads it. */
   blend_w?: number[] | null;
   knn?: KnnShard | null;
-  /** his row from projections_points.json — absent when that arm has no read */
-  pts?: PointsProj | null;
+  /** his row from proj_preseason/<year 1>.json: every curve's path and
+   *  position finish as frozen before kickoff (project_matrix.freeze_preseason).
+   *  The WAR PROJ column for the season being played. Absent when that
+   *  snapshot never priced him. */
+  pre?: PreseasonRow | null;
+  /** when that snapshot was captured (YYYY-MM-DD) — written beside `pre` */
+  pre_at?: string;
   /** his usage-and-efficiency rows by season (scripts/usage_stats.py, folded
    *  in by shard_players.py) — absent when nflverse has no line for him */
   usage?: Record<string, import("./usage").UsagePhases>;

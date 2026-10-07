@@ -21,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
 import inseason                                                  # noqa: E402
 from leaguepaths import DataDir                                  # noqa: E402
-from project_matrix import (points_streams, seed_mismatch,       # noqa: E402
+from project_matrix import (CURVE_KEYS, freeze_preseason,        # noqa: E402
+                            position_finishes,
+                            seed_mismatch,
                             sleeper_scale, trust_of,
                             PAD_PENALTY, PTS13_FLOOR, PTS13_FULL,
                             W_MAX, W_MIN)
@@ -230,42 +232,64 @@ class TestSeedMismatch(unittest.TestCase):
         self.assertEqual(seed_mismatch(2026, 2025, None), "stale")
 
 
-class TestPointsArms(unittest.TestCase):
-    """BOTH arms of the points-first model fill the points_* curves.
+class TestPositionFinishes(unittest.TestCase):
+    """posFin is published PER CURVE (2026-10-07), ranked within position."""
 
-    project_points.py prices veterans from their own history (`src: points`)
-    and incoming rookies from draft capital (`src: rookie`). Reading only the
-    first handed all 56 rookies the SCALAR pair under a points heading, with
-    has_points false — Jeremiyah Love read [0.735, ...] in the matrix against
-    [0.835, ...] in projections.json, and nothing in the file said the two
-    disagreed.
-    """
+    def rows(self):
+        mk = lambda pid, pos, v: {"pid": pid, "pos": pos,  # noqa: E731
+                                  **{c: list(v) for c in CURVE_KEYS}}
+        rs = [mk("1", "RB", [1.0, 0.5, 0.2]), mk("2", "RB", [0.8, 0.9, 0.1]),
+              mk("3", "WR", [0.1, 0.1, 0.1])]
+        rs[0]["analog_natural"] = [0.1, 0.1, 0.1]
+        return rs
 
-    ROWS = [
-        {"pid": "1", "src": "points", "proj": [1.0, 0.9, 0.8],
-         "composite": [1.1, 0.95, 0.85]},
-        {"pid": "2", "src": "rookie", "proj": [0.5, 0.6, 0.7],
-         "composite": [0.8, 0.7, 0.75]},
-        {"pid": "3", "src": "scalar", "proj": [0.2, 0.2, 0.2],
-         "composite": [0.3, 0.3, 0.3]},
-    ]
+    def test_ranks_within_position_per_year(self):
+        rs = self.rows()
+        position_finishes(rs)
+        self.assertEqual(rs[0]["posFin"]["blend_composite"], [1, 2, 1])
+        self.assertEqual(rs[1]["posFin"]["blend_composite"], [2, 1, 2])
+        self.assertEqual(rs[2]["posFin"]["blend_composite"], [1, 1, 1])
 
-    def test_a_rookie_the_rookie_arm_priced_is_a_points_row(self):
-        got = points_streams(self.ROWS)
-        self.assertEqual(got["2"], ([0.5, 0.6, 0.7], [0.8, 0.7, 0.75]))
+    def test_each_curve_ranks_on_its_own_figures(self):
+        rs = self.rows()
+        position_finishes(rs)
+        self.assertEqual(rs[0]["posFin"]["analog_natural"], [2, 2, 1])
+        self.assertEqual(set(rs[0]["posFin"]), set(CURVE_KEYS))
 
-    def test_a_veteran_the_points_arm_priced_is_a_points_row(self):
-        self.assertIn("1", points_streams(self.ROWS))
 
-    def test_a_row_the_model_could_not_price_is_not(self):
-        """src:scalar is an unjoined name. It keeps the scalar pair and
-        has_points says so — that fallback is the honest one."""
-        self.assertNotIn("3", points_streams(self.ROWS))
+class TestPreseasonFreeze(unittest.TestCase):
+    """proj_preseason/<season>.json is the last pre-kickoff read (2026-10-07)."""
 
-    def test_an_unmarked_row_is_not_a_points_row(self):
-        """A projections.json written by project_war.py alone carries no
-        `src`, and none of its rows belong to this model."""
-        self.assertEqual(points_streams([{"pid": "9", "proj": [1], "composite": [1]}]), {})
+    def rows(self, v):
+        return [{"pid": "1", "pos": "RB", **{c: [v, v, v] for c in CURVE_KEYS},
+                 "posFin": {c: [1, 1, 1] for c in CURVE_KEYS}}]
+
+    def tree(self, tmp, weeks):
+        d = Path(tmp)
+        (d / "2026").mkdir(parents=True, exist_ok=True)
+        (d / "2026" / "matchups.json").write_text(json.dumps(
+            {"playoff_start": 15, "teams": {"1": [[k, 100.0, 2, 90.0, [], []] for k in weeks]}}))
+        return d
+
+    def read(self, d):
+        return json.loads((d / "proj_preseason" / "2026.json").read_text())
+
+    def test_overwrites_until_kickoff_then_locks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.tree(tmp, weeks=())
+            self.assertEqual(freeze_preseason(d, self.rows(1.0), [2026, 2027, 2028]), "wrote")
+            self.assertEqual(freeze_preseason(d, self.rows(1.5), [2026, 2027, 2028]), "wrote")
+            self.assertEqual(self.read(d)["players"]["1"]["blend_composite"], [1.5, 1.5, 1.5])
+            (d / "2026" / "matchups.json").write_text(json.dumps(
+                {"playoff_start": 15, "teams": {"1": [[1, 100.0, 2, 90.0, [], []]]}}))
+            self.assertEqual(freeze_preseason(d, self.rows(2.0), [2026, 2027, 2028]), "locked")
+            self.assertEqual(self.read(d)["players"]["1"]["blend_composite"], [1.5, 1.5, 1.5])
+
+    def test_a_season_already_under_way_gets_no_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            d = self.tree(tmp, weeks=(1, 2))
+            self.assertEqual(freeze_preseason(d, self.rows(1.0), [2026, 2027, 2028]), "locked")
+            self.assertFalse((d / "proj_preseason" / "2026.json").exists())
 
 
 class TestInSeasonPublication(unittest.TestCase):
@@ -306,7 +330,7 @@ class TestInSeasonPublication(unittest.TestCase):
         w("2026/matchups.json", {"playoff_start": 15, "teams": {
             "1": [[k, 120.0, 2, 100.0, [], []] for k in weeks]}})
         w("2026/summary.json", self.SUMMARY)
-        w("projections_scalar.json", {
+        w("projections.json", {
             "meta": {"seed_season": seed, "roster_season": 2026,
                      "years": [seed + 1, seed + 2, seed + 3],
                      "generated": "2026-09-21"},
@@ -407,18 +431,18 @@ class TestOneOwnerPerNumber(unittest.TestCase):
             "project_matrix has re-grown its own composite formula")
 
     def test_scalar_composite_matches_projections_json(self):
-        """The shipped gate reads project_war's number verbatim. Since
-        2026-09-11 project_war's output lives at projections_scalar.json
-        (projections.json is the points-first model's); read whichever the
-        matrix itself read."""
+        """The shipped gate reads project_war's number verbatim. projections.json
+        is project_war's file again since 2026-10-07 (points-first wrote it from
+        2026-09-11); data still stamped points-first predates that rebuild."""
         import json
         from leaguepaths import DataDir
         d = DataDir(Path(__file__).resolve().parent.parent / "data")
-        f_s, f_m = d / "projections_scalar.json", d / "projections_matrix.json"
-        if not f_s.exists():
-            f_s = d / "projections.json"
+        f_s, f_m = d / "projections.json", d / "projections_matrix.json"
         if not (f_s.exists() and f_m.exists()):
             self.skipTest("no built data")
+        meta = json.loads(f_s.read_text()).get("meta") or {}
+        if str(meta.get("model") or "").startswith("points-first"):
+            self.skipTest("committed data predates the points model's removal")
         sc = {str(p["pid"]): p for p in json.loads(f_s.read_text())["players"]}
         for m in json.loads(f_m.read_text())["players"]:
             p = sc.get(m["pid"])

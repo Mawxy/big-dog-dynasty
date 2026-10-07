@@ -54,6 +54,7 @@ import argparse
 import json
 from pathlib import Path
 from ioutil import atomic_write
+from curves import DEFAULT_CURVE, curve_paths
 from leaguepaths import DataDir
 from seasons import last_completed_season
 
@@ -189,8 +190,13 @@ def main():
         raise SystemExit("no season has a summary.json — run build_site_data.py first")
 
     values = json.loads((DATA / "values.json").read_text(encoding="utf-8"))
-    proj = {d["pid"]: d for d in
-            json.loads((DATA / "projections.json").read_text(encoding="utf-8"))["players"]}
+    # ON THE SITE'S CURVE (2026-10-07). This read projections.json directly, so
+    # from 2026-09-11 the market was fitted against the points-first model while
+    # every player beside it was priced on blend_composite. curve_paths reads
+    # the matrix on DEFAULT_CURVE and keeps the two field names below.
+    proj = {pid: {"pos": c["pos"], "composite": c["path"], "total_comp": c["total"]}
+            for pid, c in curve_paths(DATA, DEFAULT_CURVE).items()
+            if len(c["path"]) >= 3}
     summary = json.loads(
         (DATA / str(seed) / "summary.json").read_text(encoding="utf-8"))
     war_real = {r[0]: (r[1], r[6]) for r in summary}  # pid -> (pos, war)
@@ -259,7 +265,7 @@ def main():
     # renders the implied-WAR column and model-vs-market verdict from the one
     # file it already fetches (no pop-in waiting on extra requests):
     #   impWar   = {ktc?, fc?} market-implied 3-yr WAR at the player's value
-    #   modelWar = our projected 3-yr composite WAR (total_comp)
+    #   modelWar = our projected 3-yr WAR on the default curve (blend_composite)
     #
     # A player is priced on HIS POSITION'S curve where one exists. The global
     # curve stays for picks and for any position too thin to fit.

@@ -6,8 +6,7 @@ to read a player's WAR out of it.
 WHY THIS EXISTS
 
 DVI and CVI were both built on one number: `projections.json`'s
-`composite[0]`, which at the time WAS the scalar model's year-1 composite (it
-is the points-first model's file now — see the fallback note below). That made
+`composite[0]`, the scalar model's year-1 composite. That made
 the choice of projection model invisible — the site published a single dynasty
 value and a single win-now value and never said which of the curves in
 projections_matrix.json produced them.
@@ -30,19 +29,15 @@ explicit and easy to find. See the note in blend_values.py.
 """
 import json
 
-# The eight curves, in the order project_matrix.py publishes them: two models
-# (scalar, analog) plus their blend, then the points-first model, each read
-# with and without Sleeper's depth-chart opinion folded in. Mirrors MATRIX_CURVES in src/lib/types.ts —
+# The six curves, in the order project_matrix.py publishes them: two models
+# (scalar, analog) plus their blend, each read with and without Sleeper's
+# depth-chart opinion folded in. The points-first pair was dropped on
+# 2026-10-07 (it trailed blend in the backtest). Mirrors MATRIX_CURVES in src/lib/types.ts —
 # keep the two lists in step.
 CURVES = (
     "scalar_natural", "scalar_composite",
     "analog_natural", "analog_composite",
     "blend_natural", "blend_composite",
-    # THE POINTS-FIRST MODEL (Max, 2026-09-11): ppg and games projected
-    # first, WAR from the projected pool. project_matrix.py copies its two
-    # streams in from projections.json so the picker and index_models see
-    # one list of curves.
-    "points_natural", "points_composite",
 )
 
 # The site's published DVI/CVI. Blend over scalar because the analog arm is a
@@ -51,42 +46,26 @@ CURVES = (
 # Sleeper's read is the only input that knows about THIS season's depth charts,
 # and neither model can see a trade or a rookie ahead of him.
 # Points over blend from 2026-09-11 to 2026-09-16; back to BLEND · COMPOSITE
-# since (Max, 2026-09-16). The points-first curve stays a comparison lens.
+# since (Max, 2026-09-16). Points-first removed entirely on 2026-10-07.
 # Mirrors DEFAULT_CURVE in src/lib/model.ts — the two must agree, or the
 # board opens on one curve while dvi.json was published on another.
 DEFAULT_CURVE = "blend_composite"
 
 MATRIX_FILE = "projections_matrix.json"
-# THE FALLBACK FILE DEPENDS ON THE CURVE (2026-09-21).
-#
-# projections.json used to BE the scalar model, so one fallback served every
-# curve and reading `composite[0]` off it genuinely reproduced the pre-matrix
-# number. Since 2026-09-11 it is the POINTS-FIRST model's file — project_points
-# parks the scalar arm at projections_scalar.json and rewrites this one — so the
-# old single fallback quietly answered every scalar_* query with the points
-# model's figure, under a heading that says scalar.
-#
-# So: scalar_* falls back to the scalar model's own file, points_* to the
-# points model's own file, and analog_*/blend_* to the scalar file too, because
-# that is exactly what the matrix itself does for a player with no cohort.
-SCALAR_FILE = "projections_scalar.json"
-POINTS_FILE = "projections.json"
-# what to read when SCALAR_FILE is absent (a data dir the points model has never
-# written, or one that predates the split): projections.json is the scalar model
-# there, which is the old behaviour and still correct for such a tree.
-FALLBACK_FILE = POINTS_FILE
-
-
-def _fallback_file(curve):
-    return POINTS_FILE if curve.startswith("points_") else SCALAR_FILE
+# THE FALLBACK FILE. projections.json is project_war.py's scalar model, and
+# every curve falls back to it for a player the matrix does not carry — exactly
+# what the matrix itself does for a player with no analog cohort. (From
+# 2026-09-11 to 2026-10-07 the points-first model rewrote projections.json and
+# the scalar lived at projections_scalar.json; that file is a stale relic now
+# and is never read.)
+SCALAR_FILE = "projections.json"
 
 
 def war_reader(data_dir, curve=DEFAULT_CURVE):
     """pid -> year-1 WAR under `curve`, as a plain dict.
 
     Falls back to the curve's OWN model file for any player the matrix does not
-    carry — projections_scalar.json for the scalar, analog and blend curves,
-    projections.json for the points-first pair (see the note above). Today that
+    carry — projections.json, the scalar model (see the note above). Today that
     set is empty — the matrix is built from the same players — but the fallback
     is what keeps a curve switch from silently zeroing someone if the two files
     ever diverge, and zero is a meaningful WAR rather than an obviously missing
@@ -99,9 +78,7 @@ def war_reader(data_dir, curve=DEFAULT_CURVE):
     if curve not in CURVES:
         raise ValueError(f"unknown curve {curve!r}; expected one of {', '.join(CURVES)}")
 
-    src = _fallback_file(curve)
-    if not (data_dir / src).exists():
-        src = FALLBACK_FILE
+    src = SCALAR_FILE
     stream = "composite" if curve.endswith("_composite") else "proj"
     base = {}
     with open(data_dir / src, encoding="utf-8") as fh:
@@ -123,6 +100,39 @@ def war_reader(data_dir, curve=DEFAULT_CURVE):
             if row:
                 base[r["pid"]] = row[0]
     return base
+
+
+def curve_paths(data_dir, curve=DEFAULT_CURVE):
+    """pid -> {pos, path, total} under `curve`: the full horizon, not just year 1.
+
+    For the pipeline's OTHER consumers of projected WAR (value_bridge.py,
+    trade_analysis.py), which read projections.json `composite` / `total_comp`
+    directly and so priced on whatever model wrote that file — the points-first
+    model from 2026-09-11 to 2026-10-07 while DVI, CVI and the site sat on
+    blend_composite. Same fallback rule as war_reader: the matrix row when there
+    is one, projections.json (the scalar model) otherwise.
+    """
+    if curve not in CURVES:
+        raise ValueError(f"unknown curve {curve!r}; expected one of {', '.join(CURVES)}")
+    stream = "composite" if curve.endswith("_composite") else "proj"
+    out = {}
+    with open(data_dir / SCALAR_FILE, encoding="utf-8") as fh:
+        for p in json.load(fh)["players"]:
+            path = list(p.get(stream) or p.get("composite") or [])
+            out[p["pid"]] = {"pos": p.get("pos"), "path": path,
+                             "total": round(sum(v for v in path if v is not None), 3)}
+    mxf = data_dir / MATRIX_FILE
+    if mxf.exists():
+        with open(mxf, encoding="utf-8") as fh:
+            for r in json.load(fh)["players"]:
+                path = r.get(curve)
+                if not path:
+                    continue
+                tot = (r.get("totals") or {}).get(curve)
+                out[r["pid"]] = {"pos": r.get("pos") or out.get(r["pid"], {}).get("pos"),
+                                 "path": list(path),
+                                 "total": tot if tot is not None else round(sum(path), 3)}
+    return out
 
 
 def fallback_flags(data_dir):

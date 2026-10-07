@@ -20,8 +20,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from curves import (CURVES, DEFAULT_CURVE, POINTS_FILE,          # noqa: E402
-                    SCALAR_FILE, fallback_flags, war_reader)
+from curves import (CURVES, DEFAULT_CURVE, SCALAR_FILE,          # noqa: E402
+                    fallback_flags, war_reader)
 
 
 def _write(d, name, obj):
@@ -56,18 +56,18 @@ class CurveVocabulary(unittest.TestCase):
 class CurveReader(unittest.TestCase):
     """A minimal league dir: three players, one of them absent from the matrix.
 
-    TWO model files, because since 2026-09-11 there are two. projections.json
-    is the POINTS-FIRST model's (project_points.py --site rewrites it) and
-    projections_scalar.json is where the per-13 rate model's output was parked.
-    They carry different numbers for the same player on purpose, so a fallback
-    reading the wrong one is visible here rather than only in production.
+    projections.json is the scalar model (project_war.py). A stale
+    projections_scalar.json relic from the points-first era (2026-09-11 to
+    2026-10-07) is written beside it with different numbers on purpose, so a
+    fallback that reads the relic is visible here rather than only in
+    production.
     """
 
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.d = Path(self._tmp.name)
         self.addCleanup(self._tmp.cleanup)
-        _write(self.d, POINTS_FILE, {"players": [
+        _write(self.d, "projections_scalar.json", {"players": [
             {"pid": "1", "name": "A", "proj": [1.6, 1.5, 1.4],
              "composite": [1.5, 1.4, 1.3]},
             {"pid": "2", "name": "B", "proj": [0.9, 0.8, 0.7],
@@ -104,9 +104,7 @@ class CurveReader(unittest.TestCase):
         """THE equivalence lock. Every player's scalar_composite year-1 value
         must equal the SCALAR MODEL's own composite[0] — the expression both
         indices carried before this layer existed. That expression used to name
-        projections.json because projections.json was the scalar model; it now
-        names projections_scalar.json, which is the same number, not a new
-        one."""
+        projections.json, which is the scalar model again."""
         scalar = war_reader(self.d, "scalar_composite")
         for p in json.loads((self.d / SCALAR_FILE).read_text())["players"]:
             self.assertEqual(scalar[p["pid"]], p["composite"][0], p["pid"])
@@ -114,15 +112,10 @@ class CurveReader(unittest.TestCase):
     def test_player_missing_from_the_matrix_falls_back_to_his_own_model(self):
         """pid 3 is in neither matrix row. He must read as the CURVE'S OWN
         model file rather than vanishing, reading zero (a real WAR, which would
-        price him as replacement level), or — the bug this replaced — reading
-        the points model's number under a scalar heading."""
+        price him as replacement level), or reading the stale relic."""
         for curve in CURVES:
             got = war_reader(self.d, curve)["3"]
-            if curve == "points_natural":
-                self.assertEqual(got, 0.7, curve)
-            elif curve == "points_composite":
-                self.assertEqual(got, 0.6, curve)
-            elif curve.endswith("_natural"):
+            if curve.endswith("_natural"):
                 self.assertEqual(got, 0.3, curve)
             else:
                 self.assertEqual(got, 0.2, curve)
@@ -163,24 +156,22 @@ class MissingMatrix(unittest.TestCase):
         projections.json IS the scalar model, so every curve reads it."""
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
-            _write(d, POINTS_FILE, {"players": [
+            _write(d, SCALAR_FILE, {"players": [
                 {"pid": "1", "composite": [0.7, 0.6, 0.5]}]})
             for curve in CURVES:
                 self.assertEqual(war_reader(d, curve), {"1": 0.7}, curve)
 
-    def test_the_scalar_curves_prefer_the_scalar_file_when_it_exists(self):
-        """And once the split exists, a scalar curve must stop reading the
-        points model's file even with no matrix to correct it."""
+    def test_the_points_era_relic_is_never_read(self):
+        """projections_scalar.json is left over from 2026-09-11..2026-10-07.
+        With no matrix, every curve reads projections.json, never the relic."""
         with tempfile.TemporaryDirectory() as tmp:
             d = Path(tmp)
-            _write(d, POINTS_FILE, {"players": [
-                {"pid": "1", "proj": [0.9, 0.8, 0.7], "composite": [0.7, 0.6, 0.5]}]})
             _write(d, SCALAR_FILE, {"players": [
+                {"pid": "1", "proj": [0.9, 0.8, 0.7], "composite": [0.7, 0.6, 0.5]}]})
+            _write(d, "projections_scalar.json", {"players": [
                 {"pid": "1", "proj": [0.4, 0.3, 0.2], "composite": [0.3, 0.2, 0.1]}]})
-            self.assertEqual(war_reader(d, "scalar_composite"), {"1": 0.3})
-            self.assertEqual(war_reader(d, "blend_composite"), {"1": 0.3})
-            self.assertEqual(war_reader(d, "points_composite"), {"1": 0.7})
-            self.assertEqual(war_reader(d, "points_natural"), {"1": 0.9})
+            self.assertEqual(war_reader(d, "scalar_composite"), {"1": 0.7})
+            self.assertEqual(war_reader(d, "blend_natural"), {"1": 0.9})
 
 
 if __name__ == "__main__":
