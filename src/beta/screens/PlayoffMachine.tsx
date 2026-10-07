@@ -71,6 +71,17 @@ export default function PlayoffMachine() {
 
   const name = (rid: number) => teams?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
   const mgr = (rid: number) => teams?.find(t => t.roster_id === rid)?.manager;
+  /* PROJECTED W-L (Max, 2026-10-07): the average final win total, rounded,
+     against the games the team will have played by week 14. A season with a
+     game still to come has no fractional record, so the column says what a
+     standings page would. */
+  const projRec = (rid: number, wins: number) => {
+    if (!st) return "";
+    const left = st.games.filter(g => g.a === rid || g.b === rid).length;
+    const total = st.wins[rid] + st.losses[rid] + st.ties[rid] + left;
+    const w = Math.min(total, Math.max(0, Math.round(wins)));
+    return `${w}-${total - w}`;
+  };
   const rec = (rid: number) => {
     if (!st) return "";
     const t = st.ties[rid];
@@ -161,7 +172,7 @@ export default function PlayoffMachine() {
             <tr>
               <th className="c sp">Seed</th>
               <th className="t">Franchise</th>
-              <th className="n" style={{ width: "17%" }}>Wins</th>
+              <th className="n" style={{ width: "17%" }}>Proj W-L</th>
               <th className="n" style={{ width: "20%" }}>Playoff</th>
               <th className="n" style={{ width: "17%" }}>Bye</th>
             </tr>
@@ -174,7 +185,7 @@ export default function PlayoffMachine() {
                   className={`${i % 2 ? "zebra" : ""}${i === PLAYOFF_TEAMS - 1 ? " pm-cut" : ""}`}>
                   <Spine rank={i + 1} top={i === 0} />
                   <IdCell name={name(rid)} sub={`${rec(rid)}${mgr(rid) ? ` · ${mgr(rid)}` : ""}`} to={betaPath(`/team/${rid}`)} />
-                  <td className="n"><span className="f">{r.wins.toFixed(1)}</span></td>
+                  <td className="n"><span className="f">{projRec(rid, r.wins)}</span></td>
                   <td className="n">
                     <span className="f">{pct(r.playoff)}</span>
                     <div className="idc-s r">{nPicked ? <Delta now={r.playoff} was={b.playoff} /> : NUL}</div>
@@ -190,7 +201,7 @@ export default function PlayoffMachine() {
         </table>
       )}
       <div className="tnote screen pm-note">
-        Seed is the order of average finish. Wins are the average final total. The line under each
+        Seed is the order of average finish. Proj W-L is the average final win total, rounded. The line under each
         figure is the change from the model with nothing locked. A locked game still draws its
         scores, so points for, the tiebreak, moves the way it would.
       </div>

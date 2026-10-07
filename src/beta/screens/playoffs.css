@@ -36,12 +36,22 @@
 .pm-clr:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
 /* ---- the games ----------------------------------------------------------
-   Two columns of cards on a desktop, one on a phone. */
+   Two columns of cards on a desktop, one on a phone. THE GUTTER (Max,
+   2026-10-07): the two columns are split by an 18px --deep channel with a
+   rule on each edge, so the left three games and the right three read as two
+   stacks rather than one row of six sides. Rows inside a column keep the
+   1px rule. */
 .pm-games {
-  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
-  background: var(--rule); border-bottom: 1px solid var(--rule);
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; row-gap: 0;
+  background: var(--deep); border-bottom: 1px solid var(--rule);
 }
-.pm-game { display: flex; align-items: stretch; background: var(--bg); min-height: 52px; }
+.pm-game {
+  display: flex; align-items: stretch; background: var(--bg); min-height: 52px;
+  border-top: 1px solid var(--rule);
+}
+.pm-game:nth-child(-n+2) { border-top: 0; }
+.pm-game:nth-child(odd) { border-right: 1px solid var(--rule); }
+.pm-game:nth-child(even) { border-left: 1px solid var(--rule); }
 .pm-side {
   flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 9px 12px 9px var(--v3pad);
@@ -74,7 +84,9 @@
 }
 
 @media (max-width: 760px) {
-  .pm-games { grid-template-columns: minmax(0, 1fr); }
+  .pm-games { grid-template-columns: minmax(0, 1fr); column-gap: 0; }
+  .pm-game, .pm-game:nth-child(odd), .pm-game:nth-child(even) { border-left: 0; border-right: 0; }
+  .pm-game:nth-child(2) { border-top: 1px solid var(--rule); }
   .pm-side { padding: 9px 10px 9px 16px; }
   .pm-side.r { padding: 9px 16px 9px 10px; }
   .pm-side .nm { font-size: 13px; }
