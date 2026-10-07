@@ -39,6 +39,7 @@ const Player = lazy(() => import("../views/Player"));
 const Draft = lazy(() => import("../views/Draft"));
 const DraftDetail = lazy(() => import("../views/DraftDetail"));
 const Seasons = lazy(() => import("./screens/Seasons"));
+const PlayoffMachine = lazy(() => import("./screens/PlayoffMachine"));
 /* the lineup builder's defense grid (Max, 2026-09-30); lazy like Seasons, so
    its stylesheet and heat math ride their own chunk */
 const Defenses = lazy(() => import("./screens/Defenses"));
@@ -68,6 +69,7 @@ const TABS = [
 const HUB_OF: Record<string, string> = {
   player: "players", claim: "team", drafts: "more", seasons: "more",
   history: "more", insights: "more", teams: "more", defenses: "more",
+  playoffs: "league", recaps: "league",
 };
 
 /**
@@ -319,6 +321,8 @@ function BetaBoard() {
                 <Route path="records" element={<RecordBook />} />
                 {/* the weekly recap archive; /recaps/<id> opens that one */}
                 <Route path="recaps" element={<Recaps />} />
+                {/* lock any remaining game, watch the odds and seeding move */}
+                <Route path="playoffs" element={<PlayoffMachine />} />
                 <Route path="recaps/:id" element={<Recaps />} />
                 <Route path="insights" element={<Insights />} />
                 {/* THE CLASSIC BOARD'S OLD BARE ADDRESSES. Every link anyone

@@ -248,6 +248,11 @@ export default function More() {
         {/* THE LINEUP BUILDER'S GRID (Max, 2026-09-30): every defense against
             QB, RB, WR and TE, rebuilt weekly (Wednesdays) once the NFL week is
             played — defenses only change once a week (Max, 2026-10-06). */}
+        {/* THE PLAYOFF MACHINE (Max, 2026-10-07): lock any remaining game and
+            the season simulation re-runs on the spot. */}
+        <Row to={betaPath("/playoffs")} name="Playoff machine"
+          sub="Pick the winners of the games left and see the new playoff odds and seeding"
+          state={caps.odds ? "live" : "Not published"} />
         <Row to={betaPath("/defenses")} name="Defense vs position"
           sub="Points each defense gives up to QBs, RBs, WRs and TEs over what they normally score"
           state={caps.dvp ? "rebuilt weekly" : "Not published"} />

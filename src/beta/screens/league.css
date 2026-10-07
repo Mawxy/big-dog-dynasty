@@ -337,6 +337,8 @@
 }
 .lgx-all:hover { color: var(--txt); }
 .lgx-all:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+/* two ways out of one band, side by side */
+.lgx-alls { display: inline-flex; gap: 14px; flex-wrap: wrap; justify-content: flex-end; }
 
 /* Whose move it was, on the third line of a roster-move row. `.idc-s` already
    owns the type; this only lifts it off the add/drop line above it, which was
