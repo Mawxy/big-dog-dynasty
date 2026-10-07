@@ -322,6 +322,12 @@ const spread = (mine: number, theirs: number): string => {
   return d === 0 ? "PK" : d > 0 ? `+${d}` : String(d);
 };
 
+/** Tuesday or Wednesday in the league's time zone: the finished week leads */
+function resultsWeekdays(now = new Date()) {
+  const d = new Intl.DateTimeFormat("en-US", { weekday: "short", timeZone: "America/New_York" }).format(now);
+  return d === "Tue" || d === "Wed";
+}
+
 function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const { players, meta, league } = useLeague();
   const betaPath = useBetaPath();
@@ -593,7 +599,10 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const twSeason = rosterSeason;
   const lwSeason = resultSeason;
 
-  return (
+  // only when there is a finished week to lead with
+  const lastWeekFirst = !!lastWeek && resultsWeekdays();
+
+  const thisWeekBlock = (
     <>
       <Band label={!thisWeek ? "This week" : (
           <>
@@ -762,7 +771,10 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
           })}
         </div>
       )}
-
+    </>
+  );
+  const lastWeekBlock = (
+    <>
       {/* THE WEEKLY RECAP (Max, 2026-10-07): the newest article, directly
           above the figures it is about. Draws nothing when none is published. */}
       <RecapBand />
@@ -816,6 +828,15 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       )}
     </>
   );
+
+  /* RESULTS FIRST EARLY IN THE WEEK (Max, 2026-10-07). Tuesday and Wednesday,
+     Eastern, the finished week is the news: the recap and the Last week
+     figures lead the screen, above This week. From Thursday, when the next
+     week kicks off, they drop back under it. Read off the reader's clock in
+     the league's time zone, so the switch lands at midnight ET everywhere. */
+  return lastWeekFirst
+    ? <>{lastWeekBlock}{thisWeekBlock}</>
+    : <>{thisWeekBlock}{lastWeekBlock}</>;
 }
 
 /* ---- the matchup drawer ------------------------------------------------- */
@@ -1141,7 +1162,8 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
     <>
       <Band label={`Standings · ${rosterSeason}`}
         note={preseason && sim ? "Nothing played yet · in projected-finish order"
-          : "Wins, then points · Max PF is the best lineup every week"} />
+          : "Wins, then points · Max PF is the best lineup every week"}
+        right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
       {!ordered ? <div className="empty">Loading…</div> : (
         <table className="v3tbl lgx-grid lgx-wrap">
           <thead>
@@ -1431,11 +1453,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {/* ---- 2. playoff race --------------------------------------------- */}
       <Band label={`Playoff race · ${rosterSeason}`}
         note="Ordered by projected record · record and odds from the season simulation"
-        right={<span className="lgx-alls">
-          {/* the race, with every remaining game lockable (Max, 2026-10-07) */}
-          {caps.odds && <ViewAll to={betaPath("/playoffs")} label="Playoff machine →" />}
-          <ViewAll to={betaPath("/teams")} label="Teams →" />
-        </span>} />
+        right={caps.odds
+          /* the race, with every remaining game lockable (Max, 2026-10-07).
+             Teams lives on Standings now, the table it is the full version of. */
+          ? <ViewAll to={betaPath("/playoffs")} label="Playoff machine →" />
+          : undefined} />
       {/* A FILE THAT DOES NOT EXIST IS NOT A SLOW ONE EITHER. The capability
           arm comes FIRST: in a league with no projections the fetch can only
           404, so "Loading projections…" would be permanent and a `DataError`
