@@ -50,8 +50,10 @@ function RecapItem({ r, open, onToggle, kicker }: {
       </button>
       {open && (
         <article className="rcp-body">
-          <RecapBody md={r.body} />
-          <div className="rcp-foot">Published {r.published} · written from the board's own data</div>
+          <div className="rcp-col">
+            <RecapBody md={r.body} />
+            <div className="rcp-foot">Published {r.published} · written from the board's own data</div>
+          </div>
         </article>
       )}
     </div>

@@ -1431,7 +1431,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
       {/* ---- 2. playoff race --------------------------------------------- */}
       <Band label={`Playoff race · ${rosterSeason}`}
         note="Ordered by projected record · record and odds from the season simulation"
-        right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
+        right={<span className="lgx-alls">
+          {/* the race, with every remaining game lockable (Max, 2026-10-07) */}
+          {caps.odds && <ViewAll to={betaPath("/playoffs")} label="Playoff machine →" />}
+          <ViewAll to={betaPath("/teams")} label="Teams →" />
+        </span>} />
       {/* A FILE THAT DOES NOT EXIST IS NOT A SLOW ONE EITHER. The capability
           arm comes FIRST: in a league with no projections the fetch can only
           404, so "Loading projections…" would be permanent and a `DataError`
