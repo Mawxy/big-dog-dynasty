@@ -22,7 +22,7 @@
   font: 700 22px/1.15 var(--cond); letter-spacing: .02em; text-transform: uppercase; color: var(--txt);
   text-wrap: balance;
 }
-.rcp-dek { font: 400 13.5px/1.55 var(--sans); color: var(--txt2); text-wrap: pretty; max-width: 72ch; }
+.rcp-dek { font: 400 13.5px/1.55 var(--sans); color: var(--txt2); text-wrap: pretty; }
 .rcp-dek strong, .rcp-body strong { color: var(--txt); font-weight: 600; }
 .rcp-more {
   font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--acc);
@@ -36,7 +36,11 @@
   padding: 4px var(--v3pad, 22px) 18px;
   font: 400 13.5px/1.6 var(--sans); color: var(--txt2);
 }
-.rcp-body > p, .rcp-body > ul { max-width: 72ch; text-wrap: pretty; }
+/* FULL WIDTH, TEXT AND TABLES ALIKE (Max, 2026-10-07): the article runs the
+   width of the board on every screen, so a table and the prose around it
+   share both edges. No reading measure: a narrow text column beside a wide
+   table was the awkward part. */
+.rcp-col > p, .rcp-col > ul { text-wrap: pretty; }
 .rcp-body p { margin: 10px 0 0; }
 .rcp-body h3 {
   margin: 20px 0 0; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
@@ -60,10 +64,28 @@
 }
 .rcp-tbl td { padding: 7px 10px; border-top: 1px solid var(--hair); font: 400 13.5px/1.35 var(--sans); color: var(--txt2); }
 .rcp-tbl tbody tr:nth-child(odd) td { background: var(--zebra); }
-.rcp-tbl .t { text-align: left; white-space: nowrap; }
-/* names stay on one line and the wrap scrolls: a three-line team name in a
-   six-row table reads as eighteen rows */
-.rcp-tbl .r { text-align: right; white-space: nowrap; }
+.rcp-tbl .t { text-align: left; }
+/* the site-wide `tbody td` is nowrap; an article table has to opt back out */
+.rcp-tbl td.t { white-space: normal; }
+.rcp-tbl .r { text-align: right; }
+.rcp-tbl td.r { white-space: nowrap; }
 .rcp-tbl td.r { font: 600 15px/1.2 var(--cond); color: var(--txt); }
 
 .rcp-foot { margin-top: 16px; font: 400 11.5px/1.4 var(--sans); color: var(--dim3); }
+
+/* ---- on a phone -----------------------------------------------------------
+   Every table fits the screen with no sideways scroll: tighter cells, a step
+   down in type, and headers and names allowed to wrap onto a second line.
+   A two-line "Odds if win" header costs less than a column hidden off the
+   right edge. The open article's side padding drops to the 16px gutter. */
+@media (max-width: 640px) {
+  .rcp-head { padding: 12px 16px 13px; }
+  .rcp-title { font-size: 20px; }
+  .rcp-body { padding: 2px 16px 16px; }
+  .rcp-tblwrap { margin-left: -6px; margin-right: -6px; overflow-x: visible; border-left: 0; border-right: 0; }
+  .rcp-tbl th { white-space: normal; padding: 6px 6px; font-size: 10px; letter-spacing: .1em; line-height: 1.15; vertical-align: bottom; }
+  .rcp-tbl td { padding: 6px 6px; font-size: 12.5px; line-height: 1.3; }
+  .rcp-tbl td.r { font-size: 14px; }
+  .rcp-tbl th:first-child, .rcp-tbl td:first-child { padding-left: 8px; }
+  .rcp-tbl th:last-child, .rcp-tbl td:last-child { padding-right: 8px; }
+}
