@@ -17,6 +17,7 @@ import { useSeasonPhase } from "../model";
 import { LiveMatchup, LiveWeek } from "./SeasonsLive";
 import { FutureMatchup, FutureWeek } from "./SeasonsFuture";
 import "./league.css";
+import { RecapForWeek } from "./Recaps";
 import "./seasons.css";
 
 /**
@@ -277,6 +278,10 @@ function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf, nfl }: 
         </div>
       )}
       <Games season={season} wk={wk} games={games} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf} nfl={nfl} />
+
+      {/* THE WEEK'S RECAP (Max, 2026-10-07), above the figures it is about,
+          the same place League puts it. Nothing draws for a week without one. */}
+      <RecapForWeek season={season} week={wk} />
 
       {!isPlayoff && figs && (
         <>

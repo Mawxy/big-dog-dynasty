@@ -76,6 +76,23 @@ export function RecapBand() {
   );
 }
 
+/** Seasons' week board: that week's recap, if one was written, collapsed
+ *  until tapped. Draws nothing for a week with no recap. */
+export function RecapForWeek({ season, week }: { season: string | number; week: number }) {
+  const betaPath = useBetaPath();
+  const q = useJson<RecapFile>("recaps.json");
+  const [open, setOpen] = useState(false);
+  const r = q.data?.recaps?.find(x => x.season === Number(season) && x.week === week);
+  if (!r) return null;
+  return (
+    <>
+      <Band label={`Weekly recap · ${r.season} wk ${r.week}`}
+        right={<RouteLink to={betaPath("/recaps")} className="lgx-all">All recaps →</RouteLink>} />
+      <RecapItem r={r} open={open} onToggle={() => setOpen(o => !o)} kicker={`Week ${r.week} recap`} />
+    </>
+  );
+}
+
 /** the archive: every recap, newest first */
 export default function Recaps() {
   const { id } = useParams();
