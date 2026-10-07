@@ -1,0 +1,81 @@
+/* ==========================================================================
+   PLAYOFF MACHINE (screens/PlayoffMachine.tsx).
+
+   The seeding table is the board's ordinary .v3tbl; this file adds the cutline,
+   the change line under each figure, and the lockable game cards. A game is
+   the head-to-head pattern at row scale: two sides in one unit, divided by a
+   narrow --deep spine holding "vs". A locked winner takes the accent top rule
+   and the accent name; the loser steps back to --dim. Prefixed `pm-`, defines
+   NO tokens.
+   ========================================================================== */
+
+.pm-fills { flex-wrap: wrap; }
+.pm-fills .pm-k {
+  font: 600 11px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase; color: var(--dim);
+  margin-right: 4px;
+}
+.pm-fills .chip:disabled { opacity: .4; cursor: default; }
+
+/* the cutline under the last playoff seed */
+.pm-tbl tbody tr.pm-cut td { border-bottom: 2px solid var(--rule-2); }
+/* a run still landing: the old figures stay up, quieter, rather than blanking */
+.pm-tbl.pm-stale tbody { opacity: .55; transition: opacity .12s; }
+
+/* the change from the nothing-locked model, signed */
+.pm-d { font: 600 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim); }
+.pm-d.up { color: var(--good); }
+.pm-d.dn { color: var(--bad); }
+
+.pm-note { padding-top: 8px; }
+
+.pm-clr {
+  background: transparent; border: 0; padding: 0; cursor: pointer; white-space: nowrap;
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--acc);
+}
+.pm-clr:hover { color: var(--txt); }
+.pm-clr:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+
+/* ---- the games ----------------------------------------------------------
+   Two columns of cards on a desktop, one on a phone. */
+.pm-games {
+  display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1px;
+  background: var(--rule); border-bottom: 1px solid var(--rule);
+}
+.pm-game { display: flex; align-items: stretch; background: var(--bg); min-height: 52px; }
+.pm-side {
+  flex: 1 1 0; min-width: 0; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 9px 12px 9px var(--v3pad);
+  background: transparent; color: inherit; border: 0; border-top: 3px solid transparent;
+  font: inherit; text-align: left; cursor: pointer;
+}
+.pm-side.r { flex-direction: row-reverse; text-align: right; padding: 9px var(--v3pad) 9px 12px; }
+.pm-side:hover { background: var(--sel); }
+.pm-side:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.pm-side .nm {
+  font: 600 13.5px/1.25 var(--sans); color: var(--txt);
+  overflow-wrap: anywhere; text-wrap: balance;
+}
+.pm-side .wp {
+  flex: 0 0 auto; font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim);
+}
+.pm-side.won { border-top-color: var(--acc); background: var(--band); }
+.pm-side.won .nm, .pm-side.won .wp {
+  color: var(--acc);
+}
+.pm-side.won .wp, .pm-side.lost .wp {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+}
+.pm-side.lost .nm { color: var(--dim); }
+.pm-side.lost .wp { color: var(--dim3); }
+.pm-vs {
+  flex: 0 0 34px; display: flex; align-items: center; justify-content: center;
+  background: var(--deep); color: var(--dim2);
+  font: 600 10px/1 var(--cond); letter-spacing: .16em; text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .pm-games { grid-template-columns: minmax(0, 1fr); }
+  .pm-side { padding: 9px 10px 9px 16px; }
+  .pm-side.r { padding: 9px 16px 9px 10px; }
+  .pm-side .nm { font-size: 13px; }
+}
