@@ -179,6 +179,15 @@ jobs:
       # current season's winshare.json only moved when Max ran it by hand.
       - name: Regular-season win share (season_wpa)
         run: python scripts/season_wpa.py
+      # ALL-PLAY TEAM ELO (Max, 2026-10-12): every franchise rated from 1500 in
+      # the league's first season, carried across seasons, K = 1.5 x (40 + 40 /
+      # week) resetting each season, playoff weeks ignored. Reads only
+      # matchups.json + teams.json. Pizza is fail-soft, same as its build.
+      - name: Team Elo (all-play)
+        run: |
+          python scripts/team_elo.py
+          python scripts/team_elo.py --league 1001613650664165376 || \
+            echo "::warning title=Pineapple Pizza Elo failed::its elo.json is a day stale"
       # THE NFL'S OWN RESULTS (Max, 2026-09-28): each club's opponent and final
       # score per week, so a finished fantasy matchup can print "vs TB · W 24-17"
       # under every player the way the live card does. A season already complete

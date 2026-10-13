@@ -1,10 +1,10 @@
 import { Fragment, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
-import type { BracketFile, Franchises, Matchups, Team, Weekly } from "../../lib/types";
+import type { BracketFile, EloFile, Franchises, Matchups, Team, Weekly } from "../../lib/types";
 import { indexKey, jl } from "../../lib/data";
 import { useJson } from "../../lib/useJson";
 import { useSettledSeasons } from "../../lib/caps";
-import { fmt, ord, sd } from "../../lib/stats";
+import { fmt, ord, sd, sgn } from "../../lib/stats";
 import { useMobile } from "../../lib/useWidth";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, sgnWar, Spine, sortBy, TapRow, Th,
@@ -203,13 +203,13 @@ function loadSeason(season: string): Promise<TeamSeason[]> {
 
 /* ---- the board's row --------------------------------------------------- */
 
-type Key = "rec" | "fin" | "pct" | "titles" | "med" | "luck" | "pf" | "pa" | "ppg" | "sdv" | "war" | "maxw";
+type Key = "rec" | "fin" | "pct" | "titles" | "med" | "luck" | "pf" | "pa" | "ppg" | "sdv" | "war" | "maxw" | "elo";
 
 interface Col {
   id: Key; label: string; short?: string; width: string;
   /** smallest first on the first press (a finish) */
   asc?: boolean;
-  grp: "res" | "score" | "war";
+  grp: "res" | "score" | "war" | "elo";
 }
 
 const C: Record<Key, Col> = {
@@ -217,14 +217,18 @@ const C: Record<Key, Col> = {
   fin: { id: "fin", label: "Finish", short: "Fin", width: "7%", asc: true, grp: "res" },
   pct: { id: "pct", label: "Win %", width: "6%", grp: "res" },
   titles: { id: "titles", label: "Titles", width: "5%", grp: "res" },
-  med: { id: "med", label: "Vs median", short: "Vs med", width: "9%", grp: "res" },
+  med: { id: "med", label: "Vs median", short: "Vs med", width: "8%", grp: "res" },
   luck: { id: "luck", label: "Luck", width: "6%", grp: "res" },
   pf: { id: "pf", label: "PF", width: "8%", grp: "score" },
   pa: { id: "pa", label: "PA", width: "8%", grp: "score" },
   ppg: { id: "ppg", label: "PPG", width: "7%", grp: "score" },
   sdv: { id: "sdv", label: "σ", width: "6%", grp: "score" },
-  war: { id: "war", label: "Accrued WAR", short: "WAR", width: "10%", grp: "war" },
+  war: { id: "war", label: "Accrued WAR", short: "WAR", width: "9%", grp: "war" },
   maxw: { id: "maxw", label: "Max WAR", short: "Max", width: "8%", grp: "war" },
+  /* THE ALL-PLAY ELO (Max, 2026-10-12): the rating at the end of the season's
+     regular season — today's, while it is on, and all-time. A regular-season
+     construct like the median, so it leaves the other two phases. */
+  elo: { id: "elo", label: "Elo", width: "7%", grp: "elo" },
 };
 
 /** the columns for a scope and a phase — median and luck are the regular
@@ -236,9 +240,10 @@ function colsFor(allTime: boolean, phase: Phase): Col[] {
       ...(phase !== "post" ? ["maxw" as Key] : [])]
     : ["rec", "fin", ...(reg ? ["med", "luck"] as Key[] : []), "pf", "pa", "ppg", "sdv", "war",
       ...(phase !== "post" ? ["maxw" as Key] : [])];
+  if (reg) ids.push("elo");
   return ids.map(k => (k === "fin" && allTime ? { ...C.fin, label: "Best" } : C[k]));
 }
-const GRP_LABEL = { res: "Results", score: "Scoring", war: "WAR" } as const;
+const GRP_LABEL = { res: "Results", score: "Scoring", war: "WAR", elo: "Rating" } as const;
 
 /** A LABEL THAT KEEPS ITS CASE (Max, 2026-09-29). The header, the sort strip
  *  and the key all set their labels uppercase in CSS, which turns σ into Σ —
@@ -262,6 +267,7 @@ const DEF: Record<Key, string> = {
   ppg: "Points per game played — a bye is not a game.",
   sdv: "Game-to-game standard deviation of the team's score. Lower is steadier.",
   maxw: "The WAR perfect start/sit would have banked: every regular-season week's best legal lineup out of that week's own roster, starters and bench, on the same weekly WAR. Accrued WAR over it is how much of the roster's value the lineups used. Regular season only.",
+  elo: "All-play Elo. Every franchise started at 1500 in the league's first season and the rating carries from year to year. Each regular-season week the score is set against every other team's, and the rating moves by K × (all-play win share − what the ratings expected), K = 1.5 × (40 + 40 / week), resetting each season. A season's figure is where it stood after the last regular-season week; all-time is today's. Playoffs are ignored.",
   war: "The WAR the lineups actually fielded banked, summed game by game — each starter's points against his position's replacement level, turned into wins. A running total while the season is on. Playoff WAR is the bracket's, elimination games only.",
 };
 
@@ -279,6 +285,8 @@ interface Row {
   war: number | null; bench: number | null; maxw: number | null;
   /** games actually played in the phase */
   games: number;
+  /** the Elo the season moved it by — all-time, since 1500 */
+  eloChg?: number | null;
 }
 
 const wlStr = (w: number, l: number, t: number) => `${w}-${l}${t ? `-${t}` : ""}`;
@@ -355,6 +363,7 @@ const FMT: Record<Key, (v: number, r: Row) => ReactNode> = {
   sdv: v => fmt(v, 1),
   war: v => fmtWar(v),
   maxw: v => fmtWar(v),
+  elo: v => String(Math.round(v)),
 };
 const cellOf = (k: Key, r: Row): ReactNode => {
   const v = r.f[k];
@@ -380,6 +389,7 @@ export default function TeamsStats({ season, played, phase }: {
   const seasons = useMemo(() => (allTime ? played : [season]), [allTime, played, season]);
   const settled = useSettledSeasons();
   const fr = useJson<Franchises>("franchises.json").data;
+  const elo = useJson<EloFile>("elo.json").data;
 
   const [data, setData] = useState<TeamSeason[][] | null>(null);
   const [err, setErr] = useState(false);
@@ -410,14 +420,25 @@ export default function TeamsStats({ season, played, phase }: {
     }
     return [...by.values()]
       .map(parts => rowOf(parts.sort((a, b) => a.season.localeCompare(b.season)), finOf, allTime, phase))
-      .filter((r): r is Row => r != null);
-  }, [data, finOf, allTime, phase]);
+      .filter((r): r is Row => r != null)
+      .map(r => {
+        /* ELO: the season's last regular-season week, or today's all-time.
+           The change is that season's own (all-time: since the 1500 start). */
+        const t = elo?.teams[r.fkey];
+        if (!t || phase !== "reg") return r;
+        if (allTime) return { ...r, f: { ...r.f, elo: t.elo }, eloChg: t.elo - (elo!.meta.start ?? 1500) };
+        const wks = t.seasons[season] ?? [];
+        if (!wks.length) return r;
+        const last = wks[wks.length - 1], first = wks[0];
+        return { ...r, f: { ...r.f, elo: last[1] }, eloChg: last[1] - (first[1] - first[2]) };
+      });
+  }, [data, finOf, allTime, phase, elo, season]);
 
   /** season|rid -> the franchise's name that season, for the drawer's opponents */
   const names = useMemo(() => new Map(
     (data ?? []).flat().map(t => [`${t.season}|${t.rid}`, t.team] as const)), [data]);
   const cols = useMemo(() => colsFor(allTime, phase), [allTime, phase]);
-  const groups = (["res", "score", "war"] as const)
+  const groups = (["res", "score", "war", "elo"] as const)
     .map(g => ({ id: g, label: GRP_LABEL[g], span: cols.filter(c => c.grp === g).length }));
   const s = useSort<Key>("rec", -1, "tmx:sort.stats");
   useEffect(() => {
@@ -443,6 +464,7 @@ export default function TeamsStats({ season, played, phase }: {
     if (k === "rec" && r.text.med) return { k: "Vs med", v: r.text.med };
     if (k === "pf") return { k: "PA", v: fmt(r.pa, 1) };
     if (k === "ppg") return { k: "PA/g", v: fmt(r.pa / r.games, 1) };
+    if (k === "elo" && r.eloChg != null) return { k: allTime ? "Since start" : "Season", v: sgn(r.eloChg, 0) };
     return null;
   };
   const span = mobile ? 3 : 2 + cols.length;
@@ -563,7 +585,7 @@ export default function TeamsStats({ season, played, phase }: {
           : "Regular season and the winners bracket's elimination games, added; a bye counts as a win in the record. "}
         Accrued WAR sums, game by game, the WAR of the players each franchise actually started — the lineup as
         set, not the best one it could have fielded — so it rewards the roster and the manager's calls together.
-        {phase === "reg" ? " The drawer carries the WAR left on the bench beside it. Vs median is the record against each week's league median, and luck is the gap between that and the real one." : ""}
+        {phase === "reg" ? " The drawer carries the WAR left on the bench beside it. Vs median is the record against each week's league median, and luck is the gap between that and the real one. Elo is the all-play rating where the regular season left it — all-time, where it stands today; the Key has the rule." : ""}
         {" "}A finish is printed only once its season is settled.
       </div>
     </>

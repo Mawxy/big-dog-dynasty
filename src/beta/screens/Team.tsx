@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import type {
-  Franchises, Insights, Matchups, PicksOwned, ProjectionsFile, SummaryRow,
+  EloFile, Franchises, Insights, Matchups, PicksOwned, ProjectionsFile, SummaryRow,
   Team as TeamT, Values,
 } from "../../lib/types";
 import { useMobile } from "../../lib/useWidth";
@@ -182,6 +182,9 @@ export default function Team() {
   const teamsQ = useJson<TeamT[]>(`${rosterSeason}/teams.json`);
   const teams = teamsQ.data;
   const fr = useJson<Franchises>("franchises.json").data;
+  /* THE ALL-PLAY ELO (Max, 2026-10-12): scripts/team_elo.py, regular season
+     only, carried across seasons. Keyed by franchise key, like fr. */
+  const elo = useJson<EloFile>("elo.json").data;
   // a redraft league has no rookie picks to hold, so there is no Draft capital
   // band and no file to fetch for one
   const owned = useJson<PicksOwned>(caps.picks ? "picks_owned.json" : null).data;
@@ -631,6 +634,14 @@ export default function Team() {
     : null;
   const mine = tvals?.find(t => t.rid === rid);
   const marketRank = tvals ? rankMap(tvals, t => t.market, t => t.rid).get(rid) ?? null : null;
+  /** this franchise's Elo and the week that last moved it — the newest week
+   *  of the newest season the file has a row for */
+  const eloRow = elo?.teams[fkey] ?? null;
+  const eloLast = (() => {
+    const ss = Object.keys(eloRow?.seasons ?? {}).sort();
+    const wks = ss.length ? eloRow!.seasons[ss[ss.length - 1]] : [];
+    return wks.length ? wks[wks.length - 1] : null;
+  })();
 
   /** the figure strip — the player page's `.figstrip` anatomy: key, figure,
    *  sub-label. Em dashes are plain text here, as they are on that page:
@@ -640,6 +651,16 @@ export default function Team() {
       key: "rec", label: "Record",
       value: season ? `${season.wins}-${season.losses}${season.ties ? `-${season.ties}` : ""}` : "—",
       sub: season ? `${season.season} · ${fmt(season.ppg, 1)} ppg` : "no season played",
+    },
+    {
+      /* ELO, beside the record it is built from: all-play, so the schedule
+         drops out of it, and carried across seasons. The sub-label is the
+         rank and the change the newest scored week made. */
+      key: "elo", label: "Elo",
+      value: eloRow ? Math.round(eloRow.elo) : "—",
+      sub: eloRow
+        ? `${ord(eloRow.rank)} of ${Object.keys(elo!.teams).length}${eloLast ? ` · ${sgn(eloLast[2], 0)} W${eloLast[0]}` : ""}`
+        : "no rating yet",
     },
     {
       key: "rk", label: `${idxLens.toUpperCase()} rank`,

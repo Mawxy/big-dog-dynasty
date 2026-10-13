@@ -28,6 +28,7 @@ unless they start with `data/`.
 | [MVP and MVP+](#mvp-and-mvp) | Who won the postseason, and how great was it? | `playoff_wpa.py` |
 | [Playoff WAR](#playoff-war) | Who produced in the playoffs, win or lose? | `playoff_war.py` |
 | [Finish](#finish) | What place did a team take? | `build_site_data.py` |
+| [Team Elo](#team-elo) | How strong is this team right now, carried across seasons? | `team_elo.py` |
 | [Scalar projections](#scalar-projections) | What will he be worth over 3 years? | `project_war.py`, `aging_curves.py` |
 | [Analog projections](#analog-projections) | What did players like him do next? | `project_war_knn.py` |
 | [Points-first projections](#points-first-projections) | What will he score, and what is that worth? | `project_points.py` |
@@ -360,6 +361,37 @@ missed never got that chance and is placed by the season it played. Gated on a
 decided winners-bracket game, so an unplayed season has no placings.
 
 ---
+
+## Team Elo
+
+**Owner:** `scripts/team_elo.py` → `data/leagues/<key>/elo.json`
+
+A running strength rating for every franchise, chess-style, built on
+**all-play** results rather than head-to-head ones. Each regular-season week a
+team's score is set against every other team's score that week, so a week is
+eleven results instead of one and the rating measures the roster, not the
+schedule.
+
+- **Start:** every franchise at **1500** in the league's first season.
+- **Carry-over:** ratings move from one season to the next untouched.
+- **K:** `1.5 × (40 + 40 / week)` — 120 in week 1, 90 in week 2, 75 in week 4,
+  about 64 by week 14 — and it **resets every season**, which is what lets a
+  summer of trades and rookies show up quickly without a manual regression.
+- **Update:** once per team per week,
+  `K × (all-play win share − expected all-play win share)`, where expected is
+  the mean Elo win probability against the other teams, from the ratings as
+  they stood before the week. Ties count half. Every week is zero-sum.
+- **Scope:** regular season only. Playoff and consolation weeks are ignored.
+
+The constants were tuned against this league's 2022–2026 history so a mature
+season ends with the top team roughly a **90% favorite** over the bottom one
+(about a 380-point gap). Weaker settings left the best and worst teams about
+80/20, when the best all-play team out-scored the worst in 52 of 56 regular
+season weeks in 2022–25. The cost is weekly moves of up to about 80 points.
+
+Because the input is all-play, Elo rewards **consistency** over raw volume: a
+170-point week and a 145-point week can both be 11-0, while one 90-point dud
+costs a lot.
 
 ## Scalar projections
 

@@ -664,6 +664,19 @@ export interface Franchise { seasons: FranchiseSeason[]; tx: FranchiseTx[]; }
  *  see build_site_data.py). Keys are strings either way. */
 export type Franchises = Record<string, Franchise>;
 
+/** data/leagues/<key>/elo.json — the all-play team Elo (scripts/team_elo.py).
+ *  Keyed by FRANCHISE KEY, like franchises.json. Each week row is
+ *  [week, elo after the week, change, all-play wins, expected all-play wins]. */
+export type EloWeek = [number, number, number, number, number];
+export interface EloFile {
+  meta: {
+    k: string; mult: number; floor: number; early: number; start: number;
+    result: string; scope: string;
+    through: { season: string; week: number };
+  };
+  teams: Record<string, { elo: number; rank: number; seasons: Record<string, EloWeek[]> }>;
+}
+
 /** data/trades.json — every trade, with each side's return scored in WAR */
 export interface TradeAsset {
   kind: "player" | "pick" | "faab";
