@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import type {
-  BracketFile, Drafts, Franchises, MatrixFile, Matchups, PlayersMin,
+  BracketFile, Drafts, EloFile, Franchises, MatrixFile, Matchups, PlayersMin,
   SleeperProjFile, SummaryRow, Team, Values, WeekOdds, Weekly,
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
@@ -1158,11 +1158,57 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
       .map((r, i) => ({ ...r, rank: i + 1 }));
   }, [rows, sim]);
   const preseason = !!rows && !rows.some(r => r.played > 0);
+  /* ELO AND THE ALL-PLAY RECORD (Max, 2026-10-14): the last column is the
+     all-play Elo (scripts/team_elo.py, keyed by franchise key) with the
+     all-play W-L it is built from under it — every scored week's score set
+     against the other eleven. Only weeks the Elo has scored count, so the
+     record and the rating always describe the same games; with no Elo file
+     the record falls back to the weeks with both scores in. */
+  const mwQ = useJson<Matchups>(`${rosterSeason}/matchups.json`).data;
+  const teamsQ = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
+  const elo = useJson<EloFile>("elo.json").data;
+  const ratingBy = useMemo(() => {
+    if (!mwQ || !teamsQ) return null;
+    const ps = mwQ.playoff_start || 15;
+    const thru = elo?.meta.through;
+    const upTo = thru ? (thru.season === rosterSeason ? thru.week : thru.season > rosterSeason ? ps - 1 : 0) : ps - 1;
+    // each scored week's twelve scores
+    const byWeek = new Map<number, { rid: string; pts: number }[]>();
+    for (const [rid, list] of Object.entries(mwQ.teams))
+      for (const w of playedRegWeeks(list, ps)) {
+        if (w > upTo) continue;
+        const e = list.find(x => x[0] === w);
+        if (e?.[1] == null) continue;
+        const arr = byWeek.get(w) ?? [];
+        arr.push({ rid, pts: e[1] });
+        byWeek.set(w, arr);
+      }
+    const out: Record<string, { elo: number | null; ap: string | null }> = {};
+    for (const t of teamsQ) {
+      const rid = String(t.roster_id);
+      let w = 0, l = 0, tie = 0, n = 0;
+      for (const arr of byWeek.values()) {
+        const me = arr.find(x => x.rid === rid);
+        if (!me) continue;
+        n++;
+        for (const o of arr) {
+          if (o.rid === rid) continue;
+          if (me.pts > o.pts) w++; else if (me.pts < o.pts) l++; else tie++;
+        }
+      }
+      const row = elo?.teams[t.fkey ?? rid];
+      out[rid] = {
+        elo: row ? row.elo : null,
+        ap: n ? `${w}-${l}${tie ? `-${tie}` : ""}` : null,
+      };
+    }
+    return out;
+  }, [mwQ, teamsQ, elo, rosterSeason]);
   return (
     <>
       <Band label={`Standings · ${rosterSeason}`}
         note={preseason && sim ? "Nothing played yet · in projected-finish order"
-          : "Wins, then points · Max PF is the best lineup every week"}
+          : "Wins, then points · Max PF is the best lineup every week · Elo is all-play, with the all-play record under it"}
         right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
       {!ordered ? <div className="empty">Loading…</div> : (
         <table className="v3tbl lgx-grid lgx-wrap">
@@ -1181,14 +1227,18 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
               {/* PF AND MAX PF (Max, 2026-09-09), in place of the odds, which
                   moved to the playoff race: what the roster scored and what it
                   could have with its best lineup every week. The gap between
-                  them is the lineup-setting tax. */}
+                  them is the lineup-setting tax. Max PF rides under PF since
+                  2026-10-14, so the last column can be the all-play Elo with
+                  its all-play W-L beneath it and the 18 / 18 / 20 grid holds. */}
               <th className="n" style={{ width: "18%" }}>PF</th>
-              <th className="n" style={{ width: "20%" }}>Max PF</th>
+              <th className="n" style={{ width: "20%" }}
+                title="All-play Elo; under it, the record against every team every week">Elo</th>
             </tr>
           </thead>
           <tbody>
             {ordered.map((r, i) => {
               const o = sim?.[String(r.rid)];
+              const w = ratingBy?.[String(r.rid)];
               return (
                 <TapRow key={r.rid} to={betaPath(`/team/${r.rid}`)} className={i % 2 ? "zebra" : ""}>
                   {/* the accent marks the title favorite, the one claim this
@@ -1207,13 +1257,19 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
                     <span className="f lgx-desk">{r.played ? fmt(r.ppg, 1) : NUL}</span>
                     <div className="idc-s r lgx-phone">{r.played ? `${fmt(r.ppg, 1)} ppg` : "no games"}</div>
                   </td>
-                  <td className="n"><span className="f">{r.played ? fmt(r.pf, 1) : NUL}</span></td>
                   <td className="n">
-                    <span className="f">{r.played && r.maxPf != null ? fmt(r.maxPf, 1) : NUL}</span>
-                    {/* the share of the ceiling the lineups captured */}
+                    <span className="f">{r.played ? fmt(r.pf, 1) : NUL}</span>
+                    {/* Max PF, with the share of the ceiling the lineups
+                        captured beside it on desktop */}
                     <div className="idc-s r">
-                      {r.played && r.maxPf ? `${Math.round(r.pf / r.maxPf * 100)}%` : ""}
+                      {r.played && r.maxPf != null ? `max ${fmt(r.maxPf, 1)}` : ""}
+                      {r.played && r.maxPf
+                        ? <span className="lgx-desk">{` · ${Math.round(r.pf / r.maxPf * 100)}%`}</span> : null}
                     </div>
+                  </td>
+                  <td className="n">
+                    <span className="f">{w?.elo != null ? Math.round(w.elo) : NUL}</span>
+                    <div className="idc-s r">{w?.ap ? `${w.ap} all-play` : ""}</div>
                   </td>
                 </TapRow>
               );
