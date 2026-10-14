@@ -77,9 +77,14 @@ type Lens = IdxLens | "stats";
 /** The one toggle on this screen. Declared as data so it rides `LensStrip` —
  *  the same control the leaderboard uses — rather than hand-rolled buttons
  *  that happen to carry the same classes. */
-const lensesFor = (statsSeason: string): { id: Lens; label: string }[] => [
-  { id: "dvi", label: "DVI · dynasty" },
-  { id: "cvi", label: "CVI · win now" },
+/* THE INDEX RANKS RIDE THE LENS (Max, 2026-10-14). The strip had a "DVI
+   rank" figure that flipped with this toggle; it was the fifth figure and
+   wrapped the strip onto a second line. Each segment now carries its own
+   league rank, so both are always visible and the strip is four figures. */
+const lensesFor = (statsSeason: string, dviRank: number | null, cviRank: number | null)
+  : { id: Lens; label: ReactNode }[] => [
+  { id: "dvi", label: <>DVI · dynasty{dviRank != null && <span className="lens-rk">#{dviRank}</span>}</> },
+  { id: "cvi", label: <>CVI · win now{cviRank != null && <span className="lens-rk">#{cviRank}</span>}</> },
   { id: "stats", label: `Stats · ${statsSeason}` },
 ];
 
@@ -629,9 +634,8 @@ export default function Team() {
   const franchise = fr?.[fkey];
   const season = franchise?.seasons.slice().reverse()
     .find(s => s.wins + s.losses + s.ties > 0);
-  const idxRank = tvals
-    ? rankMap(tvals, t => (idxLens === "dvi" ? t.dvi : t.cvi), t => t.rid).get(rid) ?? null
-    : null;
+  const dviRank = tvals ? rankMap(tvals, t => t.dvi, t => t.rid).get(rid) ?? null : null;
+  const cviRank = tvals ? rankMap(tvals, t => t.cvi, t => t.rid).get(rid) ?? null : null;
   const mine = tvals?.find(t => t.rid === rid);
   const marketRank = tvals ? rankMap(tvals, t => t.market, t => t.rid).get(rid) ?? null : null;
   /** this franchise's Elo and the week that last moved it — the newest week
@@ -661,17 +665,6 @@ export default function Team() {
       sub: eloRow
         ? `${ord(eloRow.rank)} of ${Object.keys(elo!.teams).length}${eloLast ? ` · ${sgn(eloLast[2], 0)} W${eloLast[0]}` : ""}`
         : "no rating yet",
-    },
-    {
-      key: "rk", label: `${idxLens.toUpperCase()} rank`,
-      value: idxRank ?? "—", acc: true,
-      /* THE STRIP FIGURE AND THE BOARD READ ONE NUMBER (2026-09-21). Both are
-         `model.starterSum` — each index over its OWN best legal lineup, the
-         classic Value board's rule — where the Teams board used to sum DVI
-         over the projected-WAR lineup and land 50 points away from this. */
-      sub: mine
-        ? `${Math.round(idxLens === "dvi" ? mine.dvi : mine.cvi)} index pts, starters`
-        : caps.indices ? undefined : "not published for this league",
     },
     {
       // THE BAND'S OWN NUMBER, not the rankings model's. Both are "best legal
@@ -856,7 +849,7 @@ export default function Team() {
                   Where the pipeline publishes neither index, the index
                   segments select between empty columns. */}
               {caps.indices && (
-                <LensStrip options={lensesFor(statsSeason)} value={lens} onChange={setLens} label="Lens" />
+                <LensStrip options={lensesFor(statsSeason, dviRank, cviRank)} value={lens} onChange={setLens} label="Lens" />
               )}
 
               {roster.bands.map(b => (

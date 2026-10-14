@@ -222,3 +222,6 @@
   border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
 }
 .tms-draw .empty { padding: 16px; }
+
+/* the league rank on each index segment of the lens (2026-10-14) */
+.v3-lens .lens-rk { margin-left: 6px; font-weight: 700; font-variant-numeric: tabular-nums; }
