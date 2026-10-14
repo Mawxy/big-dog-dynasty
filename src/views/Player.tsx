@@ -642,18 +642,9 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="figval">{careerWar != null ? fmtWar(careerWar) : "—"}</div>
                 <div className="figsub">{firstYear ? `in league, since ${firstYear}` : "no league seasons"}</div>
               </div>
-              <div className="figcell">
-                {/* THE PROJECTION'S OWN YEARS, never the roster season. The
-                    shard states which years it projects (`years`), and when a
-                    rebuild shifts the horizon "Next 3 years" would quietly
-                    mean a different three. Label with the real ones. */}
-                <div className="figkey">
-                  {years.length ? `${years[0]}–${years[years.length - 1]}` : "Next 3 years"}
-                </div>
-                <div className="figval">{projected.length
-                  ? fmtWar(projected.reduce((s, [, w]) => s + w, 0)) : "—"}</div>
-                <div className="figsub">{inseason ? `${years[0]} on pace + projected` : "projected WAR"}</div>
-              </div>
+              {/* THE 3-YEAR WAR FIGURE WAS DROPPED (Max, 2026-10-14): it was the
+                  strip's fifth figure, and the projection band below states
+                  the same horizon year by year. */}
             </div>
 
             {mobile && ladderRows && (

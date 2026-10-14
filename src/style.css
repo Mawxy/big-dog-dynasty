@@ -1340,8 +1340,13 @@ button.dband:hover .band-label { color: var(--txt2); }
 .band-note { font: 400 11.5px/1.5 var(--sans); color: var(--dim3); text-align: right; }
 
 /* ---- figure strip: 3–5 figures in cells divided by --rule ---------------- */
-.figstrip { display: flex; flex-wrap: wrap; align-items: stretch; background: var(--deep); padding: 16px 22px 15px; }
-.figcell { padding: 2px 22px; border-left: 1px solid var(--rule); }
+/* ONE ROW, NEVER A WRAP (Max, 2026-10-14). A wrapped strip put its last
+   figure alone on a second line, still carrying the divider and the inset
+   it had as a middle cell. Cells keep their natural width and shrink
+   together when the row is tight, with the sub-line clipping first. */
+.figstrip { display: flex; flex-wrap: nowrap; align-items: stretch; background: var(--deep); padding: 16px 22px 15px; }
+.figcell { flex: 0 1 auto; min-width: 0; padding: 2px 22px; border-left: 1px solid var(--rule); }
+.figcell .figsub { overflow: hidden; text-overflow: ellipsis; }
 .figcell:first-child { border-left: 0; padding-left: 0; }
 .figkey {
   font: 400 11px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase;
