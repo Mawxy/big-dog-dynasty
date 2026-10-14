@@ -10,6 +10,7 @@ import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
 import { leagueSeg, useLeague } from "../../lib/context";
 import { useCviQuery, useDviQuery, useOutlook1 } from "../../lib/useIndices";
+import { useEcrShown } from "../model";
 import { outlookLabel, outlookNote } from "../../lib/outlook";
 import { fmt } from "../../lib/stats";
 import { ktcOf } from "../../lib/values";
@@ -651,7 +652,12 @@ export default function Players() {
      board is a shareable one and Back undoes a criterion. */
   const loc = useLocation();
   const navF = useNavigate();
-  const filters = useMemo(() => parseFilters(new URLSearchParams(loc.search).get("f")), [loc.search]);
+  /* ECR leaves the board after week 1 (useEcrShown): its column, its
+     drawer figure, its filter, and any ECR criterion already in the URL */
+  const ecrOn = useEcrShown();
+  const filters = useMemo(
+    () => parseFilters(new URLSearchParams(loc.search).get("f")).filter(f => ecrOn || f.field !== "ecr"),
+    [loc.search, ecrOn]);
   /* PUSH, NOT REPLACE. `filters.ts` states the contract — "a board someone
      shows you should be the board they were looking at, and Back should undo a
      criterion" — and replacing the entry made the second half of that false:
@@ -683,7 +689,8 @@ export default function Players() {
   /** the criteria this league's pipeline can actually answer. Offering "DVI ≥
    *  50" where no dvi.json is written is a control whose only outcome is an
    *  empty board reading "no match" — see `filterFieldsFor`. */
-  const filterFields = useMemo(() => filterFieldsFor(caps), [caps]);
+  const filterFields = useMemo(
+    () => filterFieldsFor(caps).filter(k => ecrOn || k !== "ecr"), [caps, ecrOn]);
   const [open, setOpen] = useState<string | null>(null);
 
   /* WHICH HALF OF THE SEASON. A filter rather than a scope segment: the tense
@@ -1277,10 +1284,12 @@ export default function Players() {
   const curCols = useMemo(
     () => (ol.inseason
       ? CUR_COLS.map(c => (c.id === "war" ? { ...c, label: "WAR pace" } : c))
-      : CUR_COLS),
-    [ol.inseason]);
+      : CUR_COLS).filter(c => ecrOn || c.id !== "ecr"),
+    [ol.inseason, ecrOn]);
+  const curGrps = useMemo(
+    () => (ecrOn ? CUR_GRPS : CUR_GRPS.filter(g => g.label !== "Redraft")), [ecrOn]);
   const cols = usage ? maxaCols(pos) : hist ? histCols : curCols;
-  const grps = usage ? maxaGrps(pos) : hist ? histGrps : CUR_GRPS;
+  const grps = usage ? maxaGrps(pos) : hist ? histGrps : curGrps;
   /** the micro line's preferred keys; the strip itself carries every column */
   const strip = usage ? maxaStrip(pos) : hist ? HIST_STRIP : CUR_STRIP;
   const stripAll: Key[] = cols.map(c => c.id);
@@ -1308,7 +1317,9 @@ export default function Players() {
      the rows invisibly, so the sort falls back to the common key. */
   useEffect(() => {
     if (usage && !cols.some(c => c.id === s.sort)) s.onSort("war");
-  }, [usage, cols, s]);
+    // a remembered ECR sort, once ECR has left the board
+    else if (!usage && !hist && !cols.some(c => c.id === s.sort)) s.onSort("dvi");
+  }, [usage, hist, cols, s]);
 
   const ordered = useMemo(() => {
     if (!population) return null;
@@ -1861,7 +1872,7 @@ export default function Players() {
                   <tr className="plx-drawrow">
                     <td colSpan={span}>
                       {r.kind === "cur"
-                        ? <CurDrawer r={r} season={rosterSeason} to={betaPath(`/player/${r.pid}`)} />
+                        ? <CurDrawer r={r} season={rosterSeason} to={betaPath(`/player/${r.pid}`)} ecr={ecrOn} />
                         : r.kind === "both"
                         ? <BothDrawer r={r} season={allTime ? null : oneSeason}
                           to={betaPath(`/player/${r.pid}`)}
@@ -1959,8 +1970,9 @@ export default function Players() {
                 + `the site, stay on the full-season rate: banked WAR has no trade value.`
               : "Proj WAR is the model's projection for the coming season."}
             {" "}KTC and FantasyCalc are dynasty market prices in their own
-            currencies; ECR is the FantasyPros redraft consensus, where 1 is best, so a rookie
-            sits below his dynasty price by design. None of them are blended. The position
+            currencies{ecrOn
+              ? "; ECR is the FantasyPros redraft consensus, where 1 is best, so a rookie sits below his dynasty price by design"
+              : ""}. None of them are blended. The position
             badge carries rank within position for the active sort. What a player actually did
             — in a given year or across every season — is under Stats.
           </>
@@ -2086,7 +2098,7 @@ function DrawerGo({ to }: { to: string }) {
   );
 }
 
-function CurDrawer({ r, season, to }: { r: CurRow; season: string; to: string }) {
+function CurDrawer({ r, season, to, ecr }: { r: CurRow; season: string; to: string; ecr: boolean }) {
   return (
     <div className="plx-draw">
       <div className="hd">
@@ -2100,7 +2112,7 @@ function CurDrawer({ r, season, to }: { r: CurRow; season: string; to: string })
             scalar and analog arms are only shown when the reader picks one on
             More › Projection model; the board itself speaks the site curve. */}
         <Fig k="FantasyCalc" v={figOf("fc", r.f.fc ?? null)} sub="dynasty market" />
-        <Fig k="ECR" v={figOf("ecr", r.f.ecr ?? null)} sub="redraft, 1 is best" />
+        {ecr && <Fig k="ECR" v={figOf("ecr", r.f.ecr ?? null)} sub="redraft, 1 is best" />}
         {/* OWNERSHIP is a fact, and "free agent" is a fact too — not a missing
             figure, so it is a word rather than the null glyph. */}
         <Fig k="Roster" v={r.owner ?? "Free agent"} word sub={`${season} rosters`} />

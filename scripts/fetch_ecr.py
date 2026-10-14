@@ -2,7 +2,7 @@
 """
 fetch_ecr.py — FantasyPros Expert Consensus Rankings -> data/ecr.json.
 
-  python scripts/fetch_ecr.py                        # ppr-superflex
+  python scripts/fetch_ecr.py                        # ppr-superflex + ROS QB/RB/WR/TE
   python scripts/fetch_ecr.py --formats ppr-superflex ppr standard
   python scripts/fetch_ecr.py --probe                # report, write nothing
 
@@ -56,7 +56,21 @@ FORMATS = {
     "ppr":            ("ppr-cheatsheets.php", "PPR"),
     "half":           ("half-point-ppr-cheatsheets.php", "HALF"),
     "standard":       ("consensus-cheatsheets.php", "STD"),
+    # REST OF SEASON, BY POSITION (Max, 2026-10-14). FantasyPros publishes no
+    # superflex ROS ranking — ros-ppr-superflex.php and ros-superflex.php both
+    # land on the 1QB overall page — and the superflex cheat sheet above stays
+    # frozen on the preseason draft ranks all season. Position pages sidestep
+    # the format question: contender_index.py maps each one onto that
+    # position's own WAR curve, and WAR already prices a QB for superflex.
+    # QB has no PPR page; its scoring reads Standard, which a QB doesn't feel.
+    "ros-qb":         ("ros-qb.php", "STD"),
+    "ros-rb":         ("ros-ppr-rb.php", "PPR"),
+    "ros-wr":         ("ros-ppr-wr.php", "PPR"),
+    "ros-te":         ("ros-ppr-te.php", "PPR"),
 }
+# the one position each ROS page ranks
+ROS_POS = {"ros-qb": "QB", "ros-rb": "RB", "ros-wr": "WR", "ros-te": "TE"}
+DEFAULT_FORMATS = ["ppr-superflex", *ROS_POS]
 
 
 def get(url):
@@ -132,7 +146,7 @@ def verify(data, key, url, final_url):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--formats", nargs="+", default=["ppr-superflex"],
+    ap.add_argument("--formats", nargs="+", default=DEFAULT_FORMATS,
                     choices=sorted(FORMATS))
     ap.add_argument("--players", default=str(DATA / "players_min.json"))
     ap.add_argument("--out", default=str(DATA / "ecr.json"))
@@ -177,6 +191,16 @@ def main():
         for p in verify(data, key, url, final):
             print(f"  ~~ {p}")
         rows = data.get("players") or []
+        want_pos = ROS_POS.get(key)
+        if want_pos:
+            # a position page that came back holding other positions is the
+            # overall page under another name — drop them rather than rank a
+            # WR on the QB ladder
+            other = [r for r in rows
+                     if (r.get("player_position_id") or "").upper() != want_pos]
+            if other:
+                print(f"  ~~ {len(other)} non-{want_pos} rows on a {want_pos} page, dropped")
+                rows = [r for r in rows if r not in other]
         # This format just fetched fresh rows, so every CARRIED entry for it is
         # now stale. Strip the key before writing today's: a player who fell
         # out of the consensus loses his slug — absence is real information

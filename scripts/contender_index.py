@@ -46,6 +46,13 @@ CONSENSUS_SHARE = 0.50
 # only as a liquidity check: a player nobody rosters cannot be bought.
 WEIGHTS_NM = {"war": 1.0, "roster": 0.4, "start": 1.4}
 DEFAULT_FORMAT = "ppr-superflex"
+# REST-OF-SEASON POSITION RANKS (Max, 2026-10-14): fetch_ecr.py's ros-* pages.
+# When all four are in ecr.json they replace the overall format — the
+# superflex cheat sheet is the preseason draft board all season long — and
+# each position's ranks ride that position's own WAR curve (ecr_to_war, per
+# position). Any one missing falls back to the overall format whole, so the
+# index never mixes two kinds of consensus.
+ROS_FORMATS = {"QB": "ros-qb", "RB": "ros-rb", "WR": "ros-wr", "TE": "ros-te"}
 # Leagues the redraft signals crawl must cover before CVI reads it instead of
 # the dynasty file (see load_inputs). ~250 twelve-team leagues = 3,000 rosters,
 # enough for roster% to stop being a rumor. Revisit roster%'s 0.4 weight once
@@ -91,6 +98,26 @@ def load_inputs(fmt=DEFAULT_FORMAT):
         if row and row.get("ecr") and pid in proj:
             ecr_rank[pid] = row["ecr"]
 
+    # pos -> {pid: ROS position rank}, only for players projected AT that
+    # position, so a ladder never seats someone on another position's curve
+    ros = {pos: {} for pos in ROS_FORMATS}
+    for pid, per_fmt in ecr_all.items():
+        p = proj.get(pid)
+        if not p:
+            continue
+        for pos, key in ROS_FORMATS.items():
+            row = per_fmt.get(key)
+            if row and row.get("ecr") and p.get("pos") == pos:
+                ros[pos][pid] = row["ecr"]
+    ecr_src = fmt
+    if all(ros.values()):
+        ecr_src = "ros-by-position"
+        ecr_rank = {pid: r for ranks in ros.values() for pid, r in ranks.items()}
+    else:
+        missing = [pos for pos, ranks in ros.items() if not ranks]
+        print(f"!! ROS ranks missing for {', '.join(missing)} — CVI reads {fmt}")
+        ros = None
+
     # Usage signals: prefer the REDRAFT crawl once it has real coverage.
     # Dynasty roster% partly measures FUTURE interest (stashes, taxi types) —
     # the very contamination that forced roster%'s weight down to 0.4 here.
@@ -111,6 +138,7 @@ def load_inputs(fmt=DEFAULT_FORMAT):
     players_meta = json.load(open(ROOT / "sleeper_data" / "players.json", encoding="utf-8")) \
         if (ROOT / "sleeper_data" / "players.json").exists() else {}
     return {"proj": proj, "ecr_all": ecr_all, "ecr_rank": ecr_rank,
+            "ros": ros, "ecr_src": ecr_src,
             "sig": sigf.get("players", {}), "week": sigf.get("week", 0),
             "sig_src": sig_src, "players_meta": players_meta}
 
@@ -138,8 +166,18 @@ def compute(inp, war_of):
 
     # ECR value lives on the WAR curve, so it is clamped with the WAR bounds —
     # that keeps the consensus half and the production signal commensurate.
-    order = sorted(ecr_rank, key=lambda pid: ecr_rank[pid])
-    ecr_war = ecr_to_war(order, sorted(wars, reverse=True))
+    if inp.get("ros"):
+        # one ladder per position: the #1 ROS QB is worth the #1 projected QB
+        # season, and so on down each position's own curve
+        ecr_war = {}
+        for pos, ranks in inp["ros"].items():
+            curve = sorted((war_of.get(pid, 0.0) for pid, p in proj.items()
+                            if p.get("pos") == pos), reverse=True)
+            if curve:
+                ecr_war.update(ecr_to_war(sorted(ranks, key=ranks.get), curve))
+    else:
+        order = sorted(ecr_rank, key=lambda pid: ecr_rank[pid])
+        ecr_war = ecr_to_war(order, sorted(wars, reverse=True))
 
     out = {}
     for pid, p in proj.items():
@@ -229,13 +267,13 @@ def main():
 
     cvi = to_cvi(out)
     atomic_write(Path(args.out), json.dumps(
-        {"generated": date.today().isoformat(), "format": args.format,
+        {"generated": date.today().isoformat(), "format": inp["ecr_src"],
          "curve": args.curve, "ecrRanked": len(ecr_rank), "players": cvi},
         separators=(",", ":")))
 
     print(f"wrote {args.out} [{args.curve}]: {len(cvi)} players · {len(ecr_rank)} "
           f"with an ECR rank · week={week} · start snap-weight={snap_weight(week)} "
-          f"· signals={inp['sig_src']}")
+          f"· signals={inp['sig_src']} · ecr={inp['ecr_src']}")
     print("\n=== top 20 ===")
     for pid in sorted(cvi, key=lambda p: cvi[p]["rank"])[:20]:
         r = out[pid]

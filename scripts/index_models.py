@@ -87,7 +87,7 @@ def main():
         {"generated": today, "curve": args.default_curve,
          "players": dvi_by[args.default_curve]}, separators=(",", ":")))
     atomic_write(DATA / "cvi.json", json.dumps(
-        {"generated": today, "format": args.format, "curve": args.default_curve,
+        {"generated": today, "format": cvi_in["ecr_src"], "curve": args.default_curve,
          "ecrRanked": len(cvi_in["ecr_rank"]), "players": cvi_by[args.default_curve]},
         separators=(",", ":")))
 

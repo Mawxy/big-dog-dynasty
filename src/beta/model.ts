@@ -200,6 +200,16 @@ export function useSeasonPhase() {
   }, [mw, rosterSeason, latest]);
 }
 
+/** WHETHER ECR IS SHOWN (Max, 2026-10-14). FantasyPros' superflex ranking
+ *  is the preseason draft board and stays frozen on it all season, so ECR is
+ *  shown in the offseason and through week 1, and nowhere once week 1 is in
+ *  the books. CVI still reads its own consensus (contender_index.py); this
+ *  only governs what the site prints. */
+export function useEcrShown(): boolean {
+  const ph = useSeasonPhase();
+  return ph.offseason || ph.week === 1;
+}
+
 /* ========================================================================
    STANDINGS
    ======================================================================== */
