@@ -301,6 +301,13 @@
 .lgx-bkfig .v {
   font: 600 12.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
 }
+/* THE FIGURES SIT ON ONE LINE ACROSS BOTH BASKETS (Max, 2026-10-14). A side
+   with two assets pushed its figures a row lower than a side with one; the
+   baskets already stretch to equal height, so each one is a column and its
+   figures are pinned to the bottom of it. */
+.lgx-trade .v3-baskets .bk { display: flex; flex-direction: column; }
+.lgx-trade .v3-baskets .bk .it + .lgx-bkfig { margin-top: auto; }
+.lgx-trade .v3-baskets .bk .it:has(+ .lgx-bkfig) { margin-bottom: 5px; }
 
 /* the two counts, side by side, each with its own way through */
 .lgx-counts {
