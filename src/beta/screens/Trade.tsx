@@ -1,16 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import type {
-  PicksOwned, Team, Trade as TradeT, TradeAsset, TradeSide,
-  TradesPayload, Values,
-} from "../../lib/types";
+import { useNavigate, useSearchParams } from "react-router-dom";
+import type { PicksOwned, Team, Trade as TradeT, TradesPayload } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useCurrentPickClass, useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { fmt } from "../../lib/stats";
 import { POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
-import { ktcOf } from "../../lib/values";
 import { readTrades } from "../../lib/trades";
 import { tradeId } from "../../lib/tradeLineage";
 import { useMobile } from "../../lib/useWidth";
@@ -22,8 +18,11 @@ import { tierOf, useAssets, usePickTiers, useSeasonPhase, type Asset } from "../
 import ScopeControl, { ALL_SEASONS, seasonSet, useScope, type ScopeSeason } from "../Scope";
 import {
   Band, DataError, fmtWar, IdLines, NUL,
-  PosSpine, sgnWar, Sheet, SheetRow, useBetaPath,
+  PosSpine, Sheet, SheetRow, useBetaPath,
 } from "../ui";
+import {
+  GRID_NOTE, snapKey, TradeGrid, useGridCtx, useWho, warEdge,
+} from "./tradeGrid";
 import "./trade.css";
 
 /**
@@ -68,12 +67,6 @@ import "./trade.css";
 /** an unsigned market figure — thousands separated, no decimals */
 const mkt = (v: number) => Math.round(v).toLocaleString();
 
-/** A SIGNED market figure carrying the thousands separator the unsigned totals
- *  above it already have. `sgn` is a WAR/index formatter and drops it, which
- *  once put "6,388" and "−4351" in the same column. */
-const sgnMkt = (v: number) =>
-  `${v > 0 ? "+" : v < 0 ? "−" : ""}${Math.round(Math.abs(v)).toLocaleString()}`;
-
 /** an index figure. One decimal: DVI and CVI are 0–100 scales where a whole
  *  point is a real difference and a hundredth is noise. */
 const idx = (v: number) => fmt(v, 1);
@@ -82,130 +75,6 @@ const idx = (v: number) => fmt(v, 1);
 const whenShort = (ts: number) => ts
   ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })
   : "—";
-
-/* ========================================================================
-   THE FROZEN AT-TRADE READ — one derivation, two readers
-   ======================================================================== */
-
-/**
- * `data/leagues/<key>/trade_snapshots.json`, keyed `"<ts>:<rid-rid…>"`.
- *
- * The first nightly run that sees a trade FREEZES what each side's haul was
- * worth on the day and never overwrites it (`scripts/trade_analysis.py`). `mkt`
- * is that side's KTC: players by pid and PICKS BY THEIR MID-TIER LADDER KEY
- * (since 2026-08-21 — a pick is a market asset until draft night), FAAB
- * skipped. It is null only where the writer could not price every asset on the
- * side, or where the committed value history does not reach back to the trade
- * — and entries frozen before picks were priced are backfilled from that
- * history rather than left as permanent em dashes.
- */
-interface SnapSide { exp: number | null; mkt: number | null; fc?: number | null }
-interface Snap { taken: string; kind: string; sides: Record<string, SnapSide> }
-type Snaps = Record<string, Snap>;
-
-/** the snapshot key, built exactly the way the writer builds it: the timestamp,
- *  then the trade's roster ids in ascending numeric order. Doubles as the row
- *  key, because it is unique even for two trades Sleeper stamped in one batch
- *  with the same `ts` — which a bare `ts` was not, and two ledger cards used to
- *  swap contents on any re-render because of it. */
-const snapKey = (t: TradeT) =>
-  `${t.ts}:${t.sides.map(s => s.rid).sort((x, y) => x - y).join("-")}`;
-
-interface AtTrade {
-  /** the frozen figures for one side of this trade */
-  side: (rid: number) => SnapSide;
-  /** THE VALUE COLUMN: the largest at-trade KTC any side of the deal carried.
-   *  Null when no side could be priced — never zero, which would read as a
-   *  trade of nothing rather than as one the market history cannot reach. */
-  value: number | null;
-}
-
-/**
- * ONE derivation of the at-trade figures, read by the Value column AND by the
- * drawer.
- *
- * That is the whole point of the hook. The classic ledger derived the column's
- * figure on the card and the drawer's in a second closure over a second source,
- * which is a guarantee that the two disagree the moment either moves. Here the
- * column IS `value` and the drawer IS `side(rid)`, off one record.
- *
- * The fallback is the same figure by another road, not a second opinion:
- * `trade_analysis.py` stamps the snapshot onto each side of trades.json as
- * `mktThen` / `fcThen` / `expThen` in the same pass that writes the snapshot
- * file, so a deploy shipping trades.json without trade_snapshots.json still
- * prices the ledger — from figures frozen on the same day by the same code.
- */
-function useAtTrade(): (t: TradeT) => AtTrade {
-  const snaps = useJson<Snaps>("trade_snapshots.json").data;
-  return useCallback((t: TradeT): AtTrade => {
-    const sn = snaps?.[snapKey(t)];
-    const frozen = new Map<number, SnapSide>();
-    let value: number | null = null;
-    for (const s of t.sides) {
-      const rec = sn?.sides[String(s.rid)]
-        ?? { exp: s.expThen ?? null, mkt: s.mktThen ?? null, fc: s.fcThen ?? null };
-      frozen.set(s.rid, rec);
-      if (rec.mkt != null) value = value == null ? rec.mkt : Math.max(value, rec.mkt);
-    }
-    return { side: rid => frozen.get(rid) ?? { exp: null, mkt: null, fc: null }, value };
-  }, [snaps]);
-}
-
-/* ========================================================================
-   REALIZED WAR
-   ======================================================================== */
-
-/** "2024 1st → Marvin Harrison": a pick that CONVERTED carries the player it
- *  became, and only a converted pick has a return anybody can judge. */
-const converted = (a: TradeAsset) => a.label.split(" → ")[1];
-const isRealized = (a: TradeAsset) => a.kind === "player" || !!converted(a);
-
-/** A side's realized WAR: what the assets it can be judged on returned. Null —
- *  not zero — when nothing it received has converted yet, because "nothing yet"
- *  and "nothing" are different facts and only one of them is an em dash.
- *
- *  Written out again rather than imported from `components/TradeCard.tsx`: that
- *  module is the classic ledger's card, this screen exists to retire it, and
- *  importing a doomed component into its replacement inverts the dependency.
- *  Both copies belong in `lib/trades.ts` the day the classic view goes. */
-const sideRealized = (s: TradeSide): number | null =>
-  s.got.some(isRealized) ? s.war : null;
-
-/**
- * A trade's sides in a STABLE order — roster id ascending.
- *
- * `trade_analysis.py` sorts each trade's sides by realized WAR descending, so
- * rendering them in file order would put the franchise that came out ahead in
- * the left column on every row of the ledger. That is a verdict expressed as a
- * layout, and picking a winner is the one thing this table refuses to do.
- * Roster id carries no claim, and it is the order the snapshot key already
- * uses, so the columns line up with the record behind them.
- */
-const ordered = (t: TradeT) => t.sides.slice().sort((a, b) => a.rid - b.rid);
-
-/**
- * THE WAR EDGE, WITH ITS OWNER.
- *
- * A magnitude and the franchise it belongs to, or an em dash and the reason it
- * has none. Never a bare signed number: a margin with no owner is the one thing
- * this column must not be.
- *
- * Four ways it declines, and they are four different facts:
- *   - a three-team deal has no two sides to difference
- *   - no football has been played since the deal (`played`)
- *   - a side received only picks that have not converted, so it has no return
- *   - the two returns are equal, which is a result rather than a refusal
- */
-function warEdge(sides: TradeSide[], played: boolean):
-  { v: number | null; owner: string | null; note: string | null } {
-  if (sides.length > 2) return { v: null, owner: null, note: "3-team deal" };
-  if (!played) return { v: null, owner: null, note: "not yet played" };
-  const aw = sideRealized(sides[0]), bw = sideRealized(sides[1]);
-  if (aw == null || bw == null) return { v: null, owner: null, note: "picks unconverted" };
-  const d = aw - bw;
-  if (Math.abs(d) < 0.0005) return { v: 0, owner: null, note: "even" };
-  return { v: Math.abs(d), owner: d > 0 ? sides[0].team : sides[1].team, note: null };
-}
 
 /* ========================================================================
    THE SCREEN
@@ -1278,14 +1147,14 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
 }) {
   const { league } = useLeague();
   const betaPath = useBetaPath();
-  const atTrade = useAtTrade();
-  // the current market, for the drawer's change-since read
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  const nav = useNavigate();
   /* THE PICK LADDER AS A MAP, ONCE PER FEED. `marketNow` built `new Map(
      vals.picks.ktc)` on every call — once per SIDE per CARD, so a 150-trade
      ledger allocated ~300 copies of an 84-entry map on every render of the
-     screen. It depends on the feed and nothing else. */
-  const pickKtc = useMemo(() => new Map(vals?.picks?.ktc ?? []), [vals]);
+     screen. `useGridCtx` builds it, the market feed and the at-trade read
+     once, here, and every card's grid prices against that. */
+  const ctx = useGridCtx();
+  const who = useWho();
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
   /** franchises in force — empty is every team. MULTI-SELECT like the season
    *  filter: a trade shows if ANY picked franchise was a side of it.
@@ -1302,7 +1171,17 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
     if (next.has(rid)) next.delete(rid); else next.add(rid);
     return next;
   });
-  const [filtering, setFiltering] = useState<"team" | "season" | null>(null);
+  /** ANY OR ALL of the ticked franchises (Max, 2026-10-27). Any is a trade
+   *  with any ticked franchise on a side; all is a trade every ticked
+   *  franchise was a side of — tick two and it is the deals between those
+   *  two. Seeded from `?match=all`, local after that like the set itself. */
+  const [teamMatch, setTeamMatch] = useState<"any" | "all">(
+    () => (params.get("match") === "all" ? "all" : "any"));
+  /** ONE PLAYER (Max, 2026-10-27): every deal he moved in, as a player or as
+   *  the pick he became — a pick asset carries its drafted player's id, so
+   *  "2024 1st → Brock Bowers" is a Bowers trade. Seeded from `?player=`. */
+  const [playerOn, setPlayerOn] = useState<string | null>(() => params.get("player"));
+  const [filtering, setFiltering] = useState<"team" | "season" | "player" | null>(null);
   /** the seasons in force — empty is every season. MULTI-SELECT (Max,
    *  2026-09-02): a set, joined into the URL's `season` param. */
   const picked = useMemo(() => seasonSet(season), [season]);
@@ -1356,17 +1235,47 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
     .slice()
     .sort((a, b) => b.ts - a.ts), [trades, picked, allSeasons]);
   const allTeams = teamsOn.size === 0;
-  const shown = useMemo(
-    () => (allTeams ? rows : rows.filter(t => t.sides.some(s => teamsOn.has(s.rid)))),
-    [rows, teamsOn, allTeams]);
+  const both = teamMatch === "all" && teamsOn.size >= 2;
+  const shown = useMemo(() => rows.filter(t =>
+    (allTeams || (both
+      ? [...teamsOn].every(r => t.sides.some(s => s.rid === r))
+      : t.sides.some(s => teamsOn.has(s.rid))))
+    && (!playerOn || t.sides.some(s => s.got.some(a => a.pid === playerOn)))),
+  [rows, teamsOn, allTeams, both, playerOn]);
+  /** every player who has moved in a deal, by name, for the player sheet —
+   *  off the whole ledger, so the name of a filtered-in player resolves even
+   *  under a season filter that leaves none of his trades */
+  const traded = useMemo(() => {
+    const m = new Map<string, { name: string; n: number }>();
+    for (const t of trades) {
+      const seen = new Set<string>();
+      for (const s of t.sides) for (const a of s.got) {
+        if (!a.pid || seen.has(a.pid)) continue;
+        seen.add(a.pid);
+        const name = a.kind === "player" ? a.label : (a.label.split(" → ")[1] ?? a.label);
+        const e = m.get(a.pid);
+        if (e) e.n++; else m.set(a.pid, { name, n: 1 });
+      }
+    }
+    return m;
+  }, [trades]);
+  const playerName = playerOn ? traded.get(playerOn)?.name ?? "Player" : null;
+  const filtered = !allTeams || playerOn != null;
   const nameOf = (rid: number) => teams?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
+  const ownerOf = (rid: number) => teams?.find(t => t.roster_id === rid)?.manager ?? nameOf(rid);
   const teamName = allTeams ? null
-    : teamsOn.size <= 2 ? [...teamsOn].map(nameOf).join(" · ") : `${teamsOn.size} teams`;
+    // "between" names the two MANAGERS: two franchise names and a "vs" do
+    // not fit a filter button on a phone, and the manager is the handle a
+    // reader asking "what have these two done" is thinking in
+    : both && teamsOn.size === 2
+      ? [...teamsOn].map(r => teams?.find(t => t.roster_id === r)?.manager ?? nameOf(r)).join(" vs ")
+      : teamsOn.size <= 2 ? [...teamsOn].map(nameOf).join(" · ")
+      : `${teamsOn.size} teams${both ? " · all" : ""}`;
 
   return (
     <div className="trx-hist">
       <Band
-        label={allTeams
+        label={!filtered
           ? `${rows.length} trade${rows.length === 1 ? "" : "s"}`
           : `${shown.length} of ${rows.length}`}
         right={
@@ -1382,33 +1291,45 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
               aria-haspopup="dialog" onClick={() => setFiltering("team")}>
               {teamName ?? "All teams"}<span className="caret">▾</span>
             </button>
+            <button type="button" className={`trx-fil${playerOn ? " on" : ""}`}
+              aria-haspopup="dialog" onClick={() => setFiltering("player")}>
+              {playerName ?? "All players"}<span className="caret">▾</span>
+            </button>
           </span>
         } />
-      {/* THE LEDGER IS A FEED OF CARDS, NOT A TABLE (Max, 2026-09-02). Every
-          trade is open: one card, one column per side, each column carrying
-          what the franchise got, its KTC then → now, and its realized WAR.
-          The row-and-drawer version put the whole point of the ledger — how
-          each side has done since — behind a tap, and a five-column phone row
-          truncated every franchise name to reach it. What the row carried that
-          the card does not is the largest-side at-trade KTC, which the columns
-          now state per side, and the WAR edge, which moves to the card's
-          header line where it can name its owner in full. */}
+      {/* THE LEDGER IS A FEED OF CARDS (Max, 2026-09-02), EACH ONE A GRID
+          (2026-10-27). Every trade is open: sides across, measures down —
+          what each side got, its realized WAR, its projected WAR, its KTC
+          then → now — with each label printed once rather than once per side.
+          The whole card is the way into the trade's own page, where every
+          asset is followed to where it sits today; the WAR edge stays on the
+          header line, naming its owner by manager. */}
       <div className="trx-feed">
         {shown.map(t => {
           const k = snapKey(t);
-          const at = atTrade(t);
-          const sides = ordered(t);
+          const sides = t.sides.slice().sort((a, b) => a.rid - b.rid);
           const edge = warEdge(sides, played(t));
+          const to = betaPath(`/trade/${tradeId(t)}`);
+          const owner = edge.rid != null
+            ? who(edge.rid, t.season, edge.owner ?? "").manager ?? edge.owner
+            : edge.owner;
           return (
+            /* THE CARD IS THE LINK. Not an <a>: the grid inside is a table,
+               and a card-sized anchor around one reads as one giant link to a
+               screen reader. A row's contract instead — role, tab stop,
+               Enter — the same one TapRow keeps. */
             <article className={`trx-card${open === k ? " on" : ""}`} key={k}
-              ref={open === k ? scrollTo : undefined}>
+              ref={open === k ? scrollTo : undefined}
+              role="link" tabIndex={0} aria-label={`Trade of ${whenShort(t.ts)} ${t.season}: where it all went`}
+              onClick={e => {
+                if (e.metaKey || e.ctrlKey) { window.open(`#${to}`, "_blank"); return; }
+                nav(to);
+              }}
+              onKeyDown={e => { if (e.key === "Enter") nav(to); }}>
               <div className="trx-cardhd">
                 <span className="when">
                   {whenShort(t.ts)}
                   <b> · {t.season} · wk {t.week}{sides.length > 2 ? " · 3-team" : ""}</b>
-                  {/* WHERE IT ALL WENT (Max, 2026-10-27): the trade's own page
-                      follows every asset forward to where it sits today */}
-                  <a className="trx-trace" href={`#${betaPath(`/trade/${tradeId(t)}`)}`}>Lineage ›</a>
                 </span>
                 {/* THE MARGIN NAMES ITS OWNER, on the same line. A signed WAR
                     figure with nobody's name on it is the one thing this
@@ -1420,33 +1341,27 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
                     ? <span className="n">{edge.note}</span>
                     : <>
                       <span className="v">{edge.v === 0 ? fmtWar(0) : `+${fmtWar(edge.v)}`}</span>
-                      <span className="n">{edge.owner}</span>
+                      <span className="n">{owner}</span>
                     </>}
                 </span>
               </div>
-              <Sides t={t} at={at} vals={vals} pickKtc={pickKtc} nameOf={nameOf} />
+              <TradeGrid t={t} ctx={ctx} who={who} owner={ownerOf} />
+              <div className="trx-go">Where it went ›</div>
             </article>
           );
         })}
         {!shown.length && (
           <div className="empty">
-            {allTeams
-              ? (allSeasons ? "No trades on record." : "No trades in those seasons.")
-              : `No ${allSeasons ? "" : `${seasonLabel} `}trades involving ${teamName}.`}
+            {playerOn || both
+              ? "No trades match these filters."
+              : allTeams
+                ? (allSeasons ? "No trades on record." : "No trades in those seasons.")
+                : `No ${allSeasons ? "" : `${seasonLabel} `}trades involving ${teamName}.`}
           </div>
         )}
       </div>
 
-      <div className="tnote screen">
-        KTC since trade is each side's market on the day of the deal — frozen by the first nightly
-        run that saw it — against today's. A pick prices at its tier: then, where it looked like
-        landing on the day (the original owner's standing at the time, or the slot if already
-        drafted); now, where it lands today. A side holding FAAB carries no market sum, and a trade
-        older than the committed value history reads —. Realized WAR is
-        what each side's assets produced while starting for the team that acquired them; WAR edge
-        is the gap and names the franchise ahead. All of it is a record, not a verdict: no side is
-        inked.
-      </div>
+      <div className="tnote screen">{GRID_NOTE} Tap a trade for where everything in it went.</div>
 
       {filtering === "season" && (
         /* MULTI-SELECT: rows toggle and the sheet stays open, so two or three
@@ -1477,6 +1392,14 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
             name="All teams"
             meta={`${rows.length} trade${rows.length === 1 ? "" : "s"}${allSeasons ? "" : ` in ${seasonLabel}`}`}
             onClick={() => { setTeamsOn(new Set()); setFiltering(null); }} />
+          {/* HOW THE TICKED SET MATCHES. Two rows, always shown, so "between
+              these two only" is findable before the second team is ticked. */}
+          <SheetRow on={teamMatch === "any"} mark={teamMatch === "any" ? "On" : undefined}
+            name="Any ticked team" meta="A trade any of them was in"
+            onClick={() => setTeamMatch("any")} />
+          <SheetRow on={teamMatch === "all"} mark={teamMatch === "all" ? "On" : undefined}
+            name="Between ticked teams only" meta="Tick two: the deals between those two"
+            onClick={() => setTeamMatch("all")} />
           {teams.slice().sort((a, b) => a.team.localeCompare(b.team)).map(t => {
             const n = rows.filter(x => x.sides.some(s => s.rid === t.roster_id)).length;
             const on = teamsOn.has(t.roster_id);
@@ -1488,155 +1411,47 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
           })}
         </Sheet>
       )}
+      {filtering === "player" && (
+        <PlayerSheet traded={traded} on={playerOn}
+          onPick={pid => { setPlayerOn(pid); setFiltering(null); }}
+          onClose={() => setFiltering(null)} />
+      )}
     </div>
   );
 }
 
-/* ---- a trade's sides ------------------------------------------------------ */
-
 /**
- * One column per side, each naming its franchise and carrying what it got,
- * then k / value / delta lines. This was the row drawer; it is the whole card
- * now.
- *
- * THE AT-TRADE KTC HERE IS THE FIGURE THE SNAPSHOT FROZE. It comes off the
- * `AtTrade` record the card built; this is handed it rather than deriving its
- * own.
+ * Pick ONE player. A search over everyone who has moved in a deal, most-traded
+ * first; the list is cut at 60 like the builder's asset sheet, because a
+ * sheet re-rendering several hundred rows per keystroke janks a phone.
  */
-function Sides({ t, at, vals, pickKtc, nameOf }: {
-  t: TradeT; at: AtTrade; vals: Values | null;
-  /** the feed's pick ladder, built once by the caller */
-  pickKtc: Map<string, number>;
-  /** a franchise's current name, for "whose pick" */
-  nameOf: (rid: number) => string;
+function PlayerSheet({ traded, on, onPick, onClose }: {
+  traded: Map<string, { name: string; n: number }>;
+  on: string | null;
+  onPick: (pid: string | null) => void; onClose: () => void;
 }) {
-  const betaPath = useBetaPath();
-  const { meta } = useLeague();
+  const [q, setQ] = useState("");
+  const hits = useMemo(() => {
+    const needle = q.trim().toLowerCase();
+    return [...traded.entries()]
+      .filter(([, p]) => !needle || p.name.toLowerCase().includes(needle))
+      .sort((a, b) => b[1].n - a[1].n || a[1].name.localeCompare(b[1].name));
+  }, [traded, q]);
   return (
-        <div className="trx-drin">
-          {ordered(t).map(s => {
-            const then = at.side(s.rid).mkt;
-            const now = marketNow(s, vals, pickKtc, meta.tep);
-            const real = sideRealized(s);
-            return (
-              <div className="trx-drside" key={s.rid}>
-                <div className="trx-drteam">{s.team} gets</div>
-                <div className="trx-drgot">
-                  {s.got.map((a, i) => {
-                    const [head, tail] = a.label.split(" → ");
-                    // AN UNDRAFTED PICK SAYS WHOSE IT IS AND WHERE IT PROJECTS
-                    // (Max, 2026-09-02): "2027 1st · Point Drake's · proj. mid"
-                    // rather than the writer's "(not yet drafted)", which said
-                    // only what the reader could already see. The writer's
-                    // suffix is dropped here; an "(unused)" slot keeps its word,
-                    // since that is a fact about the draft, not the pick.
-                    const undrafted = a.kind === "pick" && !a.pid && / \(not yet drafted\)$/.test(head);
-                    const name = undrafted ? head.replace(/ \(not yet drafted\)$/, "") : head;
-                    const whose = undrafted && a.orig != null ? `${nameOf(a.orig)}’s` : null;
-                    // THE TIER, THEN AND NOW. A pick prices where it looked
-                    // like landing on the day of the deal and where it lands
-                    // today; when those differ the line says so, because
-                    // that drift is part of the KTC delta beneath it.
-                    // A DRAFTED PICK IS A NUMBER, not a tier (Max, 2026-09-02):
-                    // "1.04" is the fact, Early was only ever its estimate.
-                    const tier = a.kind === "pick" && a.slot != null && a.rnd != null
-                      ? `${a.rnd}.${String(a.slot).padStart(2, "0")}`
-                      : a.kind === "pick" && a.tier
-                        ? (a.tierThen && a.tierThen !== a.tier
-                          ? `${a.tierThen.toLowerCase()} → ${a.tier.toLowerCase()}`
-                          : a.tier.toLowerCase())
-                        : null;
-                    return (
-                      <div className={`it${a.kind !== "player" ? " pick" : ""}`} key={i}>
-                        {a.kind !== "player" && tail ? `${name} → ` : null}
-                        {a.pid
-                          ? <a href={`#${betaPath(`/player/${a.pid}`)}`}>{tail ?? name}</a>
-                          : (tail ?? name)}
-                        {whose && <span className="whose"> · {whose}</span>}
-                        {tier && <span className="tier"> · {undrafted ? "proj. " : ""}{tier}</span>}
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="trx-drrow">
-                  <span className="k">KTC since trade</span>
-                  <span className="v">
-                    {then == null ? NUL : then.toLocaleString()}
-                    {" → "}
-                    {now == null ? NUL : now.toLocaleString()}
-                  </span>
-                  {/* NEVER INKED. The same row renders for both sides of one
-                      trade, so a green figure here and a red one across the
-                      divider declares a winner in CSS. The sign is the claim. */}
-                  <span className="d">
-                    {then != null && now != null ? sgnMkt(now - then) : NUL}
-                  </span>
-                </div>
-                <div className="trx-drrow">
-                  <span className="k">Realized WAR</span>
-                  <span className="v">{real == null ? NUL : fmtWar(real)}</span>
-                </div>
-                {/* its own line, its own label: "+1.85 to come" tacked onto the
-                    realized figure read as a delta of it, which it is not — it
-                    is the side's remaining projected stream (Max, 2026-09-02) */}
-                <div className="trx-drrow">
-                  <span className="k">Proj WAR</span>
-                  <span className="v">{s.future == null ? NUL : sgnWar(s.future)}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
+    <Sheet label="Filter by player" title="Player · pick one" onClose={onClose}>
+      <div className="trx-psearch">
+        <input type="search" autoFocus value={q} placeholder="Player"
+          aria-label="Search players who have been traded"
+          onChange={e => setQ(e.target.value)} />
+      </div>
+      <SheetRow on={on == null} mark={on == null ? "On" : undefined}
+        name="All players" onClick={() => onPick(null)} />
+      {hits.slice(0, 60).map(([pid, p]) => (
+        <SheetRow key={pid} on={pid === on} mark={pid === on ? "On" : undefined}
+          name={p.name} meta={`${p.n} trade${p.n === 1 ? "" : "s"}`}
+          onClick={() => onPick(pid)} />
+      ))}
+      {!hits.length && <div className="trx-pempty">No traded player matches “{q}”.</div>}
+    </Sheet>
   );
-}
-
-/**
- * A side's market TODAY, on the same basis the snapshot froze.
- *
- * THIS IS A PORT OF `scripts/trade_analysis.py: mkt_side`, asset for asset, and
- * it has to stay one: it supplies the right-hand end of `then → now`, and a
- * delta between two different measurements is not a delta.
- *
- *  - PICKS ARE PRICED (settled with Max, 2026-08-21: a pick IS a market asset
- *    until draft night), AT THEIR TIER (Max, 2026-09-02). The writer keys
- *    them `"<ps> <tier> <ord>"` off `values.json`'s pick ladder, where the
- *    tier is a drafted pick's actual slot or an undrafted one's projected
- *    slot off its original owner's projected finish; the asset carries it as
- *    `tier`, and rows written before that date carry none and read Mid. A
- *    CONVERTED pick is the PLAYER (Max, 2026-09-02): once made it prices by
- *    the drafted player's pid, here and in the writer from draft day on.
- *  - FAAB IS SKIPPED, not declined — same as the writer's `continue`.
- *  - THE LEAGUE'S KTC COLUMN, LIKE FOR LIKE (2026-10-07). The writer now prices
- *    players on `ktc_of(row, meta.tep)` at both ends (history rows scaled by
- *    today's league/base ratio) and stamps each side's `mktBasis`. A side on
- *    "tier+tep" prices today's end through `lib/values.ktcOf`, the column every
- *    other KTC figure on the site uses; a side frozen before the history
- *    reached (older basis) keeps the base ladder at both ends, because pricing
- *    one end on the premium would credit a scoring rule to the market.
- *  - ONE UNPRICEABLE ASSET VOIDS THE SIDE, which is the writer's rule too: it
- *    sets the running total to None the moment a source can't price an asset.
- */
-function marketNow(
-  s: TradeSide, vals: Values | null, pickKtc: Map<string, number>, tep?: string,
-): number | null {
-  const premium = s.mktBasis === "tier+tep";
-  if (!vals) return null;
-  let sum = 0;
-  for (const a of s.got) {
-    if (a.kind === "faab") continue;
-    let v: number | undefined;
-    if (a.kind === "pick" && !a.pid && a.ps != null && a.rnd != null) {
-      // an UNMADE pick: the writer's `pick_key`, glyph for glyph — the pick at
-      // its tier, so the delta against the frozen "then" is a delta
-      v = pickKtc.get(`${a.ps} ${a.tier ?? "Mid"} ${ROUND_ORD[a.rnd - 1] ?? `${a.rnd}th`}`);
-    } else if (a.pid) {
-      // a player — including a pick that has been MADE, which is the player
-      // now (Max, 2026-09-02): "what the slot cost -> what he is worth"
-      const row = vals.players[a.pid];
-      v = (premium ? ktcOf(row, tep) : row?.ktc) ?? undefined;
-    }
-    if (!v) return null;
-    sum += v;
-  }
-  return sum || null;
 }

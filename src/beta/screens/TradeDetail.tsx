@@ -1,41 +1,50 @@
 import { useMemo, type ReactNode } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import type { Franchises, Ownership, Team, Trade, TradesPayload } from "../../lib/types";
+import type { Franchises, Ownership, Team, Trade, TradeSide, TradesPayload } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
-import { rosterSeasonOf } from "../../lib/league";
+import { pInfo, POS_COLOR, rosterSeasonOf } from "../../lib/league";
+import { ROUND_ORD } from "../../lib/rosterModel";
 import { readTrades, tradeWhen } from "../../lib/trades";
 import { buildLineage, tradeId, type End, type Lineage, type Step } from "../../lib/tradeLineage";
-import { Band, DataError, IdLines, TapRow, useBetaPath } from "../ui";
+import { Band, DataError, PosSpine, useBetaPath } from "../ui";
+import { GRID_NOTE, TradeGrid, useGridCtx, useWho } from "./tradeGrid";
 import "./trade.css";
 
 /**
  * ONE TRADE, AND WHERE EVERYTHING IN IT WENT (Max, 2026-10-27).
  *
- * The ledger card says what each side got and how it has done. This page
- * answers the next question — what did they do with it — by following every
- * asset forward to wherever it sits today: flipped, drafted, dropped, claimed,
- * still held. A trade hop names what the giving side got back and opens that
- * trade's own page, so a reader walks the whole tree a deal at a time.
+ * Two parts, in the order a reader asks the questions:
+ *
+ *  1. THE DEAL — the same grid the ledger card carries: what each side got,
+ *     the WAR it has returned, what is still projected, the market then → now.
+ *  2. WHERE IT WENT — per side, one entry per asset. The ANSWER comes first:
+ *     the entry's header names who holds it today (or that it was cut, or is
+ *     an unmade pick), so the page reads top to bottom without opening
+ *     anything. Under it, the path: how the sender came to hold it, this
+ *     trade, then every move since — trades (with what the giving side got
+ *     back, and a tap to that trade's page), the draft, drops, claims.
  *
  * THE MATH IS IN `lib/tradeLineage`, dependency-free and under
- * `tests/tradeLineage.test.ts`. This file names teams and lays rows out.
+ * `tests/tradeLineage.test.ts`. This file names people and lays things out.
  *
- * BOTH SIDES STAY NEUTRAL (SKILL §5): two identical sections in roster-id
- * order, nothing inked by who came out ahead. The one accent is the "Now" row,
- * because where an asset ended up is the answer the page exists to give.
+ * BOTH SIDES STAY NEUTRAL (SKILL §5): sections in roster-id order, one ink.
+ * The one accent on the page marks this trade's own step in each path — the
+ * "you are here" a reader needs in a chain that runs both ways from it.
  */
 export default function TradeDetail() {
   const id = useParams().id ?? "";
   const nav = useNavigate();
   const betaPath = useBetaPath();
-  const { league } = useLeague();
+  const { league, players } = useLeague();
   const caps = useLeagueCaps();
   const file = useJson<TradesPayload>(caps.trades ? "trades.json" : null);
   const own = useJson<Ownership>(caps.trades ? "ownership.json" : null);
-  const fr = useJson<Franchises>("franchises.json").data;
   const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
+  const fr = useJson<Franchises>("franchises.json").data;
+  const ctx = useGridCtx();
+  const who = useWho();
 
   const index = useMemo(() => {
     if (!file.data || !own.data || !teams) return null;
@@ -45,174 +54,205 @@ export default function TradeDetail() {
     return buildLineage(readTrades(file.data).trades, own.data, rostered);
   }, [file.data, own.data, teams]);
 
-  /* NAMES. A trade hop names the team as it was named in THAT trade (the
-     writer stamps it on each side); an ownership event already carries the
-     name of its day. The manager is the constant a reader recognizes across
-     renames, so it rides along on the sub-line wherever it can be found. */
-  const managerOf = (rid: number | null, season?: string): string | null => {
-    if (rid == null || !fr) return null;
-    const ss = fr[String(rid)]?.seasons ?? [];
-    return (ss.find(s => s.season === season) ?? ss[ss.length - 1])?.manager ?? null;
-  };
+  /* NAMES. Managers are the constant across renames, so they lead; the
+     franchise name rides beneath as it stood at the time. An ownership event
+     names its team as it was THEN, so its manager is found by that name. */
   const managerByName = useMemo(() => {
     const m = new Map<string, string>();
     for (const f of Object.values(fr ?? {})) for (const s of f.seasons) m.set(s.name.trim(), s.manager);
     return m;
   }, [fr]);
-  const nowName = (rid: number) => teams?.find(t => t.roster_id === rid)?.team.trim() ?? `Team ${rid}`;
-  const sideName = (t: Trade, rid: number | null) =>
-    rid == null ? "another team" : (t.sides.find(s => s.rid === rid)?.team.trim() ?? nowName(rid));
+  const nowTeam = (rid: number) => teams?.find(t => t.roster_id === rid);
+  const ownerOf = (rid: number) => nowTeam(rid)?.manager ?? `Team ${rid}`;
+  const sideOf = (t: Trade, rid: number | null) => (rid == null ? null : t.sides.find(s => s.rid === rid) ?? null);
+  /** a side of some trade as "manager", falling back to the franchise name */
+  const mgrIn = (t: Trade, rid: number | null): string => {
+    if (rid == null) return "another team";
+    const s = sideOf(t, rid);
+    return who(rid, t.season, s?.team ?? "").manager ?? s?.team.trim() ?? ownerOf(rid);
+  };
+  const playerTo = (pid: string) => betaPath(`/player/${pid}`);
+  const back = () => nav(betaPath("/trade?scope=history"));
 
   const trade = index?.byId.get(id) ?? null;
-  const reversed = trade ? index!.reversed.has(id) : false;
-  const back = () => nav(betaPath("/trade?scope=history"));
 
   if (!caps.trades) return (
     <>
-      <Head back={back} sub="" />
+      <Head back={back} />
       <div className="tnote screen">The trade ledger is not published for {league.name}.</div>
     </>
   );
-  if (file.error || own.error) return <><Head back={back} sub="" /><DataError what="Trades didn't load" /></>;
-  if (!index) return <><Head back={back} sub="" /><div className="empty">Loading…</div></>;
+  if (file.error || own.error) return <><Head back={back} /><DataError what="Trades didn't load" /></>;
+  if (!index) return <><Head back={back} /><div className="empty">Loading…</div></>;
   if (!trade) return (
     <>
-      <Head back={back} sub="" />
+      <Head back={back} />
       <div className="tnote screen">No trade on record matches this link.</div>
     </>
   );
 
+  const reversed = index.reversed.has(id);
   const sides = trade.sides.slice().sort((a, b) => a.rid - b.rid);
-  const when = (s: Step): string =>
+
+  const whenOf = (s: Step): string =>
     s.kind === "trade" ? `${s.trade.season} · wk ${s.trade.week}`
       : s.kind === "drafted" ? `${s.season} · draft`
         : `${s.season} · wk ${s.week}`;
-  const playerTo = (pid: string) => betaPath(`/player/${pid}`);
 
-  /** one step as a row: what happened, then who and for what */
-  const stepRow = (s: Step, key: string, zebra: boolean, pre = false) => {
-    let name: string, sub: string | null, to: string | null = null;
+  /** a step as [what happened, who / for what, where a tap goes] */
+  const describe = (s: Step): [string, string | null, string | null] => {
     if (s.kind === "trade") {
-      const gave = sideName(s.trade, s.from);
-      name = `Traded to ${sideName(s.trade, s.to)}`;
-      const ret = s.got.map(a => a.label.replace(/ \(not yet drafted\)$/, "")).join(", ");
-      sub = [
-        managerOf(s.to, s.trade.season),
-        ret ? `${gave} got ${ret}` : null,
-        s.reversed ? "reversed by commissioner" : null,
-      ].filter(Boolean).join(" · ");
-      // this trade's own page is the row's destination — unless it is THIS page
+      const ret = s.got.map(a => {
+        const [h, t] = a.label.split(" → ");
+        return t ?? h.replace(/ \(not yet drafted\)$/, "");
+      }).join(", ");
       const hop = tradeId(s.trade);
-      to = hop === id ? null : betaPath(`/trade/${hop}`);
-    } else if (s.kind === "drafted") {
-      name = `Drafted${s.slot ? ` ${s.slot}` : ""}${s.team ? ` by ${s.team}` : ""}`;
-      sub = s.team ? managerByName.get(s.team) ?? null : null;
-      to = playerTo(s.pid);
-    } else if (s.kind === "dropped") {
-      name = `Dropped by ${s.team}`; sub = managerByName.get(s.team) ?? null;
-    } else if (s.kind === "claimed") {
-      name = `${s.how === "waiver" ? "Waiver claim" : "Signed"} by ${s.team}`;
-      sub = managerByName.get(s.team) ?? null;
-    } else {
-      name = `Commissioner moved to ${s.team}`; sub = managerByName.get(s.team) ?? null;
+      return [
+        `Traded to ${mgrIn(s.trade, s.to)}`,
+        [ret ? `${mgrIn(s.trade, s.from)} got ${ret}` : null,
+          s.reversed ? "reversed by commissioner" : null].filter(Boolean).join(" · ") || null,
+        hop === id ? null : betaPath(`/trade/${hop}`),
+      ];
     }
-    return (
-      <TapRow key={key} to={to} className={[zebra ? "zebra" : "", pre ? "trl-pre" : ""].filter(Boolean).join(" ")}>
-        <td className="t trl-when">{pre ? "Before" : when(s)}</td>
-        <td className="idc t"><IdLines name={name} sub={sub ?? " "} /></td>
-      </TapRow>
-    );
+    const mgr = (team: string | null) => (team ? managerByName.get(team) ?? team : null);
+    if (s.kind === "drafted")
+      return [`Drafted${s.slot ? ` ${s.slot}` : ""}${s.team ? ` by ${mgr(s.team)}` : ""}`,
+        s.team && managerByName.has(s.team) ? s.team : null, playerTo(s.pid)];
+    if (s.kind === "dropped") return [`Dropped by ${mgr(s.team)}`, null, null];
+    if (s.kind === "claimed")
+      return [`${s.how === "waiver" ? "Waiver claim" : "Signed"} by ${mgr(s.team)}`, null, null];
+    return [`Commissioner moved him to ${mgr(s.team)}`, null, null];
   };
 
-  const endRow = (l: Lineage, e: End, key: string) => {
-    let name: string, sub: string | null = null;
+  /** where it is today, as [headline, detail] */
+  const status = (e: End, rid: number): [string, string] => {
     switch (e.kind) {
-      case "rostered": name = `On ${nowName(e.rid)}`; sub = managerOf(e.rid); break;
-      case "free agent": name = "Free agent"; sub = `since ${e.season} · wk ${e.week}`; break;
-      case "pick": name = `Held by ${nowName(e.rid)}`; sub = `${managerOf(e.rid) ?? ""} · ${e.ps} draft`.replace(/^ · /, ""); break;
-      case "unused": name = "Slot went unused"; break;
-      case "faab": name = "Spent"; sub = "FAAB has no afterlife"; break;
-      default: name = "Off every roster"; sub = "no drop on record";
+      case "rostered": {
+        const t = nowTeam(e.rid);
+        return [t?.manager ?? `Team ${e.rid}`, e.rid === rid ? "still theirs" : t?.team.trim() ?? ""];
+      }
+      case "free agent": return ["Free agent", `cut ${e.season} · wk ${e.week}`];
+      case "pick": return [ownerOf(e.rid), `${e.ps} ${ROUND_ORD[e.rnd - 1] ?? `${e.rnd}th`} · to be made`];
+      case "unused": return ["Unused", "slot went unused"];
+      case "faab": return ["Spent", "FAAB"];
+      default: return ["Off rosters", "no drop on record"];
     }
-    const pid = l.asset.pid;
+  };
+
+  const entry = (sd: TradeSide, l: Lineage, i: number) => {
+    const a = l.asset;
+    const [head, tail] = a.label.split(" → ");
+    const pick = head.replace(/ \((not yet drafted|unused)\)$/, "");
+    const name = tail ?? pick;
+    const pos = a.pid ? pInfo(players, a.pid)[1] : "";
+    const moves = l.steps.filter(s => s.kind !== "drafted").length;
+    const sub = [
+      tail ? pick : null,
+      l.from != null ? `from ${mgrIn(trade, l.from)}` : null,
+      a.kind === "pick" && a.orig != null && a.orig === l.from ? "their own pick" : null,
+      moves ? `${moves} move${moves === 1 ? "" : "s"} since` : null,
+    ].filter(Boolean).join(" · ");
+    const [now, nowSub] = status(l.end, sd.rid);
+    const path: { key: string; when: string; what: string; sub: string | null; to: string | null; cls: string }[] = [];
+    if (l.origin) {
+      const [w, s, to] = describe(l.origin);
+      path.push({ key: "o", when: whenOf(l.origin), what: w, sub: s, to, cls: "pre" });
+    }
+    path.push({
+      key: "h", when: `${trade.season} · wk ${trade.week}`,
+      what: `This trade · to ${mgrIn(trade, sd.rid)}`, sub: null, to: null, cls: "here",
+    });
+    l.steps.forEach((s, j) => {
+      const [w, sb, to] = describe(s);
+      path.push({ key: `s${j}`, when: whenOf(s), what: w, sub: sb, to, cls: s.kind === "trade" ? "hop" : "" });
+    });
     return (
-      <TapRow key={key} to={e.kind === "rostered" && pid ? playerTo(pid) : null} className="trl-now">
-        <td className="t trl-when">Now</td>
-        <td className="idc t"><IdLines name={name} sub={sub ?? " "} /></td>
-      </TapRow>
+      <article className="trl-item" key={i}>
+        <div className="trl-hd">
+          <PosSpine color={POS_COLOR[pos]} />
+          <div className="trl-id">
+            <span className="nm">{a.pid ? <a href={`#${playerTo(a.pid)}`}>{name}</a> : name}</span>
+            {sub && <span className="sb">{sub}</span>}
+          </div>
+          <div className="trl-now">
+            <span className="k">Now</span>
+            <span className="v">{now}</span>
+            <span className="s">{nowSub}</span>
+          </div>
+        </div>
+        <ol className="trl-path">
+          {path.map(p => (
+            <PathStep key={p.key} to={p.to} cls={p.cls} when={p.when} what={p.what} sub={p.sub} />
+          ))}
+        </ol>
+      </article>
     );
   };
 
+  const managers = sides.map(s => mgrIn(trade, s.rid)).join(" ⇄ ");
   return (
     <>
       <Head back={back}
-        sub={`${tradeWhen(trade.ts)} · ${trade.season} · wk ${trade.week}${sides.length > 2 ? " · 3-team" : ""}${reversed ? " · reversed by commissioner" : ""}`} />
+        sub={`${tradeWhen(trade.ts)} · ${trade.season} wk ${trade.week}${sides.length > 2 ? " · 3-team" : ""}`}
+        who={managers} />
+      {reversed && (
+        <div className="tnote screen trl-rev">
+          A commissioner reversed this trade the same week. It stays on the record because it
+          happened on Sleeper; the paths below show the assets going back.
+        </div>
+      )}
+      <Band label="The deal" note="Today's read" />
+      <TradeGrid t={trade} ctx={ctx} who={who} owner={ownerOf} playerTo={playerTo} />
+      <div className="trl-sides">
       {sides.map(sd => {
         const lines = index.trace(trade, sd.rid);
         return (
           <section key={sd.rid}>
-            <Band label={`${sd.team.trim()} got`} note={managerOf(sd.rid, trade.season) ?? undefined} />
-            <table className="v3tbl trl">
-              <thead>
-                <tr>
-                  <th className="t trl-wc">When</th>
-                  <th className="t trl-wd">What happened next</th>
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((l, i) => {
-                  const [head, tail] = l.asset.label.split(" → ");
-                  const label = head.replace(/ \(not yet drafted\)$/, "");
-                  const assetName = l.asset.pid
-                    ? <a href={`#${playerTo(l.asset.pid)}`}>{tail ? `${label} → ${tail}` : label}</a>
-                    : label;
-                  const fromLine = l.from != null ? `from ${sideName(trade, l.from)}` : null;
-                  const ownPick = l.asset.kind === "pick" && l.asset.orig != null && l.asset.orig === l.from;
-                  const rows = [];
-                  if (l.origin) rows.push(stepRow(l.origin, `o${i}`, false, true));
-                  l.steps.forEach((s, j) => rows.push(stepRow(s, `s${i}-${j}`, j % 2 === 1)));
-                  rows.push(endRow(l, l.end, `e${i}`));
-                  return (
-                    <AssetGroup key={i} name={assetName}
-                      sub={[fromLine, ownPick ? "their own pick" : null].filter(Boolean).join(" · ")}>
-                      {rows}
-                    </AssetGroup>
-                  );
-                })}
-              </tbody>
-            </table>
+            <Band label={`Where ${mgrIn(trade, sd.rid)}’s haul went`}
+              note={`${lines.length} asset${lines.length === 1 ? "" : "s"}`} />
+            <div className="trl-list">{lines.map((l, i) => entry(sd, l, i))}</div>
           </section>
         );
       })}
+      </div>
       <div className="tnote screen">
-        Every asset is followed forward from this trade to where it sits today. A pick is followed
-        through later trades of that pick, then into the player it became. A traded hop names
-        what the giving side got back; tap it for that trade's own page. Before is how the
-        sending side came to hold it. Teams are named as they were at the time, with the manager
-        beside them.
+        {GRID_NOTE} Below the deal, every asset is followed from this trade to where it sits
+        today: a pick through later trades of that pick and into the player it became. A trade
+        step names what the giving side got back; tap it for that trade's own page.
       </div>
     </>
   );
 }
 
-function Head({ back, sub }: { back: () => void; sub: string }) {
+function Head({ back, sub, who }: { back: () => void; sub?: string; who?: string }) {
   return (
-    <div className="v3-head">
+    <div className="v3-head trl-head">
       <button type="button" className="rail-back trl-back" onClick={back}>← Ledger</button>
-      <h1>Trade</h1>
+      <h1>{who ?? "Trade"}</h1>
       {sub && <span className="sub">{sub}</span>}
     </div>
   );
 }
 
-/** an asset's header row, then its path */
-function AssetGroup({ name, sub, children }: { name: ReactNode; sub: string; children: ReactNode }) {
-  return (
+/** one step of a path. A step with somewhere to go is a link with a row's
+ *  keyboard contract; one without is plain. */
+function PathStep({ to, cls, when, what, sub }: {
+  to: string | null; cls: string; when: string; what: string; sub: string | null;
+}) {
+  const nav = useNavigate();
+  const body: ReactNode = (
     <>
-      <tr className="trl-asset">
-        <td colSpan={2}><IdLines name={name} sub={sub || " "} /></td>
-      </tr>
-      {children}
+      <span className="w">{when}</span>
+      <span className="mk" aria-hidden="true" />
+      <span className="e">
+        <span className="t">{what}</span>
+        {sub && <span className="sb">{sub}</span>}
+      </span>
+      {to && <span className="go" aria-hidden="true">›</span>}
     </>
   );
+  return to
+    ? <li className={`trl-st ${cls} tap`} role="link" tabIndex={0}
+      onClick={() => nav(to)} onKeyDown={e => { if (e.key === "Enter") nav(to); }}>{body}</li>
+    : <li className={`trl-st ${cls}`}>{body}</li>;
 }

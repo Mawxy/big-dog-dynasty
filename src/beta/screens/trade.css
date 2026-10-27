@@ -338,11 +338,18 @@
    boxed: a card inside a bordered feed is a card inside a card. The one
    accent in this view is the top rule on a card a `?load=` link named. */
 .trx-feed { display: flex; flex-direction: column; }
-.trx-card { padding: 10px var(--v3pad) 12px; border-bottom: 1px solid var(--rule); }
+/* THE CARD IS THE LINK (2026-10-27): no horizontal padding of its own, so the
+   grid's cells carry the board gutter and line up with the band above */
+.trx-card {
+  padding: 10px 0 8px; border-bottom: 1px solid var(--rule);
+  cursor: pointer;
+}
+.trx-card:hover { background: var(--sel); }
+.trx-card:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
 .trx-card.on { border-top: 3px solid var(--acc); }
 .trx-cardhd {
   display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
-  flex-wrap: wrap; margin-bottom: 8px;
+  flex-wrap: wrap; margin-bottom: 4px; padding: 0 var(--v3pad);
 }
 /* the date keeps the CONDENSED face: a label, not a magnitude anybody
    compares down the feed */
@@ -367,66 +374,65 @@
 }
 .trx-feed .empty { padding: 30px var(--v3pad); }
 
-.trx-drin { display: flex; flex-wrap: wrap; gap: 1px; background: var(--rule); }
-/* flex-basis rather than a fixed count: a three-team deal has three sides, and
-   they wrap to their own rows on a phone instead of squeezing to a third each */
-.trx-drside { flex: 1 1 240px; min-width: 0; background: var(--band); padding: 10px 12px 12px; }
-.trx-drteam {
-  font: 600 11px/1.3 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim);
+/* ---- THE TRADE GRID (tradeGrid.tsx, 2026-10-27) --------------------------
+   Sides across, measures down. The header row names each side by manager
+   over franchise; the label column prints each measure once. Both sides are
+   one ink: a colored figure here declares a winner in CSS. */
+.v3tbl.trg { table-layout: fixed; }
+.v3tbl.trg thead th { vertical-align: bottom; padding-top: 6px; padding-bottom: 6px; }
+.v3tbl.trg thead th:first-child, .v3tbl.trg tbody th:first-child { padding-left: var(--v3pad); }
+.v3tbl.trg .trg-h .mgr, .v3tbl.trg .trg-h .tm {
+  display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.trx-drgot { margin: 5px 0 9px; font: 400 12.5px/1.45 var(--sans); color: var(--txt2); }
-.trx-drgot .it { overflow-wrap: anywhere; }
-.trx-drgot .it.pick { color: var(--dim); }
-/* whose pick it is, in the body face beside the pick's name */
-.trx-drgot .it .whose { color: var(--dim); }
-/* the pick's tier, then → now, in the label face so it reads as a
-   qualifier and not as part of the pick's name */
-.trx-drgot .it .tier {
-  font: 600 10px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
-  color: var(--dim2);
+.v3tbl.trg .trg-h .mgr {
+  font: 600 12.5px/1.25 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--txt);
 }
-.trx-drgot a { color: var(--txt2); }
-.trx-drgot a:hover { color: var(--acc); }
-
-/* A k / v / delta line. THE DELTA IS NEVER INKED. `.f.up` / `.f.down` are
-   spent on signed figures elsewhere on the board and are deliberately absent
-   here: this drawer prints the same row for both sides of one trade, so a
-   green figure on one and a red on the other declares a winner in CSS. The
-   sign carries the direction, which is the whole claim. Do not add them. */
-.trx-drrow {
-  display: flex; align-items: baseline; gap: 8px;
-  padding: 5px 0; border-top: 1px solid var(--hair);
-  font-variant-numeric: tabular-nums;
+.v3tbl.trg .trg-h .tm {
+  font: 400 11.5px/1.3 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim);
 }
-.trx-drrow .k {
-  flex: 0 0 auto;
-  font: 600 10px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim2);
+.v3tbl.trg tbody th.trg-k {
+  text-align: left; vertical-align: top; padding: 7px 8px 7px var(--v3pad);
+  font: 600 10.5px/1.5 var(--cond); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--dim2); border-bottom: 1px solid var(--hair);
 }
-.trx-drrow .v {
-  margin-left: auto;
-  font: 600 12.5px/1.3 var(--mono); font-variant-numeric: tabular-nums;
-  color: var(--txt2);
+.v3tbl.trg tbody td {
+  white-space: normal; vertical-align: top; padding-top: 6px; padding-bottom: 6px; line-height: 1.3;
 }
-/* the delta at the SAME size as the figure it follows (Max, 2026-09-02): a
-   smaller "+329" beside "8,469 → 8,798" read as a footnote to the pair rather
-   than as the line's answer. Same face, same size; the ink stays quieter. */
-.trx-drrow .d {
-  flex: 0 0 auto; min-width: 70px; text-align: right;
-  font: 600 12.5px/1.3 var(--mono); font-variant-numeric: tabular-nums;
-  color: var(--dim);
+.v3tbl.trg tbody tr:last-child th, .v3tbl.trg tbody tr:last-child td { border-bottom: 0; }
+.trg-a + .trg-a { margin-top: 5px; }
+.trg-a .nm {
+  display: block; font: 600 13.5px/1.3 var(--sans); color: var(--txt); overflow-wrap: anywhere;
 }
-.trx-drrow .nul { color: var(--dim3); }
+.trg-a .nm a { color: inherit; }
+.trg-a .nm a:hover { color: var(--acc); }
+.trg-a.pick .nm { font-weight: 400; color: var(--txt2); }
+.trg-a .sb { display: block; font: 400 11.5px/1.3 var(--sans); color: var(--dim); }
+.v3tbl.trg td .f {
+  font: 600 13px/1.3 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2);
+  white-space: nowrap;
+}
+.v3tbl.trg td .d {
+  display: block; font: 400 11.5px/1.3 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim);
+}
+.v3tbl.trg .nul { color: var(--dim3); }
+/* the card's way onward, where the eye ends the card */
+.trx-go {
+  padding: 4px var(--v3pad) 0; text-align: right;
+  font: 600 11px/1.3 var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
+}
+.trx-card:hover .trx-go { color: var(--acc); }
 
 /* ---- the team filter, in the band --------------------------------------- */
 /* the two filter buttons in the history band, side by side */
-.trx-fils { display: inline-flex; gap: 6px; }
+.trx-fils { display: inline-flex; gap: 6px; min-width: 0; flex-wrap: wrap; justify-content: flex-end; }
 .trx-fil {
   padding: 5px 11px;
   background: var(--band); border: 1px solid var(--rule); color: var(--dim);
   cursor: pointer;
   font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  /* three filters on a phone: one line each, cut rather than wrapped */
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 240px;
 }
 .trx-fil:hover { color: var(--txt2); }
 .trx-fil.on { background: var(--sel); border-color: var(--rule-2); color: var(--txt); }
@@ -474,42 +480,98 @@
   .trx-cmp .trx-cmpcard:nth-child(odd) { border-right: 1px solid var(--hair); }
 }
 
-/* ---- ONE TRADE'S LINEAGE (Max, 2026-10-27) --------------------------------
-   TradeDetail.tsx. One table per side; each asset is a header row on --panel
-   followed by its path. "Before" is muted — it is context, not the subject.
-   The one accent in this view is the "Now" row's spine: where it ended up is
-   the answer the page exists to give. */
+/* ---- ONE TRADE'S PAGE (TradeDetail.tsx, 2026-10-27) ----------------------
+   The deal grid, then per side one entry per asset: a header that answers
+   "where is it now" on the right, over the path that got it there. The one
+   accent on the page is each path's "this trade" step. */
+.trl-head h1 { overflow-wrap: anywhere; }
 .trl-back { margin: 0 4px 0 0; background: none; border: 0; padding: 0; flex: 0 0 100%; text-align: left; }
-/* column widths as percentages on the header cells; the date column narrows
-   once the row has a desktop's width to give the event */
-.v3tbl.trl th.trl-wc { width: 26%; }
-.v3tbl.trl th.trl-wd { width: 74%; }
+.trl-rev { color: var(--warn); }
+
+.trl-list { display: flex; flex-direction: column; }
+.trl-item { border-bottom: 1px solid var(--rule); padding: 10px 0 8px; }
+.trl-item:last-child { border-bottom: 0; }
+
+/* the header: spine, the asset, and where it is now */
+.trl-hd {
+  display: flex; align-items: stretch; gap: 10px;
+  padding: 0 var(--v3pad) 0 0;
+}
+.trl-hd .v3spine { flex: 0 0 3px; }
+.trl-id { flex: 1 1 auto; min-width: 0; padding-left: calc(var(--v3pad) - 13px); }
+.trl-id .nm {
+  display: block; font: 600 15px/1.25 var(--sans); color: var(--txt); overflow-wrap: anywhere;
+}
+.trl-id .nm a { color: inherit; }
+.trl-id .nm a:hover { color: var(--acc); }
+.trl-id .sb { display: block; margin-top: 2px; font: 400 11.5px/1.35 var(--sans); color: var(--dim); }
+.trl-now {
+  flex: 0 0 auto; max-width: 46%; text-align: right; min-width: 0;
+  display: flex; flex-direction: column; align-items: flex-end;
+}
+.trl-now .k {
+  font: 600 10px/1.4 var(--cond); letter-spacing: .16em; text-transform: uppercase; color: var(--dim2);
+}
+.trl-now .v {
+  font: 600 13.5px/1.3 var(--cond); letter-spacing: .06em; text-transform: uppercase; color: var(--txt);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.trl-now .s {
+  font: 400 11.5px/1.3 var(--sans); color: var(--dim);
+  max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+/* the path: when | a marker on a rule | what happened */
+.trl-path { list-style: none; margin: 8px 0 0; padding: 0; }
+.trl-st {
+  display: grid; grid-template-columns: 84px 14px 1fr 14px; column-gap: 8px;
+  padding: 0 var(--v3pad); min-height: 34px;
+}
+.trl-st.tap { cursor: pointer; }
+.trl-st.tap:hover { background: var(--sel); }
+.trl-st.tap:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.trl-st .w {
+  padding: 6px 0 4px; white-space: nowrap;
+  font: 600 11px/1.35 var(--cond); letter-spacing: .08em; text-transform: uppercase;
+  color: var(--dim); font-variant-numeric: tabular-nums;
+}
+/* the rule runs through every step; the marker sits on it. Square, like
+   everything else on the board. */
+.trl-st .mk { position: relative; }
+.trl-st .mk::before {
+  content: ""; position: absolute; left: 6px; top: 0; bottom: 0; width: 2px; background: var(--rule-2);
+}
+.trl-st:first-child .mk::before { top: 11px; }
+.trl-st:last-child .mk::before { bottom: auto; height: 11px; }
+.trl-st .mk::after {
+  content: ""; position: absolute; left: 3px; top: 8px; width: 8px; height: 8px;
+  background: var(--bg); border: 2px solid var(--dim2); box-sizing: border-box;
+}
+.trl-st.hop .mk::after { background: var(--txt2); border-color: var(--txt2); }
+.trl-st.here .mk::after { background: var(--acc); border-color: var(--acc); }
+.trl-st .e { padding: 5px 0 6px; min-width: 0; }
+.trl-st .e .t { display: block; font: 400 13.5px/1.35 var(--sans); color: var(--txt); overflow-wrap: anywhere; }
+.trl-st .e .sb { display: block; font: 400 11.5px/1.35 var(--sans); color: var(--dim); overflow-wrap: anywhere; }
+.trl-st.pre .e .t, .trl-st.pre .w { color: var(--dim); }
+.trl-st.here .e .t { font-weight: 600; }
+.trl-st.here .w { color: var(--acc); }
+.trl-st .go {
+  align-self: center; text-align: right; font: 600 14px/1 var(--cond); color: var(--dim2);
+}
+.trl-st.tap:hover .go { color: var(--acc); }
+
 @media (min-width: 900px) {
-  .v3tbl.trl th.trl-wc { width: 14%; }
-  .v3tbl.trl th.trl-wd { width: 86%; }
+  .trl-st { grid-template-columns: 110px 14px 1fr 14px; }
 }
-.v3tbl.trl { table-layout: fixed; }
-.v3tbl.trl tbody td { white-space: normal; }
-.v3tbl.trl td.idc { max-width: none; width: auto; }
-.v3tbl.trl .idc-n, .v3tbl.trl .idc-s { white-space: normal; overflow-wrap: anywhere; }
-.v3tbl.trl tr.trl-asset td {
-  background: var(--band); border-top: 1px solid var(--rule);
-  padding: 8px var(--v3pad) 6px;
+
+/* DESKTOP (2026-10-27). The grid is narrow by nature, so the ledger runs two
+   trades a row rather than one card with two-thirds of its width empty, and
+   the trade page sets each side's paths beside each other under the deal. */
+@media (min-width: 900px) {
+  .trx-feed { display: grid; grid-template-columns: 1fr 1fr; }
+  .trx-feed .empty { grid-column: 1 / -1; }
+  .trx-card:nth-child(odd) { border-right: 1px solid var(--rule); }
+  .v3tbl.trg th.trg-k { width: 14% !important; }
+  .trl-sides { display: grid; grid-template-columns: 1fr 1fr; }
+  .trl-sides > section + section { border-left: 1px solid var(--rule); }
 }
-.v3tbl.trl tr.trl-asset .idc-n { font-weight: 600; }
-.trl-when {
-  font: 600 12px/1.3 var(--cond); letter-spacing: .06em; text-transform: uppercase;
-  color: var(--dim); font-variant-numeric: tabular-nums; vertical-align: top; padding-top: 8px !important;
-  white-space: nowrap !important;
-}
-.v3tbl.trl tr.trl-pre .idc-n { color: var(--dim); font-weight: 400; }
-.v3tbl.trl tr.trl-now td:first-child { position: relative; color: var(--acc); }
-.v3tbl.trl tr.trl-now td:first-child::before {
-  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--acc);
-}
-/* the ledger card's way into a trade's lineage page, beside its date */
-.trx-cardhd .when .trx-trace {
-  margin-left: 10px; font: 600 11px/1.3 var(--cond); letter-spacing: .12em;
-  text-transform: uppercase; color: var(--txt2); text-decoration: none;
-}
-.trx-cardhd .when .trx-trace:hover { color: var(--acc); }
