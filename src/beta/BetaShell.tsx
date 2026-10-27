@@ -26,6 +26,7 @@ import RecordBook from "./screens/RecordBook";
 import Movers from "./screens/Movers";
 import Trends from "./screens/Trends";
 import PlayerTrades from "./screens/PlayerTrades";
+import TradeDetail from "./screens/TradeDetail";
 import Recaps from "./screens/Recaps";
 import "./beta.css";
 
@@ -294,6 +295,7 @@ function BetaBoard() {
                 <Route path="rankings" element={<Navigate replace to={`${base}/players`} />} />
                 <Route path="rankings/:scope" element={<Navigate replace to={`${base}/players`} />} />
                 <Route path="trade" element={<Trade />} />
+                <Route path="trade/:id" element={<TradeDetail />} />
                 {/* THE LEDGER IS A SCOPE, NOT A SCREEN. Trade's History scope
                     is the settled-trades record the ledger page was, so the old
                     address lands on it with that scope already set rather than

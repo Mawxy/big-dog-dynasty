@@ -473,3 +473,43 @@
   .trx-cmp { display: grid; grid-template-columns: 1fr 1fr; }
   .trx-cmp .trx-cmpcard:nth-child(odd) { border-right: 1px solid var(--hair); }
 }
+
+/* ---- ONE TRADE'S LINEAGE (Max, 2026-10-27) --------------------------------
+   TradeDetail.tsx. One table per side; each asset is a header row on --panel
+   followed by its path. "Before" is muted — it is context, not the subject.
+   The one accent in this view is the "Now" row's spine: where it ended up is
+   the answer the page exists to give. */
+.trl-back { margin: 0 4px 0 0; background: none; border: 0; padding: 0; flex: 0 0 100%; text-align: left; }
+/* column widths as percentages on the header cells; the date column narrows
+   once the row has a desktop's width to give the event */
+.v3tbl.trl th.trl-wc { width: 26%; }
+.v3tbl.trl th.trl-wd { width: 74%; }
+@media (min-width: 900px) {
+  .v3tbl.trl th.trl-wc { width: 14%; }
+  .v3tbl.trl th.trl-wd { width: 86%; }
+}
+.v3tbl.trl { table-layout: fixed; }
+.v3tbl.trl tbody td { white-space: normal; }
+.v3tbl.trl td.idc { max-width: none; width: auto; }
+.v3tbl.trl .idc-n, .v3tbl.trl .idc-s { white-space: normal; overflow-wrap: anywhere; }
+.v3tbl.trl tr.trl-asset td {
+  background: var(--band); border-top: 1px solid var(--rule);
+  padding: 8px var(--v3pad) 6px;
+}
+.v3tbl.trl tr.trl-asset .idc-n { font-weight: 600; }
+.trl-when {
+  font: 600 12px/1.3 var(--cond); letter-spacing: .06em; text-transform: uppercase;
+  color: var(--dim); font-variant-numeric: tabular-nums; vertical-align: top; padding-top: 8px !important;
+  white-space: nowrap !important;
+}
+.v3tbl.trl tr.trl-pre .idc-n { color: var(--dim); font-weight: 400; }
+.v3tbl.trl tr.trl-now td:first-child { position: relative; color: var(--acc); }
+.v3tbl.trl tr.trl-now td:first-child::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--acc);
+}
+/* the ledger card's way into a trade's lineage page, beside its date */
+.trx-cardhd .when .trx-trace {
+  margin-left: 10px; font: 600 11px/1.3 var(--cond); letter-spacing: .12em;
+  text-transform: uppercase; color: var(--txt2); text-decoration: none;
+}
+.trx-cardhd .when .trx-trace:hover { color: var(--acc); }

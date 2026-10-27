@@ -12,6 +12,7 @@ import { POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
 import { ktcOf } from "../../lib/values";
 import { readTrades } from "../../lib/trades";
+import { tradeId } from "../../lib/tradeLineage";
 import { useMobile } from "../../lib/useWidth";
 import {
   makePickIndexer, tradeLedger,
@@ -1276,6 +1277,7 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
   open: string | null; setOpen: (k: string | null) => void;
 }) {
   const { league } = useLeague();
+  const betaPath = useBetaPath();
   const atTrade = useAtTrade();
   // the current market, for the drawer's change-since read
   const vals = useJson<Values>("data/values.json", "globalDaily").data;
@@ -1404,6 +1406,9 @@ function History({ trades, season, seasons, setSeason, open, setOpen }: {
                 <span className="when">
                   {whenShort(t.ts)}
                   <b> · {t.season} · wk {t.week}{sides.length > 2 ? " · 3-team" : ""}</b>
+                  {/* WHERE IT ALL WENT (Max, 2026-10-27): the trade's own page
+                      follows every asset forward to where it sits today */}
+                  <a className="trx-trace" href={`#${betaPath(`/trade/${tradeId(t)}`)}`}>Lineage ›</a>
                 </span>
                 {/* THE MARGIN NAMES ITS OWNER, on the same line. A signed WAR
                     figure with nobody's name on it is the one thing this
