@@ -1,5 +1,5 @@
 import { Fragment, useMemo, useState } from "react";
-import type { Franchises, FranchiseSeason, Matchups, Weekly } from "../../lib/types";
+import type { BracketFile, Franchises, FranchiseSeason, Matchups, Weekly } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { useMobile } from "../../lib/useWidth";
@@ -230,8 +230,19 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
   const betaPath = useBetaPath();
   const mwQ = useJson<Matchups>(`${season}/matchups.json`);
   const weekly = useJson<Weekly>(`${season}/weekly.json`).data;
+  /* MISSED PLAYOFFS, NOT CONSOLATION (Max, 2026-11-03). The consolation
+     bracket's games are pointless and are not shown. A franchise that holds
+     no seat in the winners bracket reads "Missed playoffs" where its playoff
+     weeks would be. Only once the bracket has been seeded: before that, the
+     season's postseason hasn't been decided for anybody. */
+  const bracket = useJson<BracketFile>(`${season}/bracket.json`).data;
   const mw = mwQ.data;
   const ps = mw?.playoff_start || 15;
+  const missed = useMemo(() => {
+    const w = bracket?.winners ?? [];
+    if (!w.some(g => g.t1 != null || g.t2 != null)) return false;
+    return !w.some(g => g.t1 === rid || g.t2 === rid);
+  }, [bracket, rid]);
 
   /** the name a roster played under THAT season, by roster slot — franchises.json
    *  carries every season's name, so the opponent needs no second file.
@@ -274,7 +285,8 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
 
   const wins = rows.filter(r => r.oppPts != null && r.pts > r.oppPts && r.wk < ps).length;
   const losses = rows.filter(r => r.oppPts != null && r.pts < r.oppPts && r.wk < ps).length;
-  const reg = rows.filter(r => r.wk < ps), po = rows.filter(r => r.wk >= ps);
+  const reg = rows.filter(r => r.wk < ps);
+  const po = missed ? [] : rows.filter(r => r.wk >= ps);
   /* the line's own expectation for what is left: the sum of the win odds */
   const exp = upcoming.length && upcoming.every(u => u.wp != null)
     ? upcoming.reduce((a, u) => a + u.wp!, 0) : null;
@@ -322,7 +334,7 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
     <div className="tms-draw">
       <div className="hd">
         <span className="k">{season} · week by week</span>
-        <span className="mt">{wins}-{losses} in the regular season{upcoming.length ? ` · ${upcoming.length} to play` : ""}{exp != null ? ` · ${fmt(exp, 1)} more wins expected off the line` : ""}{po.length ? ` · ${po.length} playoff week${po.length === 1 ? "" : "s"}` : ""} · tap a week for the matchup</span>
+        <span className="mt">{wins}-{losses} in the regular season{upcoming.length ? ` · ${upcoming.length} to play` : ""}{exp != null ? ` · ${fmt(exp, 1)} more wins expected off the line` : ""}{po.length ? ` · ${po.length} playoff week${po.length === 1 ? "" : "s"}` : ""}{missed ? " · missed playoffs" : ""} · tap a week for the matchup</span>
       </div>
       <table className="v3tbl lgx-grid tms-weeks">
         <thead>
@@ -342,6 +354,9 @@ function SeasonWeeks({ season, rid, fr }: { season: string; rid: number; fr: Fra
             <tr className="tms-grp"><td colSpan={3}>Playoffs</td></tr>
           )}
           {po.map((r, i) => line(r, i))}
+          {missed && (
+            <tr className="tms-grp"><td colSpan={3}>Missed playoffs</td></tr>
+          )}
         </tbody>
       </table>
     </div>
