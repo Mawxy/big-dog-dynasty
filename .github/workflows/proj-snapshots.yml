@@ -3,7 +3,13 @@ name: Projection snapshots
 # live week's Sleeper projections and overwrite each player whose game has not
 # kicked off; a player whose game has started is frozen. When the week is over
 # every entry in <season>/proj_history.json is the last read before that
-# player's own kickoff — at most two hours stale. See scripts/proj_snapshot.py.
+# player's own kickoff. See scripts/proj_snapshot.py.
+#
+# HOW STALE THAT READ IS HAS NO HARD BOUND. Two hours is the schedule, not a
+# promise: GitHub delays and drops scheduled runs, and this one fired 150 times
+# in 35 days against about 420 scheduled, with nothing from 16:55 to 22:28 UTC on
+# Sunday 2026-11-01, right across the early and late games. The extra crons below
+# raise the odds of a fresh read before each window; they don't guarantee one.
 #
 # Stdlib only, a handful of HTTP calls, done in well under a minute. Outside
 # the regular season the script finds no live week and exits without writing.
@@ -12,6 +18,26 @@ on:
     # every even hour at :53 — a minute no other workflow here owns (see the
     # cron table in PROJECT_NOTES). Two hours is the resolution Max asked for.
     - cron: "53 */2 * * *"
+    # PRE-KICKOFF READS at :41, also an unowned minute. Crons are UTC and kickoffs
+    # are Eastern, so every window gets two reads an hour apart: the later one is
+    # the last before kickoff in EST and lands just after it in EDT, where the
+    # earlier one does that job. A read after kickoff is harmless, since a player
+    # whose game has started is frozen. All of it stays clear of the nightly at
+    # 06:17 and values-refresh at 11:23, which share this concurrency group.
+    #                       kickoff   EDT      EST
+    # Sunday early          1:00 PM   17:00    18:00
+    - cron: "41 16,17 * * 0"
+    # Sunday late           4:05 PM   20:05    21:05
+    - cron: "41 19,20 * * 0"
+    # Sunday night          8:20 PM   00:20    01:20  (Monday UTC)
+    - cron: "41 23 * * 0"
+    - cron: "41 0 * * 1"
+    # Monday night          8:15 PM   00:15    01:15  (Tuesday UTC)
+    - cron: "41 23 * * 1"
+    - cron: "41 0 * * 2"
+    # Thursday night        8:15 PM   00:15    01:15  (Friday UTC)
+    - cron: "41 23 * * 4"
+    - cron: "41 0 * * 5"
   workflow_dispatch:
 permissions:
   contents: write
@@ -25,7 +51,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   snapshot:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

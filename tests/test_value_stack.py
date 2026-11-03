@@ -9,7 +9,8 @@ FRANCHISE_BAR is in tests/test_franchise.py — they are published decisions
 one changes what the figure MEANS.
 
 Pure stdlib, no fixtures, no network. The modules are imported for their
-constants and pure helpers only; nothing here runs a `main()`.
+constants and pure helpers only; the one `main()` that runs here is
+index_models', with every input stubbed (IndexModelsStampTest).
 
 NOTE on coverage. Bridge A's outcome rule — "a player-season with no source is
 skipped, a player who is out of the league is a real 0.0" — lives in `war_of`,
@@ -19,18 +20,22 @@ source when its waa_war CSV exists) and its consequence at the aggregation
 layer (`summarize` publishes a skipped season as absent, a zeroed one as a
 real observation that moves `raw`). See the report accompanying this suite.
 """
+import contextlib
+import io
 import json
 import sys
 import tempfile
 import unittest
 import warnings
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import blend_values as bv                                  # noqa: E402
 import contender_index as ci                               # noqa: E402
+import index_models as im                                  # noqa: E402
 import pick_value as pv                                    # noqa: E402
 import value_bridge as vb                                  # noqa: E402
 
@@ -400,6 +405,33 @@ class BridgeAOutcomeRuleTest(unittest.TestCase):
     def test_known_busts_resolve_to_a_zero_output_not_a_skip(self):
         self.assertTrue(pv.ZEROES)
         self.assertFalse(pv.ZEROES & pv.NO_GSIS)
+
+
+class IndexModelsStampTest(unittest.TestCase):
+    """index_models.json said `format: ppr-superflex` while cvi.json said
+    `ros-by-position`, from one run, about one list. Both now say what CVI read."""
+
+    def test_the_two_files_name_the_list_cvi_actually_read(self):
+        dvi = {"1": {"name": "A", "pos": "QB", "dvi": 50.0, "rank": 1, "pos_rank": 1}}
+        cvi = {"1": {"name": "A", "pos": "QB", "cvi": 50.0, "rank": 1, "pos_rank": 1}}
+        with tempfile.TemporaryDirectory() as tmp, \
+                mock.patch.object(im, "DATA", Path(tmp)), \
+                mock.patch.object(sys, "argv", ["index_models.py"]), \
+                mock.patch.object(bv, "load_inputs", lambda: {"proj": {}, "week": 0}), \
+                mock.patch.object(ci, "load_inputs", lambda fmt: {
+                    "ecr_rank": {}, "ecr_src": "ros-by-position"}), \
+                mock.patch.object(bv, "compute", lambda inp, war: {}), \
+                mock.patch.object(ci, "compute", lambda inp, war: {}), \
+                mock.patch.object(bv, "to_dvi", lambda rows: dvi), \
+                mock.patch.object(ci, "to_cvi", lambda rows: cvi), \
+                mock.patch.object(im, "war_reader", lambda data, curve: {}), \
+                mock.patch.object(im, "fallback_flags", lambda data: {}), \
+                contextlib.redirect_stdout(io.StringIO()):
+            im.main()
+            models = json.loads((Path(tmp) / "index_models.json").read_text(encoding="utf-8"))
+            flat = json.loads((Path(tmp) / "cvi.json").read_text(encoding="utf-8"))
+        self.assertEqual(models["format"], "ros-by-position")
+        self.assertEqual(models["format"], flat["format"])
 
 
 if __name__ == "__main__":

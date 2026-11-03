@@ -105,7 +105,7 @@ def season_war(season, ld, raw_root, players):
         if g.get("p") and g["p"] > 1:
             continue
         wk = g["week"]
-        wf = sdir / "matchups" / f"week_{wk}.json"
+        wf = sdir / "matchups" / f"week_{wk:02d}.json"
         if not wf.exists():
             continue
         by_rid = {t.get("roster_id"): t for t in load_json(wf)}
@@ -119,7 +119,7 @@ def season_war(season, ld, raw_root, players):
 
     out = {}
     for wk, lineup in sorted(starts.items()):
-        wf = sdir / "matchups" / f"week_{wk}.json"
+        wf = sdir / "matchups" / f"week_{wk:02d}.json"
         # Who actually played, from Sleeper's stats feed — sleeper_pull saves
         # `played/week_NN.json` for playoff weeks too. With it a dressed 0.00
         # is a real zero and accrues NEGATIVE points above replacement, which

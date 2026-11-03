@@ -48,11 +48,14 @@ polars==1.44.2             # 2026-09-09; polars pins its own polars-runtime-*
 # paste it in as requirements-ci.lock.txt.
 #
 # USED BY:
-#   data-refresh.yml    pip install -r requirements-ci.txt     (needs both stacks)
+#   data-refresh.yml    pip install -c requirements-ci.txt nflreadpy
 #   players-refresh.yml pip install -c requirements-ci.txt nflreadpy
 #   war-history.yml     pip install -c requirements-ci.txt nflreadpy
+#   by hand             pip install -r requirements-ci.txt     (project_points.py)
 # `-c` is pip's CONSTRAINTS flag: it applies the pins above to whatever is being
-# installed WITHOUT installing the rest of the file, so the two nflverse-only
-# jobs get identically-pinned polars/nflreadpy without dragging in ~100 MB of
-# scikit-learn + scipy they never import. Any job that adds a scikit-learn step
-# should switch to `-r`.
+# installed WITHOUT installing the rest of the file, so all three jobs get
+# identically-pinned polars/nflreadpy without dragging in ~100 MB of
+# scikit-learn + scipy they never import. No workflow installs the scikit-learn
+# stack since project_points.py left the nightly (2026-10-07), so a bump to it
+# gets no CI run: try it with a hand run of that script instead. Any job that
+# adds a scikit-learn step should switch to `-r`.

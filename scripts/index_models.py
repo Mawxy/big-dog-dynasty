@@ -117,7 +117,9 @@ def main():
             players[pid]["ecr"] = ecr
     atomic_write(DATA / "index_models.json", json.dumps(
         {"generated": today, "curves": list(CURVES), "default": args.default_curve,
-         "format": args.format,
+         # what CVI actually read, the same stamp cvi.json carries. args.format is
+         # only the fallback list, so it named the wrong one whenever ROS ranks won
+         "format": cvi_in["ecr_src"],
          "note": "[value, rank, pos_rank] per curve. has_analog false means his "
                  "PROJECTION under the analog and blend curves is the scalar one; "
                  "has_sleeper false means every composite projection is its own "

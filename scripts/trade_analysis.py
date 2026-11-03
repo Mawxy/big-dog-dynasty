@@ -35,7 +35,9 @@ already loads, and the same source the odds table's `meta.played` is built
 from. Later years of the stream are untouched; so is `DELTA`, which discounts
 by YEAR and still runs 1, delta, delta^2 from the first year. Out of season
 `weeks_played` is 0 and the factor is exactly 1.0, so the offseason ledger is
-bit-for-bit what it was.
+bit-for-bit what it was. The same goes from the title game until the rollover:
+the roster season reads 14 of 14 played, but the projection's year one is now
+the NEXT season, so nothing in it has been spent (`year1_factor`).
 
 A pick for a FUTURE season is deferred by `lag` years and its first year is not
 the live season, so it is never prorated; a pick for the roster season that has
@@ -146,6 +148,28 @@ def season_remaining(mw):
     whole of them."""
     # one definition, shared with the published in-season outlook
     return inseason.remaining_frac(mw)
+
+
+def year1_factor(proj_years, proj_season, mw):
+    """The year-1 factor for a stream that starts at `proj_years[0]`.
+
+    Only a projection whose first year IS the roster season is part-spent. After
+    the title game the seed rolls and year one is next season while the roster
+    season still reads every week played, so prorating by it zeroed a whole
+    year of `future`, and the frozen `exp` snapshot kept the loss."""
+    if not proj_years or int(proj_years[0]) != int(proj_season):
+        return 1.0
+    return season_remaining(mw)
+
+
+def final_standing(rows):
+    """roster_id -> finish (1 = worst, so it reads as a draft slot) for one
+    season's teams.json. A tie is half a win, as in build_site_data's `standing`
+    and `standing_tier` below."""
+    order = sorted(rows, key=lambda t: ((t.get("wins") or 0) + 0.5 * (t.get("ties") or 0),
+                                        t.get("fpts") or 0.0))
+    return {t["roster_id"]: i + 1 for i, t in enumerate(order)}
+
 
 # SLOT_FIX and the roster -> draft-slot resolution now live in draft_slots.py,
 # shared with draft_analysis.py.
@@ -262,7 +286,8 @@ def main():
     # THE LIVE SEASON IS COUNTED ONCE — see METHODOLOGY at the top of the file.
     # comp[0] is a full 13-game projection for proj_season; `war` already holds
     # the weeks of it that have been played, so only the remainder is "future".
-    year1_left = season_remaining(mw_all.get(proj_season))
+    year1_left = year1_factor((projf.get("meta") or {}).get("years"), proj_season,
+                              mw_all.get(proj_season))
 
     def future_player(rid, pid):
         if not pid or pid not in held.get(rid, ()):
@@ -368,8 +393,7 @@ def main():
     for s in seasons:
         rows = load(DATA / str(s) / "teams.json") or []
         if rows and any(t.get("wins") or t.get("losses") for t in rows):
-            order = sorted(rows, key=lambda t: (t.get("wins", 0), t.get("fpts", 0.0)))
-            final_std[s] = {t["roster_id"]: i + 1 for i, t in enumerate(order)}
+            final_std[s] = final_standing(rows)
 
     trades = []
     for s in seasons:

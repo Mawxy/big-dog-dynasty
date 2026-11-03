@@ -218,7 +218,8 @@ export function LiveWeek({ season, wk, mw, weekly, odds, teams, nameOf }: {
                 value: upset ? <span className="lgx-warn">{`${Math.round(upset.wp * 100)}%`}</span> : DASH,
                 sub: upset
                   ? `${nameOf(upset.row.rid)} ${ctx.done ? "beat" : "leads"} ${upset.row.opp != null ? nameOf(upset.row.opp) : "—"} by ${fmt(upset.row.pts - (upset.row.oppPts ?? 0), 1)} · pregame odds`
-                  : ctx.done ? "every favorite won" : "every favorite leads" },
+                  : !figs.priced ? "no line for this week"
+                    : ctx.done ? "every favorite won" : "every favorite leads" },
               { key: "close", label: ctx.done ? "Nail-biter" : "Nail-biter watch",
                 value: figs.closest ? fmt(figs.closest.pts - figs.closest.oppPts, 1) : DASH,
                 sub: figs.closest
@@ -342,6 +343,7 @@ export function LiveMatchup({ season, wk, rid, mw, weekly, teams, nameOf }: {
             a={{ rid: a, name: nameOf(a), slots: slotsOf(a) }}
             b={{ rid: b, name: nameOf(b), slots: slotsOf(b) }}
             played={false} live={!!ctx.live.started} war
+            unpriced={!caps.projections && !ctx.live.started}
             players={players} board={ctx.board} />
         </div>
       ) : <div className="empty">Reading the live scores…</div>}

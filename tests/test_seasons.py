@@ -18,13 +18,16 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import date
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
+from build_site_data import future_pick_seasons                  # noqa: E402
+from draft_analysis import last_finished                         # noqa: E402
 from seasons import (completed_seasons, last_completed_season,    # noqa: E402
-                     league_seasons, season_complete)
+                     league_seasons, newest_finished_nfl_season, season_complete)
 
 
 def champ_game(winner=2):
@@ -107,6 +110,25 @@ class SeasonComplete(unittest.TestCase):
         self.assertFalse(season_complete(self.d, 2026))
 
 
+class NewestFinishedNflSeason(unittest.TestCase):
+    """war-history.yml's range guard. A day late is harmless; a day early can
+    commit a partial season to the corpus."""
+
+    def test_the_season_counts_from_january_15(self):
+        self.assertEqual(newest_finished_nfl_season(date(2027, 1, 14)), 2025)
+        self.assertEqual(newest_finished_nfl_season(date(2027, 1, 15)), 2026)
+
+    def test_it_holds_through_the_next_season_being_played(self):
+        for day in (date(2027, 3, 1), date(2027, 9, 15), date(2027, 12, 31)):
+            self.assertEqual(newest_finished_nfl_season(day), 2026, day)
+
+    def test_the_season_in_progress_today_is_refused(self):
+        self.assertEqual(newest_finished_nfl_season(date(2026, 11, 2)), 2025)
+
+    def test_the_new_year_alone_does_not_finish_a_season(self):
+        self.assertEqual(newest_finished_nfl_season(date(2027, 1, 1)), 2025)
+
+
 class LastCompleted(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -149,6 +171,65 @@ class LastCompleted(unittest.TestCase):
     def test_unreadable_json_is_not_a_completed_season(self):
         (self.d / "2026" / "bracket.json").write_text("{not json", encoding="utf-8")
         self.assertEqual(last_completed_season(self.d), 2025)
+
+
+class DraftGradingWindow(unittest.TestCase):
+    """draft_analysis.py grades a pick over finished seasons only, on this
+    module's clock rather than its own read of the raw bracket."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.t = LeagueTree(self._tmp.name, [2024, 2025, 2026])
+
+    def test_a_season_with_no_bracket_is_not_finished(self):
+        """THE BUG. A missing bracket read as complete, so a 2026 with no bracket
+        yet scored its rookies' partial WAR against a full-year expectation."""
+        self.t.bracket(2025, [champ_game()])
+        self.assertEqual(last_finished(self.t.d, [2024, 2025, 2026], 2026), 2025)
+
+    def test_a_seeded_bracket_is_not_finished(self):
+        self.t.bracket(2025, [champ_game()])
+        self.t.bracket(2026, [seeded_game()])
+        self.assertEqual(last_finished(self.t.d, [2024, 2025, 2026], 2026), 2025)
+
+    def test_a_decided_title_game_is(self):
+        self.t.bracket(2026, [champ_game()])
+        self.assertEqual(last_finished(self.t.d, [2024, 2025, 2026], 2026), 2026)
+
+    def test_a_season_past_latest_never_counts(self):
+        self.t.bracket(2026, [champ_game()])
+        self.t.bracket(2025, [champ_game()])
+        self.assertEqual(last_finished(self.t.d, [2024, 2025, 2026], 2025), 2025)
+
+    def test_nothing_finished_falls_back_to_latest(self):
+        """A league's first season, as draft_analysis has always read it."""
+        self.assertEqual(last_finished(self.t.d, [2024, 2025, 2026], 2026), 2026)
+
+
+class FuturePickClasses(unittest.TestCase):
+    """picks_owned.json's seasons, against that season's own drafts.json."""
+
+    def test_in_season_the_class_already_drafted_is_gone(self):
+        self.assertEqual(future_pick_seasons("2026", 2029, [{"status": "complete"}]),
+                         [2027, 2028, 2029])
+
+    def test_after_the_rollover_the_next_class_is_still_there(self):
+        """THE BUG. Newest season 2027, rookie draft not run: the 2027 picks
+        vanished from picks_owned.json until the draft made them moot."""
+        self.assertEqual(future_pick_seasons("2027", 2030, [{"status": "pre_draft"}]),
+                         [2027, 2028, 2029, 2030])
+
+    def test_a_draft_not_yet_created_is_not_a_complete_one(self):
+        self.assertEqual(future_pick_seasons("2027", 2030, []), [2027, 2028, 2029, 2030])
+        self.assertEqual(future_pick_seasons("2027", 2030, None), [2027, 2028, 2029, 2030])
+
+    def test_a_draft_in_progress_is_not_complete(self):
+        self.assertEqual(future_pick_seasons("2027", 2030, [{"status": "drafting"}])[0], 2027)
+
+    def test_any_complete_draft_closes_the_class(self):
+        self.assertEqual(future_pick_seasons(
+            "2027", 2030, [{"status": "pre_draft"}, {"status": "complete"}])[0], 2028)
 
 
 class AgainstTheCommittedTree(unittest.TestCase):

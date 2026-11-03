@@ -3,8 +3,7 @@ import type { Franchises, Trade as TradeT, TradeAsset, TradeSide, Values } from 
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { pInfo } from "../../lib/league";
-import { ROUND_ORD } from "../../lib/rosterModel";
-import { ktcOf } from "../../lib/values";
+import { marketNow } from "../../lib/values";
 import { fmtWar, NUL, sgnWar } from "../ui";
 
 /**
@@ -336,53 +335,5 @@ export const GRID_NOTE =
   "still holds. KTC is the side's market on the day of the deal, frozen by the first nightly run " +
   "that saw it, against today's; a pick prices at its tier. A record, not a verdict: no side is inked.";
 
-/**
- * A side's market TODAY, on the same basis the snapshot froze.
- *
- * THIS IS A PORT OF `scripts/trade_analysis.py: mkt_side`, asset for asset, and
- * it has to stay one: it supplies the right-hand end of `then → now`, and a
- * delta between two different measurements is not a delta.
- *
- *  - PICKS ARE PRICED (settled with Max, 2026-08-21: a pick IS a market asset
- *    until draft night), AT THEIR TIER (Max, 2026-09-02). The writer keys
- *    them `"<ps> <tier> <ord>"` off `values.json`'s pick ladder, where the
- *    tier is a drafted pick's actual slot or an undrafted one's projected
- *    slot off its original owner's projected finish; the asset carries it as
- *    `tier`, and rows written before that date carry none and read Mid. A
- *    CONVERTED pick is the PLAYER (Max, 2026-09-02): once made it prices by
- *    the drafted player's pid, here and in the writer from draft day on.
- *  - FAAB IS SKIPPED, not declined — same as the writer's `continue`.
- *  - THE LEAGUE'S KTC COLUMN, LIKE FOR LIKE (2026-10-07). The writer now prices
- *    players on `ktc_of(row, meta.tep)` at both ends (history rows scaled by
- *    today's league/base ratio) and stamps each side's `mktBasis`. A side on
- *    "tier+tep" prices today's end through `lib/values.ktcOf`, the column every
- *    other KTC figure on the site uses; a side frozen before the history
- *    reached (older basis) keeps the base ladder at both ends, because pricing
- *    one end on the premium would credit a scoring rule to the market.
- *  - ONE UNPRICEABLE ASSET VOIDS THE SIDE, which is the writer's rule too: it
- *    sets the running total to None the moment a source can't price an asset.
- */
-export function marketNow(
-  s: TradeSide, vals: Values | null, pickKtc: Map<string, number>, tep?: string,
-): number | null {
-  const premium = s.mktBasis === "tier+tep";
-  if (!vals) return null;
-  let sum = 0;
-  for (const a of s.got) {
-    if (a.kind === "faab") continue;
-    let v: number | undefined;
-    if (a.kind === "pick" && !a.pid && a.ps != null && a.rnd != null) {
-      // an UNMADE pick: the writer's `pick_key`, glyph for glyph — the pick at
-      // its tier, so the delta against the frozen "then" is a delta
-      v = pickKtc.get(`${a.ps} ${a.tier ?? "Mid"} ${ROUND_ORD[a.rnd - 1] ?? `${a.rnd}th`}`);
-    } else if (a.pid) {
-      // a player — including a pick that has been MADE, which is the player
-      // now (Max, 2026-09-02): "what the slot cost -> what he is worth"
-      const row = vals.players[a.pid];
-      v = (premium ? ktcOf(row, tep) : row?.ktc) ?? undefined;
-    }
-    if (!v) return null;
-    sum += v;
-  }
-  return sum || null;
-}
+/* A side's market today moved to `lib/values#marketNow`, shared with the
+   classic ledger's drawer. */

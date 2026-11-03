@@ -17,7 +17,7 @@ from pathlib import Path
 
 from crawl_schema import tep_class
 from ioutil import atomic_write
-from sleeper_war import FLEX_ORDER, FLEX_SLOTS, NON_STARTING_SLOTS
+from sleeper_war import FLEX_ORDER, FLEX_SLOTS, NON_STARTING_SLOTS, core_position
 
 ALLOW_EMPTY = False   # set by --allow-empty
 
@@ -39,6 +39,23 @@ def slugify(s):
 
 def load(p):
     return json.loads(Path(p).read_text(encoding="utf-8"))
+
+def site_pos(p):
+    """The position the site files a player-map record under: the WAR engine's
+    rule, so a DB/WR or an FB/RB carries the position he accrues WAR at, and
+    the raw `position` (K, DEF, a pure defender) when no core one applies.
+    week_odds.py's pos_of reads this column out of players_min.json."""
+    return core_position(p) or p.get("position")
+
+def future_pick_seasons(newest, farthest, drafts):
+    """The draft classes picks_owned.json lists, oldest first.
+
+    The newest season's own class is still a tradeable pick until that season's
+    draft has run. Starting at newest+1 made the next class vanish between the
+    rollover and the rookie draft, the same Feb-May gap trade_analysis.py's
+    `drafted_seasons` guards."""
+    drafted = any(d.get("status") == "complete" for d in drafts or [])
+    return list(range(int(newest) + (1 if drafted else 0), int(farthest) + 1))
 
 def guard_write(path, obj, content=None):
     """Write JSON, but refuse to replace a non-empty committed file with empty
@@ -508,7 +525,7 @@ def main():
             for p in set(pids):
                 if not p or p == "0":
                     continue
-                pos = (players.get(p) or {}).get("position")
+                pos = site_pos(players.get(p) or {})
                 if pos:
                     pool.append((war_idx.get((p, wk), 0.0), pos))
             pool.sort(key=lambda x: -x[0])
@@ -703,7 +720,7 @@ def main():
         p = players.get(pid)
         if p:
             pmin[pid] = [f"{p.get('first_name','')} {p.get('last_name','')}".strip(),
-                         p.get("position") or "?", p.get("team") or ""]
+                         site_pos(p) or "?", p.get("team") or ""]
             # Appended rather than always present so the row shape stays
             # [name, pos, team] for everyone without one.
             espn = espn_ids.get(pid) or p.get("espn_id")
@@ -739,7 +756,9 @@ def main():
         SLEEPER_PICK_HORIZON = 3
         farthest = max([int(newest) + SLEEPER_PICK_HORIZON]
                        + [int(t["season"]) for t in tp if int(t["season"]) > int(newest)])
-        fut = list(range(int(newest) + 1, farthest + 1))
+        drafts_f = root / newest / "drafts.json"
+        fut = future_pick_seasons(newest, farthest,
+                                  load(drafts_f) if drafts_f.exists() else [])
         owner = {(int(s), rnd, rid): rid for s in fut for rnd in range(1, rounds + 1) for rid in rids}
         for t in tp:
             k = (int(t["season"]), t["round"], t["roster_id"])

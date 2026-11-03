@@ -11,7 +11,7 @@ import { playedWeeks, projectedRecord } from "../lib/projRecord";
 import { fmt, fmtWar, sgn } from "../lib/stats";
 import { LEAGUE_TEAMS, lineupOf, optimalLineup, pInfo, rosterSeasonOf, starterTotal } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
-import { readTrades, tradeWhen } from "../lib/trades";
+import { readTrades, tradeWhen, txKind, txTag } from "../lib/trades";
 import { useMobile } from "../lib/useWidth";
 import { PlayerLink } from "../components/PlayerLink";
 import PosBadge from "../components/PosBadge";
@@ -767,7 +767,7 @@ export default function Home() {
                     <span className="rec-id">
                       {w.team}
                       <span className="rec-sub">
-                        {w.manager} · {w.season.slice(2)} W{w.week} · {w.type === "waiver" ? "waiver" : "free agent"}
+                        {w.manager} · {w.season.slice(2)} W{w.week} · {txKind(w.type)}
                       </span>
                     </span>
                   </div>
@@ -798,7 +798,7 @@ export default function Home() {
                       <div className="two-line">
                         <span className="fig">{w.season.slice(2)} W{w.week}</span><br />
                         <span style={{ font: "600 10.5px/1.45 var(--cond)", letterSpacing: ".12em", color: "var(--dim3)" }}>
-                          {w.type === "waiver" ? "WAIVER" : "FA"}
+                          {txTag(w.type)}
                         </span>
                       </div>
                     </td>

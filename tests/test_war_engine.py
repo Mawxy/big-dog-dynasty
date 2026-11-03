@@ -10,16 +10,22 @@ stdlib, no fixtures, no network:
 
 Anything that fails here is a change in what WAR *means*, not a broken test.
 """
+import json
 import math
 import sys
+import tempfile
+import types
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from sleeper_war import (build_week, norm_win_shift,              # noqa: E402
-                         nth_best_unrostered, slot_counts, WAIVER_RANK)
-from sleeper_pull import (effective_week, row_played,             # noqa: E402
+from build_site_data import site_pos                              # noqa: E402
+from sleeper_war import (build_week, core_position,               # noqa: E402
+                         norm_win_shift, nth_best_unrostered, player_pos,
+                         run_season, slot_counts, WAIVER_RANK)
+from sleeper_pull import (effective_week, row_played, save,       # noqa: E402
                           week_complete)
 
 
@@ -246,6 +252,99 @@ class TestWaiverBaseline(unittest.TestCase):
 
 def row(pos, **stats):
     return {"player": {"position": pos}, "stats": stats}
+
+
+# The two shapes that used to fall out of the pool, as Sleeper serves them.
+HUNTER = {"position": "DB", "fantasy_positions": ["DB", "WR"], "first_name": "Travis",
+          "last_name": "Hunter"}
+FULLBACK = {"position": "FB", "fantasy_positions": ["RB"], "first_name": "Kyle",
+            "last_name": "Juszczyk"}
+
+
+class TestPlayerPosition(unittest.TestCase):
+    """A core `position`, else the first core entry of `fantasy_positions`."""
+
+    def test_a_two_way_player_scores_at_his_core_position(self):
+        self.assertEqual(player_pos({"h": HUNTER}, "h"), "WR")
+
+    def test_a_fullback_scores_as_a_running_back(self):
+        self.assertEqual(player_pos({"f": FULLBACK}, "f"), "RB")
+
+    def test_a_core_position_wins_over_the_fantasy_list(self):
+        """Live map: a TE listed ['DL'], a WR listed ['DB', 'WR']. Neither moves."""
+        self.assertEqual(core_position({"position": "TE", "fantasy_positions": ["DL"]}), "TE")
+        self.assertEqual(core_position({"position": "WR", "fantasy_positions": ["RB", "WR"]}), "WR")
+
+    def test_no_core_entry_stays_out_of_the_pool(self):
+        for rec in ({"position": "DB", "fantasy_positions": ["DB"]},
+                    {"position": "K", "fantasy_positions": ["K"]},
+                    {"position": "DEF"},
+                    {}):
+            self.assertIsNone(core_position(rec), rec)
+
+    def test_a_pid_the_map_does_not_know_is_none(self):
+        self.assertIsNone(player_pos({}, "nobody"))
+
+    def test_the_nflverse_corpus_record_reads_as_it_always_did(self):
+        """nfl_history.py writes a core `position` and no fantasy list, and only
+        for core players, so the corpus path through this engine cannot move."""
+        for pos in ("QB", "RB", "WR", "TE"):
+            self.assertEqual(player_pos({"g": {"position": pos, "first_name": "A",
+                                               "last_name": "B"}}, "g"), pos)
+
+    def test_the_site_column_follows_the_rule_and_keeps_everyone_else(self):
+        """players_min.json's position, which week_odds.pos_of reads and which
+        the site files him under. A kicker keeps his label and no pool."""
+        self.assertEqual(site_pos(HUNTER), "WR")
+        self.assertEqual(site_pos(FULLBACK), "RB")
+        self.assertEqual(site_pos({"position": "K", "fantasy_positions": ["K"]}), "K")
+        self.assertIsNone(site_pos({}))
+
+    def test_both_shapes_reach_the_weekly_rows(self):
+        """End to end through the engine: they accrue WAR at their core position."""
+        lg = {"season": "2026", "total_rosters": 4,
+              "roster_positions": ["QB", "RB", "WR", "TE", "BN"],
+              "settings": {"playoff_week_start": 15}}
+        week = [{"roster_id": 1, "points": 100.0, "players_points": {"h": 20.0, "w": 5.0}},
+                {"roster_id": 2, "points": 90.0, "players_points": {"f": 12.0, "r": 4.0}},
+                {"roster_id": 3, "points": 110.0, "players_points": {"k": 9.0}},
+                {"roster_id": 4, "points": 80.0, "players_points": {}}]
+        players = {"h": HUNTER, "f": FULLBACK, "w": {"position": "WR"},
+                   "r": {"position": "RB"}, "k": {"position": "K"}}
+        with tempfile.TemporaryDirectory() as tmp:
+            sd = Path(tmp)
+            (sd / "matchups").mkdir()
+            (sd / "league.json").write_text(json.dumps(lg), encoding="utf-8")
+            (sd / "matchups" / "week_01.json").write_text(json.dumps(week), encoding="utf-8")
+            _, _, acc, rows, _, _ = run_season(
+                sd, players, types.SimpleNamespace(include_playoffs=False))
+        by_pid = {r[2]: r for r in rows}
+        self.assertEqual(by_pid["h"][4], "WR")
+        self.assertEqual(by_pid["f"][4], "RB")
+        self.assertNotIn("k", by_pid)
+        self.assertEqual(acc["h"]["gp"], 1)
+
+
+class TestSaveIsAtomic(unittest.TestCase):
+    """sleeper_pull.save goes through ioutil's replace, so a job killed mid-write
+    leaves the previous dump, not half a JSON file where it was."""
+
+    def test_it_writes_the_same_document(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "a" / "b.json"
+            save({"x": 1}, p)
+            self.assertEqual(p.read_text(encoding="utf-8"), json.dumps({"x": 1}, indent=2))
+            self.assertEqual([f.name for f in p.parent.iterdir()], ["b.json"])
+
+    def test_a_failed_write_leaves_the_old_file_and_no_temp(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            p = Path(tmp) / "b.json"
+            save({"x": 1}, p)
+            with mock.patch("ioutil.os.replace", side_effect=OSError("killed")):
+                with self.assertRaises(OSError):
+                    save({"x": 2}, p)
+            self.assertEqual(json.loads(p.read_text(encoding="utf-8")), {"x": 1})
+            self.assertEqual([f.name for f in Path(tmp).iterdir()], ["b.json"])
 
 
 class TestPlayedRule(unittest.TestCase):

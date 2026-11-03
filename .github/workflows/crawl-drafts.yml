@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   drafts:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 350 vs --max-minutes 300: same margin as crawl-outcomes (see its comment)
     timeout-minutes: 350
     steps:
@@ -35,9 +35,12 @@ jobs:
           key: crawl-drafts-${{ github.run_id }}
           restore-keys: crawl-drafts-
       - name: Crawl drafts
+        # No --commit-every: its only target is draft_signals.json, which nothing
+        # reads, and those mid-run pushes were about 30% of all bot commits. The
+        # end-of-run commit below still publishes it.
         run: |
           python scripts/sleeper_crawl.py --mode drafts \
-            --state .crawl-state/drafts --max-minutes 300 --commit-every 1000
+            --state .crawl-state/drafts --max-minutes 300
       - name: Commit draft signals
         # NOT always() — see crawl-signals.yml: a cancelled run may have been
         # killed mid-flush, and its outputs are then half-written.

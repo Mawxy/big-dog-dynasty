@@ -166,7 +166,12 @@ export function usePlayerFilters<T extends { pos: string; nm: string; team?: str
   opts: { teams?: string[] } = {},
 ) {
   const [pos, setPos] = useState("ALL");
-  const [tm, setTm] = useState("ALL");
+  const [picked, setTm] = useState("ALL");
+  /** the roster filter AS IT APPLIES. Team names change yearly, so a pick that
+   *  survived a season change named a team this scope doesn't have and emptied
+   *  the board; it reads as All until a scope that has the team comes back. */
+  const tm = picked === "ALL" || picked === NO_TEAM || !opts.teams || opts.teams.includes(picked)
+    ? picked : "ALL";
   /**
    * The query the FILTER reads — one beat behind the box, deliberately, and
    * owned here rather than in the box.

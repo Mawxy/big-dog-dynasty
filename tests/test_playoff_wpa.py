@@ -9,14 +9,18 @@ make the allocation defensible. Pure stdlib, no fixtures, no network:
 
 A failure here is a change in what playoff WPA *means*, not a broken test.
 """
+import json
 import math
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from playoff_wpa import (ROUND_WEIGHT, mvp_score, shapley_wpa,   # noqa: E402
+import playoff_wpa                                               # noqa: E402
+from playoff_wpa import (ROUND_WEIGHT, mvp_score,                 # noqa: E402
+                         replacement_for_week, shapley_wpa,
                          shrink, win_prob, win_shares)
 
 
@@ -228,6 +232,25 @@ class TestMvpScore(unittest.TestCase):
 
     def test_no_anchor_is_not_a_crash(self):
         self.assertEqual(mvp_score(0.5, 0.0), 0.0)
+
+
+class TestAnEarlyBracketWeekIsFound(unittest.TestCase):
+    """sleeper_pull writes week_09.json. An unpadded name only ever worked
+    because Big Dog's playoffs start in week 15."""
+
+    def test_the_replacement_week_reads_the_padded_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sd = Path(tmp)
+            (sd / "matchups").mkdir()
+            (sd / "matchups" / "week_09.json").write_text(json.dumps(
+                [{"players_points": {"a": 30.0, "b": 5.0}}]), encoding="utf-8")
+            got = replacement_for_week(sd, 9, {"QB": 1}, {},
+                                       {"a": {"position": "QB"}, "b": {"position": "QB"}})
+        self.assertEqual(got["repl"]["QB"], 5.0)
+
+    def test_every_matchups_read_names_the_file_the_way_it_is_written(self):
+        src = Path(playoff_wpa.__file__).read_text(encoding="utf-8")
+        self.assertNotIn('f"week_{wk}.json"', src)
 
 
 class TestPositionNeutrality(unittest.TestCase):

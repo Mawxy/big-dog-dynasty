@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
+export { isStale, STALE_MS } from "./liveStale";
+
 /**
  * LIVE SCORING (Max, 2026-09-10) — the week in progress, straight from
  * Sleeper, so the League page keeps count while games are on.
@@ -83,9 +85,6 @@ export const POST_GRACE_MS = 5 * 60_000;
 export const MAX_BACKOFF_MS = 10 * 60_000;
 /** a single request's budget before it is aborted */
 export const FETCH_TIMEOUT_MS = 12_000;
-/** past this with no good read, a consumer should say so rather than keep
- *  showing a running total as though it were current */
-export const STALE_MS = 5 * 60_000;
 
 export async function fetchLiveWeek(
   leagueId: string, week: number, signal?: AbortSignal,
@@ -138,11 +137,6 @@ export interface LiveFeed<T> {
 const IDLE_FEED: LiveFeed<never> = {
   data: null, week: null, fetched: 0, failures: 0, done: false,
 };
-
-/** has the last good read aged out? `now` is a parameter so this is pure and
- *  a caller can drive it off its own ticker. */
-export const isStale = (f: LiveFeed<unknown>, now = Date.now()): boolean =>
-  f.data == null || now - f.fetched > STALE_MS;
 
 /**
  * THE POLL CADENCE, off the NFL scoreboard.
@@ -222,6 +216,8 @@ function usePoll<T>(
     let timer: ReturnType<typeof setTimeout> | null = null;
     /** the in-flight guard. Without it `onVisible` forked a second chain. */
     let inFlight = false;
+    /** the request in flight, so a cleanup can abort it */
+    let ctl: AbortController | null = null;
     let failures = 0;
     let last: T | null = null;
 
@@ -240,10 +236,10 @@ function usePoll<T>(
       if (document.visibilityState !== "visible") { arm(IDLE_MS); return; }
 
       inFlight = true;
-      const ctl = new AbortController();
-      const bail = setTimeout(() => ctl.abort(), FETCH_TIMEOUT_MS);
+      const req = ctl = new AbortController();
+      const bail = setTimeout(() => req.abort(), FETCH_TIMEOUT_MS);
       try {
-        const d = await fetchRef.current(ctl.signal);
+        const d = await fetchRef.current(req.signal);
         if (dead) return;
         last = d;
         failures = 0;
@@ -280,6 +276,7 @@ function usePoll<T>(
     return () => {
       dead = true;
       if (timer) clearTimeout(timer);
+      ctl?.abort();
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [on, key, week, bump]);

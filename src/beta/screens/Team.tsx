@@ -16,7 +16,7 @@ import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useOutlook1, usePaceWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { fmt, ord, sgn } from "../../lib/stats";
-import { ridOf, seasonRowOf } from "../../lib/seasons";
+import { isSeasonSettled, ridOf, seasonRowOf } from "../../lib/seasons";
 import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf,
 } from "../../lib/league";
@@ -213,7 +213,9 @@ export default function Team() {
   // its ORIGINAL owner's projected finish, not its holder's
   const tiers = usePickTiers();
 
-  const [lens, setLensRaw] = useState<Lens>("dvi");
+  // with no index published the season as played is the only lens with figures
+  // behind it, so a redraft roster opens on it rather than on a column of dashes
+  const [lens, setLensRaw] = useState<Lens>(caps.indices ? "dvi" : "stats");
   const [idxLens, setIdxLens] = useState<IdxLens>("dvi");
   const setLens = (v: Lens) => {
     setLensRaw(v);
@@ -239,7 +241,7 @@ export default function Team() {
   const nav = useNavigate();
   // the written outlook, where the pipeline has one for this league (a 404
   // simply leaves the verdict panel out)
-  const insights = useJson<Insights>("insights.json").data;
+  const insights = useJson<Insights>(caps.projections ? "insights.json" : null).data;
   // the franchise honor index — titles, points crowns, top seeds, playoff
   // appearances — built once per page load from franchises.json + brackets
   const honorIdx = useTeamHonors(meta.seasons);
@@ -729,7 +731,9 @@ export default function Team() {
 
   /** THE SEASON LADDER, newest first — the franchise page's rail rows: year,
    *  finish, record, and the name it played under. Each taps through to that
-   *  season on the League screen; the roster season reads "live". The accent
+   *  season on the League screen; the roster season reads "live" until it is
+   *  settled, because League's History scope offers settled seasons only and
+   *  clamps any other to the newest of them — last year's champion. The accent
    *  marks a title, the one honour a franchise ladder has to carry. */
   const ladderRows = (() => {
     const seasons = franchise?.seasons ?? [];
@@ -737,7 +741,8 @@ export default function Team() {
     return (
       <div className="rail-ladder">
         {seasons.slice().reverse().map(s => {
-          const live = s.season === rosterSeason && s.wins + s.losses + s.ties === 0;
+          const live = s.season === rosterSeason && !isSeasonSettled(fr, s.season);
+          const games = s.wins + s.losses + s.ties;
           return (
             <RouteLink key={s.season} className="rail-season pick"
               to={betaPath(live ? "/league" : `/league?scope=history&season=${s.season}`)}>
@@ -746,7 +751,7 @@ export default function Team() {
                 <span className="fin" style={s.finish === 1 ? { color: "var(--acc)" } : undefined}>
                   {s.finish === 1 ? "CHAMP" : s.finish != null ? ord(s.finish) : live ? "live" : "—"}
                 </span>
-                <span className="rec">{live ? "—" : `${s.wins}-${s.losses}${s.ties ? `-${s.ties}` : ""}`}</span>
+                <span className="rec">{live && !games ? "—" : `${s.wins}-${s.losses}${s.ties ? `-${s.ties}` : ""}`}</span>
               </div>
               {/* the name it played under, and what it won that year */}
               <div className="l2">
@@ -767,8 +772,9 @@ export default function Team() {
       <HonorSprite />
       <div className="screen-head">
         <span className="screen-title">Franchise</span>
-        {/* the classic shapes rebased into this shell, so a jump stays here */}
-        <QuickJump path={p => betaPath(p.replace(/^\/franchise\//, "/team/"))} />
+        {/* no `path`: QuickJump's default already keeps a jump in this shell, and
+            sends a redraft franchise's user_id to the page that can read one */}
+        <QuickJump />
       </div>
       <div className="board" style={{ marginTop: 0 }}>
         <div className={`split${mobile ? " phone" : ""}`}>
@@ -845,11 +851,13 @@ export default function Team() {
                 segments instead of four, but provably one control rather than
                 two lookalikes. */}
             <div ref={refs.roster}>
-              {/* A CONTROL WITH NOTHING TO SWITCH BETWEEN IS NOT A CONTROL.
-                  Where the pipeline publishes neither index, the index
-                  segments select between empty columns. */}
-              {caps.indices && (
-                <LensStrip options={lensesFor(statsSeason, dviRank, cviRank)} value={lens} onChange={setLens} label="Lens" />
+              {/* THE STRIP OFFERS THE LENSES WITH DATA BEHIND THEM. Where the
+                  pipeline publishes neither index, the index segments would
+                  select between empty columns; Stats is this league's own and
+                  stays, naming the season the columns are from. */}
+              {(caps.indices || sumQ.data != null) && (
+                <LensStrip options={lensesFor(statsSeason, dviRank, cviRank).filter(o => caps.indices || o.id === "stats")}
+                  value={lens} onChange={setLens} label="Lens" />
               )}
 
               {roster.bands.map(b => (

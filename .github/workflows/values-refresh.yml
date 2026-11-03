@@ -16,7 +16,7 @@ concurrency:            # shared with data-refresh / war-history — see data-re
   cancel-in-progress: false
 jobs:
   values:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -45,7 +45,9 @@ Three fitted pieces, all emitted to <data>/aging_curves.json:
 
 Age = age on Sep 1 of the "from" season (players_meta.csv birth dates).
 
-Usage:  python scripts/aging_curves.py [--data nfl_history] [--start 2012]
+Runs as a step of war-history.yml, right after the corpus it fits is rebuilt.
+
+Usage:  python scripts/aging_curves.py [--data nfl_history] [--start 2012] [--end <yr>]
 Output: <data>/aging_curves.json  + diagnostics on stdout.
 """
 import argparse, csv, datetime, json, math, statistics
@@ -71,6 +73,14 @@ AVAIL_MIN_LEVEL = 0.5  # availability is measured over contributor-level seasons
 
 def age_on_sep1(birth, season):
     return season - birth.year - (1 if (birth.month, birth.day) > (9, 1) else 0)
+
+
+def newest_corpus_season(data):
+    """Newest season with a waa_war_<yr>.csv, or None for an empty corpus. These
+    land only for finished seasons, so a fit advances with the corpus on its own."""
+    yrs = [int(f.stem.rsplit("_", 1)[-1]) for f in data.glob("waa_war_*.csv")
+           if f.stem.rsplit("_", 1)[-1].isdigit()]
+    return max(yrs) if yrs else None
 
 
 def load(data, start, end):
@@ -288,7 +298,8 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="nfl_history")
     ap.add_argument("--start", type=int, default=2012)
-    ap.add_argument("--end", type=int, default=2025)
+    ap.add_argument("--end", type=int, default=None,
+                    help="last season to fit (default: newest waa_war_<yr>.csv in --data)")
     # HOW MUCH IS A SEASON WORTH AS EVIDENCE?
     #
     # `none` is what shipped: every transition counts once. Since the played
@@ -310,6 +321,10 @@ def main():
     ap.add_argument("--emit-grid", action="store_true")
     args = ap.parse_args()
     data = Path(args.data)
+    if args.end is None:
+        args.end = newest_corpus_season(data)
+    if args.end is None:
+        raise SystemExit(f"no waa_war_<yr>.csv in {data}: nothing to fit")
     meta, war, gp, pos, pts = load(data, args.start, args.end)
 
     global FIT_WEIGHT

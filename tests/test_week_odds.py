@@ -152,6 +152,70 @@ class TestNoLookahead(unittest.TestCase):
         self.assertGreater(s["mu"], w["mu"])
         self.assertGreater(s["wp"], w["wp"])
 
+    def upcoming(self, sproj, set_=None, teams=None, week=4):
+        """Week `week` is on the schedule and unplayed; weeks 1-3 are the form."""
+        ld, raw = build_season(tempfile.mkdtemp(dir=self._tmp.name))
+        mw = json.loads((ld / SEASON / "matchups.json").read_text(encoding="utf-8"))
+        mw["schedule"] = {str(week): [[1, 2]]}
+        if set_:
+            mw["set"] = {"week": week, "starters": set_}
+        write_json(ld / SEASON / "matchups.json", mw)
+        if teams:
+            write_json(ld / SEASON / "teams.json", teams)
+            write_json(ld / "players_min.json", {**PLAYERS_MIN, "c": ["Starter C", "QB"]})
+        return season_odds(SEASON, ld, raw, sproj)["weeks"][str(week)]
+
+    # a form of 21 (a: 20, 18, 25) over three games against a line of 10: 3/7 and 4/7
+    LINES = {"a": {"wk": {"4": 10.0}}, "b": {"wk": {"4": 10.0}}}
+
+    def test_an_upcoming_line_is_form_shrunk_toward_the_weeks_line(self):
+        wk = self.upcoming(self.LINES)
+        self.assertAlmostEqual(wk["1"]["mu"], 3 / 7 * 21 + 4 / 7 * 10, places=1)
+        self.assertAlmostEqual(wk["2"]["mu"], 3 / 7 * 9 + 4 / 7 * 10, places=1)
+        self.assertTrue(wk["1"]["proj"])
+        self.assertGreater(wk["1"]["wp"], 0.5)     # same line, better form
+
+    def test_a_set_lineup_is_priced_the_same_way(self):
+        wk = self.upcoming(self.LINES, set_={"1": ["a"], "2": ["b"]})
+        self.assertAlmostEqual(wk["1"]["mu"], 3 / 7 * 21 + 4 / 7 * 10, places=1)
+
+    def test_no_line_stays_zero_whatever_his_form(self):
+        """Form is no reason to score on a bye."""
+        wk = self.upcoming({"b": {"wk": {"4": 10.0}}})
+        self.assertEqual(wk["1"]["mu"], 0.0)
+        wk = self.upcoming({"b": {"wk": {"4": 10.0}}}, set_={"1": ["a"], "2": ["b"]})
+        self.assertEqual(wk["1"]["mu"], 0.0)
+
+    def test_the_line_still_picks_the_lineup(self):
+        """Hot form does not bench the man projected higher: `a` averaged 21 and
+        `c` has never played, but `c` holds the better line, so `c` starts and
+        no form reaches the mean."""
+        wk = self.upcoming(
+            {"a": {"wk": {"4": 8.0}}, "b": {"wk": {"4": 10.0}}, "c": {"wk": {"4": 12.0}}},
+            teams=[{"roster_id": 1, "players": ["a", "c"]}, {"roster_id": 2, "players": ["b"]}])
+        self.assertEqual(wk["1"]["mu"], 12.0)
+
+    def test_a_player_with_no_games_is_his_line(self):
+        wk = self.upcoming({"c": {"wk": {"4": 12.0}}, "b": {"wk": {"4": 10.0}}},
+                           teams=[{"roster_id": 1, "players": ["c"]},
+                                  {"roster_id": 2, "players": ["b"]}])
+        self.assertEqual(wk["1"]["mu"], 12.0)
+
+    def test_the_line_of_record_does_not_move_when_the_week_is_played(self):
+        """Week 4 priced upcoming, then again once it has been played off the
+        same line, comes out at the same mean and the same win probability."""
+        before = self.upcoming(self.LINES)
+        ld, raw = build_season(tempfile.mkdtemp(dir=self._tmp.name),
+                               proj_history={"4": {"a": 10.0, "b": 10.0}})
+        mw = json.loads((ld / SEASON / "matchups.json").read_text(encoding="utf-8"))
+        for rid, opp, pid in (("1", 2, "a"), ("2", 1, "b")):
+            mw["teams"][rid].append([4, 0, opp, 0, [pid]])
+        write_json(ld / SEASON / "matchups.json", mw)
+        after = season_odds(SEASON, ld, raw, {})["weeks"]["4"]
+        for rid in ("1", "2"):
+            self.assertEqual(before[rid]["mu"], after[rid]["mu"])
+            self.assertEqual(before[rid]["wp"], after[rid]["wp"])
+
     def test_week_one_is_unpriced_rather_than_a_meaningless_fifty_percent(self):
         """No prior form and no archived projection means there is no
         forecast. Emitting a line here would print 50% for every game and read

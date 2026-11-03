@@ -560,9 +560,11 @@ export interface TeamVal {
 
 export function useTeamValues(season: string) {
   const { meta } = useLeague();
+  const caps = useLeagueCaps();
   const teams = useJson<Team[]>(`${season}/teams.json`).data;
   const owned = useJson<PicksOwned>("picks_owned.json").data;
-  const vals = useJson<Values>("data/values.json", "globalDaily").data;
+  // the same gate the Team screen puts on its own read of this file
+  const vals = useJson<Values>(caps.market ? "data/values.json" : null, "globalDaily").data;
   const dvi = useDvi();
   const cvi = useCvi();
   const tiers = usePickTiers();

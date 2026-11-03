@@ -157,10 +157,11 @@ PTS13_FULL = 128.0   # `taper` upper end: the pts->WAR zero crossing
 # but it has two causes, one benign and one that must not ship:
 #
 #   LEGITIMATE (warn). The analog corpus is nfl_history/*.csv, rebuilt only by
-#   the manual war-history.yml workflow. When a season finishes, the scalar arm
-#   advances to it on the next nightly and the analog arm cannot until someone
-#   dispatches that job. Both arms are then seeded on seasons that really
-#   happened; one is simply a year behind. Dispatching war-history fixes it.
+#   the war-history.yml workflow. When a season finishes, the scalar arm
+#   advances to it on the next nightly and the analog arm cannot until that job
+#   runs on January 15. Both arms are then seeded on seasons that really
+#   happened; one is simply a year behind. Later than the 15th, that job failed
+#   or did not run, and dispatching it fixes this.
 #
 #   BROKEN (fatal). The scalar arm seeded from a season nobody has finished —
 #   which is what happened on 2026-09-15, when meta.latest flipped to 2026 on
@@ -171,9 +172,9 @@ PTS13_FULL = 128.0   # `taper` upper end: the pts->WAR zero crossing
 #
 # So the discriminator is not the gap, it is whether the SCALAR seed is a
 # completed season (seasons.py). Below that bar the run dies rather than
-# publishing eight curves that do not share a year; above it, the old loud
+# publishing six curves that do not share a year; above it, the old loud
 # warning stands, because a stale analog arm is still an arm and taking the
-# nightly down over it would remove eight curves to complain that two are old.
+# nightly down over it would remove six curves to complain that two are old.
 STALE_DAYS = 7
 
 
@@ -290,7 +291,7 @@ def check_arm_freshness(scalar_meta, knn_meta, knn_path, last_done=None):
 
     Returns "stale" when the analog corpus is merely a year behind (loud, not
     fatal). Raises SystemExit when the scalar arm seeded off an unfinished
-    season — publishing eight curves that disagree about what year 1 IS is
+    season — publishing six curves that disagree about what year 1 IS is
     worse than publishing none.
     """
     scalar_seed, knn_seed = scalar_meta.get("seed_season"), knn_meta.get("seed_season")

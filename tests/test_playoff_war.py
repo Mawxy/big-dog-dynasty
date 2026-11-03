@@ -277,6 +277,20 @@ class TestEliminationGamesOnly(unittest.TestCase):
                                             [FINAL]).run())
 
 
+class TestAnEarlyBracketWeekIsFound(unittest.TestCase):
+    """sleeper_pull writes week_09.json. An unpadded name only ever worked
+    because Big Dog's playoffs start in week 15; a bracket before week 10 found
+    no file and priced nobody."""
+
+    def test_a_week_nine_final_is_priced(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            final = dict(FINAL, week=9)
+            war, _ = SeasonFixture(tmp, {wk: REGULAR[wk] for wk in range(1, 9)},
+                                   {"09": WEEK16}, [final]).run()
+        self.assertIn("q1", war)
+        self.assertIn("q2", war)
+
+
 class TestADressedZeroIsAPlayedZero(unittest.TestCase):
     """The played rule (PROJECT_NOTES methodology #5, settled 2026-08-07) is
     position-INDEPENDENT: dressed = played, and a dressed 0.00 is a real zero

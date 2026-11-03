@@ -257,9 +257,9 @@ export default function Stats() {
         {allTime
           ? " points and games are career totals across every played season"
           : <> volatility is the weekly <span className="sigma">σ</span> of fantasy points,
-            so lower is steadier</>} · open a row for the week-by-week strip. Players under
-        45% of the season's max games are filtered out. What a player is worth today is on
-        Value.
+            so lower is steadier</>} · open a row for the week-by-week strip.
+        {floor > 0 && ` Ordered by a per-game figure, so players under ${floor} games (45% of the most played) are filtered out.`}
+        {" "}What a player is worth today is on Value.
       </div>
     </>
   );

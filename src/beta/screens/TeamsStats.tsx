@@ -4,13 +4,16 @@ import type { BracketFile, EloFile, Franchises, Matchups, Team, Weekly } from ".
 import { indexKey, jl } from "../../lib/data";
 import { useJson } from "../../lib/useJson";
 import { useSettledSeasons } from "../../lib/caps";
+import { useLeague } from "../../lib/context";
+import { rosterSeasonOf } from "../../lib/league";
 import { fmt, ord, sd, sgn } from "../../lib/stats";
 import { useMobile } from "../../lib/useWidth";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, sgnWar, Spine, sortBy, TapRow, Th,
-  useBetaPath, useSort,
+  useSort,
 } from "../ui";
 import { ALL_SEASONS } from "../Scope";
+import { useFranchiseIndex } from "./League";
 
 /**
  * TEAMS · STATS — what each franchise actually did (Max, 2026-09-28).
@@ -383,7 +386,12 @@ export default function TeamsStats({ season, played, phase }: {
   played: string[];
   phase: Phase;
 }) {
-  const betaPath = useBetaPath();
+  const { league } = useLeague();
+  /* `r.rid` is the slot the franchise held in a PAST season, and /team/<slot>
+     reads the roster season's slots: in a redraft league that opened whoever
+     holds the slot today. The franchise key finds its current page, and one
+     that has left the league has none. */
+  const { hrefOf } = useFranchiseIndex(rosterSeasonOf(league));
   const mobile = useMobile("(max-width: 899px)");
   const allTime = season === ALL_SEASONS;
   const seasons = useMemo(() => (allTime ? played : [season]), [allTime, played, season]);
@@ -537,7 +545,7 @@ export default function TeamsStats({ season, played, phase }: {
                 <TapRow className={`${i % 2 ? "zebra" : ""}${open === r.fkey ? " plx-on" : ""}`}
                   onTap={() => setOpen(open === r.fkey ? null : r.fkey)}>
                   <Spine rank={i + 1} />
-                  <IdCell name={r.team} to={betaPath(`/team/${r.rid}`)}
+                  <IdCell name={r.team} to={hrefOf(r.fkey) ?? undefined}
                     sub={allTime
                       ? `${r.manager} · ${r.parts.length} season${r.parts.length === 1 ? "" : "s"}`
                       : `${r.manager} · ${r.games} game${r.games === 1 ? "" : "s"}${r.byes ? " + bye" : ""}`} />
@@ -569,7 +577,7 @@ export default function TeamsStats({ season, played, phase }: {
                 {open === r.fkey && (
                   <tr className="plx-drawrow">
                     <td colSpan={span}>
-                      <Drawer r={r} allTime={allTime} phase={phase} to={betaPath(`/team/${r.rid}`)}
+                      <Drawer r={r} allTime={allTime} phase={phase} to={hrefOf(r.fkey)}
                         nameOf={(sn, rid) => names.get(`${sn}|${rid}`) ?? `Team ${rid}`} />
                     </td>
                   </tr>
@@ -605,7 +613,9 @@ function Fig({ k, v, sub }: { k: string; v: ReactNode; sub?: ReactNode }) {
 }
 
 function Drawer({ r, allTime, phase, to, nameOf }: {
-  r: Row; allTime: boolean; phase: Phase; to: string;
+  r: Row; allTime: boolean; phase: Phase;
+  /** the franchise's page; null when it is no longer in the league */
+  to: string | null;
   nameOf: (season: string, rid: number) => string;
 }) {
   const nav = useNavigate();
@@ -693,12 +703,14 @@ function Drawer({ r, allTime, phase, to, nameOf }: {
           }).filter(Boolean).join(" · ")}
         </div>
       )}
-      <a className="plx-go" href={`#${to}`}
-        onClick={e => {
-          e.stopPropagation();
-          if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-          e.preventDefault(); nav(to);
-        }}>Team page</a>
+      {to && (
+        <a className="plx-go" href={`#${to}`}
+          onClick={e => {
+            e.stopPropagation();
+            if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+            e.preventDefault(); nav(to);
+          }}>Team page</a>
+      )}
     </div>
   );
 }

@@ -9,12 +9,13 @@ the Tuesday the week becomes current — five days of injury news before the
 games. The line a manager actually set a lineup against is the one standing at
 kickoff, so that is the one this keeps:
 
-    Every two hours (proj-snapshots.yml, plus once in the nightly refresh), for
-    the live week, every player's projection is re-read. A player whose game
-    has NOT kicked off is overwritten with the fresh line; one whose game has
-    kicked off is frozen. So when a week is over, each player's entry is the
-    last read taken before his own kickoff — at most two hours stale, and never
-    one that saw the game.
+    On proj-snapshots.yml's schedule (every two hours plus pre-kickoff reads,
+    when GitHub honours it), and once in the nightly refresh, for the live week,
+    every player's projection is re-read. A player whose game has NOT kicked off
+    is overwritten with the fresh line; one whose game has kicked off is frozen.
+    So when a week is over, each player's entry is the last read taken before
+    his own kickoff. How stale that read is has no hard bound, since GitHub
+    delays and drops scheduled runs, but it is never one that saw the game.
 
 KICKOFFS come from ESPN's public scoreboard (the one the site's live cards
 already poll), keyed by Sleeper's club code. When the scoreboard can't be read

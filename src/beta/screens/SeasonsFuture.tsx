@@ -8,7 +8,7 @@ import { fmt } from "../../lib/stats";
 import { POS_COLOR, lineupOf, optimalLineup, pInfo } from "../../lib/league";
 import { RouteLink } from "../../components/RouteLink";
 import { Band, IdCell, NUL, Spine, Strip, useBetaPath } from "../ui";
-import { SlotDrawer, type SlotEntry } from "./League";
+import { asSetSlots, SlotDrawer, type SlotEntry } from "./League";
 
 /**
  * THE WEEKS STILL TO COME (Max, 2026-09-28).
@@ -29,6 +29,9 @@ import { SlotDrawer, type SlotEntry } from "./League";
  * only exists for the live week (matchups.json `set`), and is used when it is
  * this week. Rosters are today's: a future week is priced on the team as it
  * stands, which is the only roster anyone can know.
+ *
+ * A league with no projection has neither file, so these pages carry the
+ * pairings and the lineups as set, with dashes where the figures would go.
  */
 
 const DASH = <span className="lgx-nul">—</span>;
@@ -95,6 +98,7 @@ export function FutureWeek({ season, wk, mw, odds, nameOf }: {
   nameOf: (rid: number) => string;
 }) {
   const betaPath = useBetaPath();
+  const caps = useLeagueCaps();
   const pairs = useFuture(wk, mw, odds);
   const sides = pairs.flatMap(p => [p.a, p.b]).filter(s => s.mu != null);
   const mus = sides.map(s => s.mu!).sort((x, y) => x - y);
@@ -157,9 +161,14 @@ export function FutureWeek({ season, wk, mw, odds, nameOf }: {
         </>
       )}
       <div className="tnote screen">
-        A week still to come: the pairings off the league's schedule and week_odds.py's pregame line — each side's
-        projected total and its chance to win, the same line the League tab quotes for this week. It moves as the
-        projections do, every night until the week is played. Tap a game for both projected lineups.
+        {caps.projections ? <>
+          A week still to come: the pairings off the league's schedule and week_odds.py's pregame line — each side's
+          projected total and its chance to win, the same line the League tab quotes for this week. It moves as the
+          projections do, every night until the week is played. Tap a game for both projected lineups.
+        </> : <>
+          A week still to come: the pairings off the league's schedule. No projection or line is published for this
+          league, so the cards carry none. Tap a game for both lineups as they are set today.
+        </>}
       </div>
     </>
   );
@@ -184,11 +193,18 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board 
   const lineup = useMemo(
     () => lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl)), [meta]);
   const projOf = (pid: string): number | null => sproj?.players[pid]?.wk?.[String(wk)] ?? null;
+  // no projection published: nothing to rank a "best" nine or a bench by
+  const noProj = !caps.projections;
 
   /** a roster's lineup for the week: as set, when the live week has one;
-   *  otherwise the best projected nine off today's roster */
+   *  otherwise the best projected nine off today's roster — or, with no
+   *  projection to pick them by, the lineup as it is set today */
   const slotsOf = (r: number): { slots: SlotEntry[]; starters: Set<string> } => {
     const set = mw.set?.week === wk ? mw.set.starters[String(r)] ?? null : null;
+    if (noProj) {
+      const slots = asSetSlots(lineup, set ?? teams?.find(t => t.roster_id === r)?.starters);
+      return { slots, starters: new Set(slots.flatMap(s => (s.pid ? [s.pid] : []))) };
+    }
     if (set && set.length === lineup.length) {
       return {
         slots: lineup.map((slot, i) => {
@@ -222,14 +238,14 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board 
       .sort((x, y) => (y.proj ?? -1) - (x.proj ?? -1));
     return (
       <div>
-        <Band label={`Bench · ${nameOf(r)}`} note={`${list.length} not in the lineup · by projection`} />
+        <Band label={`Bench · ${nameOf(r)}`} note={`${list.length} not in the lineup${noProj ? "" : " · by projection"}`} />
         {list.length > 0 && (
           <table className="v3tbl lgx-grid">
             <thead>
               <tr>
                 <th className="sp" />
                 <th className="t">Player</th>
-                <th className="n" style={{ width: "24%" }}>Proj</th>
+                {!noProj && <th className="n" style={{ width: "24%" }}>Proj</th>}
               </tr>
             </thead>
             <tbody>
@@ -244,8 +260,8 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board 
                 return (
                   <tr key={x.pid} className={i % 2 ? "zebra" : ""}>
                     <Spine color={POS_COLOR[pos]} rank="" />
-                    <IdCell name={name} sub={`${club || "FA"} · ${pos}${game}${x.proj == null && !bye ? " · no line" : ""}`} />
-                    <td className="n">{x.proj == null ? NUL : <span className="f">{fmt(x.proj, 1)}</span>}</td>
+                    <IdCell name={name} sub={`${club || "FA"} · ${pos}${game}${x.proj == null && !bye && !noProj ? " · no line" : ""}`} />
+                    {!noProj && <td className="n">{x.proj == null ? NUL : <span className="f">{fmt(x.proj, 1)}</span>}</td>}
                   </tr>
                 );
               })}
@@ -260,14 +276,15 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board 
     <>
       <Band label={`${nameOf(a.rid)} vs ${nameOf(b.rid)}`} note={`${season} · week ${wk} · upcoming`} />
       <div className="lgx-games ssx-solo"><Card a={a} b={b} nameOf={nameOf} /></div>
-      <Band label="Lineups" note={setWeek ? "as the managers have set them · projected points"
+      <Band label="Lineups" note={noProj ? "as the managers have set them · no projection is published for this league"
+        : setWeek ? "as the managers have set them · projected points"
         : "each roster's best projected lineup · today's rosters"} />
       {!sproj && caps.projections ? <div className="empty">Loading…</div> : (
         <div className="ssx-lineups">
           <SlotDrawer
             a={{ rid: a.rid, name: nameOf(a.rid), slots: la.slots }}
             b={{ rid: b.rid, name: nameOf(b.rid), slots: lb.slots }}
-            played={false} players={players} board={board} clubOf={clubOf} />
+            played={false} unpriced={noProj} players={players} board={board} clubOf={clubOf} />
         </div>
       )}
       <div className="ssx-two">
@@ -275,9 +292,9 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board 
         {bench(b.rid, lb.starters)}
       </div>
       <div className="tnote screen">
-        Projected points are Sleeper's per-week lines scored in this league's settings. A week this far out is priced
-        on today's rosters and today's projections, so it moves with every trade, waiver claim and injury report until
-        the week is played.
+        {noProj
+          ? "No projection is published for this league, so a week still to come has no figures: these are the lineups as they are set today, and they move with every waiver claim and lineup change until the week is played."
+          : "The rows are Sleeper's per-week lines scored in this league's settings. The team totals and odds also weigh each starter's form so far, so the rows won't add up to them. A week this far out is priced on today's rosters and today's projections, so it moves with every trade, waiver claim and injury report until the week is played."}
         {" "}<RouteLink to={betaPath(`/seasons/${season}/${wk}`)} className="lgx-all">← Week {wk}</RouteLink>
       </div>
     </>

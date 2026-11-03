@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type { Matchups, WeekOdds } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { useSeasonPhase } from "../model";
 
 /**
@@ -22,7 +23,8 @@ export interface Upcoming {
 
 export function useUpcoming(season: string, rid: number, mw: Matchups | null | undefined): Upcoming[] {
   const phase = useSeasonPhase();
-  const odds = useJson<WeekOdds>(`${season}/odds.json`).data;
+  const caps = useLeagueCaps();
+  const odds = useJson<WeekOdds>(caps.odds ? `${season}/odds.json` : null).data;
   return useMemo(() => {
     if (!mw) return [];
     const ps = mw.playoff_start || 15;

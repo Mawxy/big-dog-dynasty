@@ -71,6 +71,19 @@ FORMATS = {
 # the one position each ROS page ranks
 ROS_POS = {"ros-qb": "QB", "ros-rb": "RB", "ros-wr": "WR", "ros-te": "TE"}
 DEFAULT_FORMATS = ["ppr-superflex", *ROS_POS]
+# Fewest rows a page must rank before it may replace what is on file, and the
+# share of the previous count it must keep. Fresh rows strip every carrier of the
+# format, so a thin or empty page would silently drop CVI to the frozen preseason
+# list. Lowest seen in ecr.json's git history: ppr-superflex 500, ros-qb 41,
+# ros-rb 109, ros-wr 139, ros-te 68. ros-qb really did go 64 -> 41 on 2026-10-19,
+# which is why the share is a half and not something tighter.
+MIN_ROWS = {"ros-qb": 20, "ros-rb": 50, "ros-wr": 60, "ros-te": 30}
+MIN_ROWS_OVERALL = 300
+MIN_KEEP_SHARE = 0.5
+
+
+def warn(msg):
+    print(f"::warning title=ECR format skipped::{msg}")
 
 
 def get(url):
@@ -144,6 +157,16 @@ def verify(data, key, url, final_url):
     return problems
 
 
+def row_problems(key, n, prev_ranked=None):
+    """Why `n` rows are too few to replace this format. See MIN_ROWS."""
+    floor = MIN_ROWS.get(key, MIN_ROWS_OVERALL)
+    if n < floor:
+        return [f"only {n} rows, floor is {floor}"]
+    if prev_ranked and n < prev_ranked * MIN_KEEP_SHARE:
+        return [f"only {n} rows against {prev_ranked} last time"]
+    return []
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--formats", nargs="+", default=DEFAULT_FORMATS,
@@ -183,13 +206,14 @@ def main():
             html, final = get(url)
         except Exception as e:
             print(f"  !! fetch failed: {e}")
+            warn(f"{key}: fetch failed ({e}), previous rows kept")
             continue
         data = payload(html)
         if not data:
             print("  !! no ecrData payload — page structure changed")
+            warn(f"{key}: no ecrData payload, previous rows kept")
             continue
-        for p in verify(data, key, url, final):
-            print(f"  ~~ {p}")
+        problems = verify(data, key, url, final)
         rows = data.get("players") or []
         want_pos = ROS_POS.get(key)
         if want_pos:
@@ -201,6 +225,17 @@ def main():
             if other:
                 print(f"  ~~ {len(other)} non-{want_pos} rows on a {want_pos} page, dropped")
                 rows = [r for r in rows if r not in other]
+        # verify()'s docstring says "before trusting it", so this is where that
+        # happens: everything below strips the format's carried rows and writes
+        # today's. Counted after the drop above, since those rows are not usable.
+        # --probe writes nothing, so it reports and carries on to the match counts.
+        problems += row_problems(key, len(rows),
+                                 (out["formats"].get(key) or {}).get("ranked"))
+        for p in problems:
+            print(f"  ~~ {p}")
+        if problems and not args.probe:
+            warn(f"{key}: {'; '.join(problems)}. Previous rows kept.")
+            continue
         # This format just fetched fresh rows, so every CARRIED entry for it is
         # now stale. Strip the key before writing today's: a player who fell
         # out of the consensus loses his slug — absence is real information

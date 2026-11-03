@@ -62,8 +62,14 @@ export function weekGames(rows: WeekRow[]): WeekGame[] {
 export interface WeekFigures {
   wk: number;
   top: WeekRow; low: WeekRow;
-  /** THE UPSET: the winner the pregame line liked least. Ties are not upsets. */
+  /** THE UPSET: the winner the pregame line liked least, and only if the line
+   *  had him under 50% — a 62% favorite winning is the line holding, however
+   *  low the week's other winners were priced. Ties are not upsets. */
   upset: WeekRow | null; upsetWp: number | null;
+  /** the week has a pregame line at all. No upset with a line means the
+   *  favorites held; no upset without one means nobody quoted the week (the
+   *  second league has no odds.json) — different facts, different words. */
+  priced: boolean;
   /** THE CLOSEST SCORE (Max, 2026-09-08): the week's narrowest margin, each
    *  game counted once from its winner's side. A tie is a margin of zero. */
   closest: { rid: number; pts: number; opp: number; oppPts: number } | null;
@@ -83,7 +89,11 @@ export function weekFigures(
   const top = rows.reduce((m, r) => (r.pts > m.pts ? r : m));
   const low = rows.reduce((m, r) => (r.pts < m.pts ? r : m));
   const line = odds?.weeks[String(wk)] ?? {};
-  const winners = rows.filter(r => r.oppPts != null && r.pts > r.oppPts && line[String(r.rid)]?.wp != null);
+  const priced = rows.some(r => line[String(r.rid)]?.wp != null);
+  const winners = rows.filter(r => {
+    const wp = line[String(r.rid)]?.wp;
+    return r.oppPts != null && r.pts > r.oppPts && wp != null && wp < 0.5;
+  });
   const upset = winners.length
     ? winners.reduce((m, r) => (line[String(r.rid)].wp! < line[String(m.rid)].wp! ? r : m))
     : null;
@@ -105,5 +115,15 @@ export function weekFigures(
   }
   const figs = rows.map(r => r.pts).sort((x, y) => x - y);
   const median = figs.length % 2 ? figs[(figs.length - 1) / 2] : (figs[figs.length / 2 - 1] + figs[figs.length / 2]) / 2;
-  return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, closest, posTop, median };
+  return { wk, top, low, upset, upsetWp: upset ? line[String(upset.rid)].wp! : null, priced, closest, posTop, median };
 }
+
+/**
+ * HOW MANY SLOTS A SCORED WEEK DREW. The lineup the side actually fielded, not
+ * today's slot list: Pineapple Pizza played 2024 with eight starters and has
+ * nine now, so the longer of the two printed a ninth "SFLX — 0.0" row for a
+ * seat that did not exist that year. The slot list stands in only for an entry
+ * with no starters on file.
+ */
+export const playedSlotCount = (lineupLen: number, starters: readonly string[]): number =>
+  starters.length || lineupLen;

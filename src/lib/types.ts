@@ -137,7 +137,7 @@ export interface SeasonData {
    *  callers fall back to the current club from players_min. */
   nflTeams?: Record<string, string>;
   /** present only in All-time mode: per-season raw data */
-  allData: Record<string, { summary: SummaryRow[]; weekly: Weekly }> | null;
+  allData: Record<string, { summary: SummaryRow[] }> | null;
 }
 
 /** player_id -> { week -> "BYE" | "DNP" | "NR" } for missing regular-season weeks */

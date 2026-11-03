@@ -12,7 +12,7 @@ import { RouteLink } from "../../components/RouteLink";
 import { Band, DataError, IdCell, NUL, sgnWar, Spine, Strip, TapRow, useBetaPath } from "../ui";
 import ScopeControl, { type ScopeSeason, type ScopeSel } from "../Scope";
 import { PosLeaders, SlotDrawer, useFranchiseIndex, type SlotEntry } from "./League";
-import { playedPlayoffWeeks, playedWeeks, weekFigures, weekGames, weekRows, type WeekGame, type WeekRow } from "../week";
+import { playedPlayoffWeeks, playedSlotCount, playedWeeks, weekFigures, weekGames, weekRows, type WeekGame, type WeekRow } from "../week";
 import { useSeasonPhase } from "../model";
 import { LiveMatchup, LiveWeek } from "./SeasonsLive";
 import { FutureMatchup, FutureWeek } from "./SeasonsFuture";
@@ -84,7 +84,8 @@ export default function Seasons() {
 
   const mwQ = useJson<Matchups>(`${season}/matchups.json`);
   const mw = mwQ.data;
-  const odds = useJson<WeekOdds>(`${season}/odds.json`).data;
+  const caps = useLeagueCaps();
+  const odds = useJson<WeekOdds>(caps.odds ? `${season}/odds.json` : null).data;
   const weekly = useJson<Weekly>(`${season}/weekly.json`).data;
   const teams = useJson<Team[]>(`${season}/teams.json`).data;
   const bracket = useJson<BracketFile>(`${season}/bracket.json`).data;
@@ -92,7 +93,6 @@ export default function Seasons() {
   /* THE PROJECTIONS AS THEY STOOD AT KICKOFF (Max, 2026-09-28):
      proj_snapshot.py's record, week -> pid -> points. The matchup page puts
      each man's line under his points, the way the live card does. */
-  const caps = useLeagueCaps();
   const phist = useJson<Record<string, Record<string, number>>>(
     caps.projections ? `${season}/proj_history.json` : null).data;
 
@@ -297,7 +297,7 @@ function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf, nfl }: 
                   ? <span className="lgx-warn">{`${Math.round(figs.upsetWp * 100)}%`}</span> : DASH,
                 sub: figs.upset
                   ? `${nameOf(figs.upset.rid)} beat ${figs.upset.opp != null ? nameOf(figs.upset.opp) : "—"}`
-                  : "no winner beat the line" },
+                  : figs.priced ? "no winner beat the line" : "no line for this week" },
               { key: "close", label: "Closest score",
                 value: figs.closest ? fmt(figs.closest.pts - figs.closest.oppPts, 1) : DASH,
                 sub: figs.closest
@@ -409,8 +409,9 @@ function useSlots(wk: number, ptsOf: PtsOf, weekly?: Weekly | null,
     const pts = (pid: string) => ptsOf(pid, wk) ?? 0;
     return (r: WeekRow): SlotEntry[] => {
       // a lineup file from before the league's slot list changed: read the
-      // starters in order and label what is left generically
-      const n = Math.max(lineup.length, r.starters.length);
+      // starters in order and label what is left generically. A shorter lineup
+      // is just shorter — the seat it never had is not an empty slot.
+      const n = playedSlotCount(lineup.length, r.starters);
       return Array.from({ length: n }, (_, i) => {
         const pid = r.starters[i];
         const real = !!pid && pid !== "0";

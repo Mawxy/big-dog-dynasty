@@ -9,12 +9,13 @@ import ModelPicker from "./components/ModelPicker";
 import { CLASSIC_SEG, LeagueContext, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useSeasonData } from "./lib/useSeasonData";
 import { latestSeasonOf, seasonSeg } from "./lib/league";
-import Home from "./views/Home";
+import { useLeagueCaps } from "./lib/caps";
 import SiteFooter from "./components/SiteFooter";
 import ErrorBoundary from "./components/ErrorBoundary";
-// Every route off the landing page loads lazily: one eager chunk held all 14
-// views, so a first-time visitor downloaded and parsed the whole site to
-// render the dashboard. Home stays eager — it IS the landing page.
+// Every route loads lazily: one eager chunk held all 14 views, so a first-time
+// visitor downloaded and parsed the whole site to render one page. Home too —
+// the landing page is the beta shell's now, and it never mounts this one.
+const Home = lazy(() => import("./views/Home"));
 const Stats = lazy(() => import("./views/Stats"));
 const Value = lazy(() => import("./views/Value"));
 const FranchisesView = lazy(() => import("./views/Franchises"));
@@ -265,7 +266,8 @@ export default function App() {
 function ModelProvider({ children }: { children: ReactNode }) {
   const loc = useLocation();
   const nav = useNavigate();
-  const mx = useJson<IndexModelsFile>("index_models.json", "leagueDaily");
+  const caps = useLeagueCaps();
+  const mx = useJson<IndexModelsFile>(caps.indices ? "index_models.json" : null, "leagueDaily");
   const fromUrl = new URLSearchParams(loc.search).get("m");
   const stored = (() => {
     try { return window.localStorage.getItem("warboard.curve"); } catch { return null; }
@@ -385,8 +387,11 @@ function Shell() {
       <TabBar>
         {VIEWS.map(v => (
           <button key={v} className={active === v ? "on" : ""}
-            onClick={() => nav(GLOBAL_VIEWS.includes(v)
-              ? `${base}/${v}` : `${base}/${v}/${curSeasonSeg}`)}>
+            onClick={() => nav({
+              // the search carries `?m=`, the site-wide model the reader chose
+              pathname: GLOBAL_VIEWS.includes(v) ? `${base}/${v}` : `${base}/${v}/${curSeasonSeg}`,
+              search: loc.search,
+            })}>
             {LABEL(v)}
           </button>
         ))}

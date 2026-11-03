@@ -64,7 +64,11 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       ? rows.sort((a, b) => (b.mvp ?? -999) - (a.mvp ?? -999))
       : rows.sort((a, b) => b.pts - a.pts);
   }, [bracket]);
+  /** A league playoff_wpa.py doesn't run for has neither of these: no win
+   *  probabilities means no award and no upsets, not "nobody was upset". Honors
+   *  award it nobody, so this panel doesn't either. */
   const hasWpa = !!bracket.wpa;
+  const hasLines = !!bracket.wp;
   const anchor = bracket.wpa_meta;
 
   const weeks = useMemo(
@@ -198,9 +202,13 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       <thead>
         <tr className="grp">
           <th colSpan={4}></th>
-          <th scope="colgroup" colSpan={weeks.length} className="edge">MVP points by week</th>
-          <th scope="col" className="edge">Production</th>
-          <th scope="colgroup" colSpan={2} className="edge acc">Award</th>
+          <th scope="colgroup" colSpan={weeks.length} className="edge">
+            {hasWpa ? "MVP points by week" : "Points by week"}
+          </th>
+          {hasWpa ? <>
+            <th scope="col" className="edge">Production</th>
+            <th scope="colgroup" colSpan={2} className="edge acc">Award</th>
+          </> : <th scope="col" className="edge acc">Total</th>}
         </tr>
         <tr>
           <th scope="col" className="c" style={{ width: "6%" }}>Rk</th>
@@ -210,9 +218,11 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           {weeks.map(w => (
             <th scope="col" key={w} className="n" style={{ width: "9%" }}>WK {w}</th>
           ))}
-          <th scope="col" className="n" style={{ width: "9%" }}>WAR</th>
-          <th scope="col" className="n key" style={{ width: "10%" }}>MVP</th>
-          <th scope="col" className="n" style={{ width: "10%" }}>MVP+</th>
+          {hasWpa ? <>
+            <th scope="col" className="n" style={{ width: "9%" }}>WAR</th>
+            <th scope="col" className="n key" style={{ width: "10%" }}>MVP</th>
+            <th scope="col" className="n" style={{ width: "10%" }}>MVP+</th>
+          </> : <th scope="col" className="n key" style={{ width: "10%" }}>Pts</th>}
         </tr>
       </thead>
       <tbody>
@@ -228,14 +238,15 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
               </td>
               <td className="t name">
                 <PlayerLink pid={p.pid} name={nm} />
-                {i === 0 && <span className="name-note" style={{ color: "var(--acc)" }}>MVP</span>}
+                {i === 0 && hasWpa && <span className="name-note" style={{ color: "var(--acc)" }}>MVP</span>}
               </td>
               <td className="c"><PosBadge pos={pos} /></td>
               <td className="t sub">{nameOf(p.rid)}</td>
               {weeks.map(w => {
                 // MVP points — the weighted win share on the award scale.
                 // They add up to the MVP column, which IS their sum.
-                const v = p.mvpWeek[String(w)];
+                // With no award to split, the same cell is his plain points.
+                const v = hasWpa ? p.mvpWeek[String(w)] : p.byWeek[String(w)];
                 const started = p.byWeek[String(w)] != null;
                 return (
                   <td key={w} className="fig n">
@@ -245,22 +256,24 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
                   </td>
                 );
               })}
-              {/* production, not the award: this one counts in a loss too */}
-              <td className="fig n">
-                {p.war == null ? <span className="quiet">—</span> : sgnWar(p.war)}
-              </td>
-              <td className="n fig">
-                <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
-                  {p.mvp == null ? "—" : fmt(p.mvp, 1)}
-                </b>
-              </td>
-              {/* the across-year index: above 100 beat a typical winner */}
-              <td className="fig n">
-                {p.mvpp == null ? <span className="quiet">—</span>
-                  : <span style={{ color: p.mvpp >= 100 ? "var(--good)" : undefined }}>
-                    {fmt(p.mvpp, 0)}
-                  </span>}
-              </td>
+              {hasWpa ? <>
+                {/* production, not the award: this one counts in a loss too */}
+                <td className="fig n">
+                  {p.war == null ? <span className="quiet">—</span> : sgnWar(p.war)}
+                </td>
+                <td className="n fig">
+                  <b style={{ color: i === 0 ? "var(--acc)" : undefined }}>
+                    {p.mvp == null ? "—" : fmt(p.mvp, 1)}
+                  </b>
+                </td>
+                {/* the across-year index: above 100 beat a typical winner */}
+                <td className="fig n">
+                  {p.mvpp == null ? <span className="quiet">—</span>
+                    : <span style={{ color: p.mvpp >= 100 ? "var(--good)" : undefined }}>
+                      {fmt(p.mvpp, 0)}
+                    </span>}
+                </td>
+              </> : <td className="n fig"><b>{fmt(p.pts, 1)}</b></td>}
             </tr>
           );
         })}
@@ -288,7 +301,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
           ["CHAMPION", nameOf(final?.w), `seed ${seedOf(final?.w) ?? "—"}`],
           ["RUNNER-UP", nameOf(final?.l), `seed ${seedOf(final?.l) ?? "—"}`],
           ["THIRD", nameOf(third?.w), `seed ${seedOf(third?.w) ?? "—"}`],
-          ["PLAYOFF MVP", mvp ? pInfo(players, mvp.pid)[0] : "—",
+          [hasWpa ? "PLAYOFF MVP" : "TOP SCORER", mvp ? pInfo(players, mvp.pid)[0] : "—",
             !mvp ? "no scored weeks"
               : mvp.mvp != null
                 // MVP+ is the figure worth carrying here: the season score is
@@ -310,7 +323,7 @@ export default function PlayoffPanel({ season, bracket }: { season: string; brac
       {openSec.bracket && <PlayoffBracket season={season} bracket={bracket} />}
 
       {/* (b) who swung the games — the two ends of raw WPA, side by side */}
-      {secBand("mvp", "Who won it — and who cost it",
+      {secBand("mvp", hasWpa ? "Who won it — and who cost it" : "Top scorers",
         hasWpa ? "raw win probability added, per matchup"
           : "fantasy points across the playoff weeks, credited while starting")}
       {openSec.mvp && (!perf.length ? (
@@ -365,10 +378,10 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
       )}
 
       {/* (c) biggest upset */}
-      {secBand("upset", "Biggest upset", upsets.length
+      {hasLines && secBand("upset", "Biggest upset", upsets.length
         ? `${upsets.length} ${upsets.length === 1 ? "game was" : "games were"} won against the odds`
         : "every game went to the favorite")}
-      {openSec.upset && (upsets.length ? (
+      {hasLines && openSec.upset && (upsets.length ? (
         <div className="card-row">
           {upsets.slice(0, 3).map((u, i) => (
             <div key={i}>{gameCard(u.g, `Won as a ${fmt(u.pre * 100, 1)}% underdog`)}</div>
@@ -389,7 +402,14 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
       )}
 
       {/* prose belongs in .tnote; .footnote is the one-line all-caps form */}
-      <div className="tnote screen">
+      {!hasWpa && (
+        <div className="tnote screen">
+          No win probabilities are modeled for this league, so there is no playoff MVP and no
+          upset list. Top scorers are fantasy points across the playoff weeks, credited while
+          starting · seeds shown are regular-season, wins then points
+        </div>
+      )}
+      {hasWpa && <div className="tnote screen">
         MVP is the biggest round-weighted win-probability swing, not the most points: WAR
         doesn't extend to the postseason — it needs a replacement baseline and fungible wins,
         and weeks {weeks[0]}–{weeks[weeks.length - 1]} have neither once half the league stops
@@ -398,7 +418,7 @@ Every elimination game hands out exactly 1.0 win to the side that won it, split
         games excluded · upsets rank by the pregame win probability of the side that won, not
         by seed — a seed is a regular-season finish and says nothing about the two rosters that
         actually took the field · seeds shown are regular-season, wins then points
-      </div>
+      </div>}
     </>
   );
 }

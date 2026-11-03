@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: false
 jobs:
   signals-redraft:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 350 vs --max-minutes 300: same margin as the dynasty lane — enough left
     # for checkout + commit + cache save so a timeout can't cancel mid-save.
     timeout-minutes: 350
@@ -68,11 +68,15 @@ jobs:
           }
           # RE-PARENT, never rebase — same rationale as crawl-signals: these are
           # generated files rewritten whole, their git history is worth nothing,
-          # and this workflow is the ONLY writer of these two paths.
+          # and this workflow is the ONLY writer of these two paths. The signals
+          # file also has to clear crawl_guard, same reason as crawl-signals.
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD
-            stage data/league_signals_redraft.json data/crawl_leagues_redraft.json
+            if python scripts/crawl_guard.py --path data/league_signals_redraft.json; then
+              stage data/league_signals_redraft.json
+            fi
+            stage data/crawl_leagues_redraft.json
             git diff --cached --quiet && { echo "no changes"; exit 0; }
             git commit -m "Crawl redraft signals $(date -u +%FT%H:%MZ)"
             git push origin HEAD:main && exit 0

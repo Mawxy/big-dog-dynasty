@@ -38,10 +38,11 @@ from leaguepaths import DataDir
 # the corpus row layout and the lineup slots it prices — shared with
 # benchmarks.py and slot_value.py so a column can only be added in one place
 from crawl_schema import LEAGUE_YEAR_CAP, LINEUP_SLOTS, ROW_FIELDS, SLOT_FIELDS, tep_class
+import crawl_guard
 import sleeper_http
 from ioutil import write_json
 
-ROOT = Path(__file__).resolve().parent.parent
+ROOT =Path(__file__).resolve().parent.parent
 DELAY = 0.12               # this crawler paces itself harder than the one-shot
                            # scripts: it makes six figures of calls a day
 STARTUP_MIN_ROUNDS = 10
@@ -177,7 +178,7 @@ def jdump(p, obj):
     write_json(p, obj)
 
 
-def git_push(paths, message):
+def git_push(paths, message, guarded=()):
     """Best-effort commit+push of output files mid-crawl (durable incremental
     saves + gets crawl_leagues.json to the trades/drafts crawlers early). Never
     fatal: the end-of-job commit step is the backstop.
@@ -192,6 +193,10 @@ def git_push(paths, message):
     drops the local commits and stages only our own paths, so the newest
     complete file wins and no merge is ever attempted. Safe because each mode
     is the only writer of the files it names.
+
+    `guarded` paths also have to clear crawl_guard against the head just fetched.
+    This push, not the end-of-job step, is what first published the cold cache on
+    2026-08-09: "partial, 1000 leagues", an hour and fifty minutes after 78,019.
     """
     import subprocess
     def run(*a):
@@ -206,7 +211,10 @@ def git_push(paths, message):
                 time.sleep(i * 5)
                 continue
             run("reset", "FETCH_HEAD")
-            run("add", *paths)
+            ok = [p for p in paths
+                  if p not in guarded or crawl_guard.allow(p, cwd=ROOT)]
+            if ok:
+                run("add", *ok)
             if run("diff", "--cached", "--quiet").returncode == 0:
                 return                              # nothing new to push
             run("commit", "-m", message)
@@ -222,6 +230,39 @@ def git_push(paths, message):
 
 def fresh(ts, cooldown_days):
     return ts is not None and (time.time() - ts) < cooldown_days * 86400
+
+
+class DeadlineReached(RuntimeError):
+    """The --max-minutes budget ran out. A RuntimeError so that raising it mid-league
+    lands in the same flush-report-exit-0 path as rate-limit exhaustion."""
+
+
+def recover_start_acc(committed, season):
+    """{pid: [started, rostered]} rebuilt from a committed league_signals file.
+
+    The season-long start% accumulator lives only in the 7-day Actions cache, so
+    a cold cache used to zero it mid-season and start_rate silently became "since
+    the eviction". The committed file states both halves of the fraction, so
+    the accumulator can be read back to within the rate's rounding, the same
+    recovery the rookie corpus does. Only for the SAME season: the accumulator
+    resets at rollover on purpose.
+
+    The re-crawl that follows a cold start adds a second observation for leagues
+    already seen that week. Accepted: it weights one week slightly against
+    losing all the others.
+
+    The WINDOW can't be bootstrapped the same way: snapshots expire league by
+    league and the file only holds their aggregate. crawl_guard covers that gap
+    by keeping the committed file in place until the window has refilled.
+    """
+    if not isinstance(committed, dict) or committed.get("season") != season:
+        return {}
+    acc = {}
+    for pid, p in (committed.get("players") or {}).items():
+        obs = p.get("start_obs") or 0
+        if obs:
+            acc[pid] = [round((p.get("start_rate") or 0) * obs), obs]
+    return acc
 
 
 def load_players_nfl(state_dir, cache_hours=20):
@@ -391,6 +432,11 @@ def mode_signals(args, t0):
     if acc_raw.get("season") != args.season:
         acc_raw = {"season": args.season, "acc": {}}
     start_acc = acc_raw["acc"]                      # pid -> [started_obs, rostered_obs]
+    if not start_acc:
+        start_acc.update(recover_start_acc(jload(ROOT / args.signals_out, {}), args.season))
+        if start_acc:
+            print(f"[signals] cold start: recovered start% for {len(start_acc)} players "
+                  f"from {args.signals_out}", file=sys.stderr, flush=True)
     # bye handling: a player on bye can't start, so that week isn't a fair usage
     # observation — skip it. Only needed in-season.
     pid_team, byes = {}, {}
@@ -496,9 +542,10 @@ def mode_signals(args, t0):
 
     deadline = t0 + args.max_minutes * 60 if args.max_minutes else None
     last_log = t0
-    rate_limited = None
+    stopped = None
     while frontier and n_visited < args.max_leagues:
         if deadline and time.time() >= deadline:
+            stopped = DeadlineReached(f"--max-minutes {args.max_minutes:g} spent")
             break
         lid = frontier.popleft()
         m = registry.get(lid)
@@ -540,6 +587,14 @@ def mode_signals(args, t0):
                 for uid in [r.get("owner_id"), *(r.get("co_owners") or [])]:
                     if not uid or uid in seen_users:
                         continue
+                    # Inside the league, not only between them: 429s at up to
+                    # 4.5 minutes a call across a dozen owners and their
+                    # co-owners ran one league past the whole 50-minute margin
+                    # (run 40824526215 hit the 5h50m limit), which loses the
+                    # end-of-run commit and the cache save with it.
+                    if deadline and time.time() >= deadline:
+                        raise DeadlineReached(f"--max-minutes {args.max_minutes:g} "
+                                              f"spent inside league {lid}")
                     seen_users[uid] = 1
                     for lg in (get(f"/user/{uid}/leagues/nfl/{args.season}") or []):
                         nlid = lg.get("league_id")
@@ -569,22 +624,38 @@ def mode_signals(args, t0):
                 if args.commit_every and n_counted % args.commit_every == 0:
                     git_push([args.signals_out, args.leagues_out],
                              f"Crawl signals (partial, {n_counted} leagues) "
-                             f"{datetime.date.today().isoformat()}")
+                             f"{datetime.date.today().isoformat()}",
+                             guarded=(args.signals_out,))
         except RuntimeError as e:
-            # Rate-limit exhaustion. Do NOT re-raise: an escaping exception
-            # skips the flush below AND fails the job, and a failed job skips
-            # the actions/cache post-step save — losing the whole run's state,
-            # not just this league. Flush, report, and exit 0 so the cache
+            # Rate-limit exhaustion or the deadline. Do NOT re-raise: an escaping
+            # exception skips the flush below AND fails the job, and a failed job
+            # skips the actions/cache post-step save — losing the whole run's
+            # state, not just this league. Flush, report, and exit 0 so the cache
             # persists; the next scheduled run resumes from here.
-            rate_limited = e
+            #
+            # Both can land mid-league, after the registry says "visited" and
+            # before the snapshot is taken, which would skip this league for a
+            # whole cooldown with nothing to show for it. Put it back.
+            if m is None:
+                registry.pop(lid, None)
+            else:
+                registry[lid] = m
+            frontier.appendleft(lid)
+            stopped = e
             break
         except Exception as e:
             print(f"  skip {lid}: {e}", file=sys.stderr, flush=True)
         if time.time() - last_log >= args.log_every:
             hb(); last_log = time.time()
     n = flush()
-    if rate_limited:
-        print(f"[signals] stopped early: {rate_limited}", file=sys.stderr, flush=True)
+    if stopped:
+        # Spending the budget is how most runs end, so only an exhausted rate limit
+        # earns the annotation: one on every run would bury it.
+        flag = ("" if isinstance(stopped, DeadlineReached)
+                else "::warning title=Signals crawl stopped early::")
+        print(f"{flag}{stopped}; "
+              f"{len(frontier)} leagues left in the frontier. Outputs flushed, and "
+              f"the next run resumes from the saved state.", flush=True)
     hb("done" if not frontier else "stopped")
     print(f"[signals] {n_counted} counted this run, {n} leagues in window, "
           f"{len(seen_users)} users", file=sys.stderr, flush=True)
@@ -686,6 +757,36 @@ def mode_trades(args, t0):
 
 
 # ------------------------------------------------------------- mode: drafts ---
+def merged_contrib(prev, startup, rookie, ts):
+    """One league's ADP contribution after a visit: what it had, plus what's new.
+
+    A visit only reads drafts not already in seen_drafts, so a revisit to a league
+    with no new draft finds nothing. Writing that as the league's whole contribution
+    replaced its picks with empties on every pass, and they could never come back,
+    because seen_drafts stops the re-read. Lists concatenate: seen_drafts already
+    guarantees that a pick arriving here has not been counted before.
+    """
+    prev = prev or {}
+    out = {"ts": ts, "startup": {}, "rookie": {}}
+    for kind, new in (("startup", startup), ("rookie", rookie)):
+        for store in (prev.get(kind) or {}, new):
+            for pid, picks in store.items():
+                out[kind][pid] = out[kind].get(pid, []) + list(picks)
+    return out
+
+
+def live_contrib(contrib, now, cooldown_days):
+    """The leagues still counted toward ADP: visited in the last TWO cooldowns.
+
+    Not one. A league only comes due for its revisit once a cooldown has passed, so
+    pruning at one cooldown drops its picks at the first flush of the very run that
+    was about to revisit and keep them. The second cooldown is backlog room; a whole
+    pass took five days after the August cold cache.
+    """
+    cutoff = now - 2 * cooldown_days * 86400
+    return {lid: c for lid, c in contrib.items() if c.get("ts", 0) >= cutoff}
+
+
 def mode_drafts(args, t0):
     sd = Path(args.state)
     progress = jload(sd / "progress.json", {})     # lid -> last_drafts ts
@@ -778,8 +879,7 @@ def mode_drafts(args, t0):
     print(f"[drafts] {len(mine)} leagues due of {len(league_list)}", file=sys.stderr, flush=True)
 
     def flush():
-        cutoff = time.time() - args.cooldown_days * 86400
-        live = {lid: c for lid, c in contrib.items() if c.get("ts", 0) >= cutoff}
+        live = live_contrib(contrib, time.time(), args.cooldown_days)
         contrib.clear(); contrib.update(live)
         startup, rookie = defaultdict(list), defaultdict(list)
         for c in live.values():
@@ -823,6 +923,7 @@ def mode_drafts(args, t0):
         try:
             su, rk = defaultdict(list), defaultdict(list)
             chain = chain_of(lid)
+            walked = True
             for clid in chain:
                 for d in (get(f"/league/{clid}/drafts") or []):
                     did = d.get("draft_id")
@@ -831,9 +932,18 @@ def mode_drafts(args, t0):
                     rounds = (d.get("settings") or {}).get("rounds") or 0
                     startup = rounds >= STARTUP_MIN_ROUNDS
                     dseason = d.get("season")
+                    # Read FIRST, mark seen after: a draft marked before its picks
+                    # arrive is skipped forever if the fetch fails. An exception
+                    # already skips the league for a retry; None (a 404) leaves the
+                    # chain out of seen_leagues below, or the walk would stop short
+                    # of this draft on the way back.
+                    picks = get(f"/draft/{did}/picks")
+                    if picks is None:
+                        walked = False
+                        continue
                     seen_drafts[did] = [clid, dseason,
                                         "startup" if startup else "rookie"]
-                    for pk in (get(f"/draft/{did}/picks") or []):
+                    for pk in picks:
                         pid, pno = pk.get("player_id"), pk.get("pick_no")
                         if not (pid and pno):
                             continue
@@ -843,8 +953,9 @@ def mode_drafts(args, t0):
                             rk[pid].append(pno)      # rookie bucket: matching class only
                             key = f"{dseason}|{pno}|{pid}"
                             rookie_corpus[key] = rookie_corpus.get(key, 0) + 1
-            seen_leagues.update(chain)
-            contrib[lid] = {"ts": time.time(), "startup": dict(su), "rookie": dict(rk)}
+            if walked:
+                seen_leagues.update(chain)
+            contrib[lid] = merged_contrib(contrib.get(lid), su, rk, time.time())
             progress[lid] = time.time()
             n_done += 1
             if n_done % CHECKPOINT_EVERY == 0:

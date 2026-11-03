@@ -24,7 +24,7 @@ permissions:
   contents: write                   # commits the signals files
 jobs:
   outcomes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 350 vs --max-minutes 300: the trades job left 15 minutes for checkout,
     # cache save and artifact upload and could be cancelled mid-save, which
     # loses the cache as well as the run. 50 is the margin that mistake earned.
@@ -103,7 +103,16 @@ jobs:
             # previous benchmarks.json) from origin, then put our own back.
             git checkout FETCH_HEAD -- 'data/outcome_signals_*.json' data/benchmarks.json \
               || echo "no committed shard files at origin yet"
-            [ -f "$SAVED" ] && cp "$SAVED" "$MINE"
+            # ...UNLESS ours is a cold cache's: on 2026-08-10 every shard fell by
+            # about 89% in one push. This has to happen before benchmarks.py, not
+            # at the `stage` below, because benchmarks.py merges the working tree:
+            # skipping only the stage would still publish a benchmarks.json built
+            # from the gutted shard. Refused, origin's copy stays in place, so the
+            # merge and the commit carry on with it. The crawl's state saves as
+            # usual and the shard publishes once it has rebuilt.
+            if [ -f "$SAVED" ] && python scripts/crawl_guard.py --path "$MINE" --file "$SAVED"; then
+              cp "$SAVED" "$MINE"
+            fi
             # Non-fatal, but never silent: this shard's signals are five hours of
             # crawling and must land even if the merge trips, while a stale
             # benchmarks.json survives one cycle. The old `|| true` swallowed a

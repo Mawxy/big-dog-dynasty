@@ -24,6 +24,8 @@ its floor is part of that change.
 
   python scripts/validate_data.py                # full check (data-refresh)
   python scripts/validate_data.py --values-only  # market-values workflow
+  python scripts/validate_data.py --league <key> # one league's tree (the redraft
+                                                 # block in data-refresh)
 """
 import argparse, datetime, json, os, sys
 from pathlib import Path
@@ -36,6 +38,9 @@ from crawl_schema import LEAGUE_YEAR_CAP, SLOT_NAMES
 # points-first model legitimately added its two. A count restated here is a
 # count that goes stale the next time a model is added.
 from curves import CURVES
+# the verdict on a scalar/analog seed pair, from the script that acts on it: the
+# matrix publishes through a "stale" pair, so the gate has to read it the same way
+from project_matrix import seed_mismatch
 # and "which season actually finished", from the module every projection arm
 # now seeds off — restating the rule here is how the arms drifted apart
 from seasons import last_completed_season
@@ -98,6 +103,12 @@ FLOORS = {
     # after one week; it grows as lineups change).
     "usage_players": 100,
     "winshare_players": 50,
+    # The crawl's roster% / start% sample, which the nightly's DVI and CVI read.
+    # 2026-07..11 normal: 37,000-80,000 leagues, 4,700-6,200 players. The cold
+    # Actions cache of 2026-08-09 published 3,000-5,000 leagues and 2,849 players,
+    # and that sample still cleared every other check.
+    "signal_leagues": 20000,
+    "signal_players": 3500,
 }
 
 # Sane bounds for a published WAR figure. A lineup slot's median WAR runs 0.46
@@ -250,6 +261,20 @@ def _num(v, lo, hi, what):
         fail(f"{what} is {v} (outside {lo}..{hi})")
 
 
+def check_league_signals():
+    """data/league_signals.json — the roster% / start% behind DVI and CVI.
+
+    Committed by the crawl, read by the nightly, and gated by neither: a run off
+    a cold cache writes a full-shaped file from a sliver of the sample, and the
+    indices then read a few thousand leagues as the market. The floors sit well
+    above that sample and well below a normal one. A file that is merely old is
+    not this check's business.
+    """
+    sig = jload(DATA / "league_signals.json")
+    floor("signal_leagues", sig.get("leagues") or 0)
+    floor("signal_players", len(sig.get("players") or {}))
+
+
 def check_benchmarks():
     """data/benchmarks.json — the cross-league Insights tab.
 
@@ -381,6 +406,7 @@ PROJECTION_FILES = (
     ("projections_matrix.json", False),     # the six curves
     ("projections_knn_hybrid.json", False),  # the analog arm
 )
+ANALOG_FILE = "projections_knn_hybrid.json"
 
 
 def _seed_and_first(meta):
@@ -395,6 +421,23 @@ def _seed_and_first(meta):
     years = meta.get("years") or []
     first = years[0] if years else (seed + 1 if seed is not None else None)
     return seed, first
+
+
+def _analog_one_season_behind(seen, done):
+    """Is the analog arm's lag the ONLY disagreement in `seen`, and the January
+    one? Every other arm on one seed, that seed the last completed season, and
+    the analog exactly a season behind it, on project_matrix's "stale" verdict.
+    war-history refuses end=<this season> until January 15 and runs that day, so
+    this is the normal state for about two weeks after the title game."""
+    analog = seen.get(ANALOG_FILE)
+    rest = {v for n, v in seen.items() if n != ANALOG_FILE}
+    if analog is None or len(rest) != 1:
+        return False
+    seed, first = next(iter(rest))
+    if seed is None or first is None or seed != done:
+        return False
+    return (seed_mismatch(seed, analog[0], done) == "stale"
+            and analog == (seed - 1, first - 1))
 
 
 def _roster_season():
@@ -427,6 +470,13 @@ def check_projection_coherence():
          year one is the season after it;
       3. year one lines up with the roster the site shows it beside.
 
+    One disagreement warns instead of failing: from the title game until
+    war-history rebuilds the corpus on January 15, the scalar arm seeds off the
+    season just finished and the analog arm is a year behind it.
+    project_matrix.py publishes through that, so failing here would stop every
+    commit for about two weeks, or longer if that rebuild fails. Anything else
+    that disagrees still fails.
+
     (3) is deliberately a two-value window rather than an equality. Year one IS
     the roster season while that season is being played, but between the title
     game and September's league rollover the roster season is finished and year
@@ -455,8 +505,13 @@ def check_projection_coherence():
 
     where = "; ".join(f"{n} seed {s} -> year {y}" for n, (s, y) in sorted(seen.items()))
     if len({s for s, _ in seen.values()}) > 1 or len({y for _, y in seen.values()}) > 1:
-        fail(f"the projection arms disagree about which season they project "
-             f"from — {where}")
+        if not _analog_one_season_behind(seen, done):
+            fail(f"the projection arms disagree about which season they project "
+                 f"from — {where}")
+        warn(f"the analog corpus is a season behind the league until war-history "
+             f"rebuilds it — {where}", title="Analog arm a season behind")
+    # projections.json is first in PROJECTION_FILES and required, so past a
+    # warning the rest of these checks read the scalar arm, not the lagging one
     seed, first = next(iter(seen.values()))
     if seed is not None and first is not None and first != seed + 1:
         fail(f"projections seed from {seed} but publish year one as {first}")
@@ -698,8 +753,10 @@ def check_freshness(today=None):
                  f"scripts/defense_vs_position.py.", title="Defense grid stale")
 
 
-def check_full():
-    meta = jload(DATA / "meta.json")
+def check_seasons(meta, odds_required=True):
+    """The per-season checks, for every season in `meta`. Returns the priced
+    odds weeks. A league with no odds in its pipeline (`odds_required` False)
+    is held to odds.json only where one exists."""
     seasons = meta.get("seasons") or []
     if not seasons:
         fail("meta.json has no seasons")
@@ -724,7 +781,7 @@ def check_full():
                 fail(f"{sd}/summary.json is empty but the season has scored matchups")
             if not jload(sd / "weekly.json"):
                 fail(f"{sd}/weekly.json is empty but the season has scored matchups")
-        if mf.exists():
+        if mf.exists() and (odds_required or (sd / "odds.json").exists()):
             odds_weeks = check_odds(sd, odds_weeks, scored)
         # a shipped bracket must have a decided game: Sleeper seeds a
         # placeholder bracket long before kickoff, and shipping that renders a
@@ -732,6 +789,12 @@ def check_full():
         bf = sd / "bracket.json"
         if bf.exists() and not any(g.get("w") for g in jload(bf).get("winners") or []):
             fail(f"{sd}/bracket.json has no decided game — placeholder seeding?")
+    return odds_weeks
+
+
+def check_full():
+    meta = jload(DATA / "meta.json")
+    odds_weeks = check_seasons(meta)
     floor("players_min", len(jload(DATA / "players_min.json")))
     floor("ownership", len(jload(DATA / "ownership.json")))
     floor("franchises", len(jload(DATA / "franchises.json")))
@@ -772,20 +835,64 @@ def check_full():
     check_benchmarks()
     check_slot_values()
     check_values()
+    check_league_signals()
     check_freshness()
+
+
+def check_other_league(entry):
+    """A league outside the default's pipeline: pull -> WAR -> build only.
+
+    Its fail-soft block commits with everything else, so a partial write would
+    ship ungated. This runs what its tree can answer: the per-season record and
+    structure checks, the build's three league files, and the registry agreeing
+    with meta.json. What src/lib/caps.ts rules out for it is skipped because the
+    pipeline never writes it: projections, indices, drafts, trades, odds, shards
+    and picks. The market and crawl files are global and gated on the full run.
+    """
+    meta = jload(DATA / "meta.json")
+    check_seasons(meta, odds_required=False)
+    for k in ("seasons", "latest", "rosterSeason"):
+        if entry.get(k) != meta.get(k):
+            fail(f"leagues.json {k} {entry.get(k)!r} disagrees with this league's "
+                 f"meta.json {meta.get(k)!r} — a build that stopped halfway?")
+    floor("players_min", len(jload(DATA / "players_min.json")))
+    floor("ownership", len(jload(DATA / "ownership.json")))
+    floor("franchises", len(jload(DATA / "franchises.json")))
+
+
+def check_league(key):
+    """`--league <key>`: exits non-zero on any failure, like the other modes.
+    The default league's tree carries everything, so it gets the full check."""
+    global DATA
+    root = ROOT / "data"
+    reg = jload(root / "leagues.json")
+    entry = next((lg for lg in reg.get("leagues") or [] if lg.get("key") == key), None)
+    if entry is None:
+        fail(f"--league {key}: no such key in {root / 'leagues.json'}")
+    DATA = DataDir(root, key)
+    if key == reg.get("default"):
+        check_full()
+    else:
+        check_other_league(entry)
 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--values-only", action="store_true",
-                    help="check only values.json / value_bridge.json "
-                         "(the market-values workflow's outputs)")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--values-only", action="store_true",
+                      help="check only values.json / value_bridge.json "
+                           "(the market-values workflow's outputs)")
+    mode.add_argument("--league", metavar="KEY",
+                      help="check one league's tree, by its founding league_id")
     args = ap.parse_args()
-    if args.values_only:
+    if args.league:
+        check_league(args.league)
+    elif args.values_only:
         check_values()
     else:
         check_full()
-    print("data/ validation OK" + (" (values only)" if args.values_only else ""))
+    print("data/ validation OK" + (" (values only)" if args.values_only else "")
+          + (f" (league {args.league})" if args.league else ""))
 
 
 if __name__ == "__main__":

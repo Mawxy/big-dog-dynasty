@@ -11,7 +11,7 @@ import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
 } from "../../lib/league";
 import { useLeagueCaps } from "../../lib/caps";
-import { ridOf, seasonRowOf, settledSeasons } from "../../lib/seasons";
+import { isSeasonSettled, ridOf, seasonRowOf, settledSeasons } from "../../lib/seasons";
 import { playedWeeks as playedRegWeeks, projectedRecord } from "../../lib/projRecord";
 import { useProjWar1 } from "../../lib/useIndices";
 import { RouteLink } from "../../components/RouteLink";
@@ -28,7 +28,7 @@ import {
 import Moved from "../moved";
 import TeamRecords from "./TeamRecords";
 import { RecapBand } from "./Recaps";
-import { playedWeeks, weekFigures, weekGames, weekRows } from "../week";
+import { playedSlotCount, playedWeeks, weekFigures, weekGames, weekRows } from "../week";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
   useDynMovers, useGapRows, useMarketMovers,
@@ -354,8 +354,9 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const oddsR = useJson<WeekOdds>(caps.odds ? `${resultSeason}/odds.json` : null).data;
   const weeklyR = useJson<Weekly>(`${resultSeason}/weekly.json`).data;
   const teamsR = useJson<Team[]>(`${resultSeason}/teams.json`).data;
-  // the measured vig: a global file, one fit for every league
-  const vig = useJson<VigModel>("data/vig_model.json").data;
+  // the measured vig: a global file, one fit for every league, and only a
+  // league with a line has anything to price with it
+  const vig = useJson<VigModel>(caps.odds ? "data/vig_model.json" : null, "global").data;
   // STARS TO WATCH: each side's highest-projected starter this week, off
   // Sleeper's per-week lines
   const sproj = useJson<SleeperProjFile>(caps.projections ? "proj_sleeper.json" : null).data;
@@ -475,10 +476,15 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      the share of its projected points still to be played, and the win
      probability is the same normal the pregame line is quoted from —
      Φ((muA − muB) / sqrt(varA + varB)). The scoreboard is ESPN's; without
-     it the pregame line stands. */
+     it the pregame line stands.
+
+     NO PROJECTION OR NO SPREAD, NO LINE. Without them the variance is exactly
+     zero and the normal collapses to whoever leads right now: "Win 100%" and
+     "ML −10000" one point into a game, on a league that publishes neither. The
+     card's Win and Total then read as dashes. */
   const liveLine = useCallback((rid: number, sd: number | null): { mu: number; v: number } | null => {
     const ls = liveOf(rid);
-    if (!ls || !board) return null;
+    if (!ls || !board || !sproj || sd == null) return null;
     let mu = 0, projAll = 0, projLeft = 0;
     for (const pid of ls.starters) {
       if (!pid || pid === "0") continue;
@@ -497,7 +503,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       projAll += proj; projLeft += rem * proj;
     }
     const share = projAll > 0 ? projLeft / projAll : 0;
-    const v = (sd ?? 0) ** 2 * share;
+    const v = sd ** 2 * share;
     return { mu, v };
   }, [board, live, sproj, players, thisWeek?.wk]);
 
@@ -518,10 +524,19 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      Each slot carries its week figure: points so far while the games are on,
      Sleeper's per-week projection before. A bye or an empty slot is a real
      0.0 — that IS the weakness. The week here is never a scored one (see
-     `thisWeek`), so there is no third case. */
+     `thisWeek`), so there is no third case.
+
+     A LEAGUE WITH NO PROJECTION HAS NO PREGAME FIGURE AND NO "BEST" LINEUP: the
+     optimiser over a pool of zeros seats the roster in file order. Before the
+     games, those sides are the lineups as set and `unpriced` dashes the figures. */
   const slotsOf = useCallback((rid: number, wk: number, ls: LiveSide | null = null): SlotEntry[] => {
     const mw = mwQ.data;
     const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
+    if (!caps.projections && !ls) {
+      return asSetSlots(lineup, mw?.set?.week === wk
+        ? mw.set.starters[String(rid)]
+        : teams?.find(t => t.roster_id === rid)?.starters);
+    }
     const projOf = (pid: string): number => sproj?.players[pid]?.wk?.[String(wk)] ?? 0;
     // live: points so far, off Sleeper's read of the week in progress
     const val = (pid: string): number => (ls ? ls.ppts[pid] ?? 0 : projOf(pid));
@@ -560,13 +575,13 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       slot: sl.slot, pid: sl.player?.id ?? null, v: sl.player?.war ?? 0,
       ...(sl.player ? result(sl.player.id, sl.player.war) : {}),
     }));
-  }, [mwQ.data, meta, sproj, teams, players, board]);
+  }, [mwQ.data, meta, sproj, teams, players, board, caps.projections]);
 
   /** a scored week's lineup as it was scored — the Seasons screen's reading:
    *  one entry per slot in lineup order, each carrying the points it returned */
   const playedSlotsOf = useCallback((starters: string[], wk: number): SlotEntry[] => {
     const lineup = lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl));
-    const n = Math.max(lineup.length, starters.length);
+    const n = playedSlotCount(lineup.length, starters);
     return Array.from({ length: n }, (_, i) => {
       const pid = starters[i];
       const real = !!pid && pid !== "0";
@@ -765,6 +780,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
                   b={{ rid: g.b.rid, name: nameOf(teams, g.b.rid),
                     slots: thisWeek.scored ? playedSlotsOf(g.b.starters, thisWeek.wk) : slotsOf(g.b.rid, thisWeek.wk, lb) }}
                   played={thisWeek.scored || final} live={!!la && !!lb && !final} players={players} board={board}
+                  unpriced={!caps.projections && !thisWeek.scored && !la && !lb}
                   to={`${seasonsRoute(twSeason, thisWeek.wk)}/${g.a.rid}`} />
               ),
             ];
@@ -801,7 +817,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               ? <span className="lgx-warn">{`${Math.round(lastWeek.upsetWp * 100)}%`}</span> : DASH,
             sub: lastWeek.upset
               ? `${nameOf(teamsR, lastWeek.upset.rid)} beat ${lastWeek.upset.opp != null ? nameOf(teamsR, lastWeek.upset.opp) : "—"}`
-              : "no winner beat the line",
+              : lastWeek.priced ? "no winner beat the line" : "no line for this week",
             to: seasonsRoute(lwSeason, lastWeek.wk) },
           { key: "close", label: "Closest score",
             value: lastWeek.closest ? fmt(lastWeek.closest.pts - lastWeek.closest.oppPts, 1) : DASH,
@@ -868,6 +884,21 @@ export interface SlotEntry {
   /** how settled `war` is: "est" once his game is over, "live" while it is
    *  still on (points so far). Absent on an official figure. */
   warEst?: "est" | "live";
+}
+
+/**
+ * THE LINEUPS AS SET, FOR A LEAGUE WITH NO PROJECTION: Sleeper's own `starters`,
+ * parallel to the starting slots — the reading screens/Team.tsx makes for the
+ * same reason. A list that does not line up with the slots seats nobody rather
+ * than seating people in the wrong ones. `v` is a placeholder; a drawer showing
+ * these is `unpriced` and prints no figure.
+ */
+export function asSetSlots(lineup: string[], starters: string[] | null | undefined): SlotEntry[] {
+  const set = starters?.length === lineup.length ? starters : null;
+  return lineup.map((slot, i) => {
+    const pid = set?.[i];
+    return { slot, pid: pid && pid !== "0" ? pid : null, v: 0 };
+  });
 }
 
 /**
@@ -939,8 +970,11 @@ function gameLine(team: string, board: Scoreboard | null): string {
   return `${who} · ${when}`;
 }
 
-export function SlotDrawer({ a, b, played, live = false, players, board, to, war = false, clubOf }: {
+export function SlotDrawer({ a, b, played, live = false, unpriced = false, players, board, to, war = false, clubOf }: {
   a: SlotSide; b: SlotSide; played: boolean;
+  /** no figure exists for these slots: pregame in a league with no projection.
+   *  The lineups as set, dashes where the figures go, and the head says why. */
+  unpriced?: boolean;
   /** print each slot's WAR under its points, and each side's total — the
    *  matchup page does; the League card's drawer keeps to points */
   war?: boolean;
@@ -991,7 +1025,7 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to, war
       <span className="vs">
         {/* the figure goes red once he has settled short of the projection
             under it (Max, 2026-09-10) — the result is what missed */}
-        <span className={`v${x?.miss ? " miss" : x?.beat ? " beat" : ""}`}>{x ? fmt(x.v, 1) : DASH}</span>
+        <span className={`v${x?.miss ? " miss" : x?.beat ? " beat" : ""}`}>{x && !unpriced ? fmt(x.v, 1) : DASH}</span>
         {x?.proj != null && <span className="p">{fmt(x.proj, 1)}</span>}
         {war && x?.pid && <WarFig v={x.war ?? null} est={x.warEst} />}
       </span>
@@ -1028,7 +1062,8 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to, war
   return (
     <div className="lgx-drawer">
       <div className="sd-head">
-        <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live" : "Slot by slot · projected"}
+        <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live"
+          : unpriced ? "As set · no projection published" : "Slot by slot · projected"}
           </span>
         {to && <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>}
       </div>
@@ -1046,7 +1081,7 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to, war
                   column whichever way it points */}
               <span className={`edge${push ? " push" : ""}`}>
                 <span className="ar">{!push && d > 0 ? "◂" : ""}</span>
-                <span className="n">{push ? "even" : fmt(Math.abs(d), 1)}</span>
+                <span className="n">{unpriced ? DASH : push ? "even" : fmt(Math.abs(d), 1)}</span>
                 <span className="ar">{!push && d < 0 ? "▸" : ""}</span>
               </span>
             </div>
@@ -1062,7 +1097,7 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to, war
         <div className={`sd-side${totA > totB ? " win" : ""}`}>
           <span className="nm">{a.name}</span>
           <span className="vs">
-            <span className={`v${missA ? " miss" : beatA ? " beat" : ""}`}>{fmt(totA, 1)}</span>
+            <span className={`v${missA ? " miss" : beatA ? " beat" : ""}`}>{unpriced ? DASH : fmt(totA, 1)}</span>
             {hasProj && <span className="p">{fmt(projA, 1)}</span>}
             {war && <WarFig v={wtA?.v ?? null} est={wtA?.est} />}
           </span>
@@ -1071,14 +1106,14 @@ export function SlotDrawer({ a, b, played, live = false, players, board, to, war
           <span className="slot">Total</span>
           <span className="edge">
             <span className="ar">{edgeA > edgeB ? "◂" : ""}</span>
-            <span className="n">{fmt(Math.abs(edgeA - edgeB), 1)}</span>
+            <span className="n">{unpriced ? DASH : fmt(Math.abs(edgeA - edgeB), 1)}</span>
             <span className="ar">{edgeB > edgeA ? "▸" : ""}</span>
           </span>
         </div>
         <div className={`sd-side r${totB > totA ? " win" : ""}`}>
           <span className="nm">{b.name}</span>
           <span className="vs">
-            <span className={`v${missB ? " miss" : beatB ? " beat" : ""}`}>{fmt(totB, 1)}</span>
+            <span className={`v${missB ? " miss" : beatB ? " beat" : ""}`}>{unpriced ? DASH : fmt(totB, 1)}</span>
             {hasProj && <span className="p">{fmt(projB, 1)}</span>}
             {war && <WarFig v={wtB?.v ?? null} est={wtB?.est} />}
           </span>
@@ -1358,10 +1393,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         : null;
     });
   }, [sumNowQ.data, rosterSeason]);
-  // the market prices a FORMAT, not a league — global files, global scope
-  const valsQ = useJson<Values>("data/values.json", "globalDaily");
+  // the market prices a FORMAT, not a league — global files, global scope — and
+  // a redraft league does not play the format, so it fetches neither read
+  const valsQ = useJson<Values>(caps.market ? "data/values.json" : null, "globalDaily");
   const vals = valsQ.data;
-  const dyn = useDynMovers();
+  const dyn = useDynMovers(caps.market);
 
   const lineup = lineupOf(meta);
   /* THE ODDS ON THE POWER TABLE (Max, 2026-09-09), moved from Standings:
@@ -1371,7 +1407,7 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
      percentage under each price so the model's own figure is never hidden
      behind the book's. */
   const sim = oddsW?.season?.teams ?? null;
-  const vig = useJson<VigModel>("data/vig_model.json").data;
+  const vig = useJson<VigModel>(caps.odds ? "data/vig_model.json" : null, "global").data;
   const titleLines = useMemo(() => sim
     ? futuresLines(Object.fromEntries(Object.entries(sim).map(([rid, o]) => [rid, o.title])))
     : {}, [sim]);
@@ -1621,25 +1657,33 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
         : !mvm ? <div className="empty">Loading…</div>
         : <GapTable rows={mvm} limit={MODULE_ROWS} />}
 
-      {/* ---- 5. dynasty movers ------------------------------------------- */}
-      <Band label="Dynasty movers" note={dynNote(dyn)}
-        right={<ViewAll to={betaPath("/movers/dynasty")} />} />
-      {!dyn ? <div className="empty">Waiting on the trade-corpus refresh…</div>
-        : <DynTable dyn={dyn} limit={MODULE_ROWS} />}
+      {/* KEEPTRADECUT AND FANTASYCALC PRICE DYNASTY ASSETS: the same call Trends
+          and Movers make with `caps.market`. A redraft league gets neither
+          module, rather than a table of prices nobody there can keep. */}
+      {caps.market && (
+        <>
+          {/* ---- 5. dynasty movers ------------------------------------------- */}
+          <Band label="Dynasty movers" note={dynNote(dyn)}
+            right={<ViewAll to={betaPath("/movers/dynasty")} />} />
+          {!dyn ? <div className="empty">Waiting on the trade-corpus refresh…</div>
+            : <DynTable dyn={dyn} limit={MODULE_ROWS} />}
 
-      {/* ---- 6. market movers -------------------------------------------- */}
-      <Band label="Market movers" note={`${marketNote(movers)} · ${MODULE_MIN_VALUE.toLocaleString()}+ value`}
-        right={<ViewAll to={betaPath("/movers/market")} />} />
-      {valsQ.error
-        ? <DataError what="Market didn't load" />
-        : !movers ? <div className="empty">Waiting on the nightly market pull…</div>
-        : <MarketTable movers={movers} limit={MODULE_ROWS} minValue={MODULE_MIN_VALUE} />}
+          {/* ---- 6. market movers -------------------------------------------- */}
+          <Band label="Market movers" note={`${marketNote(movers)} · ${MODULE_MIN_VALUE.toLocaleString()}+ value`}
+            right={<ViewAll to={betaPath("/movers/market")} />} />
+          {valsQ.error
+            ? <DataError what="Market didn't load" />
+            : !movers ? <div className="empty">Waiting on the nightly market pull…</div>
+            : <MarketTable movers={movers} limit={MODULE_ROWS} minValue={MODULE_MIN_VALUE} />}
+        </>
+      )}
 
       {/* the freshness line, kept when the paragraph around it went (Max,
           2026-09-02): when the market was fetched and when the board was
           built are the two dates a reader needs to trust a figure */}
       <div className="tnote screen">
-        Market fetched {vals?.fetched ?? meta.updated} · board built {meta.updated}.
+        {caps.market ? <>Market fetched {vals?.fetched ?? meta.updated} · board built {meta.updated}.</>
+          : <>Board built {meta.updated}.</>}
       </div>
     </>
   );
@@ -1783,7 +1827,12 @@ function AllTimeView({ played }: { played: string[] }) {
       // not the newest played one — a franchise renamed this offseason should
       // be found under the name on its door
       const last = f.seasons.slice().sort((a, b) => b.season.localeCompare(a.season))[0];
-      const fins = ss.map(x => x.finish).filter((x): x is number => x != null);
+      // THE MARKS ARE SETTLED SEASONS ONLY. A record accrues game by game, but
+      // the season in progress already carries a seed from week one, and its
+      // split `finish` column fills in a fortnight before anyone is first — so
+      // neither a bye nor a finish is a fact about it yet (lib/seasons).
+      const done = ss.filter(x => isSeasonSettled(fr, x.season));
+      const fins = done.map(x => x.finish).filter((x): x is number => x != null);
       const wins = ss.reduce((a, x) => a + x.wins, 0);
       const losses = ss.reduce((a, x) => a + x.losses, 0);
       const ties = ss.reduce((a, x) => a + x.ties, 0);
@@ -1801,7 +1850,7 @@ function AllTimeView({ played }: { played: string[] }) {
         avgFinish: fins.length ? mean(fins) : null,
         bestFinish: fins.length ? Math.min(...fins) : null,
         titles: fins.filter(x => x === 1).length,
-        byes: ss.filter(x => x.seed != null && x.seed <= 2).length,
+        byes: done.filter(x => x.seed != null && x.seed <= 2).length,
       });
     }
     const pct = (r: AllTimeRow) => (r.wins + r.ties / 2) / Math.max(1, r.wins + r.losses + r.ties);
@@ -2212,6 +2261,7 @@ function AllTimeView({ played }: { played: string[] }) {
 
 function HistoryView({ season }: { season: string }) {
   const { players, league } = useLeague();
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const { keyOf, hrefOf } = useFranchiseIndex(rosterSeasonOf(league));
   const rows = useStandings(season);
@@ -2233,7 +2283,7 @@ function HistoryView({ season }: { season: string }) {
   const teams = teamsQ.data;
   // the draft that stocked this season, off the same file and the same model
   // the Drafts screen reads — one board, two screens
-  const drafts = useJson<Drafts>("drafts.json").data;
+  const drafts = useJson<Drafts>(caps.drafts ? "drafts.json" : null).data;
   const draftHist = useMemo(() => (drafts ? buildHistory(drafts, fr) : null), [drafts, fr]);
   const draftRows = draftHist?.rowsBy[season];
   const draftKind = draftHist?.kindOf[season];

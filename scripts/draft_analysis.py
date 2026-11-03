@@ -27,6 +27,7 @@ from leaguepaths import DataDir
 
 
 from draft_slots import build_slot_maps
+from seasons import completed_seasons
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = DataDir(ROOT / "data")
@@ -37,6 +38,16 @@ EXP_YEARS_FALLBACK = 3   # only used if pick_values.json omits years_published
 
 def load(p):
     return json.loads(p.read_text(encoding="utf-8")) if p.exists() else None
+
+
+def last_finished(data_dir, seasons, latest):
+    """The newest finished season at or before `latest`, on seasons.py's rule: a
+    decided champion. A season with neither a bracket nor a first-place finish
+    is not finished. Anything after it (the in-progress season) has only partial
+    WAR, so it must NOT be scored against a full-year expectation, or the whole
+    current rookie class reads as misses until the season ends."""
+    return max((y for y in completed_seasons(data_dir, seasons) if y <= latest),
+               default=latest)
 
 
 def main():
@@ -68,21 +79,7 @@ def main():
     published = (pvj.get("meta") or {}).get("years_published") or []
     exp_years = max(published) if published else EXP_YEARS_FALLBACK
 
-    def season_complete(y):
-        """A league season is finished once its championship game has a winner.
-        A missing bracket (older committed seasons) is treated as complete."""
-        b = load(RAW / str(y) / "winners_bracket.json")
-        if not b:
-            return True
-        champ = next((m for m in b if m.get("p") == 1), None)
-        return champ is None or champ.get("w") is not None
-
-    # Latest fully-finished season. Anything after it (the in-progress season)
-    # has only partial WAR, so it must NOT be scored against a full-year
-    # expectation — otherwise the whole current rookie class reads as misses
-    # until the season ends.
-    last_complete = max((y for y in seasons if y <= latest and season_complete(y)),
-                        default=latest)
+    last_complete = last_finished(DATA, seasons, latest)
 
     # roster -> draft slot, and what was selected at each (round, slot);
     # lets us list picks a franchise originally owned but traded away.
@@ -128,7 +125,9 @@ def main():
                 continue
             md = p.get("metadata") or {}
             slot = f"{p['round']}.{p.get('draft_slot', 0):02d}"
-            exp = pv.get(slot, {})
+            # pick_values prices ROOKIE slots. A startup's 1.05 is a veteran
+            # pick that shares the label, not that slot's expectation.
+            exp = pv.get(slot, {}) if kind == "rookie" else {}
             # None (not 0.0) when no season has fully elapsed yet — a not-yet-
             # scored pick must not read as a zero-expected, zero-diff hit.
             expected = round(sum(float(exp.get(str(y), 0.0)) for y in range(1, n_exp + 1)), 3) \

@@ -6,7 +6,7 @@ value history embedded in KeepTradeCut player pages.
 Why: values_history.json only reaches back to 2026-07-15 (when the nightly
 snapshotting started), so trade-snapshot market backfills stop there. KTC's
 player pages carry each player's full value-over-time series (the graph on the
-page), embedded in the HTML the same way the rankings page embeds playersArray.
+page), embedded in the HTML the same way the rankings page embeds its players.
 One page per player, politely paced, gets the ledger's "then" figures years of
 reach. Values courtesy of KeepTradeCut — same attribution as fetch_values.py.
 
@@ -36,10 +36,14 @@ Picks are keyed "pick:<season> Mid <round>", matching the nightly writer.
 import argparse, json, re, sys, time, urllib.request
 from pathlib import Path
 
+from fetch_values import ktc_players, name_index, norm
 from ioutil import write_json
+from leaguepaths import DataDir
 
 ROOT = Path(__file__).resolve().parent.parent
-DATA = ROOT / "data"
+# routes as everywhere else: values_history_deep.json is global, players_min.json
+# lives under the default league. A bare data/ root has no players_min.json.
+DATA = DataDir(ROOT / "data")
 UA = {"User-Agent": "Mozilla/5.0 (BigDogDynasty league site)"}
 DELAY = 0.6                      # be a polite guest: ~600 pages in ~7 minutes
 BASE = "https://keeptradecut.com/dynasty-rankings"
@@ -234,13 +238,9 @@ def fc_backfill(hist, limit):
 
 def player_links():
     """(playerName, slug) for every ranked player, straight off the rankings
-    page's own playersArray — names and slugs from the source of truth."""
-    html = get(BASE)
-    m = re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S)
-    if not m:
-        sys.exit("playersArray not found — KTC page layout changed")
+    page's own player array — names and slugs from the source of truth."""
     out = []
-    for row in json.loads(m.group(1)):
+    for row in ktc_players(get(BASE)):
         slug = row.get("slug")
         if slug and row.get("position") in {"QB", "RB", "WR", "TE"}:
             out.append((row.get("playerName", ""), slug))
@@ -263,9 +263,7 @@ def main():
 
     if args.picks:
         hist = json.loads(Path(args.out).read_text(encoding="utf-8")) if Path(args.out).exists() else {}
-        html = get(BASE)
-        rows = json.loads(re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);", html, re.S).group(1))
-        mids = [(r["playerName"], r["slug"]) for r in rows
+        mids = [(r["playerName"], r["slug"]) for r in ktc_players(get(BASE))
                 if r.get("slug") and re.match(r"^20\d\d Mid \d\w\w$", r.get("playerName", ""))]
         print(f"{len(mids)} mid-tier picks")
         n = 0
@@ -331,8 +329,6 @@ def main():
         return
 
     # sleeper-id join: same normalized name+pos matching fetch_values uses
-    sys.path.insert(0, str(ROOT / "scripts"))
-    from fetch_values import name_index, norm
     players_min = None
     for cand in (DATA / "players_min.json", ROOT / "sleeper_data" / "players.json"):
         if Path(cand).exists():
@@ -342,8 +338,7 @@ def main():
         sys.exit("need data/players_min.json or sleeper_data/players.json for the id join")
     idx = name_index(players_min)
     pos_of = {}
-    for row in json.loads(re.search(r"var\s+playersArray\s*=\s*(\[.*?\]);",
-                                    get(BASE), re.S).group(1)):
+    for row in ktc_players(get(BASE)):
         if row.get("slug"):
             pos_of[row["slug"]] = row.get("position")
 

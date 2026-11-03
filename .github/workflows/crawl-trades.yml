@@ -28,7 +28,7 @@ permissions:
   contents: read                  # only reads the committed league list
 jobs:
   trades:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # 350 vs --max-minutes 300: same margin as crawl-outcomes (see its comment)
     timeout-minutes: 350
     strategy:
@@ -66,20 +66,24 @@ jobs:
         with:
           name: trade-corpus-shard-${{ matrix.shard }}
           path: data/trade_corpus_${{ matrix.shard }}.json
-          retention-days: 90
+          # 7, down from 90: the movers job below is the only reader and it
+          # downloads from its own run, within the hour.
+          retention-days: 7
           if-no-files-found: ignore
 
   movers:
-    # Aggregation, not crawling. Merges the four shard artifacts (union with
-    # the committed corpus, deduped by transaction_id) and rebuilds
-    # data/dynasty_movers.json. `always()` is deliberate: a merge over three
-    # live shards still beats a stale board, and merge_trade_corpus.py falls
-    # back to the committed corpus when every artifact is missing. Only the
-    # small movers JSON is committed — the merged corpus itself (~5 MB) would
-    # bloat history at 4 commits a day for a file nothing in src/ reads.
+    # Aggregation, not crawling. Merges the four shard artifacts (deduped by
+    # transaction_id) and rebuilds data/dynasty_movers.json. `always()` is
+    # deliberate: a merge over three live shards still beats a stale board, and
+    # merge_trade_corpus.py emits a ::warning for it. There is no committed
+    # corpus to fall back on (data/trade_corpus.json is gitignored): when every
+    # artifact is missing the merge exits non-zero, this job stops there and the
+    # committed board stands. Only the small movers JSON is committed — the
+    # merged corpus itself (~5 MB) would bloat history at 4 commits a day for a
+    # file nothing in src/ reads.
     needs: trades
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       committed: ${{ steps.commit.outputs.committed }}
     # 45, not 15: the TE-premium lookups fetch each unseen league once. The
@@ -146,8 +150,8 @@ jobs:
         # target before the transfer, so a failed fetch would otherwise clobber
         # the restored copy with an empty file AND cache that for the day.
         # Soft-fail either way — dynasty_movers.py degrades to "#pid" labels
-        # with no map at all, and a day-old map is fine here (the daily
-        # pipeline runs off a WEEKLY one).
+        # with no map at all, and a day-old map is fine here (the nightly's
+        # fallback is the same restored copy; see data-refresh.yml).
         if: steps.pmap.outputs.cache-hit != 'true'
         run: |
           mkdir -p sleeper_data

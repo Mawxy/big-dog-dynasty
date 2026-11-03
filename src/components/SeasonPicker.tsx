@@ -1,5 +1,5 @@
 import { useLocation, useNavigate } from "react-router-dom";
-import { useLeague, useLeaguePath } from "../lib/context";
+import { CLASSIC_SEG, useLeague, useLeaguePath } from "../lib/context";
 import { latestSeasonOf, seasonSeg } from "../lib/league";
 
 /**
@@ -11,13 +11,18 @@ import { latestSeasonOf, seasonSeg } from "../lib/league";
  * per-view means the control appears exactly where it applies.
  *
  * View and current season come from the path rather than props, so a view drops
- * it in with no wiring: `/<league>/<view>/<season>/...`.
+ * it in with no wiring: `/<league>/classic/<view>/<season>/...`.
  */
 export default function SeasonPicker({ allTime = true }: { allTime?: boolean }) {
   const { meta } = useLeague();
   const nav = useNavigate();
   const lp = useLeaguePath();
-  const parts = useLocation().pathname.split("/");
+  // the classic segment drops out so the indices below read as they always have
+  // (App.tsx's Shell does the same): this picker is only mounted by classic's
+  // Weekly, and without it the view read as "classic" and a year landed on
+  // /<league>/classic/classic/<year>
+  const raw = useLocation().pathname.split("/");
+  const parts = raw[2] === CLASSIC_SEG ? [raw[0], raw[1], ...raw.slice(3)] : raw;
   const view = parts[2] || "players";
   const cur = parts[3] || seasonSeg(latestSeasonOf(meta));
   // "Week 12" and "the playoffs" are the same question asked of a different

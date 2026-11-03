@@ -189,8 +189,8 @@ class TestSeedMismatch(unittest.TestCase):
     for them not to. Only one of them is survivable.
 
     LEGITIMATE: the analog corpus (nfl_history/*.csv) is rebuilt only by the
-    manual war-history.yml workflow, so between a season finishing and someone
-    dispatching that job the scalar arm is a year ahead. Both arms are seeded on
+    war-history.yml workflow, so between a season finishing and that job running
+    on January 15 the scalar arm is a year ahead. Both arms are seeded on
     seasons that really happened; a warning is the right response, because
     taking the nightly down would remove eight curves to complain that two are
     old.

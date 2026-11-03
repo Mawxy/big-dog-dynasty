@@ -34,6 +34,16 @@ CORE = {"QB", "RB", "WR", "TE"}
 # how long a source may go unanswered before its trends are dropped rather
 # than shown "as of" the last day it answered
 STALE_DAYS = 10
+# how long a price may be carried after its source last quoted it (Max,
+# 2026-11-02). See expire_stale_prices. Must stay under HISTORY_DAYS below: the
+# history is where the last quote is read from.
+MAX_PRICE_AGE_DAYS = 30
+# everything one source writes on a player's row, so a price that expires leaves
+# nothing of itself behind. fcTrend is a field older rows still carry.
+SOURCE_FIELDS = {
+    "ktc": ("ktc", "ktcRank", "ktcPosRank", "ktcTep", "ktcTepp", "ktcTeppp", "ktcT", "ktcAsOf"),
+    "fc": ("fc", "fcRank", "fcPosRank", "fcT", "fcTrend", "fcAsOf"),
+}
 # the delta windows the board shows, in days. Only the SPAN matters — the
 # cutoff dates are derived per player from his own last observation, not from
 # a table computed here (see update_history).
@@ -50,6 +60,16 @@ HISTORY_DAYS = 45
 # blocked scrape will say the same thing a second later.
 RETRIES = 3
 BACKOFF = 2.0
+
+# Fewest players a source must match to count as having answered. A payload whose
+# shape moved raises nothing, it just matches nobody, and carry-forward then
+# freezes every price behind a green run. Normal is about 456 for KTC and 396 for
+# FantasyCalc (values_history.json, Sep-Nov 2026), so this is roughly half of each.
+MIN_MATCHED = 200
+
+
+def warn(msg):
+    print(f"::warning title=Market values::{msg}")
 
 
 def get(url):
@@ -91,6 +111,8 @@ def norm(name):
 PICK_RE = re.compile(r"^20\d\d\b")
 
 def fetch_fantasycalc(out, picks):
+    """Returns how many players it listed; see MIN_MATCHED."""
+    matched = 0
     for row in json.loads(get(FC_URL)):
         p = row.get("player") or {}
         sid = p.get("sleeperId")
@@ -109,6 +131,8 @@ def fetch_fantasycalc(out, picks):
         e["fcPosRank"] = row.get("positionRank")
         if row.get("trend30Day") is not None:
             e["fcT"] = {"30": row["trend30Day"]}
+        matched += 1
+    return matched
 
 def name_index(players):
     """name+pos -> sleeper id. Accepts players_min.json ([name,pos,team] lists)
@@ -157,6 +181,7 @@ def ktc_players(html):
 
 
 def fetch_ktc(out, picks, players):
+    """Returns how many players it matched; see MIN_MATCHED."""
     idx = name_index(players)
     tep_hits = [0]   # list so the row loop can bump it
     html = get(KTC_URL)
@@ -212,6 +237,32 @@ def fetch_ktc(out, picks, players):
     if matched and not tep_hits[0]:
         print("WARNING: no tep/tepp/teppp values parsed — KTC payload layout "
               "may have changed; TEP-aware consumers will fall back to base ktc")
+    return matched
+
+
+def pull_source(name, fn, vals, picks, floor=None):
+    """Run one source's fetcher; True if its rows were merged into vals/picks.
+
+    It fills scratch dicts, so a source that fails partway or falls short of the
+    floor leaves nothing behind. Half a KTC pull merged into `vals` would read as
+    today's observations, and its pick rows would shadow the carried ones."""
+    floor = MIN_MATCHED if floor is None else floor
+    got, got_picks = {}, {}
+    try:
+        matched = fn(got, got_picks)
+    except Exception as e:
+        warn(f"{name} fetch failed, previous prices carried forward: {e}")
+        return False
+    if matched < floor:
+        warn(f"{name} matched only {matched} players (floor {floor}), so its payload "
+             f"has probably moved. Treated as failed; previous prices carried forward.")
+        return False
+    for pid, e in got.items():
+        vals.setdefault(pid, {}).update(e)
+    for src, rows in got_picks.items():
+        picks.setdefault(src, []).extend(rows)
+    return True
+
 
 def trim_history(hist, today, days=HISTORY_DAYS, max_rows=HISTORY_DAYS):
     """Age rows out of `hist`, and drop keys that empty.
@@ -317,6 +368,44 @@ def update_history(hist, vals, seen_today, today, deltas=DELTA_DAYS):
     # nobody quotes any more — see trim_history
     trim_history(hist, today)
 
+
+def expire_stale_prices(vals, hist, today, max_age=MAX_PRICE_AGE_DAYS):
+    """Drop every price its source last quoted more than `max_age` days ago.
+    Mutates `vals`; returns how many prices went, per source.
+
+    Carrying a price through a missed day is right. Carrying it for good is not:
+    the indices read a carried price exactly as they read a fresh one, so Joe Mixon
+    kept a KTC 1569 from Oct 6 against FantasyCalc's 110, and the rows nobody quotes
+    any more also set the percentile bounds every other player is scored against.
+
+    The age comes from the history, the only record of a real quote. No row for
+    that source means no quote inside HISTORY_DAYS, which is older than the limit.
+    A player left with no price from either source leaves the file with his derived
+    figures (impWar, modelWar), which mean nothing without one.
+    """
+    now = _dt_date.fromisoformat(today)
+    gone = {src: 0 for src in SOURCE_FIELDS}
+    for pid in list(vals):
+        e = vals[pid]
+        dropped = False
+        for idx, src in ((1, "ktc"), (2, "fc")):
+            if e.get(src) is None:
+                continue
+            last = None
+            for row in hist.get(pid, ()):
+                if len(row) > idx and row[idx] is not None:
+                    last = row[0]
+            if last is not None and (now - _dt_date.fromisoformat(last)).days <= max_age:
+                continue
+            for field in SOURCE_FIELDS[src]:
+                e.pop(field, None)
+            gone[src] += 1
+            dropped = True
+        if dropped and e.get("ktc") is None and e.get("fc") is None:
+            del vals[pid]
+    return gone
+
+
 def main():
     ap = argparse.ArgumentParser()
     # players_min.json is LEAGUE-scoped (data/leagues/<key>/), values.json is
@@ -336,20 +425,19 @@ def main():
         except Exception:
             pass
     vals, picks, ok, fresh = {}, {}, [], set()
-    for name, key, fn in (("FantasyCalc", "fc", lambda: fetch_fantasycalc(vals, picks)),
-                          ("KeepTradeCut", "ktc", lambda: fetch_ktc(vals, picks, players))):
-        try:
-            fn()
+    for name, key, fn in (("FantasyCalc", "fc", fetch_fantasycalc),
+                          ("KeepTradeCut", "ktc", lambda v, p: fetch_ktc(v, p, players))):
+        if pull_source(name, fn, vals, picks):
             ok.append(name)
             fresh.add(key)
-        except Exception as e:
-            print(f"WARNING: {name} fetch failed: {e}")
     if not vals:
-        print("No sources succeeded — keeping previous values.json")
+        warn("No sources succeeded, keeping previous values.json")
         return
-    # scrub synthetic pick ids that earlier runs stored as players
+    # scrub synthetic ids that earlier runs stored as players: FP_* and DP_* picks.
+    # A real Sleeper player id is all digits (only team defenses are not, and no
+    # market here lists one). Left in, these rows get impWar and join the FC clamp.
     for d in (vals, prev):
-        for k in [k for k in d if str(k).startswith("FP_")]:
+        for k in [k for k in d if not str(k).isdigit()]:
             del d[k]
     # WHO EACH SOURCE ACTUALLY LISTED TODAY. Captured HERE, before the
     # carry-forward below merges the previous run's numbers into `vals` and the
@@ -379,11 +467,20 @@ def main():
         except Exception:
             pass
     today = _dt_date.today().isoformat()
+    # read before update_history adds today's rows: with no history on disk the age
+    # of every carried price is unknown, not old
+    have_history = bool(hist)
     # A VALUE NOBODY QUOTED TODAY IS NOT AN OBSERVATION — not when the source
     # failed outright, and not when the source answered but stopped listing this
     # player. Both are carried forward into values.json (the site should still
     # show a price) and neither is written into the history. See update_history.
     update_history(hist, vals, seen_today, today)
+    if have_history:
+        gone = expire_stale_prices(vals, hist, today)
+        print(f"expired past {MAX_PRICE_AGE_DAYS} days: "
+              f"{gone['ktc']} KTC, {gone['fc']} FantasyCalc prices")
+    else:
+        print("no values_history.json to read, so no carried price was aged out")
     # canonical PICK history rows, keyed "pick:<season> <Early|Mid|Late> <round>".
     # Mid is what a slotless pick was worth until 2026-09-02; the ledger now
     # prices a pick at the tier its original owner's finish puts it in, so

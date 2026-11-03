@@ -23,7 +23,9 @@ TWO SOURCES, one per situation:
   * PLAYED weeks use the lineups that were actually started (from the raw week
     dump) and each starter's own form to that point.
   * UPCOMING weeks have no lineup yet, so each roster fields its best legal
-    lineup by projected points under the league's roster_positions.
+    lineup by projected points under the league's roster_positions, or the
+    lineup its manager has set in the live week. Those starters are then priced
+    the same way: form shrunk toward the week's line, and zero with no line.
 
 THE PROJECTION IS THE PRIOR. A starter's mean is his own form shrunk toward
 HIS SLEEPER PROJECTION, not toward his position's average — so week 1 is pure
@@ -217,6 +219,8 @@ def season_odds(season, ld, raw_root, sproj):
     phist = load(sdir / "proj_history.json") or {}
 
     def pos_of(pid):
+        # players_min's position is already build_site_data.site_pos: the WAR
+        # engine's rule, so a DB/WR or an FB/RB arrives here as WR or RB
         p = players.get(pid)
         return p[1] if p and p[1] in CORE else None
 
@@ -341,6 +345,15 @@ def season_odds(season, ld, raw_root, sproj):
                 # with no weekly coverage gets, rather than a season average.
                 return ((sproj.get(pid) or {}).get("wk") or {}).get(str(wk), 0.0)
 
+            def upcoming_mean(pid, line):
+                # FORM SHRUNK TOWARD THE WEEK'S LINE (Max, 2026-11-02), the mean a
+                # played week gets, so week 12 no longer ignores eleven weeks of
+                # form and the line stops moving when the week flips to played. No
+                # line stays zero: form is no reason to score on a bye. shrink's
+                # mean doesn't read the spread, so the sd here is only a placeholder.
+                hist = [v for w, v in form.get(pid, {}).items() if w in prior]
+                return shrink(hist, line, DEFAULT_SD)[0] if line and hist else line
+
             for t in teams:
                 rid = t["roster_id"]
                 mus, vs = [], []
@@ -351,7 +364,7 @@ def season_odds(season, ld, raw_root, sproj):
                             continue
                         # no positional-prior fallback here either: that was
                         # ten phantom points for a player nobody projected
-                        mus.append(week_val(pid))
+                        mus.append(upcoming_mean(pid, week_val(pid)))
                         vs.append(dist(pid)[1] ** 2)
                 else:
                     cands = []
@@ -360,8 +373,10 @@ def season_odds(season, ld, raw_root, sproj):
                         if not po:
                             continue
                         cands.append((pid, po, week_val(pid)))
+                    # the line picks the lineup, as a manager would; form only
+                    # moves what that lineup is expected to score
                     for pid, _po, val in best_lineup(cands, slots):
-                        mus.append(val)
+                        mus.append(upcoming_mean(pid, val))
                         vs.append(dist(pid)[1] ** 2)
                 sides[rid] = (sum(mus), sum(vs), opp.get(rid))
 

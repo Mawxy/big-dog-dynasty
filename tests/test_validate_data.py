@@ -15,11 +15,15 @@ it. Nothing here reads the committed tree, and nothing runs a pipeline script.
 
   python -m unittest discover -s tests
 """
+import contextlib
+import io
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -156,6 +160,69 @@ class ProjectionCoherence(Base):
     def test_a_year_list_that_does_not_follow_its_own_seed_fails(self):
         self.all_arms(2025)
         self.t.projections(seed=2025, years=[2028, 2029, 2030])
+        self.assertFails(vd.check_projection_coherence)
+
+    # -- January: the analog corpus can't rebuild until the 15th ----------------
+    def january(self):
+        """2026 finished, every arm rolled to it but the analog."""
+        self.t = Tree(self._tmp.name, complete=(2024, 2025, 2026))
+        vd.DATA = self.t.d
+        self.all_arms(2026)
+        self.t.arm("projections_knn_hybrid.json", 2025, years=False)
+
+    def test_the_january_shape_warns_and_passes(self):
+        """THE BUG. project_matrix.seed_mismatch calls this "stale" and
+        publishes, but the gate failed it: no commit or deploy from the title
+        game until war-history can rebuild the corpus on January 15."""
+        self.january()
+        err = io.StringIO()
+        with contextlib.redirect_stderr(err):
+            vd.check_projection_coherence()
+        self.assertIn("VALIDATION WARNING", err.getvalue())
+        self.assertIn("season behind", err.getvalue())
+
+    def test_the_january_warning_reaches_the_actions_summary(self):
+        self.january()
+        out = io.StringIO()
+        with mock.patch.dict(os.environ, {"GITHUB_ACTIONS": "true"}), \
+                contextlib.redirect_stderr(io.StringIO()), contextlib.redirect_stdout(out):
+            vd.check_projection_coherence()
+        self.assertIn("::warning title=Analog arm a season behind::", out.getvalue())
+
+    def test_the_gate_and_the_matrix_share_one_verdict(self):
+        import project_matrix
+        self.assertIs(vd.seed_mismatch, project_matrix.seed_mismatch)
+
+    def test_an_analog_two_seasons_behind_still_fails(self):
+        self.january()
+        self.t.arm("projections_knn_hybrid.json", 2024, years=False)
+        self.assertFails(vd.check_projection_coherence)
+
+    def test_an_analog_ahead_of_the_league_still_fails(self):
+        """seed_mismatch's "broken": a corpus cannot be ahead of the league."""
+        self.january()
+        self.t.arm("projections_knn_hybrid.json", 2027, years=False)
+        self.assertFails(vd.check_projection_coherence)
+
+    def test_the_matrix_lagging_with_the_analog_still_fails(self):
+        """Only the analog gets the pass. A matrix on another seed than the
+        scalar arm is the file every curve on the site reads being wrong."""
+        self.january()
+        self.t.matrix(seed=2025)
+        self.assertFails(vd.check_projection_coherence)
+
+    def test_an_analog_whose_year_list_disagrees_with_its_seed_still_fails(self):
+        self.january()
+        self.t.write("projections_knn_hybrid.json",
+                     {"meta": {"seed_season": 2025, "years": [2027, 2028, 2029]},
+                      "players": []})
+        self.assertFails(vd.check_projection_coherence)
+
+    def test_the_one_season_lag_on_an_unfinished_seed_still_fails(self):
+        """The same one-year gap in September is 2026-09-15: "broken", because
+        the scalar seed is a season nobody has finished."""
+        self.all_arms(2026)
+        self.t.arm("projections_knn_hybrid.json", 2025, years=False)
         self.assertFails(vd.check_projection_coherence)
 
     def test_absent_optional_arms_are_tolerated(self):
@@ -494,6 +561,184 @@ class Freshness(Base):
 
     def test_absent_files_are_skipped(self):
         self.assertEqual(self.run_check(), "")
+
+class LeagueSignals(Base):
+    """The crawl's sample behind DVI and CVI. A cold cache published 3,000-5,000
+    leagues on 2026-08-09 in a file that parsed and had every key."""
+
+    def signals(self, leagues=43410, players=5677):
+        self.t.write("league_signals.json", {
+            "leagues": leagues,
+            "players": {str(i): {"roster_rate": 0.5, "start_rate": 0.2}
+                        for i in range(players)}})
+
+    def test_a_normal_sample_passes(self):
+        self.signals()
+        vd.check_league_signals()
+
+    def test_the_lowest_sample_of_a_normal_season_passes(self):
+        """The floors are not allowed to fire on in-season drift (2026-10-14)."""
+        self.signals(leagues=37048, players=4762)
+        vd.check_league_signals()
+
+    def test_the_cold_cache_leagues_fail(self):
+        self.signals(leagues=5000)
+        self.assertFails(vd.check_league_signals)
+
+    def test_the_cold_cache_players_fail(self):
+        self.signals(players=2849)
+        self.assertFails(vd.check_league_signals)
+
+    def test_a_missing_count_fails(self):
+        self.t.write("league_signals.json", {"players": {}})
+        self.assertFails(vd.check_league_signals)
+
+    def test_a_missing_file_fails(self):
+        self.assertFails(vd.check_league_signals)
+
+    def test_the_full_check_calls_it_and_values_only_does_not(self):
+        src = Path(vd.__file__).read_text(encoding="utf-8")
+        full = src.split("def check_full(", 1)[1].split("\ndef ", 1)[0]
+        values = src.split("def check_values(", 1)[1].split("\ndef ", 1)[0]
+        self.assertIn("check_league_signals()", full)
+        self.assertNotIn("check_league_signals", values)
+
+
+BIG, PIZZA = "111", "222"
+
+
+class LeagueMode(unittest.TestCase):
+    """`validate_data.py --league <key>`, against a repo-shaped temp tree. The
+    CLI spelling is a contract with data-refresh.yml, so these go through
+    main()'s own argument parsing."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.root = Path(self._tmp.name)
+        self.data = self.root / "data"
+        saved_root, saved_data = vd.ROOT, vd.DATA
+        vd.ROOT = self.root
+        self.addCleanup(lambda: (setattr(vd, "ROOT", saved_root),
+                                 setattr(vd, "DATA", saved_data)))
+        seasons = ["2025", "2026"]
+        self.write(self.data / "leagues.json", {"default": BIG, "leagues": [
+            {"key": BIG, "kind": "dynasty", "seasons": seasons,
+             "latest": "2026", "rosterSeason": "2026"},
+            {"key": PIZZA, "kind": "redraft", "seasons": seasons,
+             "latest": "2026", "rosterSeason": "2026"}]})
+        self.lg = self.data / "leagues" / PIZZA
+        self.write(self.lg / "meta.json", {"seasons": seasons, "latest": "2026",
+                                           "rosterSeason": "2026"})
+        self.write(self.lg / "players_min.json",
+                   {str(i): [f"P{i}", "WR", ""] for i in range(450)})
+        self.write(self.lg / "ownership.json", {str(i): [] for i in range(450)})
+        self.write(self.lg / "franchises.json", {str(i): {} for i in range(12)})
+        for s, wks in (("2025", range(1, 15)), ("2026", (1, 2))):
+            n = len(wks)
+            self.write(self.lg / s / "teams.json", [
+                {"roster_id": 1, "wins": n, "losses": 0, "ties": 0},
+                {"roster_id": 2, "wins": 0, "losses": n, "ties": 0}])
+            self.write(self.lg / s / "matchups.json", {
+                "playoff_start": 15,
+                "teams": {"1": [[k, 120.0, 2, 100.0, [], []] for k in wks],
+                          "2": [[k, 100.0, 1, 120.0, [], []] for k in wks]}})
+            self.write(self.lg / s / "summary.json", [["1", "WR"]])
+            self.write(self.lg / s / "weekly.json", {"1": [[1, 10.0]]})
+        self.write(self.lg / "2025" / "bracket.json",
+                   {"winners": [{"p": 1, "w": 1, "l": 2}]})
+
+    @staticmethod
+    def write(p, obj):
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(obj), encoding="utf-8")
+
+    def run_cli(self, *argv):
+        """main() with these arguments. Returns its exit code, 0 if it returned."""
+        with mock.patch.object(sys, "argv", ["validate_data.py", *argv]), \
+                contextlib.redirect_stdout(io.StringIO()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            try:
+                vd.main()
+            except SystemExit as e:
+                return e.code
+        return 0
+
+    def assertFailsCli(self):
+        self.assertEqual(self.run_cli("--league", PIZZA), 1)
+
+    def test_a_redraft_tree_with_no_downstream_files_passes(self):
+        """No projections, indices, drafts, trades, odds or shards: its caps
+        exclude all of them and the pipeline never writes them."""
+        self.assertEqual(self.run_cli("--league", PIZZA), 0)
+
+    def test_it_reads_that_league_and_not_the_default(self):
+        with mock.patch.object(vd, "check_full") as full:
+            self.run_cli("--league", PIZZA)
+        full.assert_not_called()
+        self.assertEqual(vd.DATA.league, self.lg)
+
+    def test_a_record_lagging_the_matchups_fails(self):
+        self.write(self.lg / "2026" / "teams.json", [
+            {"roster_id": 1, "wins": 1, "losses": 0, "ties": 0},
+            {"roster_id": 2, "wins": 0, "losses": 1, "ties": 0}])
+        self.assertFailsCli()
+
+    def test_a_missing_season_file_fails(self):
+        (self.lg / "2026" / "weekly.json").unlink()
+        self.assertFailsCli()
+
+    def test_an_empty_summary_on_a_scored_season_fails(self):
+        self.write(self.lg / "2026" / "summary.json", [])
+        self.assertFailsCli()
+
+    def test_a_placeholder_bracket_fails(self):
+        self.write(self.lg / "2026" / "bracket.json", {"winners": [{"p": 1, "w": None}]})
+        self.assertFailsCli()
+
+    def test_a_gutted_players_min_fails(self):
+        self.write(self.lg / "players_min.json", {"1": ["P", "WR", ""]})
+        self.assertFailsCli()
+
+    def test_a_missing_franchise_file_fails(self):
+        (self.lg / "franchises.json").unlink()
+        self.assertFailsCli()
+
+    def test_a_registry_that_disagrees_with_meta_fails(self):
+        """A build that stopped between meta.json and the registry."""
+        self.write(self.lg / "meta.json", {"seasons": ["2025"], "latest": "2025",
+                                           "rosterSeason": "2026"})
+        self.assertFailsCli()
+
+    def test_an_odds_file_is_still_held_to_its_shape_where_there_is_one(self):
+        self.write(self.lg / "2026" / "odds.json", {"meta": {}, "weeks": {}})
+        self.assertFailsCli()
+
+    def test_an_unknown_key_fails(self):
+        self.assertEqual(self.run_cli("--league", "999"), 1)
+
+    def test_the_default_key_gets_the_full_check(self):
+        with mock.patch.object(vd, "check_full") as full:
+            self.assertEqual(self.run_cli("--league", BIG), 0)
+        full.assert_called_once()
+
+    def test_it_cannot_be_combined_with_values_only(self):
+        self.assertEqual(self.run_cli("--league", PIZZA, "--values-only"), 2)
+
+    def test_no_argument_is_still_the_full_check(self):
+        with mock.patch.object(vd, "check_full") as full, \
+                mock.patch.object(vd, "check_league") as league:
+            self.assertEqual(self.run_cli(), 0)
+        full.assert_called_once()
+        league.assert_not_called()
+
+    def test_values_only_is_still_values_only(self):
+        with mock.patch.object(vd, "check_values") as values, \
+                mock.patch.object(vd, "check_full") as full:
+            self.assertEqual(self.run_cli("--values-only"), 0)
+        values.assert_called_once()
+        full.assert_not_called()
+
 
 class ValuesOnlyPath(unittest.TestCase):
     """The values-refresh workflow runs `--values-only`, which must stay a

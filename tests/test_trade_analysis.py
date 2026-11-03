@@ -26,9 +26,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from trade_analysis import (DELTA, season_remaining, standing_tier,  # noqa: E402
-                            stream_value, tier_of_slot, tier_then,
-                            weeks_played_of)
+from trade_analysis import (DELTA, final_standing, season_remaining,  # noqa: E402
+                            standing_tier, stream_value, tier_of_slot, tier_then,
+                            weeks_played_of, year1_factor)
 
 
 def season(playoff_start=15, played=(), teams=(1, 2), no_opponent=()):
@@ -125,6 +125,64 @@ class TestSeasonRemaining(unittest.TestCase):
     def test_weeks_played_reports_both_halves(self):
         self.assertEqual(weeks_played_of(season(played=(1, 2, 3))), (3, 14))
         self.assertEqual(weeks_played_of(season(playoff_start=13)), (0, 12))
+
+
+class TestYear1Factor(unittest.TestCase):
+    """Only a stream whose first year IS the roster season is part-spent."""
+
+    FULL = season(played=tuple(range(1, 18)))
+
+    def test_after_the_title_game_year_one_is_next_season(self):
+        """THE BUG. Seed 2026, years [2027, ...], roster season still 2026 with
+        all 14 weeks played: season_remaining is 0.0, and the 2027 term of every
+        held asset's future vanished, then froze into the `exp` snapshot."""
+        self.assertEqual(season_remaining(self.FULL), 0.0)
+        self.assertEqual(year1_factor([2027, 2028, 2029], 2026, self.FULL), 1.0)
+
+    def test_that_year_one_counts_whole_in_the_stream(self):
+        f = year1_factor([2027, 2028, 2029], 2026, self.FULL)
+        self.assertEqual(stream_value([1.0, 1.0, 1.0], 0.7, year1=f),
+                         round(1.0 + 0.7 + 0.49, 3))
+
+    def test_in_season_it_is_the_fraction_left(self):
+        mw = season(played=(1, 2, 3, 4, 5, 6, 7))
+        self.assertAlmostEqual(year1_factor([2026, 2027, 2028], 2026, mw), 0.5, places=9)
+
+    def test_a_finished_regular_season_before_the_seed_rolls_is_spent(self):
+        """Weeks 15-17, title game unplayed: year one IS still the roster
+        season, all of it realized, and proration is doing its job."""
+        self.assertEqual(year1_factor([2026, 2027, 2028], 2026, self.FULL), 0.0)
+
+    def test_no_years_on_the_file_is_never_prorated(self):
+        self.assertEqual(year1_factor(None, 2026, self.FULL), 1.0)
+        self.assertEqual(year1_factor([], 2026, self.FULL), 1.0)
+
+
+class TestFinalStanding(unittest.TestCase):
+    """The offseason's slot order. 1 is the worst team: it picks first."""
+
+    @staticmethod
+    def row(rid, wins, losses, ties=0, fpts=1000.0):
+        return {"roster_id": rid, "wins": wins, "losses": losses, "ties": ties, "fpts": fpts}
+
+    def test_worst_record_is_first(self):
+        got = final_standing([self.row(1, 10, 4), self.row(2, 4, 10)])
+        self.assertEqual(got, {2: 1, 1: 2})
+
+    def test_a_tie_is_half_a_win(self):
+        """THE BUG. 7-6-1 sorted level with 7-7-0, so the points tiebreak put
+        the better record's pick ahead of the worse one's."""
+        got = final_standing([self.row(1, 7, 6, ties=1, fpts=900.0),
+                              self.row(2, 7, 7, fpts=1100.0)])
+        self.assertEqual(got, {2: 1, 1: 2})
+
+    def test_points_break_a_level_record(self):
+        got = final_standing([self.row(1, 7, 7, fpts=1100.0), self.row(2, 7, 7, fpts=900.0)])
+        self.assertEqual(got, {2: 1, 1: 2})
+
+    def test_a_missing_field_reads_as_nothing(self):
+        got = final_standing([{"roster_id": 1, "wins": 1}, {"roster_id": 2}])
+        self.assertEqual(got, {2: 1, 1: 2})
 
 
 class TestTierOfSlot(unittest.TestCase):

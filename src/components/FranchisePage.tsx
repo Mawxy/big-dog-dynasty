@@ -8,7 +8,8 @@ import { useCvi, useDvi, useProjWar1 } from "../lib/useIndices";
 import { fmt, fmtWar, sgnWar, clsOf, ord } from "../lib/stats";
 import { lineupOf, optimalLineup, pInfo, POS_COLOR, pricedLineup, rosterSeasonOf, SLOT_LABEL } from "../lib/league";
 import { useLeague, useLeaguePath } from "../lib/context";
-import { readTrades, tradeWhen } from "../lib/trades";
+import { useLeagueCaps } from "../lib/caps";
+import { readTrades, tradeWhen, txKind, txTag } from "../lib/trades";
 import { useMobile } from "../lib/useWidth";
 import DataTable, { type Col, type Grp } from "./DataTable";
 import PosBadge from "./PosBadge";
@@ -25,7 +26,8 @@ interface RosterRow {
   id: string; nm: string; pos: string; nfl: string;
   age: number | null; ppg: number | null;
   dvi: number | null; cvi: number | null;
-  war: number; tag: string;
+  /** 0 for the lineup math when nothing prices him; `hasWar` says which */
+  war: number; hasWar: boolean; tag: string;
 }
 
 const SECTIONS = [
@@ -162,7 +164,7 @@ const WAIVER_COLS: Col<WaiverRow, Record<string, never>>[] = [
   },
   {
     id: "type", label: "Type", grp: 0, w: 9, align: "t", td: "t fig quiet",
-    cell: r => r.tx.type === "waiver" ? "WAIVER" : "FA",
+    cell: r => txTag(r.tx.type),
   },
   // a move can name half a dozen players, so these two wrap where every other
   // cell on the site does not — `white-space` on the inline box re-enables
@@ -199,6 +201,7 @@ export default function FranchisePage({ fkey, players, tab }:
   // the page, and every table section renders as records
   const mobile = useMobile();
   const rosterSeason = rosterSeasonOf(league);
+  const caps = useLeagueCaps();
 
   /* ---- the page's ten files ---------------------------------------------
      One `useJson` per file, each keyed on its own resolved path. This was a
@@ -260,12 +263,15 @@ export default function FranchisePage({ fkey, players, tab }:
       ? fr.seasons[fr.seasons.length - 1]?.season ?? rosterSeason
       : rosterSeason);
 
-  const insights = useJson<Insights>("insights.json").data;
-  const drafts = useJson<Drafts>("drafts.json").data;
-  const tradesFile = useJson<TradesPayload>("trades.json");
+  // gated on the league's caps: these are the default league's pipeline files,
+  // and everywhere else each one is a known 404 (insights.json rides with the
+  // projections it is written from)
+  const insights = useJson<Insights>(caps.projections ? "insights.json" : null).data;
+  const drafts = useJson<Drafts>(caps.drafts ? "drafts.json" : null).data;
+  const tradesFile = useJson<TradesPayload>(caps.trades ? "trades.json" : null);
   const teamsFile = useJson<Team[]>(`${viewSeason}/teams.json`);
-  const projFile = useJson<ProjectionsFile>("projections.json");
-  const sprojFile = useJson<SleeperProjFile>("proj_sleeper.json");
+  const projFile = useJson<ProjectionsFile>(caps.projections ? "projections.json" : null);
+  const sprojFile = useJson<SleeperProjFile>(caps.projections ? "proj_sleeper.json" : null);
   // the daily pair, and the scope has to match what the rest of the site uses
   // for the same file or the cache downloads it twice (useJson.ts)
   // model-aware: these follow the masthead's projection-model control
@@ -276,9 +282,15 @@ export default function FranchisePage({ fkey, players, tab }:
   // and CVI are current-market indices with no historical series, so they
   // read — - see the Roster band's note. On the roster season there is no
   // summary to read, and `null` is how useJson is told there is nothing yet.
+  //
+  // A LEAGUE WITH NO PROJECTIONS reads the roster season the same way: what they
+  // have done so far is the only WAR there is, and every row read "Proj WAR
+  // 0.000" with the lineup chosen from a column of zeros.
   const onRosterSeason = viewSeason === rosterSeason;
+  /** this season's WAR column is a projection; otherwise it is realized */
+  const projected = onRosterSeason && caps.projections;
   const summaryFile = useJson<SummaryRow[]>(
-    onRosterSeason ? null : `${viewSeason}/summary.json`);
+    projected ? null : `${viewSeason}/summary.json`);
 
   /** The roster slot this franchise held in `season` — the join key for every
    *  per-season file. Constant for dynasty (franchise = slot, and the numeric
@@ -317,24 +329,24 @@ export default function FranchisePage({ fkey, players, tab }:
 
   /** null until trades.json settles — the section reads "Loading trades…" */
   const trades = useMemo<Trade[] | null>(() => {
-    if (tradesFile.error) return [];
+    if (tradesFile.error || !caps.trades) return [];
     if (!tradesFile.data) return null;
     // per-trade join: the slot this franchise held in the TRADE's season —
     // a redraft owner's rid can differ year to year
     return readTrades(tradesFile.data).trades.filter(
       t => t.sides.some(s => s.rid === ridOf(t.season)));
-  }, [tradesFile.data, tradesFile.error, ridOf]);
+  }, [tradesFile.data, tradesFile.error, caps.trades, ridOf]);
 
   const team = useMemo<Team | null>(
     () => teamsFile.data?.find(t => t.roster_id === rid) ?? null, [teamsFile.data, rid]);
 
-  /** played-season actuals for viewSeason; null while on the roster season */
+  /** played-season actuals for viewSeason; null while the column is a projection */
   const actual = useMemo<Map<string, { war: number; ppg: number }> | null>(() => {
-    if (onRosterSeason) return null;
+    if (projected) return null;
     if (summaryFile.error) return new Map();
     if (!summaryFile.data) return null;
     return new Map(summaryFile.data.map(r => [r[0], { war: r[6], ppg: r[4] }]));
-  }, [onRosterSeason, summaryFile.data, summaryFile.error]);
+  }, [projected, summaryFile.data, summaryFile.error]);
 
   /** year-one projected WAR under the picked curve, joined to the age off
    *  projections.json. `useProjWar1`, not `composite[0]`: that field is the
@@ -372,7 +384,7 @@ export default function FranchisePage({ fkey, players, tab }:
     if (!team) return null;
     // teams.json and summary.json land on separate promises; without this the
     // table flashes one season's roster priced in the other season's numbers
-    if (viewSeason !== rosterSeason && !actual) return null;
+    if (!projected && !actual) return null;
     const rows: RosterRow[] = team.players.map(pid => {
       const [nm, pos, nfl] = pInfo(players, pid);
       const pj = proj?.get(pid);
@@ -380,6 +392,7 @@ export default function FranchisePage({ fkey, players, tab }:
       // projections.json ages to the roster season, so a past roster walks the
       // age BACK to the season being viewed rather than printing today's
       const back = Number(rosterSeason) - Number(viewSeason);
+      const war = actual ? act?.war : pj?.war;
       return {
         id: pid, nm, pos, nfl,
         age: pj?.age == null ? null : pj.age - (actual ? back : 0),
@@ -387,7 +400,7 @@ export default function FranchisePage({ fkey, players, tab }:
         // no historical index series exists — never fabricate one
         dvi: actual ? null : dvi?.players[pid]?.dvi ?? null,
         cvi: actual ? null : cvi?.players[pid]?.cvi ?? null,
-        war: (actual ? act?.war : pj?.war) ?? 0,
+        war: war ?? 0, hasWar: war != null,
         tag: team.taxi.includes(pid) ? "TAXI" : team.reserve.includes(pid) ? "IR" : "",
       };
     });
@@ -401,8 +414,10 @@ export default function FranchisePage({ fkey, players, tab }:
     const taxi = benched.filter(r => r.tag === "TAXI");
     const startTot = slots.reduce((s, x) => s + (x.player?.war ?? 0), 0);
     const warMax = Math.max(0.01, ...rows.map(r => r.war));
-    return { rows, slots, bench, taxi, startTot, warMax };
-  }, [team, players, proj, sppg, dvi, cvi, meta, actual, rosterSeason, viewSeason]);
+    /** nothing on this roster has a WAR figure, so its totals are unknown too */
+    const anyWar = rows.some(r => r.hasWar);
+    return { rows, slots, bench, taxi, startTot, warMax, anyWar };
+  }, [team, players, proj, sppg, dvi, cvi, meta, actual, rosterSeason, viewSeason, projected]);
 
   /** starters/roster totals in an index currency (lineup optimized in it) */
   const indexTotals = useMemo(() => {
@@ -485,6 +500,9 @@ export default function FranchisePage({ fkey, players, tab }:
       };
     });
 
+  /** this franchise's trades in the transaction log, which every league has */
+  const tradeTx = (fr.tx ?? []).filter(t => t.type === "trade").length;
+
   const rosterCell = (r: RosterRow, slot: string, warMax: number) => (
     <>
       <td className="t fig quiet">{slot}</td>
@@ -501,7 +519,7 @@ export default function FranchisePage({ fkey, players, tab }:
       <td className="n last edge">
         <div className="meter-row">
           <div className="meter"><i style={{ width: `${Math.round(Math.max(0, r.war) / warMax * 100)}%` }} /></div>
-          <span className="fig">{fmtWar(r.war)}</span>
+          <span className="fig">{r.hasWar ? fmtWar(r.war) : "—"}</span>
         </div>
       </td>
     </>
@@ -540,7 +558,7 @@ export default function FranchisePage({ fkey, players, tab }:
      their totals — all three figures labeled, since a phone has no column
      headers to name them. */
   const groupTot = (rs: RosterRow[]) =>
-    `WAR ${fmtWar(rs.reduce((s, r) => s + r.war, 0))}`
+    `WAR ${rs.some(r => r.hasWar) ? fmtWar(rs.reduce((s, r) => s + r.war, 0)) : "—"}`
     + ` · DVI ${fmt(rs.reduce((s, r) => s + (r.dvi ?? 0), 0), 0)}`
     + ` · CVI ${fmt(rs.reduce((s, r) => s + (r.cvi ?? 0), 0), 0)}`;
 
@@ -565,7 +583,7 @@ export default function FranchisePage({ fkey, players, tab }:
             {r.pos} · {r.nfl || "—"}{r.age != null && <> · age {r.age}</>}
           </span>
         </span>
-        <span className="rec-fig">{fmtWar(r.war)}</span>
+        <span className="rec-fig">{r.hasWar ? fmtWar(r.war) : <span className="quiet">—</span>}</span>
         <span className="rec-key">{actual ? `${viewSeason} WAR` : "Proj WAR"}</span>
       </div>
       <div className="rec-l2">
@@ -639,7 +657,7 @@ export default function FranchisePage({ fkey, players, tab }:
               </div>
               <div className="figcell">
                 <div className="figkey">{viewSeason} lineup WAR</div>
-                <div className="figval">{roster ? fmtWar(roster.startTot) : "—"}</div>
+                <div className="figval">{roster?.anyWar ? fmtWar(roster.startTot) : "—"}</div>
                 <div className="figsub">{actual ? "realized, best legal lineup" : "projected, best legal lineup"}</div>
               </div>
               <div className="figcell">
@@ -682,7 +700,7 @@ export default function FranchisePage({ fkey, players, tab }:
               <div className="band">
                 <span className="band-label">Roster · {viewSeason}</span>
                 <span className="band-note">{actual
-                  ? `Best legal lineup by WAR actually produced in ${viewSeason}, not the lineup as set · DVI and CVI are current-market indices with no historical series`
+                  ? `Best legal lineup by WAR actually produced in ${viewSeason}, not the lineup as set${caps.indices ? " · DVI and CVI are current-market indices with no historical series" : ""}`
                   : "Best legal lineup by projected WAR, not the lineup as set"}</span>
               </div>
               {/* "Loading roster…" is a claim that something is still coming.
@@ -719,7 +737,9 @@ export default function FranchisePage({ fkey, players, tab }:
                 <table style={{ tableLayout: "fixed" }}>
                   <thead>{rosterHead}</thead>
                   <tbody>
-                    {grpband("Starting lineup", "best legal lineup by projected WAR", fmtWar(roster.startTot))}
+                    {grpband("Starting lineup",
+                      actual ? `best legal lineup by ${viewSeason} WAR` : "best legal lineup by projected WAR",
+                      roster.anyWar ? fmtWar(roster.startTot) : null)}
                     {roster.slots.map((s, i) => (
                       <tr key={`${s.slot}-${i}`} className={i % 2 ? "zebra" : ""}>
                         {s.player
@@ -728,12 +748,12 @@ export default function FranchisePage({ fkey, players, tab }:
                       </tr>
                     ))}
                     {grpband("Bench", null,
-                      fmtWar(roster.bench.reduce((s, r) => s + r.war, 0)))}
+                      roster.anyWar ? fmtWar(roster.bench.reduce((s, r) => s + r.war, 0)) : null)}
                     {roster.bench.map((r, i) => (
                       <tr key={r.id} className={i % 2 ? "zebra" : ""}>{rosterCell(r, "BN", roster.warMax)}</tr>
                     ))}
                     {roster.taxi.length > 0 && grpband("Taxi squad", null,
-                      fmtWar(roster.taxi.reduce((s, r) => s + r.war, 0)))}
+                      roster.anyWar ? fmtWar(roster.taxi.reduce((s, r) => s + r.war, 0)) : null)}
                     {roster.taxi.map((r, i) => (
                       <tr key={r.id} className={i % 2 ? "zebra" : ""}>{rosterCell(r, "TAXI", roster.warMax)}</tr>
                     ))}
@@ -747,11 +767,14 @@ export default function FranchisePage({ fkey, players, tab }:
             <div ref={el => { refs.current.strengths = el; }}>
               <div className="band">
                 <span className="band-label">Strengths</span>
-                <span className="band-note">Each seat ranked against the same seat on the other eleven rosters</span>
+                {caps.indices && <span className="band-note">Each seat ranked against the same seat on the other eleven rosters</span>}
               </div>
-              <div style={{ padding: "6px 22px 16px" }}>
-                {curRid != null && <TeamStrengths rid={curRid} />}
-              </div>
+              {/* priced in DVI and CVI: an empty band, and two 404s, where they don't exist */}
+              {caps.indices ? (
+                <div style={{ padding: "6px 22px 16px" }}>
+                  {curRid != null && <TeamStrengths rid={curRid} />}
+                </div>
+              ) : <div className="empty">Not published for this league.</div>}
             </div>
 
             {/* ---- year by year ---- */}
@@ -782,9 +805,11 @@ export default function FranchisePage({ fkey, players, tab }:
             <div ref={el => { refs.current.draft = el; }}>
               <div className="band">
                 <span className="band-label">Draft history</span>
-                <span className="band-note">Rookie drafts only · vs = realized minus expected WAR for the slot, over the same seasons</span>
+                {caps.drafts && <span className="band-note">Rookie drafts only · vs = realized minus expected WAR for the slot, over the same seasons</span>}
               </div>
-              {!draftYears.length ? <div className="empty">No drafts yet.</div> : mobile ? (
+              {!draftYears.length ? (
+                <div className="empty">{caps.drafts ? "No drafts yet." : "Draft results aren't published for this league."}</div>
+              ) : mobile ? (
                 /* one records list per class under a season band carrying the
                    class WAR — an unplayed class prints — for every pick AND
                    for the total, never 0.00 */
@@ -908,11 +933,19 @@ export default function FranchisePage({ fkey, players, tab }:
             <div ref={el => { refs.current.trades = el; }}>
               <div className="band">
                 <span className="band-label">Trades</span>
-                <span className="band-note">Each side scored on the WAR its return produced after the trade · both sides in the same neutral ink</span>
+                {caps.trades && <span className="band-note">Each side scored on the WAR its return produced after the trade · both sides in the same neutral ink</span>}
               </div>
               <div className="ledger" style={{ paddingTop: 14 }}>
                 {!trades ? <div className="empty">Loading trades…</div>
-                  : !myTrades.length ? <div className="empty">No trades yet.</div>
+                  : !myTrades.length ? (
+                    /* the log below knows a trade happened even where the scoring
+                       file doesn't exist, so "no trades yet" could be false */
+                    <div className="empty">
+                      {caps.trades ? "No trades yet."
+                        : tradeTx ? `${tradeTx} trade${tradeTx === 1 ? "" : "s"} on record; scoring isn't published for this league.`
+                          : "No trades on record."}
+                    </div>
+                  )
                     : myTrades.map((t, i) => (
                       <TradeCard key={`${t.ts}-${i}`} trade={t} players={players}
                         when={tradeWhen(t.ts)} sideFig="realized" />
@@ -938,7 +971,7 @@ export default function FranchisePage({ fkey, players, tab }:
                     <div key={key} className={`rec${i % 2 ? " zebra" : ""}`}>
                       <div className="rec-l1">
                         <span className="rec-id" style={{ font: "600 11px/1.4 var(--cond)", letterSpacing: ".12em", textTransform: "uppercase", color: "var(--dim)" }}>
-                          {tx.season} W{tx.week} · {tx.type === "waiver" ? "waiver" : "free agent"}
+                          {tx.season} W{tx.week} · {txKind(tx.type)}
                         </span>
                       </div>
                       {!!tx.adds?.length && (

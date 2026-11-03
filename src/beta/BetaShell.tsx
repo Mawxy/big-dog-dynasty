@@ -88,11 +88,22 @@ export default function BetaShell() {
 }
 
 function BetaBoard() {
-  const { meta, league } = useLeague();
+  const { meta, league, leagues } = useLeague();
   const loc = useLocation();
   const nav = useNavigate();
   const navType = useNavigationType();
   const rosterSeason = rosterSeasonOf(league);
+
+  // The address names a DIFFERENT registered league, as Back does after the
+  // league switch: every league file was fetched under the loaded one, so boot
+  // again, the way the classic Shell does. It cannot loop: the reload resolves
+  // to the requested league and the segment then matches.
+  const urlLeague = loc.pathname.split("/")[1] ?? "";
+  const otherLeague = leagues.leagues.some(
+    l => l.key !== league.key && (l.key === urlLeague || l.alias === urlLeague));
+  useEffect(() => {
+    if (otherLeague) window.location.reload();
+  }, [otherLeague]);
 
   // The rosters, hoisted: identity derives from them (a manager name IS a
   // Sleeper username), and both the Team screen and More want the same array.
@@ -103,10 +114,11 @@ function BetaBoard() {
   // THE BARE LEAGUE ADDRESS (Max, 2026-09-02): this shell is the board; the
   // classic one lives under /<league>/classic
   const base = `/${leagueSeg(league)}`;
-  // the segment after the league — "" only on the index, which is a redirect
-  const seg = loc.pathname.startsWith(base)
-    ? loc.pathname.slice(base.length).split("/").filter(Boolean)[0] ?? ""
-    : "";
+  // the segment after the league — "" only on the index, which is a redirect.
+  // The league's own segment is not always `base`: a numeric-key address opens
+  // the same league (App's Shell resolves key or alias), so it is stripped by
+  // position, not by matching the alias.
+  const seg = loc.pathname.split("/").filter(Boolean)[1] ?? "";
 
   /* ---- the index is a REDIRECT, not a screen ----------------------------
      A reader who has claimed a franchise opens on his own roster; one who has
@@ -228,6 +240,8 @@ function BetaBoard() {
   };
 
   const onLeague = active === "league";
+  // where ← Back goes when there is nothing behind it: this screen's hub
+  const hub = `${base}${active ? `/${active}` : ""}`;
 
   return (
     <IdentityContext.Provider value={identity}>
@@ -265,10 +279,16 @@ function BetaBoard() {
         {/* Every screen below a tab needs an on-screen way back: an iOS web clip
             has no browser chrome at all. The player page is the exception — it
             carries its own ← Back in the split rail, and two of them on one
-            screen is a question about which one is real. */}
+            screen is a question about which one is real.
+            ON A SHARED DEEP LINK THERE IS NO BACK: the router's history index is
+            0, so nav(-1) leaves the board or does nothing. The hub is the step
+            up the reader wanted. */}
         {!tabs.some(t => t.id === seg) && seg !== "" && seg !== "player" && (
-          <a className="v3-back" href={`#${base}${active ? `/${active}` : ""}`}
-            onClick={e => { e.preventDefault(); nav(-1); }}>← Back</a>
+          <a className="v3-back" href={`#${hub}`}
+            onClick={e => {
+              e.preventDefault();
+              if (window.history.state?.idx === 0) nav(hub); else nav(-1);
+            }}>← Back</a>
         )}
 
         <main>
@@ -353,7 +373,11 @@ function BetaBoard() {
                   if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
                   e.preventDefault();
                   cancelHold();
-                  if (held.current) { held.current = false; return; }
+                  // only the tab that was held can owe a swallowed click. A long
+                  // press that ends off the tab, or without a click at all (a
+                  // touch long-press often has none), leaves `held` set, and the
+                  // next tap on any other tab was eaten by it.
+                  if (t.id === "league" && held.current) { held.current = false; return; }
                   nav(to);
                 }}
                 onPointerDown={t.id === "league" ? startHold : undefined}
@@ -536,7 +560,8 @@ function ToClassic() {
   const { league } = useLeague();
   const loc = useLocation();
   const seg = leagueSeg(league);
-  const rest = loc.pathname.startsWith(`/${seg}`) ? loc.pathname.slice(seg.length + 1) : loc.pathname;
+  // whichever spelling of the league the address used, key or alias
+  const rest = loc.pathname.replace(/^\/[^/]+/, "");
   return <Navigate replace to={{ pathname: `/${seg}/${CLASSIC_SEG}${rest}`, search: loc.search }} />;
 }
 

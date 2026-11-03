@@ -175,7 +175,9 @@ export default function More() {
      "0 seasons": no history yet is not a count of nothing. */
   const settled = meta.seasons.filter(s => Number(s) < Number(phase.rosterSeason)).length;
 
-  const insights = useJson<Insights>("insights.json").data;
+  // the written outlooks are read off the projections, and a league without
+  // those has no file to ask for
+  const insights = useJson<Insights>(caps.projections ? "insights.json" : null).data;
 
   /* HOW MANY PLAYERS THE TWO INDICES PRICE. Read from index_models.json rather
      than through `useDvi`/`useCvi`, for two reasons: the app's model provider

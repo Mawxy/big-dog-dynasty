@@ -120,3 +120,14 @@ def last_completed_season(data_dir, seasons=None):
     """
     done = completed_seasons(data_dir, seasons)
     return done[-1] if done else None
+
+
+def newest_finished_nfl_season(today):
+    """Newest NFL season whose regular season is over, by the calendar alone.
+
+    war-history.yml's guard: nothing downstream of it can tell a partial
+    waa_war_<yr>.csv from a full one. Week 18 ends by about January 11, and the
+    corpus reads only regular-season games, so season Y counts from January 15
+    of Y+1. Those few days are for nflverse to publish the last week.
+    """
+    return today.year - (1 if (today.month, today.day) >= (1, 15) else 2)

@@ -1,10 +1,15 @@
 name: WAR history (nflverse)
-# One-off / occasional: rebuild historical WAR from nflverse data, shaped to the
+# Yearly, plus by hand: rebuild historical WAR from nflverse data, shaped to the
 # league's exact scoring, pool and played rules, computed by the unchanged
-# sleeper_war.py engine. Commits CSVs to nfl_history/.
+# sleeper_war.py engine, then refit the aging curves on the result. Commits CSVs
+# and aging_curves.json to nfl_history/; the next nightly projects from them.
 #
-# RANGE. The defaults below are 1999-2025 and the header used to claim "2014+",
-# which was wrong in both directions: the corpus reaches back to 1999, and
+# JANUARY 15 is the first day the season just played counts as finished (see
+# seasons.newest_finished_nfl_season). The schedule runs that morning so the
+# analog arm catches up with the scalar arm within about two weeks of the title
+# game, rather than waiting on someone to remember.
+#
+# RANGE. Start defaults to 1999: the corpus reaches back that far, and
 # PROJECT_NOTES is explicit that a partial rebuild must start at 2012 or earlier
 # or it splices two different played rules. Seasons before 2012 (WAR) and 2014
 # (features) are filed under nfl_history/early/ by the collect step below;
@@ -13,16 +18,19 @@ name: WAR history (nflverse)
 # END IS CLAMPED — see the validation step. A dispatch with end >= the
 # in-progress season would drop a PARTIAL waa_war_<season>.csv into
 # nfl_history/, and project_points.py would then fit against a three-week
-# season as though it were a full one.
+# season as though it were a full one. It defaults to the newest finished
+# season, so neither the schedule nor a dispatch needs a year edited in here.
 on:
+  schedule:
+    - cron: "0 9 15 1 *"
   workflow_dispatch:
     inputs:
       start:
         description: "First season (use 2012 or earlier — played rule changes at 2012)"
         default: "1999"
       end:
-        description: "Last season — must be a COMPLETED season, refused otherwise"
-        default: "2025"
+        description: "Last season — blank for the newest finished season; an unfinished one is refused"
+        default: ""
 permissions:
   contents: write
 concurrency:            # shared with data-refresh / values-refresh — see data-refresh.yml
@@ -30,7 +38,7 @@ concurrency:            # shared with data-refresh / values-refresh — see data
   cancel-in-progress: false
 jobs:
   history:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -47,12 +55,13 @@ jobs:
       # the check has to happen here.
       #
       # "Complete" is defined on the CALENDAR, deliberately, rather than on
-      # anything in the data: an NFL season Y runs Sep Y -> Feb Y+1, so Y is
-      # complete once we are in March of Y+1 or later. That makes the newest
-      # allowed END today's year minus one (minus two in Jan/Feb), needs no
-      # league file, and does not depend on the September ritual having been
+      # anything in the data — see seasons.newest_finished_nfl_season. It needs
+      # no league file and does not depend on the September ritual having been
       # done. data/leagues.json's rosterSeason is printed alongside it as a
       # sanity read, not used as the rule.
+      #
+      # The resolved range goes to GITHUB_ENV, digits only, for the later steps:
+      # a scheduled run has no inputs, and the blanks are filled in only here.
       - name: Validate the season range
         env:
           START: ${{ github.event.inputs.start }}
@@ -61,6 +70,9 @@ jobs:
           python - <<'PY'
           import datetime, json, os, pathlib, sys
 
+          sys.path.insert(0, "scripts")
+          from seasons import newest_finished_nfl_season
+
           # ::error on STDOUT, then exit 1 — sys.exit(msg) would write it to
           # stderr, where the runner does not pick workflow commands up and the
           # annotation would be lost.
@@ -68,15 +80,15 @@ jobs:
               print(msg, flush=True)
               sys.exit(1)
 
-          def season(name):
-              raw = (os.environ.get(name) or "").strip()
+          def season(name, blank):
+              raw = (os.environ.get(name) or "").strip() or str(blank)
               if not raw.isdigit():
                   die(f"::error title=Bad {name}::{name}={raw!r} is not a season year")
               return int(raw)
 
-          start, end = season("START"), season("END")
           today = datetime.date.today()
-          newest = today.year - (1 if today.month >= 3 else 2)
+          newest = newest_finished_nfl_season(today)
+          start, end = season("START", 1999), season("END", newest)
 
           p = pathlib.Path("data/leagues.json")
           if p.exists():
@@ -88,8 +100,8 @@ jobs:
 
           if end > newest:
               die(f"::error title=End season not complete::end={end} but the "
-                  f"{end} season has not finished (a season is complete in "
-                  f"March of the following year). Rebuilding it now would "
+                  f"{end} season has not finished (a season is complete on "
+                  f"January 15 of the following year). Rebuilding it now would "
                   f"commit a partial waa_war_{end}.csv to nfl_history/ and "
                   f"project_points.py would fit on a fraction of a season. "
                   f"Re-run with end={newest} or lower.")
@@ -103,25 +115,22 @@ jobs:
                     f"rule changes at 2012 (snap counts begin), so a corpus that "
                     f"starts later splices two rules. PROJECT_NOTES says use 2012.")
           print(f"range OK: {start}-{end}")
+          with open(os.environ["GITHUB_ENV"], "a") as f:
+              f.write(f"START={start}\nEND={end}\n")
           PY
       # PINNED — see requirements-ci.txt. `-c` applies that file's pins to
       # nflreadpy and what it pulls in (polars, numpy) without installing the
       # scikit-learn stack this job never imports.
       - name: Install nflreadpy (pinned via requirements-ci.txt)
         run: pip install -c requirements-ci.txt nflreadpy
+      # $START/$END come from the validation step's GITHUB_ENV, never interpolated
+      # straight into the shell — a crafted dispatch input would otherwise be
+      # command injection
       - name: Shape nflverse data to league form
-        # inputs go through env, never interpolated straight into the shell —
-        # a crafted dispatch input would otherwise be command injection
-        env:
-          START: ${{ github.event.inputs.start }}
-          END: ${{ github.event.inputs.end }}
         run: python scripts/nfl_history.py --start "$START" --end "$END" --out nfl_history_data
       - name: Compute WAA/WAR (unchanged engine)
         run: python scripts/sleeper_war.py --data nfl_history_data --top 10
       - name: Skill features (usage, efficiency, expected points)
-        env:
-          START: ${{ github.event.inputs.start }}
-          END: ${{ github.event.inputs.end }}
         run: python scripts/nfl_features.py --start "$START" --end "$END" --out nfl_history_data/features
       - name: Collect outputs
         run: |
@@ -138,10 +147,16 @@ jobs:
             if [ "$y" -lt 2014 ]; then cp "$f" nfl_history/early/; else cp "$f" nfl_history/; fi
           done
           cp nfl_history_data/players_meta.csv nfl_history/
+      # AFTER the collect step: the fit reads nfl_history/, not this run's output,
+      # so a partial --start/--end rebuild still fits on the whole corpus. No end
+      # is passed for the same reason — it fits through the newest CSV there.
+      - name: Refit the aging curves on the new corpus
+        run: python scripts/aging_curves.py
+      # The nightly's scalar arm loads this file as it stands, so a bad fit has
+      # to stop here, before the push.
+      - name: Check the refit before it reaches the nightly
+        run: python -m unittest discover -s tests -p "test_aging_curves.py"
       - name: Commit history CSVs
-        env:
-          START: ${{ github.event.inputs.start }}
-          END: ${{ github.event.inputs.end }}
         run: |
           git config user.name "big-dog-bot"
           git config user.email "actions@users.noreply.github.com"
@@ -158,8 +173,9 @@ jobs:
           # allow-list names exactly that glob). Safe because both workflows
           # share the `data-push` concurrency group, so they can never stage or
           # push over each other — and safe in content because the range guard
-          # above refuses an END that reaches the in-progress season, so this
-          # job never writes the year the nightly owns.
+          # above refuses a season still being played. From January 15 until the
+          # September rollover both can write the roster season's features file,
+          # but its regular season is over, so both write the same whole season.
           for i in 1 2 3 4 5; do
             git fetch origin main || { sleep $((i*10)); continue; }
             git reset FETCH_HEAD

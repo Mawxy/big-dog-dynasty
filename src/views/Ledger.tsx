@@ -1,11 +1,11 @@
 import { useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { TradeSide, TradesPayload, Values } from "../lib/types";
+import type { TradesPayload, Values } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { readTrades, tradeWhen } from "../lib/trades";
 import { fmtWar, sgn, sgnWar } from "../lib/stats";
 import { useLeague, useLeaguePath } from "../lib/context";
-import { ktcOf } from "../lib/values";
+import { fcPickLadder, ktcOf, marketNow, marketNowFc } from "../lib/values";
 import TradeCard, { sideRealized } from "../components/TradeCard";
 
 /**
@@ -66,56 +66,10 @@ export default function Ledger() {
    *  the card that opened it */
   const [openKey, setOpenKey] = useState<string | null>(null);
 
-  /** current mid-tier pick prices by "YYYY Mid Nth", from values.json —
-   *  mirrors the canonical keying the pipeline snapshots use */
-  const ORDW = ["", "1st", "2nd", "3rd", "4th", "5th"];
-  const pickNow = useMemo(() => {
-    const m = new Map<string, { ktc?: number; fc?: number }>();
-    for (const [label, v] of vals?.picks?.ktc ?? []) {
-      const g = /^(20\d\d) Mid (\d\w\w)$/.exec(label);
-      if (g) m.set(`${g[1]} Mid ${g[2]}`, { ...m.get(`${g[1]} Mid ${g[2]}`), ktc: v });
-    }
-    for (const [label, v] of vals?.picks?.fc ?? []) {
-      const g = /^(20\d\d) (\d\w\w)( \(Mid\))?$/.exec(label);
-      if (!g) continue;
-      const key = `${g[1]} Mid ${g[2]}`;
-      const cur = m.get(key) ?? {};
-      if (g[3] || cur.fc == null) m.set(key, { ...cur, fc: v });
-    }
-    return m;
-  }, [vals]);
-
-  /** a side's CURRENT market sums. A converted pick prices as the player it
-   *  became (the draft-day splice); an unconverted one as the mid-tier pick
-   *  it still is. Each source goes null when it can't price every asset. */
-  const marketNow = (s: TradeSide): { ktc: number | null; fc: number | null } => {
-    if (!vals) return { ktc: null, fc: null };
-    // COUNT the assets a market figure is even about, rather than testing the
-    // sum: `ktc || null` at the end turned a legitimately summed 0 into
-    // "unpriced". A side that is nothing but FAAB has no market figure and
-    // reads —; a side whose assets all priced and summed to zero HAS one, and
-    // it is zero. (An asset the feed didn't cover still nulls the sum below.)
-    let ktc: number | null = 0, fc: number | null = 0, n = 0;
-    for (const a of s.got) {
-      if (a.kind === "faab") continue;
-      n++;
-      let k: number | null | undefined, f: number | null | undefined;
-      if (a.pid) {
-        const row = vals.players[a.pid];
-        // the ladder the side's "then" was frozen on (trade_analysis
-        // `mktBasis`, 2026-10-07): league column on "tier+tep", base otherwise
-        k = s.mktBasis === "tier+tep" ? ktcOf(row, meta.tep) : row?.ktc; f = row?.fc;
-      } else if (a.kind === "pick" && a.ps && a.rnd) {
-        const p = pickNow.get(`${a.ps} Mid ${ORDW[a.rnd] ?? `${a.rnd}th`}`);
-        k = p?.ktc; f = p?.fc;
-      } else {
-        return { ktc: null, fc: null };
-      }
-      ktc = ktc == null || k == null ? null : ktc + k;
-      fc = fc == null || f == null ? null : fc + f;
-    }
-    return { ktc: n ? ktc : null, fc: n ? fc : null };
-  };
+  /** today's pick ladders, keyed as the snapshot keys a pick. `marketNow` is
+   *  the one port of the writer's pricing, shared with the beta ledger. */
+  const pickKtc = useMemo(() => new Map(vals?.picks?.ktc ?? []), [vals]);
+  const pickFc = useMemo(() => fcPickLadder(vals), [vals]);
 
   /** one drawer row: "KTC · 5,120 → 6,340 · +1,220" */
   const marketRow = (label: string, then: number | null | undefined, now: number | null) => {
@@ -222,12 +176,11 @@ export default function Ledger() {
             drawer={
               <div className="trade-drawer">
                 {c.trade.sides.map(s => {
-                  const now = marketNow(s);
                   return (
                     <div key={s.rid} className="drawer-side">
                       <div className="drawer-team">{s.team}</div>
-                      {marketRow("KTC since trade", s.mktThen, now.ktc)}
-                      {marketRow("FC since trade", s.fcThen, now.fc)}
+                      {marketRow("KTC since trade", s.mktThen, marketNow(s, vals, pickKtc, meta.tep))}
+                      {marketRow("FC since trade", s.fcThen, marketNowFc(s, vals, pickFc))}
                       <div className="drawer-line">
                         <span className="k">Realized WAR</span>
                         <span className="v">{sideRealized(s) == null ? "—" : fmtWar(s.war)}</span>
@@ -269,9 +222,9 @@ export default function Ledger() {
       </div>
       <div className="tnote screen">
         FC/KTC then and Proj WAR are frozen within a day of the trade (older trades: market backfilled
-        where the value history reaches, em dash before that; sides holding picks carry no market sum).
-        In Details, since-trade deltas compare the same players-only basket at both ends, and realized
-        WAR counts what each asset produced while starting for the team that acquired it.
+        where the value history reaches, em dash before that). In Details, since-trade deltas price the
+        same assets on the same basis at both ends: an unmade pick at its tier, a made pick as the
+        player. Realized WAR counts what each asset produced while starting for the team that acquired it.
       </div>
     </>
   );

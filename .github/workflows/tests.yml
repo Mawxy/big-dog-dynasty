@@ -11,14 +11,14 @@ permissions:
   contents: read          # reads the checkout, commits nothing
 jobs:
   python:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - name: WAR engine invariants
-        # EXPECTED_SKIPS pins the skip count. The suite reports "OK (skipped=8)"
+        # EXPECTED_SKIPS pins the skip count. The suite reports "OK (skipped=5)"
         # and stays green when a test stops running, so a skip that appears on
         # its own is invisible — and a skipped methodology invariant is exactly
         # the kind of thing that goes unnoticed for months. Counted from the
@@ -26,7 +26,7 @@ jobs:
         # drift with the output format. Change the number when the change is
         # deliberate; that edit is the record of it.
         env:
-          EXPECTED_SKIPS: "8"
+          EXPECTED_SKIPS: "5"
         run: |
           python - <<'PY'
           import os, sys, unittest
@@ -46,7 +46,7 @@ jobs:
           print(f"{res.testsRun} tests, {got} skipped (expected {want})")
           PY
   typescript:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

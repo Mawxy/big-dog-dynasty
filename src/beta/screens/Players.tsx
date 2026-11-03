@@ -705,7 +705,11 @@ export default function Players() {
      under it too: usage_stats.py sums the weekly table over the league's own
      regular season, bracket weeks and both, so the windows line up with the
      box score's. */
-  const [measure, setMeasure] = useSticky<"box" | "usage">(stick("measure"), "usage");
+  const [measurePick, setMeasure] = useSticky<"box" | "usage">(stick("measure"), "usage");
+  /* the lens in force, not the one remembered: the sticky default is "usage",
+     and in a league without usage.json that left the disabled chip lit over a
+     board showing the box score. */
+  const measure = caps.usage ? measurePick : "box";
   /** the Maxalytics lens is on. Named "usage" in the code since the day it was
    *  built; the chip says Maxalytics (Max, 2026-09-17). It needs usage.json,
    *  which `usage_stats.py` writes for the home league only — without it every

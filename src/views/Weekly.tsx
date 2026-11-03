@@ -307,7 +307,9 @@ export default function Weekly({ data, season, players, week, matchupRid, playof
   if (week !== null && matchupRid !== null)
     return <MatchupDetail season={season} wk={week} rid={matchupRid} data={data}
       weekly={weekly} mw={mw} players={players} odds={odds}
-      back={() => nav(lp(`/weekly/${seasonSeg(season)}/${week}`))} />;
+      // a bracket game has no week chip to return to: /weekly/<season>/16 clamps
+      // to the last regular-season week, so it goes back to the bracket it came from
+      back={() => nav(lp(`/weekly/${seasonSeg(season)}/${week >= ps ? "playoffs" : week}`))} />;
 
   if (playoffs)
     return <BracketScope season={season} bracket={bracket} loaded={brDone}

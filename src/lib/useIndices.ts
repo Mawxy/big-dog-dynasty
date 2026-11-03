@@ -4,6 +4,7 @@ import type { InSeason } from "./outlook";
 import { isInSeason, outlookY1 } from "./outlook";
 import type { Json } from "./useJson";
 import { useJson } from "./useJson";
+import { useLeagueCaps } from "./caps";
 import { useModel } from "./model";
 
 /**
@@ -33,10 +34,13 @@ import { useModel } from "./model";
  * on `mx.error` — the legacy path is unchanged the moment it is actually
  * needed, and costs nothing the rest of the time.
  */
-function useIndexModels() {
-  const q = useJson<IndexModelsFile>("index_models.json", "leagueDaily");
-  return q;
+function useIndexModels(): Json<IndexModelsFile> {
+  const caps = useLeagueCaps();
+  const q = useJson<IndexModelsFile>(caps.indices ? "index_models.json" : null, "leagueDaily");
+  // a league with no indices settles on what the 404 settled on, minus the 404s
+  return caps.indices ? q : NO_INDICES;
 }
+const NO_INDICES: Json<never> = { data: null, error: true, loading: false };
 
 /**
  * One implementation behind both `useDvi` and `useDviQuery`, so the fallback
@@ -52,7 +56,8 @@ function useDviJson(): Json<DviFile> {
   // masthead control hides itself rather than offering six choices that all
   // return the same numbers. It is REQUESTED only once that deploy is the one
   // we are on — see the note above.
-  const flat = useJson<DviFile>(mx.error ? "dvi.json" : null, "leagueDaily");
+  const caps = useLeagueCaps();
+  const flat = useJson<DviFile>(mx.error && caps.indices ? "dvi.json" : null, "leagueDaily");
   const data = useMemo(() => {
     if (!mx.data) return mx.error ? flat.data : null;
     const players: DviFile["players"] = {};
@@ -68,7 +73,8 @@ function useDviJson(): Json<DviFile> {
 function useCviJson(): Json<CviFile> {
   const { curve } = useModel();
   const mx = useIndexModels();
-  const flat = useJson<CviFile>(mx.error ? "cvi.json" : null, "leagueDaily");
+  const caps = useLeagueCaps();
+  const flat = useJson<CviFile>(mx.error && caps.indices ? "cvi.json" : null, "leagueDaily");
   const data = useMemo(() => {
     if (!mx.data) return mx.error ? flat.data : null;
     const players: CviFile["players"] = {};
@@ -109,7 +115,7 @@ export function useCviQuery(): Json<CviFile> { return useCviJson(); }
  */
 export function useProjWar(): Record<string, number> | null {
   const { curve } = useModel();
-  const mx = useJson<MatrixFile>("projections_matrix.json");
+  const mx = useJson<MatrixFile>(useLeagueCaps().projections ? "projections_matrix.json" : null);
   // the pre-matrix fallback, requested only on the branch that reads it — the
   // same gating `useDviJson` takes, for the same reason. projections.json is
   // 265 KB and every screen with a WAR column was downloading it beside the
@@ -144,7 +150,7 @@ export function useProjWar(): Record<string, number> | null {
  */
 export function useProjWar1(): Record<string, number> | null {
   const { curve } = useModel();
-  const mx = useJson<MatrixFile>("projections_matrix.json");
+  const mx = useJson<MatrixFile>(useLeagueCaps().projections ? "projections_matrix.json" : null);
   // gated on the error branch, as above
   const flat = useJson<ProjectionsFile>(mx.error ? "projections.json" : null);
   return useMemo(() => {
@@ -209,7 +215,7 @@ const NO_OUTLOOK: Outlook1 = { rows: {}, inseason: null };
  */
 export function useOutlook1(): Outlook1 {
   const { curve } = useModel();
-  const mx = useJson<MatrixFile>("projections_matrix.json");
+  const mx = useJson<MatrixFile>(useLeagueCaps().projections ? "projections_matrix.json" : null);
   // gated on the error branch, exactly as above
   const flat = useJson<ProjectionsFile>(mx.error ? "projections.json" : null);
   return useMemo(() => {

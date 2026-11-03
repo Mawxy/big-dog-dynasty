@@ -325,7 +325,7 @@ def replacement_for_week(sdir_raw, wk, slots, scoring, nfl_players):
     consolation team benching its stars cannot move it. Same call the
     regular-season engine makes; see playoff_war.py for the full note.
     """
-    wf = sdir_raw / "matchups" / f"week_{wk}.json"
+    wf = sdir_raw / "matchups" / f"week_{wk:02d}.json"
     if not wf.exists():
         return {}
     pts, pos = {}, {}
@@ -411,7 +411,7 @@ def season_wpa(season, ld, raw_root):
         if g.get("p") and g["p"] > 1:
             continue
         wk = g["week"]
-        wf = load(raw_root / season / "matchups" / f"week_{wk}.json") or []
+        wf = load(raw_root / season / "matchups" / f"week_{wk:02d}.json") or []
         by_rid = {t.get("roster_id"): t for t in wf}
         t1, t2 = g.get("t1"), g.get("t2")
         if t1 is None or t2 is None or t1 not in by_rid or t2 not in by_rid:

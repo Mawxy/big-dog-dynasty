@@ -91,12 +91,21 @@ def build_meta_index():
     idx = defaultdict(list)
     for r in csv.DictReader(open(ROOT / 'nfl_history' / 'players_meta.csv', encoding='utf-8')):
         n = norm(r['name'])
-        idx[(n.split()[-1], r['pos'])].append((
+        rec = (
             n,
             datetime.date.fromisoformat(r['birth_date']) if r['birth_date'] else None,
             int(r['draft_season']) if r['draft_season'] else None,
             int(r['draft_pick']) if r['draft_pick'] else 999,
-            r['gsis_id']))
+            r['gsis_id'])
+        idx[(n.split()[-1], r['pos'])].append(rec)
+        # `common` is the name people say, and it is what Sleeper prints: "Jaylen
+        # Warren" is Derrell Warren under `name`. It gets its OWN key rather than
+        # joining the (last, pos) lists, because a second entry in one of those
+        # would change what the singleton and tie-break paths in match_meta pick
+        # for players who already match.
+        c = norm(r.get('common') or '')
+        if c and c != n:
+            idx[('common', c, r['pos'])].append(rec)
     return idx
 
 
@@ -115,10 +124,14 @@ MANUAL_NAMES = {
     'Malachi Fields': 'Steven Fields', 'Jaylin Lane': 'Joshua Lane',
     'Ray Davis': "Re'Mahn Davis",
 }
+# Looked up through norm(), because Sleeper's display name moves: 'Chris Godwin'
+# became 'Chris Godwin Jr.' and 'Deebo Samuel' became 'Deebo Samuel Sr.', and an
+# exact-string key then stops matching without anything saying so.
+MANUAL_BY_NORM = {norm(k): v for k, v in MANUAL_NAMES.items()}
 
 
 def match_meta(name, pos, idx):
-    name = MANUAL_NAMES.get(name, name)
+    name = MANUAL_BY_NORM.get(norm(name), name)
     n = norm(name); first, last = n.split()[0], n.split()[-1]
     cands = idx.get((last, pos), [])
     if len(cands) == 1:
@@ -137,7 +150,32 @@ def match_meta(name, pos, idx):
         hits = [rest for cn, *rest in cands if test(cn.split()[0], cn)]
         if hits:
             return max(hits, key=lambda h: h[0] or datetime.date.min)
+    # Nothing under the legal name, so try the common one, exact only. It runs
+    # last so that it can only fill a miss and never move an existing match.
+    hits = [rest for _, *rest in idx.get(('common', n, pos), [])]
+    if hits:
+        return max(hits, key=lambda h: h[0] or datetime.date.min)
     return None
+
+
+def sleeper_players(doc, year):
+    """proj_sleeper.json's players, if its lines are for `year`; else nothing.
+
+    Year 1 takes 90% of its composite from this file, so it has to be the season
+    year 1 IS. From the title game until Sleeper publishes next year's lines, the
+    seed has rolled forward and the file still holds the season just finished, and
+    year 1 was being priced off lines for a year that is over. Answering with no
+    players takes the path a missing file takes: composite = natural, proj_ext
+    null, no floor-clearing free agents. A file with no season stamp has nothing
+    to compare, so it is read as before.
+    """
+    season = (doc.get('meta') or {}).get('season')
+    if season is not None and int(season) != year:
+        print(f"::warning title=Sleeper lines ignored::proj_sleeper.json holds "
+              f"{season} lines but year 1 of this projection is {year}: composite "
+              f"falls back to natural until Sleeper publishes {year}.")
+        return {}
+    return doc['players']
 
 
 def composite_path(natural, ext, decay=None, w0=None):
@@ -329,8 +367,10 @@ def main():
     curves, avail, priors = model['curves'], model['availability'], model['capital_priors']
     UDFA_PICK = model['meta'].get('udfa_pick', 260)
     ptw = model.get('pts_to_war', {})
+    proj_years = [seed + 1 + k for k in range(H)]
     sfile = DATA / 'proj_sleeper.json'
-    sproj = json.load(open(sfile, encoding='utf-8'))['players'] if sfile.exists() else {}
+    sproj = (sleeper_players(json.load(open(sfile, encoding='utf-8')), proj_years[0])
+             if sfile.exists() else {})
     idx = build_meta_index()
 
     # full-career WAR: real Big Dog WAR for league years, league-shaped NFL
@@ -349,7 +389,6 @@ def main():
         if f.exists():
             for r in csv.DictReader(open(f, encoding='utf-8')):
                 histwar[r['player_id']][yr] = float(r['WAR'])
-    proj_years = [seed + 1 + k for k in range(H)]
 
     def avail_for(pos, age):
         return group_for(avail[pos], age)['avail']

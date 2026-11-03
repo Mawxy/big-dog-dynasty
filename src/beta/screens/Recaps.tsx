@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useParams } from "react-router-dom";
 import { useJson } from "../../lib/useJson";
+import { useLeagueCaps } from "../../lib/caps";
 import { inline, RecapBody } from "../../lib/recapMd";
 import { RouteLink } from "../../components/RouteLink";
 import { Band, useBetaPath } from "../ui";
@@ -21,9 +22,17 @@ import "./recaps.css";
  *            is the address a shared link should carry.
  *
  * A league that has never published one (every league but the default today)
- * 404s on the file, and the League band simply does not draw: a missing recap
- * is not news, so it does not take up a band saying so.
+ * has no file, and the League band simply does not draw: a missing recap is not
+ * news, so it does not take up a band saying so.
  */
+
+/** the recap file, where one can exist. LeagueCaps has no flag of its own for
+ *  it; add_recap.py writes for the default league, which is the set `odds` — a
+ *  file of the same per-week, default-league kind — already names. */
+function useRecapFile() {
+  const caps = useLeagueCaps();
+  return useJson<RecapFile>(caps.odds ? "recaps.json" : null);
+}
 
 export interface Recap {
   id: string;
@@ -63,7 +72,7 @@ function RecapItem({ r, open, onToggle, kicker }: {
 /** League's band: the newest recap, collapsed until tapped */
 export function RecapBand() {
   const betaPath = useBetaPath();
-  const q = useJson<RecapFile>("recaps.json");
+  const q = useRecapFile();
   const [open, setOpen] = useState(false);
   const r = q.data?.recaps?.[0];
   if (!r) return null;
@@ -80,7 +89,7 @@ export function RecapBand() {
  *  until tapped. Draws nothing for a week with no recap. */
 export function RecapForWeek({ season, week }: { season: string | number; week: number }) {
   const betaPath = useBetaPath();
-  const q = useJson<RecapFile>("recaps.json");
+  const q = useRecapFile();
   const [open, setOpen] = useState(false);
   const r = q.data?.recaps?.find(x => x.season === Number(season) && x.week === week);
   if (!r) return null;
@@ -96,7 +105,7 @@ export function RecapForWeek({ season, week }: { season: string | number; week: 
 /** the archive: every recap, newest first */
 export default function Recaps() {
   const { id } = useParams();
-  const q = useJson<RecapFile>("recaps.json");
+  const q = useRecapFile();
   const [open, setOpen] = useState<string | null>(id ?? null);
   const list = q.data?.recaps ?? [];
   return (

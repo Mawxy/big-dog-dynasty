@@ -24,10 +24,11 @@ from pathlib import Path
 # ones — 0.15s pacing, broad retry, 404 -> None, a hard 429 budget that raises
 # rather than returning a silent None — so it takes the defaults unchanged.
 from sleeper_http import get
+from ioutil import atomic_write
+from sleeper_war import core_position
 
 def save(obj, path: Path):
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(obj, indent=2), encoding="utf-8")
+    atomic_write(path, json.dumps(obj, indent=2))
     print(f"  wrote {path}")
 
 def require(obj, what):
@@ -281,7 +282,7 @@ def row_played(row):
     reads weekly roster status to make the same call on nflverse inputs."""
     st = row.get("stats") or {}
     pl = row.get("player") or {}
-    pos = pl.get("position") or (pl.get("fantasy_positions") or [None])[0]
+    pos = core_position(pl)
     has_stats = any(st.get(k) for k in _OFF_STATS)
     # position is still read (callers and the fallback depend on it) but no
     # longer changes the answer — see the docstring for why the QB carve-out

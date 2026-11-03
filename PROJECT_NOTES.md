@@ -1,7 +1,7 @@
 # Big Dog Dynasty WAR Board — Project Notes
 
-Context doc for new work sessions. Read this first. Refreshed 2026-09-21
-against the **working tree on top of `f7f80aac`** (a large audit-and-fix
+Context doc for new work sessions. Read this first. Refreshed 2026-11-02
+against the **working tree on top of `b921a374`** (a large audit-and-fix
 session is uncommitted; this file describes the tree, not HEAD). The
 per-session handoffs in `scratch/` (gitignored) carry the decision trail.
 
@@ -50,9 +50,11 @@ because they derive from that league's projections. Three scripts write under
 `data/` WITHOUT going through `DataDir` and so are not in that list:
 `dynasty_movers.py`, `espn_ids.py` and `vig_model.py`.
 
-**Pineapple Pizza coverage is pull → WAR → build only.** No projections,
-indices, drafts, trades, odds, usage, bracket or shards — every downstream step
-defaults to Big Dog. `src/lib/caps.ts` derives that from the registry (is this
+**Pineapple Pizza coverage is pull → WAR → build, plus `team_elo` and
+`nfl_games`.** No projections, indices, drafts, trades, odds, usage or shards,
+and its `bracket.json` carries no WPA or playoff WAR — every other downstream
+step defaults to Big Dog. `validate_data.py --league <key>` gates its tree (see
+The gate). `src/lib/caps.ts` derives that from the registry (is this
 `leagues.default`? is `kind` dynasty?) so a screen built on a file this league
 never produces renders **"Not published for this league."** instead of a
 permanent `Loading…`.
@@ -70,15 +72,15 @@ Sleeper API ──> scripts/sleeper_pull.py ──> sleeper_data/  (+ sleeper_da
                 draft_analysis.py  ──> drafts.json
                 playoff_wpa.py / playoff_war.py ──> <season>/bracket.json (wpa, war)
                 season_wpa.py      ──> <season>/winshare.json    (regular-season win share)
+                team_elo.py        ──> elo.json                  (both leagues)
+                nfl_games.py       ──> <season>/nfl_games.json   (both leagues)
                 fetch_projections.py ──> proj_sleeper.json, proj_sleeper_history/<yr>.json
-                week_odds.py --snapshot ──> <season>/odds.json, <season>/proj_history.json
+                proj_snapshot.py   ──> <season>/proj_history.json, proj_history_meta.json
+                week_odds.py       ──> <season>/odds.json
                 project_war.py     ──> projections.json           (scalar arm)
-                project_points.py --site ──> projections_scalar.json (the scalar arm, parked)
-                                             projections.json       (REWRITTEN: points-first)
-                                             projections_points.json
-                value_bridge.py    ──> value_bridge.json          (Bridge B)
                 project_war_knn.py --space hybrid ──> projections_knn_hybrid.json  (analog)
-                project_matrix.py  ──> projections_matrix.json    (EIGHT curves + meta.inseason)
+                project_matrix.py  ──> projections_matrix.json    (SIX curves + meta.inseason)
+                value_bridge.py    ──> value_bridge.json          (Bridge B, on the default curve)
                 trade_analysis.py  ──> trades.json, trade_snapshots.json
                 nfl_features.py    ──> nfl_history/features_<Y>.csv, features_weekly_<Y>.csv
                 usage_stats.py     ──> <season>/usage.json
@@ -90,17 +92,19 @@ src/ (Vite + React 18 + TypeScript, HashRouter) ─────┴──> GitHub
 
 shared rules:   scripts/seasons.py   which season is FINISHED (every arm seeds off it)
                 scripts/inseason.py  how much of the roster season is banked
-                scripts/curves.py    the eight curve names + the year-1 lookup
+                scripts/curves.py    the six curve names + the year-1 lookup
 
 nflverse ──> scripts/nfl_history.py ──> nfl_history_data/ (gitignored)
              └─ same sleeper_war.py engine ──> nfl_history/*.csv 2012+ (committed)
                                                nfl_history/early/ 1999-2011 WAR, 1999-2013 features
              nfl_features.py  ──> nfl_history/features*_<yr>.csv
-             aging_curves.py  ──> nfl_history/aging_curves.json   (hand-run)
+             aging_curves.py  ──> nfl_history/aging_curves.json
              espn_ids.py      ──> data/espn_ids.json              (headshot id join)
+             defense_vs_position.py ──> <season>/defense_vs_position.json   (weekly)
              vig_model.py     ──> data/vig_model.json             (hand-run, one-time fit)
 
 sleeper_crawl.py (signals / trades / drafts / outcomes, sharded) ──> data/*_signals.json, corpora
+                 crawl_guard.py holds back a signals or outcome file that lost its sample
 merge_trade_corpus.py + dynasty_movers.py ──> data/dynasty_movers.json, data/recent_trades/<0..31>.json
 benchmarks.py ──> data/benchmarks.json
 fetch_values.py / fetch_ecr.py ──> data/values.json, values_history.json, ecr.json
@@ -116,7 +120,9 @@ fetch_values.py / fetch_ecr.py ──> data/values.json, values_history.json, ec
   poller drives both feeds, and since 2026-09-21 it has a stop condition (the
   NFL scoreboard knows whether the week has started or finished), backoff, a
   fetch timeout + abort on unmount, one chain across visibility changes, and no
-  stale frame across a league/week change.
+  stale frame across a league/week change. A feed reads as stale only when it is
+  failing and its last good read has aged out (`src/lib/liveStale.ts`), so a
+  healthy feed between idle polls does not.
 - **Per-player shards.** `player/<pid>.json` carries projection, Sleeper
   projection, matrix row + `blend_w`, usage rows, `banked`/`gp` + the in-season
   block, and the kNN subset with comparables, so a player page pulls ~2 KB
@@ -125,7 +131,8 @@ fetch_values.py / fetch_ecr.py ──> data/values.json, values_history.json, ec
   shard, pruned last.
 - **`insights.json`** (per-team verdicts on the league home and franchise
   pages) **has no producer.** Hand-written 2026-07-20 from preseason
-  projections and hand-edited once since (commit `fb5463c6`, 2026-09-08).
+  projections and hand-edited twice since (`fb5463c6`, 2026-09-08; `b4e7e99a`,
+  2026-10-14).
   Decide: script, preseason ritual, or remove the band.
 - **Index loaders are cache-keyed per league + season list** (`data.indexKey`) —
   honors, career, teamHonors, records, postseason, winshare, weekpoints, usage.
@@ -135,9 +142,9 @@ fetch_values.py / fetch_ecr.py ──> data/values.json, values_history.json, ec
 
 ## GitHub Actions
 
-Eleven workflows. Every committing job **re-parents** (fetch → mixed-reset
-onto `origin/main` → stage own paths → commit → push; never rebase — a
-regenerated file conflicts identically on every retry) and stages an
+Thirteen workflows, all on `ubuntu-24.04`. Every committing job **re-parents**
+(fetch → mixed-reset onto `origin/main` → stage own paths → commit → push; never
+rebase — a regenerated file conflicts identically on every retry) and stages an
 **explicit allow-list**. Canonical reasoning lives in `crawl-signals.yml`.
 
 **Crons moved off the hour (2026-09-21).** Every workflow used to fire at
@@ -147,47 +154,51 @@ minute; the hours are unchanged.
 
 | Workflow | Cron (UTC) | Concurrency | Runs | Commits |
 |---|---|---|---|---|
-| `data-refresh` | `17 6 * * *` daily | `data-push` | tests (stdlib only, before any pip) → date-keyed DAILY player map → pull Big Dog → WAR → build → pull/WAR/build Pizza (fail-soft) → pick_value → draft_analysis → playoff_wpa → playoff_war → season_wpa → nfl_games (fail-soft) → fetch_projections (fail-soft) → proj_snapshot (fail-soft) → week_odds → project_war → `pip install -r requirements-ci.txt` (fail-soft) → project_points --site (fail-soft + restore) → value_bridge → project_war_knn --space hybrid → project_matrix (fail-soft + restore) → **trade_analysis** → nfl_features (roster season) → usage_stats → shard_players → index_models → validate_data | `data/leagues`, `data/leagues.json`, `data/values.json`, `nfl_history/features_*.csv`; a guard fails the run if any crawl-owned path is staged; calls `deploy` |
-| `proj-snapshots` | `53 */2 * * *` every 2 h | `data-push` | proj_snapshot.py: re-reads the live week's Sleeper projections; overwrites each player until his own kickoff (ESPN scoreboard), frozen after | `data/leagues/*/*/proj_history.json`, `proj_history_meta.json` |
+| `data-refresh` | `17 6 * * *` daily | `data-push` | tests (stdlib only, before any pip) → date-keyed DAILY player map → pull Big Dog → WAR → build → pull/WAR/build Pizza (fail-soft) → `validate_data --league` on Pizza (restore its tree on failure) → pick_value → draft_analysis → playoff_wpa → playoff_war → season_wpa → team_elo (Pizza fail-soft) → nfl_games (fail-soft) → fetch_projections (fail-soft) → proj_snapshot (fail-soft) → week_odds → project_war → `pip install -c requirements-ci.txt nflreadpy` (fail-soft) → project_war_knn --space hybrid → project_matrix (fail-soft + restore) → value_bridge → **trade_analysis** → nfl_features (roster season) → usage_stats → shard_players → index_models → validate_data | `data/leagues`, `data/leagues.json`, `data/values.json`, `nfl_history/features_*.csv`; a guard fails the run if any crawl-owned path is staged; calls `deploy` |
+| `proj-snapshots` | `53 */2 * * *` every 2 h, plus pre-kickoff reads at `:41` (Sun 16,17,19,20,23 · Mon 00,23 · Tue 00 · Thu 23 · Fri 00) | `data-push` | proj_snapshot.py: re-reads the live week's Sleeper projections; overwrites each player until his own kickoff (ESPN scoreboard), frozen after. GitHub delays and drops scheduled runs, so a read's staleness has no hard bound | `data/leagues/*/*/proj_history.json`, `proj_history_meta.json` |
 | `values-refresh` | `23 11 * * *` daily | `data-push` | fetch_values → fetch_ecr (fail-soft + warning) → value_bridge → validate_data --values-only | `data/values.json`, `values_history.json`, `ecr.json`, `data/leagues/*/value_bridge.json`; calls `deploy` |
-| `war-history` | manual (`start`/`end`, defaults **1999–2025**) | `data-push` | validate range → nfl_history → sleeper_war → nfl_features → collect (`early/` split) | `nfl_history/` (whole-dir add) |
-| `players-refresh` | `38 5 * * 2` Tuesdays | `data-push` | `sleeper_pull --players-only` → cache save → `espn_ids.py --no-patch` (fail-soft) | `data/espn_ids.json` |
+| `war-history` | `0 9 15 1 *` every January 15, plus manual (`start`/`end`, defaults **1999** to the newest finished season) | `data-push` | validate range → nfl_history → sleeper_war → nfl_features → collect (`early/` split) → aging_curves → test_aging_curves | `nfl_history/` (whole-dir add) |
+| `players-refresh` | `38 5 * * 3` Wednesdays | `data-push` | `sleeper_pull --players-only` → cache save → `espn_ids.py --no-patch` (fail-soft) → `defense_vs_position.py` (fail-soft) | `data/espn_ids.json`, `data/leagues/*/*/defense_vs_position.json`, each only if its step succeeded |
 | `deploy` | push to `main` minus `paths-ignore`, manual, `workflow_call` | `pages-deploy` (job-level, cancel-in-progress) | **Node 22** → `npm ci` → typecheck → build → `cp -r data dist/data` → strip pipeline-only files → Pages | nothing |
-| `tests` | push to `main`, PRs | none | Python 3.12 unittest with `EXPECTED_SKIPS=8` pinned; Node 22 typecheck + `npm test` | nothing |
-| `crawl-signals` | `11 0,6,12,18 * * *` | `crawl-signals` | `sleeper_crawl --mode signals` (the only discoverer) | `league_signals.json`, `crawl_leagues.json` |
-| `crawl-signals-redraft` | `29 3,9,15,21 * * *` | `crawl-signals-redraft` | same, `--league-type redraft`, seeded from Pizza | `league_signals_redraft.json`, `crawl_leagues_redraft.json` |
-| `crawl-drafts` | `47 2,8,14,20 * * *` | `crawl-drafts` | `--mode drafts`, walks chains back to 2019 | `draft_signals.json`, `draft_index.json`, `rookie_pick_corpus.json` |
+| `tests` | push to `main`, PRs | none | Python 3.12 unittest with `EXPECTED_SKIPS=5` pinned; Node 22 typecheck + `npm test` | nothing |
+| `crawl-signals` | `11 0,6,12,18 * * *` | `crawl-signals` | `sleeper_crawl --mode signals` (the only discoverer) | `league_signals.json` (if it clears `crawl_guard`), `crawl_leagues.json` |
+| `crawl-signals-redraft` | `29 3,9,15,21 * * *` | `crawl-signals-redraft` | same, `--league-type redraft`, seeded from Pizza | `league_signals_redraft.json` (if it clears `crawl_guard`), `crawl_leagues_redraft.json` |
+| `crawl-drafts` | `47 2,8,14,20 * * *` | `crawl-drafts` | `--mode drafts`, walks chains back to 2019, end-of-run commit only | `draft_signals.json`, `draft_index.json`, `rookie_pick_corpus.json` |
 | `crawl-trades` | `13 1-23/2 * * *` | per shard + `crawl-trades-movers` | 4 shards → artifacts → `movers` job: merge_trade_corpus → dynasty_movers | `dynasty_movers.json`, `recent_trades/*.json` (per-player 7-day trades, bucketed by pid — the player page's Recent trades section), `tep_map.json`; calls `deploy` (a `GITHUB_TOKEN` push never triggers `on: push`) |
-| `crawl-outcomes` | `7 3,15 * * *` | per shard | 4 shards → artifact rows + committed counters → benchmarks.py (warn-only) | `outcome_signals_<n>.json`, `benchmarks.json` |
+| `crawl-outcomes` | `7 3,15 * * *` | per shard | 4 shards → artifact rows + committed counters → benchmarks.py (warn-only) | `outcome_signals_<n>.json` (if it clears `crawl_guard`), `benchmarks.json` |
+| `pff-ingest` | push touching `data/pff/**`, manual | none | `ingest_pff.py --check`: the committed role labels are well formed and no raw export reached the checkout (the exports stay on Max's PC, gitignored) | nothing |
 
 Notes that bite:
 
-- **Four pipeline jobs share `data-push`** — `data-refresh`, `values-refresh`,
-  `war-history` and `players-refresh` (which now commits `espn_ids.json`). The
-  group is also what ORDERS them: the clock only staggers the starts and a
+- **Five pipeline jobs share `data-push`** — `data-refresh`, `values-refresh`,
+  `war-history`, `players-refresh` and `proj-snapshots`, the last because the
+  nightly stages the whole `data/leagues` tree from its own checkout and would
+  revert a snapshot pushed mid-run. The group is also what ORDERS them: the clock only staggers the starts and a
   congested queue can reorder that. `data/values.json` has two writers
   (`fetch_values.py` creates it, `value_bridge.py` writes `impWar`/`modelWar`
   back) in two workflows; both are in the group, which is why it is safe.
 - The crawls deliberately do **not** join `data-push`: a five-hour crawl
   holding it would block the nightly. They absorb push races in their own
   fetch / re-parent / retry loop.
-- **The nightly's mid-chain steps are fail-soft with a RESTORE**, not just
-  `continue-on-error`. `project_points --site` and `project_matrix` rewrite
-  files every later step reads, and both can now genuinely fail (the points
-  model exits non-zero when it rewrote nothing; the matrix on a broken seed
-  mismatch). On failure the workflow `git checkout --`s `projections.json` /
-  `projections_points.json` / `projections_scalar.json` /
-  `projections_matrix.json`, so the rest of the chain prices off yesterday's
-  numbers — one day stale but internally consistent — and `validate_data` still
-  gates the commit. Third-party Python is pinned in `requirements-ci.txt`
-  (scikit-learn, numpy, scipy, joblib, threadpoolctl, narwhals, nflreadpy,
-  polars); an unpinned `pip install scikit-learn` took the nightly out for
-  three days in week 1.
-- **`trade_analysis` now runs AFTER the projection chain** (2026-09-21): it
-  reads `projections.json` for `future`, the projected draft slots and the
-  frozen-once `exp` snapshot, and that file is not final until
-  `project_points --site` rewrites it. At its old slot it priced tonight's
-  rosters against yesterday's projections and froze the skew.
+- **The nightly's matrix step is fail-soft with a RESTORE**, not just
+  `continue-on-error`. `project_matrix` rewrites a file every later step reads,
+  and exits non-zero on a broken seed mismatch. On failure the workflow
+  `git checkout --`s `projections_matrix.json`, so the rest of the chain prices
+  off yesterday's curves — one day stale but internally consistent — and
+  `validate_data` still gates the commit. The Pizza block has its own restore:
+  a build that fails, or fails `validate_data --league`, goes back to the
+  checkout, tree and registry entry both, and Big Dog carries on. Third-party
+  Python is pinned in `requirements-ci.txt` (scikit-learn, numpy, scipy, joblib,
+  threadpoolctl, narwhals, nflreadpy, polars); an unpinned `pip install
+  scikit-learn` took the nightly out for three days in week 1. Since the points
+  model left (2026-10-07) the nightly installs only
+  `pip install -c requirements-ci.txt nflreadpy`; the scikit-learn half of that
+  file is for hand runs of `project_points.py`.
+- **`value_bridge` and `trade_analysis` run AFTER the matrix**: both read
+  `curves.curve_paths` on `DEFAULT_CURVE` (since 2026-10-07; the matrix row, else
+  `projections.json`), `trade_analysis` for `future`, the projected draft slots
+  and the frozen-once `exp` snapshot. At its old slot `trade_analysis` priced
+  tonight's rosters against yesterday's projections and froze the skew.
 - **The player map is fetched at most once a day**, by a DATE-KEYED cache
   shared between `data-refresh` and the `crawl-trades` movers job (identical
   key `players-nfl-daily-<UTC date>`; both run on `main`, so one fetch serves
@@ -197,22 +208,27 @@ Notes that bite:
   seven days old, a mid-week addition outside the WAR pool for a week.
 - `deploy.yml`'s `paths-ignore` list and its strip step must be kept in
   lockstep (the yml says so). The strip list now also covers `espn_ids.json`,
-  `projections_knn.json`, `projections_scalar.json` and `proj_sleeper_history/`
-  — each verified to have no `fetch` in `src/`. **`trade_corpus*` /
-  `outcome_corpus*` do NOT ship and never did** (both gitignored, so a CI
-  checkout never has them); the old note claiming they ship, and its "16.4 MB"
-  figure, were wrong — `data/` is ~50 MB. Deliberately NOT stripped:
-  `projections_points.json` and `<season>/proj_history.json`, both NAMED in
-  `src/` (types.ts, caps.ts), so a reader may be intended.
-- `war-history.yml` defaults to **1999–2025** and now VALIDATES the range: an
-  `end` at or past the in-progress season is refused (a season is complete in
-  March of the following year) because `project_points.py` would fit a partial
-  `waa_war_<yr>.csv` as a full season; a `start` later than 2012 warns (the
+  `projections_knn.json`, `projections_knn_hybrid.json`,
+  `projections_scalar.json`, `projections_points.json`, `proj_preseason/` and
+  `proj_sleeper_history/` — each verified to have no `fetch` in `src/`.
+  **`trade_corpus*` / `outcome_corpus*` do NOT ship and never did** (both
+  gitignored, so a CI checkout never has them); the old note claiming they ship,
+  and its "16.4 MB" figure, were wrong — `data/` is ~55 MB. Deliberately NOT
+  stripped: `<season>/proj_history.json`, which `beta/screens/Seasons.tsx`
+  fetches for the kickoff projections. `paths-ignore` only ever sees human
+  pushes: a bot's `GITHUB_TOKEN` push never fires `on: push`, so bot data reaches
+  the site through the `workflow_call` chains from `data-refresh`,
+  `values-refresh` and `crawl-trades`.
+- `war-history.yml` runs every January 15, defaults to **1999** through the
+  newest finished season, and VALIDATES the range: an `end` past that season is
+  refused (`seasons.newest_finished_nfl_season`: a season counts from January 15
+  of the following year, after week 18) because `project_points.py` would fit a
+  partial `waa_war_<yr>.csv` as a full season; a `start` later than 2012 warns (the
   played rule changes at 2012, when snap counts begin). The collect step files
   pre-2012 WAR and pre-2014 features under `nfl_history/early/` — only
-  `project_points.py` reads those; every other reader globs the snap era.
-  `aging_curves.py` is in no workflow: a corpus rebuild does not refit the
-  curve (open item).
+  `project_points.py` reads those; every other reader globs the snap era. It then
+  refits `aging_curves.py` on all of `nfl_history/` and runs `test_aging_curves.py`,
+  so a bad fit fails the job before the push and the nightly keeps the old curves.
 - Pages source is **GitHub Actions** (not branch).
 
 ### The gate: `validate_data.py`
@@ -223,7 +239,13 @@ floor. `check_projection_coherence`: every projection file must name the same
 seed and the same year one, year one = seed+1, the seed must be
 `seasons.last_completed_season`, and year one must be the roster season or one
 past it (a window, not an equality — between the title game and September's
-rollover year one legitimately leads the roster season).
+rollover year one legitimately leads the roster season). One disagreement WARNS
+instead of failing: the analog arm exactly one season behind every other arm,
+with their seed the last completed season. That is `project_matrix`'s *stale*
+verdict and the normal state from the title game until `war-history` rebuilds on
+January 15; failing it would stop every commit for about two weeks. The warning
+still showing after the 15th means that rebuild failed (caveat 20). Any other
+disagreement fails.
 `check_points_model`: when `projections.json` is the points model's it must
 state how many rows IT priced and the count must be true, because a run that
 fit nothing still writes a full-shaped file. `check_matrix`: the published
@@ -237,12 +259,41 @@ season's `usage.json` (`usage_players` 100, observed 354) and `winshare.json`
 produces neither. `check_record_vs_matchups`: `teams.json` W+L+T must equal the
 scored regular-season weeks in `matchups.json` — the two land out of step
 mid-week, and WAR is summed off one while the record is read off the other.
-Older: `check_index_models` (curves must not collapse into one), `check_odds`
-(priced-week floor), and the floors themselves.
+`check_league_signals`: the crawl's `data/league_signals.json`, which the
+nightly's DVI and CVI read, holds floors of 20,000 leagues and 3,500 players
+(`signal_leagues`, `signal_players`; the cold cache of 2026-08-09 published
+3,000–5,000 leagues and 2,849 players, and normal runs hold 37,000–80,000 and
+4,700–6,200). Older: `check_index_models` (curves must not collapse into one),
+`check_odds` (priced-week floor), and the floors themselves.
+
+**`validate_data.py --league <key>`** checks one league's tree and exits non-zero
+on failure; the no-argument run stays the full check and `--values-only` is
+exclusive with it. The default league gets the full check. Any other league gets
+what its tree can answer (`check_other_league`): the per-season record and
+structure checks, `odds.json` only where one exists, the floors on `players_min`,
+`ownership` and `franchises`, and the registry entry agreeing with its `meta.json`.
+`data-refresh` runs it on Pizza straight after its build, because
+`git add data/leagues` commits that tree whatever the fail-soft block left in it.
+
+**`scripts/crawl_guard.py` is the crawls' gate, at staging.** `validate_data` runs
+only in the pipeline jobs, and a cold Actions cache writes a healthy-looking file
+from a sliver of the sample (`league_signals.json` 78,019 → 1,000 on 2026-08-09;
+every outcome shard down about 89% on 08-10). A `league_signals*.json` or
+`outcome_signals_<n>.json` under `FLOOR` (80%) of origin's count is not staged: a
+`::warning` is emitted, the committed file stays, the crawl's state still saves and
+the next run carries on. The commit steps in `crawl-signals*.yml` and
+`crawl-outcomes.yml` call it, and so does `sleeper_crawl.git_push`, since a
+`--commit-every` push is what first published that 1,000. A real fall of more than
+20% in one step holds too, and warns on every run until someone lowers `FLOOR` for
+one run.
 
 ### Hand-run scripts (no workflow)
 
-`aging_curves.py` (curve fit; production-weighted default), `vig_model.py`
+`project_points.py` (the points-first model, §12; needs
+`pip install -r requirements-ci.txt`. **`--site` rewrites `projections.json` with
+points numbers, so never run it against the published tree**), `add_recap.py`
+(`recaps/<week>.md` → `recaps.json`), `ingest_pff.py` (via `ingest_pff.bat` on
+Max's PC: PFF exports → `data/pff/roles_<season>.json`), `vig_model.py`
 (one-time nflverse moneyline-hold fit → `data/vig_model.json`, read by the beta
 League screen's moneyline; falls back to a flat −110 when absent),
 `backtest_curves.py` (walk-forward grading of the four NATURAL curves; writes
@@ -266,16 +317,19 @@ python scripts/nfl_features.py --start 1999 --end 2025 --out scratch/hist_new/fe
 cp scratch/hist_new/players_meta.csv nfl_history/
 python scripts/aging_curves.py
 python scripts/project_war.py
-python scripts/project_points.py --site
-python scripts/value_bridge.py
 python scripts/project_war_knn.py --space hybrid
 python scripts/project_matrix.py
+python scripts/value_bridge.py
 python scripts/trade_analysis.py
 python scripts/usage_stats.py --out data
 python scripts/shard_players.py --out data
 python scripts/index_models.py
 python scripts/validate_data.py
 ```
+
+This is the nightly's order. `project_points.py --site` is deliberately not in it:
+`projections.json` is the scalar model's file now, and `--site` would overwrite it
+with points numbers (re-run `project_war.py` if that happens).
 
 ## WAA / WAR methodology (settled decisions — don't change casually)
 
@@ -325,24 +379,23 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    the optimal pool) — expected, compare relatively.
 7. Reference points: ~2 WAR in a 14-week season is a superstar (CMC 2025 ≈ 2);
    a 12-2 team's lineup WAA can be slightly negative — verified correct.
-8. **DVI and CVI are computed under ALL EIGHT projection curves** (six from
-   2026-08-13; the points-first pair joined 2026-09-11). `scripts/curves.py`
+8. **DVI and CVI are computed under ALL SIX projection curves** (from 2026-08-13;
+   a points-first pair joined 2026-09-11 and left 2026-10-07). `scripts/curves.py`
    owns the vocabulary (mirrors `MATRIX_CURVES` in `src/lib/types.ts`, locked by
    `tests/test_curves.py`) and the year-1 lookup. `index_models.py` drives
-   `blend_values` and `contender_index` across all eight from ONE load and
+   `blend_values` and `contender_index` across all six from ONE load and
    writes `dvi.json` + `cvi.json` on the default plus `index_models.json` with
-   all eight. **Default is `blend_composite`** (points-first held it 09-11 →
+   all six. **Default is `blend_composite`** (points-first held it 09-11 →
    09-16). `--curve scalar_composite` reproduces the pre-matrix numbers exactly
-   (393/393, locked by a test) and its own numbers now live in
-   `projections_scalar.json` — `curves.py`'s fallback is per curve since
-   2026-09-21, because `projections.json` became the points model's file and one
-   shared fallback was answering scalar queries with points figures. Both
+   (393/393, locked by a test). Every curve falls back to `projections.json`, the
+   scalar model's file again since 2026-10-07: a natural curve to its `proj`, a
+   composite to its `composite`. Both
    indices clamp on **year-1** WAR — inherited, left alone deliberately.
    `has_analog` / `has_sleeper` are claims about the PROJECTION, never the
    figure (65 no-cohort players: identical WAR across curves, identical DVI in
    only 4).
 9. **The projection model is a SITE-WIDE control** (2026-08-13). Masthead
-   `ModelPicker` (two controls, not one eight-way), state in `lib/model.ts`;
+   `ModelPicker` (two controls, not one six-way), state in `lib/model.ts`;
    `?m=<curve>` in the URL wins over localStorage (`warboard.curve`); default
    is the absence of the param. Not accent-filled (it sits above every view).
    In the beta shell it lives on the More screen. `lib/useIndices.ts` reads
@@ -377,17 +430,20 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    No corpus→league rescale (0.9645 was indistinguishable from 1.0 on four
    seasons).
 
-   **Points-first is the PRICING arm** (`project_points.py`, Max 2026-09-11):
-   project ppg and games (gradient-boosted trees on league history + nflverse
-   skill features; rookies from draft capital), then let the WAR engine's pool
+   **Points-first is off the site** (`project_points.py`, Max 2026-10-07): it
+   projects ppg and games (gradient-boosted trees on league history + nflverse
+   skill features; rookies from draft capital), then lets the WAR engine's pool
    logic set that season's replacement level from the projections themselves —
    so a player's WAR moves when HIS points move, not when the twelfth-best at
-   his position has a good year. `--site` parks the scalar arm at
+   his position has a good year. It was the pricing arm from 2026-09-11, until
+   the 2026-09-18 backtest had points natural behind blend natural at every
+   horizon among startable players. It has left the nightly and the matrix:
+   `projections.json` is `project_war.py`'s scalar output again, and
+   `value_bridge`, `trade_analysis` and the site read the matrix. The script
+   stays for hand runs and `backtest_curves.py`. `--site` still parks the scalar arm at
    `projections_scalar.json`, rewrites `projections.json` in the same schema
    with `meta.engine: "points-first"`, and **exits non-zero when it rewrote
-   nothing** (which is what makes the workflow's restore meaningful). Its rows
-   feed the matrix's `points_*` curves, rookies included — but the default
-   curve is still `blend_composite` (caveat 12).
+   nothing**, so it must not be run against the published tree.
 13. **Analog model** (`project_war_knn.py`): gaussian kernel (`KERNEL_H 0.5`,
    was a quartic by accident), `MAX_DIST 1.0954`, cohort median, vanished
    analogs count as 0, `TOP_N 3` comparables with a 0–100 match score. Trust
@@ -401,7 +457,10 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    by `remaining = (reg_weeks − weeks_played) / reg_weeks` (2026-09-21), so the
    live season is not counted once as realized WAR and again as projection;
    published as `meta.year1_remaining`. Out of season the factor is exactly 1.0
-   and the ledger is bit-for-bit what it was. Later stream years and `DELTA`
+   and the ledger is bit-for-bit what it was; that includes the stretch from the
+   title game to the rollover, when the roster season reads every week played but
+   the projection's year one is already next season (`year1_factor`, 2026-11-02).
+   Later stream years and `DELTA`
    are untouched; a future pick's first year is never the live season.
 15. **Dynasty movers** (settled 2026-08-20): centerpiece attribution, a
    player's own value never deflated (consolidation is package-level only),
@@ -424,15 +483,13 @@ Computed by `scripts/sleeper_war.py` from `players_points` in matchup data
    2026-09-15 the scalar arm seeded off a ONE-GAME 2026 and published years
    `[2027, 2028, 2029]` while the analog arm stayed on 2025 → `[2026, 2027,
    2028]`; `blend_composite` averaged a 2027 number with a 2026 one under one
-   heading, and every file parsed and every floor cleared. **The committed
-   `data/` still carries it** (`projections.json` seed 2026,
-   `projections_knn_hybrid.json` seed 2025); the next run of the fixed chain
-   re-seeds to 2025. Three defences: `project_war.py`, `value_bridge.py` and
-   `project_points.py` all call `seasons.last_completed_season`;
+   heading, and every file parsed and every floor cleared. Three defences:
+   `project_war.py` and `value_bridge.py` call `seasons.last_completed_season`;
    `project_matrix.py` **exits non-zero** on a *broken* mismatch (a scalar seed
    past the last completed season, or a corpus ahead of the league) while the
    old *stale* case stays a loud warning; and
-   `validate_data.check_projection_coherence` gates the commit.
+   `validate_data.check_projection_coherence` gates the commit, warning on that
+   same stale case and failing on anything else.
 18. **IN-SEASON OUTLOOK** (Max, 2026-09-21 — `scripts/inseason.py` ↔
    `src/lib/outlook.ts`, **keep in lockstep**). Year 1 of every curve is a
    FULL-SEASON figure: the right model input, the wrong thing to show a reader
@@ -486,41 +543,50 @@ regular&position[]=...` (and the per-player `stats/nfl/player/<id>` endpoint):
 
 ## Tests
 
-`python -m unittest discover -s tests` (stdlib, no network) — **665 tests in
-25 files**; `npm test` runs `tests/tradeModel.test.ts` (**31 tests**,
-`node --test`, Node ≥ 22.18) and now carries a `lib/` section alongside the
-trade maths. CI (`tests.yml`) runs both and **pins 8 expected skips** — tests
-gated on `sleeper_data/` or `scratch/sample_corpus_0.json`. On Max's machine
-those files exist, so the local result is 665 / 0 skipped.
+`python -m unittest discover -s tests` (stdlib, no network) — **857 tests in
+31 files**; `npm test` runs `tests/tradeModel.test.ts`,
+`tests/tradeLineage.test.ts` and `tests/betaWeek.test.ts` (**53 tests**,
+`node --test`, Node ≥ 22.18). CI (`tests.yml`) runs both and **pins 5 expected
+skips** — four in `test_outcomes.py` gated on `sleeper_data/`, one in
+`test_slot_value.py` gated on `scratch/sample_corpus_0.json`. On Max's machine
+those files exist, so the local result is 857 / 0 skipped.
 
 | File | What it locks |
 |---|---|
-| `test_war_engine.py` | 108-slot pool, dedicated-before-flex, replacement = best-left-out, WAA sums to 0 per position, weekly sigma, VoWP ladder, every branch of the played rule |
+| `test_war_engine.py` | 108-slot pool, dedicated-before-flex, replacement = best-left-out, WAA sums to 0 per position, weekly sigma, VoWP ladder, every branch of the played rule; `player_pos` (a core `position`, else the first core `fantasy_positions` entry); `save` is atomic |
 | `test_week_odds.py` | pregame only; week 1 without a snapshot unpriced; `--snapshot` first-write-wins; absent from a snapshot = 0.0 in both paths; the season sim's generic bracket (any field size, clamped not crashing) |
-| `test_playoff_wpa.py` | Shapley efficiency, win-share totals, round weights, MVP vs MVP+ |
-| `test_playoff_war.py` | sigma imported from the regular season, elimination games only |
-| `test_value_stack.py` | DVI / CVI shares and weights, Bridge B isotonic monotonicity, Bridge A board and outcome rule |
-| `test_curves.py` | the eight-curve vocabulary; `scalar_composite` ≡ the old `composite[0]`; the per-curve fallback file |
-| `test_projection_matrix.py` | eight curves stay eight; composite and the remaining fraction each have ONE home; the seed-mismatch verdicts (stale vs fatal); a rookie the rookie arm priced IS a points row; the `inseason` block and per-row `banked` |
-| `test_validate_data.py` | the gate's newer AGREEMENT checks — projection coherence, and record vs matchups |
+| `test_playoff_wpa.py` | Shapley efficiency, win-share totals, round weights, MVP vs MVP+; the padded `week_NN` file names |
+| `test_playoff_war.py` | sigma imported from the regular season, elimination games only; the padded `week_NN` file names |
+| `test_value_stack.py` | DVI / CVI shares and weights, Bridge B isotonic monotonicity and seed season, Bridge A board and outcome rule, `index_models.json`'s `format` stamp |
+| `test_curves.py` | the six-curve vocabulary; `scalar_composite` ≡ the old `composite[0]`; the fallback file, and that the points-era relic is never read |
+| `test_projection_matrix.py` | composite and the remaining fraction each have ONE home; trust; no Sleeper floor; the seed-mismatch verdicts (stale vs fatal); the preseason freeze; the `inseason` block and per-row `banked` |
+| `test_validate_data.py` | the gate's AGREEMENT checks — projection coherence (the January analog warning included), the points count, matrix, in-season block, record vs matchups — plus freshness, the `league_signals` floors, `--league` and `--values-only` |
+| `test_project_war_meta.py` | the nflverse name match (`common` only fills a miss; a suffix still reaches a manual key), and which season `proj_sleeper.json` may price |
 | `test_project_war_knn.py` | a missing season is not a season of zero |
 | `test_project_points.py` | the strict feature glob (`features_weekly_*` must not overwrite the season table), the pool, the rookie arm, `--site`'s non-zero exit |
-| `test_seasons.py` | "complete" = a decided champion, from either file; `last_completed_season` |
+| `test_seasons.py` | "complete" = a decided champion, from either file; `last_completed_season`; the draft grading window and future pick classes |
 | `test_inseason.py` | `weeks_played` / `reg_weeks` / `remaining_frac`, the edges (week 0, week 14), and when a block is published at all |
 | `test_lockstep.py` | the cross-language pair PROJECT_NOTES §10 only asserted in prose: `tradeModel.ts`'s consolidation curve vs `dynasty_movers.py` — `u_min`, `v50`, `τ` and the formula itself |
-| `test_trade_analysis.py` | the live season counted once (the year-1 proration), and the tier frozen at the time of the trade |
+| `test_trade_analysis.py` | the live season counted once (the year-1 proration and `year1_factor`), ties in `final_standing`, and the tier frozen at the time of the trade |
 | `test_usage_stats.py` | the league's own windows, capped at the last scored week |
 | `test_fetch_projections.py` | the thin-week guard and the vintage archive |
-| `test_aging_curves.py` | production weighting; the `MIN_GP` gate that the played rule disabled |
+| `test_aging_curves.py` | production weighting; the `MIN_GP` gate that the played rule disabled; `war-history`'s refit order and the checks it runs on the new fit |
 | `test_shard_players.py` | shard contents; atomic in-place writes |
 | `test_franchise.py` | `POS_OVERRIDE`, `FRANCHISE_BAR`, the shape of the result |
-| `test_outcomes.py` | outcome crawl's champion / pick-holding / placement / chain logic (mostly gated) |
-| `test_slot_value.py` | median not mean; hit rate vs the position's bar |
-| `test_fetch_values.py` | history freshness guard (deltas must not flatten to 0), the date-based trim |
-| `test_fetch_ecr.py` | ECR scrape parsing, same-name twins |
+| `test_outcomes.py` | outcome crawl's champion / pick-holding / placement / chain logic (four tests gated); `crawl_guard`, in-memory and against a real git repo; the signals deadline, draft contributions and walk, and the trade-shard merge count |
+| `test_slot_value.py` | median not mean; hit rate vs the position's bar (one test gated) |
+| `test_fetch_values.py` | history freshness guard (deltas must not flatten to 0), the date-based trim, a matched count under the floor counts as failed, the non-numeric key scrub, prices expiring 30 days after the last quote |
+| `test_fetch_ecr.py` | ECR scrape parsing, same-name twins; a redirected, empty or short format is skipped and the previous one kept |
+| `test_ktc_cols.py` | the league KTC column vs `LADDER` in `src/lib/values.ts` |
+| `test_proj_snapshot.py` | the kickoff lock: overwritten before a player's kickoff, frozen after |
+| `test_team_elo.py` | the K schedule, one update per team per week, zero-sum weeks, ratings carried across seasons |
+| `test_defense_vs_position.py` | an expectation never includes the game being judged; per game played; the shrinkage; rank 1 = softest; the unattended-run guards |
+| `test_ingest_pff.py` | an export is identified by its header; filtered, truncated or older exports refused; only labels are published |
 | `test_sleeper_http.py` | 404/"null" → None is the only None; 429 raises |
 | `test_names.py` | shared name-suffix set across joins |
-| `tradeModel.test.ts` | monotonicity, 1-for-1 neutrality, pick timing per lens, floor, estimate flagging; plus `lib/seasons.ts` (settled seasons, `ridOf`, `seasonRow`, `currentPickClass`) and `lib/projRecord.ts` |
+| `tradeModel.test.ts` | monotonicity, 1-for-1 neutrality, pick timing per lens, floor, estimate flagging; plus `lib/seasons.ts` (settled seasons, `ridOf`, `seasonRow`, `currentPickClass`), `lib/projRecord.ts`, `lib/values.ts` (`marketNow`) and `lib/liveStale.ts` |
+| `tradeLineage.test.ts` | `lib/tradeLineage.ts`, the per-trade asset trace behind the trade page |
+| `betaWeek.test.ts` | `beta/week.ts`: the upset (a winner the line had under 50%), a week with no line, the slots a scored week fielded |
 
 **A failure here is a change in what a figure means**, not a broken test —
 decide whether the methodology moved on purpose before touching the test.
@@ -554,7 +620,8 @@ beta equivalent stays classic on purpose.
 Tabs: **League · Players · Teams · Season · Draft · Trade · Insights**;
 masthead carries the model picker, the "Rebuilt nightly · `meta.updated`" stamp
 (no clock time — the cron is 06:17 UTC and GitHub starts scheduled runs hours
-late) and the "← Beta board" link. Everything but Home is lazy-loaded.
+late) and the "← Beta board" link. Every view is lazy-loaded, Home included: the
+landing page is the beta shell's now, and it never mounts Home.
 
 | Route (under `/:league/classic`) | View |
 |---|---|
@@ -567,10 +634,10 @@ late) and the "← Beta board" link. Everything but Home is lazy-loaded.
 | `/draft[/:sub]`, `/draft/history/:season` | pick values (box plots, slot heat map, tiered returns) vs what we did |
 | `/trades` | trade machine (`TradeCalc`) |
 | `/ledger` | every trade scored on realized WAR, team multi-select, then-vs-now market drawer |
-| `/history` | year-by-year league story (hand-maintained `LEAGUE_NOTES` for 2022–23) |
+| `/history` | year-by-year league story (hand-maintained `LEAGUE_NOTES`, keyed by league; Big Dog's 2022–23 only) |
 | `/insights` | cross-league benchmarks beside this league's figures |
 | `/dvi`, `/cvi` | bare index boards, file order, never metered |
-| `/player/:pid` | split rail: honors, career ladder, projection table (3 streams + the eight-curve model table), closest comparables, career with owner splits, ownership, market values, usage |
+| `/player/:pid` | split rail: honors, career ladder, projection table on the site's curve (WAR proj, WAR pace, proj finish), closest comparables, career with owner splits, ownership, market values, usage |
 
 ### Beta shell — `#/<league>/...` (the default board)
 
@@ -599,13 +666,20 @@ the League tab). The bar hides on scroll-down and returns on scroll-up.
 | `drafts[/:sub]`, `drafts/history/:season`, `history`, `insights` | classic views mounted in-shell |
 | `rankings[/:scope]` | redirect → `players` |
 
-**`CLASSIC_ONLY`** (BetaShell ~:512) lists the classic first segments the shell
+**`CLASSIC_ONLY`** (BetaShell ~:554) lists the classic first segments the shell
 has no screen for — `home`, `stats`, `value`, `teams`, `standings`,
 `franchise`, `weekly`, `draft`, `trades`, `dvi`, `cvi`, `playoffs` — whose old
 bare addresses forward to `/classic` with path and query intact. `teams` is in
 the list AND has a beta screen: the exact `teams` route outranks the `teams/*`
 forward, so `/teams` is the beta leaderboard and `/teams/2025` the classic
 standings. Rule: no *functional* improvement may live only in beta.
+
+**An address can name another league.** Back after the league switch lands on a
+URL whose first segment is a different registered league while every league file
+in hand was fetched under the loaded one, so `BetaBoard` reloads the page, as the
+classic `Shell` does. It cannot loop: the reload resolves to the requested league
+and the segment then matches. The active tab and `ToClassic` strip the league
+segment by position, so a numeric-key address works the same as an alias.
 
 **Shared definitions worth knowing.** `beta/model.ts#starterSet` is the ONE
 starters-DVI definition — **each index prices its own best legal lineup**
@@ -629,44 +703,51 @@ loads. Design system in the `war-board-design-system` skill.
 
 1. All-time "Roster" column attributes players to their **current** owner only.
 2. `insights.json` is frozen hand-written prose — 2026-07-20, hand-edited
-   2026-09-08 (`fb5463c6`). No producer.
+   2026-09-08 (`fb5463c6`) and 2026-10-14 (`b4e7e99a`). No producer.
 3. `projections_knn.json` (pre-`--space`, 2026-08-07), `projections_check.json`
-   (2026-08-10) and `nfl_history/projections_points.json` are tracked relics
-   nothing reads, all stripped from the deployed artifact. The last is
+   (2026-08-10), `projections_scalar.json` and `projections_points.json` (both
+   last written 2026-10-07) and `nfl_history/projections_points.json` are tracked
+   relics nothing reads. The league files are stripped from the deployed artifact;
+   `nfl_history/` never ships. The last is
    `project_points.py`'s corpus copy, **opt-in via `--out` since 2026-09-21**:
    the nightly used to rewrite it and throw the result away, and only
    `war-history.yml` should write `nfl_history/`.
 4. `nfl_history.py`'s `SCORING` is a frozen copy from 2026-07-17; a Sleeper
    scoring change would not reach the corpus.
-5. `aging_curves.py` is not chained to `war-history.yml`; the analog corpus
-   and the curve can drift from each other after a rebuild.
-6. `projections_knn_hybrid.json` (~800 KB) is still fetched whole by the Value
-   view's Analog column (player pages use shards).
+5. **Resolved 2026-11-02.** `aging_curves.py` is a step of `war-history.yml`, and
+   `test_aging_curves.py` fails if the fit stops short of the newest corpus season.
+6. **Resolved 2026-11-02.** `projections_knn_hybrid.json` (~800 KB) is
+   pipeline-only and stripped from the deployed artifact: the Value view's Analog
+   column reads the matrix, player pages the shards.
 7. Rookies cannot be projected by the ANALOG model (it seeds from played
-   seasons). Points-first has a rookie arm, and since 2026-09-21 those rows
-   reach the matrix's `points_*` curves with `has_points` true — before that
-   all 56 rookies silently got the SCALAR pair under a points heading.
+   seasons), so their analog and blend curves ARE the scalar curve and
+   `has_analog` says so. Points-first's rookie arm left the site with that model.
 8. Home's sell-high still ranks by `dvi − cvi`; the market-premium variant
    with a KTC floor is unbuilt.
 9. Team-level CVI ≈ team-level DVI (open question in METHODOLOGY).
-10. **Past seasons carry no `snap_pct`.** `nfl_features.py` grew the
-    `snaps`/`team_snaps` columns after the corpus was last rebuilt, so only
-    `features_weekly_2026.csv` (the nightly's season) has them; `usage_stats.py`
-    warns and omits the figure for 2022–2025. Remedy: re-dispatch
-    `war-history.yml` (`1999..2025` on today's defaults, `2012` at the latest).
+10. **Resolved 2026-09-29.** Past seasons once carried no `snap_pct`; the
+    `war-history.yml` rebuild of that date (`4106c693`) gave the
+    `features_weekly_<yr>.csv` files their `snaps`/`team_snaps` columns, and
+    `usage.json` publishes the figure for 2022–2026. `usage_stats.py` still warns
+    and omits it if a file lacks them.
 11. **`project_points` pool drift — owner decision pending.** `war_from_points`
     filters the pool to players projected for `games >= 1`; `pool_war` (the
     rookie recompute path) does not, so veteran WAR is measured against a
-    rookie-less pool and rookie WAR against a pool with rookies in it.
-12. **Two "projected WAR" figures live — owner decision pending.** A reader on
-    the default board sees `blend_composite`; anything reading
-    `projections.json` gets points-first (see §12 above).
+    rookie-less pool and rookie WAR against a pool with rookies in it. Hand runs
+    only, since the model left the nightly (§12); no published figure is affected.
+12. **Resolved 2026-10-07 (Max).** Two "projected WAR" figures were live, the
+    board's `blend_composite` and points-first through `projections.json`.
+    Points-first left the nightly (§12) and every projected figure on the site
+    now reads the matrix on the reader's curve. `projections.json` is the scalar
+    model's, read for the roster frame (position, age) and as the fallback when
+    the matrix is missing.
 13. **Git bloat.** `data/draft_index.json` is 18 MB and `data/recent_trades/`
-    8.7 MB, both rewritten whole several times a day — the audit measured
-    ~262 MB of new blobs in three weeks; `.git` is ~700 MB against a 50 MB
-    working `data/`. Neither ships. Stop committing `draft_index.json`, or
+    11 MB, both rewritten whole several times a day — the audit measured
+    ~262 MB of new blobs in three weeks; `.git` is ~520 MB against a 55 MB
+    working `data/`. `draft_index.json` does not ship; `recent_trades/` does, for
+    the player page. Stop committing `draft_index.json`, or
     shard it the way `recent_trades` is.
-14. Root clutter: 80 `vite.config.ts.timestamp-*.mjs` files — a Vite 5 bug
+14. Root clutter: 85 `vite.config.ts.timestamp-*.mjs` files — a Vite 5 bug
     (it fails to unlink them on the OneDrive mount), gitignored, fixed by
     Vite ≥ 6. `.pytest_cache/` is not in `.gitignore` but ignores itself
     (pytest writes `.pytest_cache/.gitignore` = `*`), and `HANDOFF.md` /
@@ -686,32 +767,50 @@ loads. Design system in the `war-board-design-system` skill.
     2026-09-09 and 2026-09-10, taken before ledger proration landed. Frozen
     means frozen, so they read a little rich against every later in-season
     trade.
+18. **Upcoming lines include form, and two screens still read Sleeper's lines**
+    (Max, 2026-11-02). `week_odds` now prices an unplayed week's starters as form
+    shrunk toward that week's line, as METHODOLOGY said. The player rows on a matchup
+    page stay Sleeper's lines, so they don't add up to the team total, and the League
+    card's live line (`liveLine`) prices what is left of a game off those lines, so its
+    projection can step at kickoff. Closing that means publishing per-player means
+    in `odds.json`.
+19. **Market prices expire 30 days after their source last quoted them** (Max,
+    2026-11-02). `fetch_values.MAX_PRICE_AGE_DAYS`, read off `values_history.json`. A
+    source that stays down past the limit loses all its carried prices; the `values`
+    floor in `validate_data.py` is what stops that publishing an empty board. Pick
+    ladders are replaced whole by a source that answers, so they have no per-row age.
+20. **Settled with Max 2026-11-02: the January analog lag is about two weeks.**
+    `war-history.yml` runs on January 15, the first day its guard allows the season
+    just played. From the title game until then the scalar arm seeds off that season
+    and the analog corpus is a season behind: the matrix publishes through it, the
+    gate warns, and `blend_*` averages a year-one scalar with an analog figure a
+    season older. That warning after the 15th means the rebuild failed; dispatch it
+    again. The rebuild also moves every projection on one night, since the corpus and
+    the curves change together. The scalar arm reads `waa_war_<yr>.csv` only for a
+    player's career line and durability bonus, and league WAR takes precedence there,
+    so the missing file barely touches it during the gap. The first scheduled run is
+    2027-01-15; the schedule has not yet run on Actions.
 
 ## Roadmap (Max's stated priorities)
 
 1. **Trade machine v2** — measured start-share curves replacing the logistic
    consolidation; CVI variance haircut; real kernel streams for picks.
-2. **Chain model fits to the corpus** — `aging_curves.py` (and, if the
-   analog seed needs it, `project_war_knn.py`) as steps in `war-history.yml`.
-   `nfl_features.py` was chained in 2026-09-16; the curve fit was not.
-3. **Analog model for rookies** — a second cohort keyed on draft slot. (The
-   points-first arm now prices rookies from draft capital; the analog arm still
-   cannot.)
-4. **Decide caveats 11 and 12** — the `war_from_points` / `pool_war` pool
-   mismatch, and whether the site quotes points-first or the default curve.
-5. **Re-dispatch `war-history.yml`** for `snap_pct` and the `early/` split
-   (caveat 10), then re-fit the aging curves.
-6. **Multi-league Version B** (parked 2026-07-20): any league by id. Raw
+2. **Analog model for rookies** — a second cohort keyed on draft slot. (The
+   points-first arm priced rookies from draft capital until it left the site;
+   the analog arm still cannot.)
+3. **Decide caveat 11** — the `war_from_points` / `pool_war` pool mismatch, if
+   the points model is ever to return. (Caveat 12 was settled 2026-10-07.)
+4. **Multi-league Version B** (parked 2026-07-20): any league by id. Raw
    weekly stat lines are league-independent — pull once into a shared store,
    re-score per league from `scoring_settings`, derive the pool from
    `roster_positions` × team count. First step is a validation spike:
    re-score Big Dog from raw stats and diff against `players_points`.
    Version A (chosen leagues, `data/leagues/<key>/`, switcher) is shipped, and
    `lib/caps.ts` is the seam a registry feature-list would slot into.
-7. Beta shell deferred items: walk-up username flow, TS WAR engine, rankings
+5. Beta shell deferred items: walk-up username flow, TS WAR engine, rankings
    movement arrows (needs daily index snapshots), draft countdown (needs
    `start_time`, which exists only in the gitignored raw scrape).
-8. Minor: all-time Roster column (caveat 1); untrack the relic files
+6. Minor: all-time Roster column (caveat 1); untrack the relic files
    (caveat 3); curb the `draft_index.json` churn (caveat 13).
 
 ## Working conventions (from Max)

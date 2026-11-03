@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type {
-  Matchups, PlayersMin, SeasonData, SleeperProjFile, WeekOdds, Weekly as WeeklyT,
+  MatchEntry, Matchups, PlayersMin, SeasonData, SleeperProjFile, WeekOdds, Weekly as WeeklyT,
 } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { fmt, sgnWar, normCdf } from "../lib/stats";
@@ -111,6 +111,12 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
     return idx;
   }, [weekly, wk]);
 
+  /** what a pid scored in a PLAYED week. weekly.json stops at the regular
+   *  season, so a playoff game read 0.0 on every row; the entry's own per-player
+   *  points (e[6]) are carried for exactly those weeks, the way beta's Seasons
+   *  screen reads them. */
+  const playedPts = (e: MatchEntry, pid: string) => e[6]?.[pid] ?? wkIdx[pid]?.[0] ?? 0;
+
   /**
    * THIS WEEK'S PROJECTED LINE, and only this week's.
    *
@@ -146,8 +152,10 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
     if (played && e) {
       const slots = e[4].map((pid, i) => ({
         label: SLOT_LABEL[lineup[i]] ?? lineup[i] ?? "—",
-        pid: pid || null,
-        pts: wkIdx[pid]?.[0] ?? 0,
+        // Sleeper's "0" is an empty slot, not a player: it rendered as "#0"
+        // linking to /player/0 (the set-lineup branch below already checks)
+        pid: pid && pid !== "0" ? pid : null,
+        pts: playedPts(e, pid),
         war: wkIdx[pid]?.[1] ?? null,
       }));
       // Optimal score from the roster AS IT WAS that week. e[5] is the bench
@@ -155,16 +163,16 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
       // end-of-season roster. Absent for data built before it was carried, in
       // which case there is no bench to show and max collapses to the actual.
       const bench = e[5] ?? [];
-      const all = [...e[4], ...bench].filter(Boolean);
+      const all = [...e[4], ...bench].filter(pid => pid && pid !== "0");
       const { slots: bestSlots } = optimalLineup(
         all.map(pid => ({ id: pid, pos: pInfo(players, pid)[1],
-                          war: wkIdx[pid]?.[0] ?? 0 })), lineup);
+                          war: playedPts(e, pid) })), lineup);
       return {
         rid: r, name, slots, total: e[1],
         hasBench: bench.length > 0, fromSet: false,
         max: bestSlots.reduce((a, sl) => a + (sl.player?.war ?? 0), 0),
         benched: bench
-          .map(pid => ({ pid, pts: wkIdx[pid]?.[0] ?? 0 }))
+          .map(pid => ({ pid, pts: playedPts(e, pid) }))
           .sort((a, b) => (b.pts ?? 0) - (a.pts ?? 0)),
       };
     }
@@ -288,7 +296,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
         <span className="screen-title">
           {A.name} {played ? "vs" : "at"} {B?.name ?? "bye"}
         </span>
-        <button type="button" className="chip" onClick={back}>‹ Week {wk}</button>
+        <button type="button" className="chip" onClick={back}>‹ {wk >= mw.playoff_start ? "Playoffs" : `Week ${wk}`}</button>
         <span className="screen-note">
           {season} · {played ? "final" : "projected"}
         </span>
@@ -367,7 +375,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
                           {b.pts == null ? <span className="fig quiet">—</span>
                             : <b className={b.pts > 0 ? "" : "sub"}>{fmt(b.pts, 1)}</b>}
                         </td>
-                        <td className="n sub">{played ? sgnWar(wkIdx[b.pid]?.[1] ?? 0) : ""}</td>
+                        <td className="n sub">{!played || wk >= mw.playoff_start ? "" : sgnWar(wkIdx[b.pid]?.[1] ?? 0)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -390,7 +398,7 @@ export default function MatchupDetail({ season, wk, rid, data, weekly, mw, playe
               ? `Lineups are as the managers have SET them for this week — ${lineup.length} starters.`
               : `Lineups are the best legal ${lineup.length} by projected points — rosters aren't set yet.`}
             {" "}{lineWp != null
-              ? "Win probability is the pregame line from odds.json, the same figure the week grid shows."
+              ? "Win probability is the pregame line from odds.json, the same figure the week grid shows. It also weighs each starter's form so far, so the totals here, which add up Sleeper's lines, can differ from the grid's."
               : pA != null
                 ? `Win probability from the projected margin against a league weekly sigma of ${fmt(sigma, 1)}.`
                 : "Nothing prices this week, so there is no win probability and no projected total."}

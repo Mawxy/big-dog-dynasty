@@ -2,12 +2,13 @@ name: Build & deploy site
 on:
   push:
     branches: [main]
-    # Crawler commits that only touch files the site never fetches don't need
-    # a deploy — they were triggering ~30 full rebuild+publish cycles a day,
-    # and (with the old build-id cache busting) invalidating every visitor's
-    # cache each time. Anything the site DOES read (benchmarks.json,
-    # values.json, data/leagues/**) still deploys: a commit deploys unless
-    # EVERY changed path is listed here.
+    # This trigger only ever sees HUMAN pushes. The bots push with the default
+    # GITHUB_TOKEN, and GitHub's recursion guard means those never fire `on: push`
+    # at all, however many paths they touch; bot data reaches the site through the
+    # workflow_call chains from data-refresh, values-refresh and crawl-trades.
+    # So this list decides one thing: a hand push touching only files the site
+    # never fetches doesn't need a deploy. A push deploys unless EVERY changed
+    # path is listed here.
     paths-ignore:
       # trade_corpus* / outcome_corpus* are .gitignore'd and therefore can never
       # appear in a push diff at all. The entries are kept as documentation of
@@ -28,10 +29,12 @@ on:
       # Added 2026-09-21 alongside the strip step below — LOCKSTEP, see there.
       # espn_ids.json is players-refresh.yml's weekly commit; the site never
       # fetches it (build_site_data.py folds the id into players_min.json, which
-      # is what src/lib/league.ts reads). The two per-league files are pipeline
-      # relics with no fetch anywhere in src/.
+      # is what src/lib/league.ts reads). The per-league files are pipeline-only,
+      # with no fetch anywhere in src/.
       - "data/espn_ids.json"
+      - "data/leagues/*/projections_check.json"
       - "data/leagues/*/projections_knn.json"
+      - "data/leagues/*/projections_knn_hybrid.json"
       - "data/leagues/*/projections_scalar.json"
       - "data/leagues/*/projections_points.json"
       - "data/leagues/*/proj_sleeper_history/*.json"
@@ -44,7 +47,7 @@ permissions:
   id-token: write
 jobs:
   build-deploy:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     # Concurrency MUST live on the job, not the workflow: when this workflow is
     # invoked via workflow_call (data/values refresh), a workflow-level group is
     # ignored and the deploy inherits the caller's `data-push` group — so a
@@ -98,7 +101,7 @@ jobs:
       # site actually reads: leagues.json, benchmarks.json, values.json,
       # vig_model.json, dynasty_movers.json, ecr.json, recent_trades/, and
       # per-league projections.json / projections_matrix.json /
-      # projections_knn_hybrid.json / pick_values.json / picks_owned.json /
+      # pick_values.json / picks_owned.json /
       # proj_sleeper.json / dvi.json / cvi.json / index_models.json /
       # insights.json / drafts.json / trades.json / trade_snapshots.json /
       # franchises.json / value_bridge.json, the <season>/ files, and the
@@ -124,12 +127,12 @@ jobs:
           #   slot, which is what src/lib/league.ts reads; the join file itself
           #   is a pipeline input. (~128 KB)
           rm -f espn_ids.json
-          # projections_knn.json — the pre-`--space` relic. The site fetches
-          #   projections_knn_hybrid.json (src/views/Value.tsx) and ONLY that;
-          #   this exact name has no reader. The glob below deliberately is not
-          #   one: `projections_knn*.json` would take the hybrid file with it.
-          #   (~168 KB/league)
-          rm -f leagues/*/projections_knn.json
+          # projections_knn.json — the pre-`--space` relic. (~168 KB/league)
+          # projections_knn_hybrid.json — added 2026-11-02. project_matrix.py and
+          #   shard_players.py read it in the pipeline; the site gets its analog
+          #   column from the matrix and the comparables from the player shards,
+          #   and src/ only mentions the filename in comments. (~788 KB/league)
+          rm -f leagues/*/projections_knn.json leagues/*/projections_knn_hybrid.json
           # projections_scalar.json / projections_points.json — relics of the
           #   points-first era (2026-09-11..2026-10-07), no longer written
           #   nightly and read by nothing. Zero src/ hits. (~490 KB/league)
@@ -141,9 +144,8 @@ jobs:
           #   weeks' Sleeper projections. Read by the pipeline when pricing a
           #   week that is now in the past; never fetched. (~48 KB/league)
           rm -rf leagues/*/proj_sleeper_history
-          # NOT STRIPPED, on purpose, though it has no fetch call site:
-          #   leagues/*/<season>/proj_history.json (~8 KB). caps.ts lists it
-          #   under the `odds` capability, so a reader may be intended.
+          # NOT STRIPPED, on purpose: leagues/*/<season>/proj_history.json (~8 KB).
+          #   src/beta/screens/Seasons.tsx fetches it for the kickoff projections.
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:

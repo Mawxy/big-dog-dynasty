@@ -10,11 +10,14 @@ which is why it is pinned here rather than left to a console line nobody reads.
 
   python -m unittest discover -s tests
 """
+import contextlib
+import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
@@ -134,6 +137,12 @@ class TestTwinResolution(unittest.TestCase):
     """Two RANKED FantasyPros players can normalize onto one sleeper id. Only
     one of them is ours, and team is the only field that separates them."""
 
+    def setUp(self):
+        # these pages hold two or three rows on purpose; the floor has its own tests
+        patcher = mock.patch.object(fetch_ecr, "MIN_ROWS_OVERALL", 0)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def run_main(self, rows, scoring="PPR"):
         """Drive main() end to end with the network stubbed out."""
         data = {"scoring": scoring, "year": 2026, "week": 0, "type": "Draft PPR",
@@ -210,6 +219,123 @@ class TestTwinResolution(unittest.TestCase):
         self.assertEqual((rec["ecr"], rec["best"], rec["worst"], rec["tier"]),
                          (3, 1, 9, 2))
         self.assertEqual(rec["posRank"], "QB3")
+
+
+class TestRowProblems(unittest.TestCase):
+
+    def test_an_empty_page_is_a_problem(self):
+        self.assertTrue(fetch_ecr.row_problems("ppr-superflex", 0))
+        self.assertTrue(fetch_ecr.row_problems("ros-qb", 0))
+
+    def test_every_count_ever_committed_clears_its_floor(self):
+        """The lowest each format has really published. A floor above one of
+        these would have frozen a healthy format."""
+        for key, lowest in (("ppr-superflex", 500), ("ros-qb", 41), ("ros-rb", 109),
+                            ("ros-wr", 139), ("ros-te", 68)):
+            self.assertEqual(fetch_ecr.row_problems(key, lowest), [], key)
+
+    def test_the_real_ros_qb_drop_is_not_a_problem(self):
+        """ros-qb went 64 -> 41 on 2026-10-19, and that was FantasyPros."""
+        self.assertEqual(fetch_ecr.row_problems("ros-qb", 41, 64), [])
+
+    def test_losing_most_of_the_previous_count_is_a_problem(self):
+        self.assertTrue(fetch_ecr.row_problems("ppr-superflex", 320, 700))
+
+    def test_no_previous_count_means_only_the_floor_applies(self):
+        self.assertEqual(fetch_ecr.row_problems("ppr-superflex", 320), [])
+        self.assertEqual(fetch_ecr.row_problems("ppr-superflex", 320, 0), [])
+
+
+class TestSkipKeepsThePreviousFormat(unittest.TestCase):
+    """verify()'s docstring said "before trusting it" and it only printed. A bad
+    page published under the good format's name, and an empty one stripped every
+    carrier and dropped CVI to the frozen preseason list."""
+
+    PREV = {"fetched": "2026-10-01 11:00 UTC", "source": "FantasyPros ECR",
+            "formats": {SLUG: {"scoring": "PPR", "ranked": 2, "matched": 2}},
+            "players": {"100": {SLUG: {"ecr": 5}}, "200": {SLUG: {"ecr": 6}}}}
+
+    def run_main(self, pages, formats=(SLUG,), prev=None):
+        """pages: format key -> (payload dict or raw html, final url or None)."""
+        def fake_get(url):
+            key = next(k for k in formats if url == fetch_ecr.BASE + fetch_ecr.FORMATS[k][0])
+            body, final = pages[key]
+            return (body if isinstance(body, str) else page(body)), (final or url)
+
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        d = Path(tmp.name)
+        (d / "players_min.json").write_text(json.dumps(PLAYERS), encoding="utf-8")
+        ofile = d / "ecr.json"
+        ofile.write_text(json.dumps(self.PREV if prev is None else prev), encoding="utf-8")
+        log = io.StringIO()
+        argv = ["fetch_ecr.py", "--formats", *formats, "--players", str(d / "players_min.json"),
+                "--out", str(ofile)]
+        with mock.patch.object(fetch_ecr, "get", fake_get), \
+                mock.patch.object(fetch_ecr, "CRAWL_DELAY", 0), \
+                mock.patch.object(fetch_ecr, "MIN_ROWS_OVERALL", 2), \
+                mock.patch.object(fetch_ecr, "MIN_ROWS", {"ros-qb": 1}), \
+                mock.patch.object(sys, "argv", argv), \
+                contextlib.redirect_stdout(log):
+            fetch_ecr.main()
+        return json.loads(ofile.read_text(encoding="utf-8")), log.getvalue()
+
+    GOOD = {"scoring": "PPR", "players": [row("Mike Williams", "WR", "LAC", 1),
+                                          row("Josh Allen", "QB", "BUF", 2)]}
+
+    def assert_kept(self, out, log):
+        self.assertEqual(out["players"]["100"][SLUG]["ecr"], 5)
+        self.assertEqual(out["players"]["200"][SLUG]["ecr"], 6)
+        self.assertEqual(out["formats"][SLUG], self.PREV["formats"][SLUG])
+        self.assertEqual(out["fetched"], self.PREV["fetched"])
+        self.assertIn("::warning", log)
+
+    def test_a_healthy_page_replaces_the_format(self):
+        out, log = self.run_main({SLUG: (self.GOOD, None)})
+        self.assertEqual(out["players"]["100"][SLUG]["ecr"], 1)
+        self.assertNotEqual(out["fetched"], self.PREV["fetched"])
+        self.assertNotIn("::warning", log)
+
+    def test_a_redirect_is_skipped(self):
+        """THE BUG: the standard sheet published under ppr-superflex."""
+        out, log = self.run_main({SLUG: (self.GOOD, fetch_ecr.BASE + "consensus-cheatsheets.php")})
+        self.assert_kept(out, log)
+
+    def test_the_wrong_scoring_is_skipped(self):
+        out, log = self.run_main({SLUG: ({**self.GOOD, "scoring": "STD"}, None)})
+        self.assert_kept(out, log)
+
+    def test_an_empty_payload_is_skipped(self):
+        """THE OTHER BUG: empty counted as fresh and stripped every carrier."""
+        out, log = self.run_main({SLUG: ({"scoring": "PPR", "players": []}, None)})
+        self.assert_kept(out, log)
+
+    def test_far_below_the_previous_count_is_skipped(self):
+        prev = json.loads(json.dumps(self.PREV))
+        prev["formats"][SLUG]["ranked"] = 10
+        out, log = self.run_main({SLUG: (self.GOOD, None)}, prev=prev)
+        self.assertEqual(out["players"]["100"][SLUG]["ecr"], 5)
+        self.assertEqual(out["formats"][SLUG]["ranked"], 10)
+        self.assertIn("::warning", log)
+
+    def test_a_missing_payload_warns(self):
+        out, log = self.run_main({SLUG: ("<html>restyled</html>", None)})
+        self.assert_kept(out, log)
+
+    def test_one_bad_format_does_not_stop_another(self):
+        qb = {"scoring": "STD", "players": [row("Josh Allen", "QB", "BUF", 1)]}
+        out, log = self.run_main({SLUG: ({"scoring": "PPR", "players": []}, None),
+                                  "ros-qb": (qb, None)}, formats=(SLUG, "ros-qb"))
+        self.assertEqual(out["players"]["100"][SLUG]["ecr"], 5)     # kept
+        self.assertEqual(out["players"]["200"]["ros-qb"]["ecr"], 1)  # written
+        self.assertIn("::warning", log)
+
+    def test_the_kept_format_still_reconciles(self):
+        """validate_data.check_ecr: `matched` equals the carriers of the slug."""
+        prev = json.loads(json.dumps(self.PREV))
+        out, _ = self.run_main({SLUG: ({"scoring": "PPR", "players": []}, None)}, prev=prev)
+        carriers = sum(1 for rec in out["players"].values() if SLUG in rec)
+        self.assertEqual(carriers, out["formats"][SLUG]["matched"])
 
 
 if __name__ == "__main__":

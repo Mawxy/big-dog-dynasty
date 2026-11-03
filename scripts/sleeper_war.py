@@ -109,12 +109,24 @@ def norm_win_shift(points, sigma):
 def load_json(p: Path):
     return json.loads(p.read_text(encoding="utf-8"))
 
+def core_position(p):
+    """The position one player-map record scores at, or None.
+
+    A core `position` wins. Otherwise the first core entry of
+    `fantasy_positions`: Sleeper lists Travis Hunter as DB with ['DB', 'WR'] and
+    a fullback as FB with ['RB'], and both are startable. Reading `position`
+    alone dropped them from weekly.json, team WAR and draft grades. A kicker, a
+    defense or a pure defender has no core entry and stays None. The nflverse
+    corpus's map carries a core `position` and nothing else, so it reads the
+    same either way."""
+    pos = p.get("position")
+    if pos in CORE:
+        return pos
+    return next((f for f in p.get("fantasy_positions") or [] if f in CORE), None)
+
 def player_pos(players, pid):
     p = players.get(pid)
-    if not p:
-        return None
-    pos = p.get("position") or (p.get("fantasy_positions") or [None])[0]
-    return pos if pos in CORE else None
+    return core_position(p) if p else None
 
 def player_name(players, pid):
     p = players.get(pid)

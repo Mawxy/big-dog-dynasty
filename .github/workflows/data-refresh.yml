@@ -24,9 +24,9 @@ permissions:
   contents: write
   pages: write
   id-token: write
-# The four PIPELINE jobs that commit to main — data-refresh, values-refresh,
-# war-history and players-refresh — share this group, so they can never race
-# each other to push (a manual dispatch during a scheduled run used to fail on
+# The five PIPELINE jobs that commit to main — data-refresh, values-refresh,
+# war-history, players-refresh and proj-snapshots — share this group, so they can
+# never race each other to push (a manual dispatch during a scheduled run used to fail on
 # a rejected push). The group is also what ORDERS them: the clock only staggers
 # their starts, and a congested queue can reorder that, but two of them can
 # never be in flight at once.
@@ -39,14 +39,14 @@ concurrency:
   cancel-in-progress: false
 jobs:
   refresh:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
           # Caches pip's DOWNLOAD cache, keyed on requirements-ci.txt, so the
-          # scikit-learn/scipy/polars wheels are not re-fetched every night.
+          # nflreadpy/polars wheels are not re-fetched every night.
           # It does NOT install anything — the install step is further down,
           # deliberately AFTER the invariants below.
           cache: pip
@@ -147,6 +147,7 @@ jobs:
         id: pizza
         continue-on-error: true
         run: |
+          cp data/leagues.json "${RUNNER_TEMP:-/tmp}/leagues.pre-pizza.json"
           python scripts/sleeper_pull.py 1382780734728597504 --out sleeper_data_pizza
           cp sleeper_data/players.json sleeper_data_pizza/players.json
           python scripts/sleeper_war.py --data sleeper_data_pizza
@@ -157,6 +158,42 @@ jobs:
           echo "::warning title=Pineapple Pizza refresh failed::the second \
           league's pull/WAR/build failed; its site data is a day stale. Big Dog \
           continues unaffected."
+      # THE GATE FOR THE SECOND LEAGUE. The final validate step below only reads
+      # Big Dog, while `git add data/leagues` commits this league's tree whatever
+      # the block above left in it, so without this a half-built Pineapple Pizza
+      # ships. Here, right after its build and not at the end, because every later
+      # step has to be able to read the tree it leaves behind: several of them
+      # are fail-hard, and a broken second league must not cost Big Dog the night.
+      #
+      # A bad tree goes back to the checkout whole. `git checkout` covers tracked
+      # files and `git clean` the new ones, both scoped to this league's own
+      # directory, so nothing here can touch a crawl's files or Big Dog's. The
+      # commit step's re-parent still holds: the index isn't touched, and with
+      # this tree back at the checkout, `git add data/leagues` stages nothing for
+      # it. (data-push means nothing else can have pushed this tree mid-run.)
+      #
+      # data/leagues.json goes back too, from the copy taken before the block. It
+      # is the one file outside the tree that the block writes, and it can't be
+      # restored from git: it also holds the Big Dog entry built earlier tonight.
+      # Left alone it could list a season the restored tree doesn't have.
+      - name: Pineapple Pizza — validate, or restore its tree
+        continue-on-error: true
+        env:
+          PIZZA_OUTCOME: ${{ steps.pizza.outcome }}
+        run: |
+          KEY=1001613650664165376
+          if [ "$PIZZA_OUTCOME" = success ] && python scripts/validate_data.py --league "$KEY"; then
+            exit 0
+          fi
+          git checkout -- "data/leagues/$KEY" || true
+          git clean -fdq -- "data/leagues/$KEY" || true
+          cp "${RUNNER_TEMP:-/tmp}/leagues.pre-pizza.json" data/leagues.json || true
+          if [ "$PIZZA_OUTCOME" = success ]; then
+            echo "::warning title=Pineapple Pizza failed validation::validate_data.py \
+          --league $KEY refused tonight's build (see its output above), so that league's \
+          tree and registry entry were restored from the checkout. Its site data is a \
+          day stale. Big Dog continues unaffected."
+          fi
       - name: Rebuild pick values (Bridge A; needs data/<season>/summary.json)
         run: python scripts/pick_value.py
       - name: Draft results per franchise (needs data/pick_values.json)
@@ -215,9 +252,9 @@ jobs:
       # THE KICKOFF-LOCKED SNAPSHOT (Max, 2026-09-28) replaces week_odds'
       # --snapshot, which kept the FIRST read of a week — the Tuesday it became
       # current. proj_snapshot.py overwrites each player until his own kickoff
-      # and freezes him after; proj-snapshots.yml runs it every two hours and
-      # this is the nightly's read. Fail-soft: a missed read costs at most two
-      # hours of freshness, never a wrong line.
+      # and freezes him after; proj-snapshots.yml runs it every two hours (when
+      # GitHub honours the schedule; see its header) and this is the nightly's
+      # read. Fail-soft: a missed read costs freshness, never a wrong line.
       - name: Projection snapshot (kickoff-locked)
         continue-on-error: true
         run: python scripts/proj_snapshot.py
@@ -234,18 +271,21 @@ jobs:
       # scalar output, and every consumer reads the matrix on DEFAULT_CURVE.
       # project_points.py remains for hand runs and backtest_curves.py.
       #
-      # PINNED, not `pip install scikit-learn` — see requirements-ci.txt for the
-      # three-day outage that bought these pins. nflreadpy/polars for the usage
-      # block below come from the same file.
+      # PINNED — see requirements-ci.txt for the three-day outage that bought the
+      # pins. `-c`, not `-r`: since the points model left, the only third-party
+      # imports in this chain are nflreadpy and polars (nfl_features.py, the usage
+      # block below), so the ~100 MB of scikit-learn/scipy that only
+      # project_points.py imports would be pure cost. Same line as war-history
+      # and players-refresh.
       - name: Install pinned Python libraries
         id: deps
         continue-on-error: true
-        run: pip install -r requirements-ci.txt
+        run: pip install -c requirements-ci.txt nflreadpy
       - name: Flag a failed dependency install
         if: steps.deps.outcome == 'failure'
         run: |
-          echo "::warning title=Dependency install failed::pip install -r \
-          requirements-ci.txt failed — the nflverse usage \
+          echo "::warning title=Dependency install failed::pip install -c \
+          requirements-ci.txt nflreadpy failed — the nflverse usage \
           refresh below will fail and fall back to yesterday's outputs. The \
           pull/WAR/build and the commit continue."
       # after project_war and the analog model: the matrix reads both, so it

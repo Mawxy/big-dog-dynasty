@@ -8,6 +8,7 @@ import { useJson } from "../lib/useJson";
 import { fmt, fmtWar, ord, rate } from "../lib/stats";
 import { pInfo } from "../lib/league";
 import { useLeague, useShellPath } from "../lib/context";
+import { useLeagueCaps } from "../lib/caps";
 import { settledSeasons } from "../lib/seasons";
 import { readTrades } from "../lib/trades";
 import { PlayerLink } from "../components/PlayerLink";
@@ -30,15 +31,19 @@ import DataTable, { type Col, type Grp } from "../components/DataTable";
  * figure: it separates a champion who drafted his roster from one who bought it.
  */
 
-/** Off-record league history, keyed by season. Sleeper reports only the current
- *  holder of a franchise, so ownership changes have to be written down. */
-const LEAGUE_NOTES: Record<string, string[]> = {
-  "2022": [
-    "Mooner was removed from the league in year one; Greenbean218 took over the franchise and has held it since.",
-  ],
-  "2023": [
-    "PicklesPapa was removed in year two; Dchaillier10 inherited the roster and still runs it.",
-  ],
+/** Off-record league history, by league key and then season. Sleeper reports
+ *  only the current holder of a franchise, so ownership changes have to be
+ *  written down. A legacy registry's key is empty, and that data is Big Dog's. */
+const BIG_DOG = "814608002207334400";
+const LEAGUE_NOTES: Record<string, Record<string, string[]>> = {
+  [BIG_DOG]: {
+    "2022": [
+      "Mooner was removed from the league in year one; Greenbean218 took over the franchise and has held it since.",
+    ],
+    "2023": [
+      "PicklesPapa was removed in year two; Dchaillier10 inherited the roster and still runs it.",
+    ],
+  },
 };
 // Craftzz -> taird is the same person under a new display name, not a change of
 // hands. The manager column therefore reads "Craftzz" through 2024 and "taird"
@@ -95,18 +100,23 @@ export default function History() {
   // rebase to the beta Team screen where the key is a roster id, the bracket
   // to /seasons/<year>/playoffs, and the Dashboard button to /league.
   const lp = useShellPath();
+  const caps = useLeagueCaps();
+  const notes = LEAGUE_NOTES[league.key || BIG_DOG];
   const [play, setPlay] = useState<Record<string, { m: Matchups; w: Weekly }> | null>(null);
 
   const frFile = useJson<Franchises>("franchises.json");
   const fr = frFile.data;
   const err = frFile.error;
   // both are tolerated absences — the story just loses that column
-  const drafts = useJson<Drafts>("drafts.json").data;
-  const tradesFile = useJson<TradesPayload>("trades.json");
+  const drafts = useJson<Drafts>(caps.drafts ? "drafts.json" : null).data;
+  const tradesFile = useJson<TradesPayload>(caps.trades ? "trades.json" : null);
   const trades = useMemo<Trade[] | null>(
     () => (tradesFile.data ? readTrades(tradesFile.data).trades
-      : tradesFile.error ? [] : null),
-    [tradesFile.data, tradesFile.error]);
+      : tradesFile.error || !caps.trades ? [] : null),
+    [tradesFile.data, tradesFile.error, caps.trades]);
+  /** trade counts are claims about a file: with none, "Trades 0" is unknown, not
+   *  a league that never traded, so every count below is hidden with it */
+  const tradesKnown = caps.trades && !tradesFile.error;
 
   /**
    * SEASONS THAT ARE OVER — `finish === 1`, not "a finish exists".
@@ -243,7 +253,9 @@ export default function History() {
           tot += v;
           if (draftedBy.get(pid) === champ.rid) own += v;
         }
-        if (tot > 0) { homegrown = own / tot; champStarterWar = tot; }
+        // no drafts.json is "unknown", not 0% homegrown: `own` only counted
+        // what draftedBy could name, and it names nobody without the file
+        if (tot > 0) { homegrown = drafts ? own / tot : null; champStarterWar = tot; }
         for (const [pid, v] of [...acc].sort((a, b) => b[1] - a[1])) {
           const by = draftedBy.get(pid);
           if (by != null && by !== champ.rid && v > 0)
@@ -263,7 +275,7 @@ export default function History() {
         homegrown, champStarterWar, champBought: bought,
       };
     });
-  }, [fr, played, trades, credited, draftedBy]);
+  }, [fr, played, trades, credited, draftedBy, drafts]);
 
   /** league-wide headline figures */
   const totals = useMemo(() => {
@@ -395,20 +407,22 @@ export default function History() {
           <div className="stat-k">Champions</div>
           <div className="stat-v acc">{totals.champions}</div>
         </div>
-        <div>
-          <div className="stat-k">Trades</div>
-          <div className="stat-v">{totals.trades}</div>
-        </div>
-        <div>
-          <div className="stat-k">Involving picks</div>
-          <div className="stat-v">
-            {totals.trades ? Math.round(totals.withPicks / totals.trades * 100) : 0}%
+        {tradesKnown && <>
+          <div>
+            <div className="stat-k">Trades</div>
+            <div className="stat-v">{totals.trades}</div>
           </div>
-        </div>
-        <div>
-          <div className="stat-k">Pick assets moved</div>
-          <div className="stat-v">{totals.picks}</div>
-        </div>
+          <div>
+            <div className="stat-k">Involving picks</div>
+            <div className="stat-v">
+              {totals.trades ? Math.round(totals.withPicks / totals.trades * 100) : 0}%
+            </div>
+          </div>
+          <div>
+            <div className="stat-k">Pick assets moved</div>
+            <div className="stat-v">{totals.picks}</div>
+          </div>
+        </>}
       </div>
       {inProgress.length > 0 && (
         /* the bracket is under way: the season has placings but no winner, so
@@ -423,8 +437,10 @@ export default function History() {
         {totals.repeat.length
           ? `${totals.repeat.map(([m, n]) => `${m} has ${n}`).join(", ")} of the ${totals.seasons} titles; every other champion has one.`
           : "No franchise has won twice."}
-        {" "}This league does not trade players so much as it trades picks — {totals.withPicks} of
-        {" "}{totals.trades} deals moved draft capital.
+        {tradesKnown && <>
+          {" "}This league does not trade players so much as it trades picks — {totals.withPicks} of
+          {" "}{totals.trades} deals moved draft capital.
+        </>}
       </div>
 
       {stories.map((s, i) => {
@@ -435,7 +451,8 @@ export default function History() {
             <div className="band" style={{ marginTop: i ? 26 : 8 }}>
               <span className="band-label">{s.season} · {ord(i + 1)} season</span>
               <span className="band-note">
-                {s.champ.name} took the title · {s.trades} trades, {s.picksMoved} pick assets moved
+                {s.champ.name} took the title
+                {tradesKnown && ` · ${s.trades} trades, ${s.picksMoved} pick assets moved`}
               </span>
               <button type="button" className="dlink"
                 onClick={() => nav(lp(`/weekly/${s.season}/playoffs`))}>
@@ -518,7 +535,7 @@ export default function History() {
                       ))}.
                     </p>
                   )}
-                  {(LEAGUE_NOTES[s.season] ?? []).map(n => (
+                  {(notes?.[s.season] ?? []).map(n => (
                     <p key={n} style={{ margin: "0 0 9px", color: "var(--dim2)" }}>{n}</p>
                   ))}
                 </div>
@@ -543,8 +560,8 @@ export default function History() {
           playoffs, everyone else by the season they played. */}
       <div className="footnote">
         Finish is the playoff result for teams that made it, regular-season standings for those
-        that didn't · move is places gained on the previous season ·
-        homegrown share credits each week's WAR to the roster that started the player
+        that didn't · move is places gained on the previous season
+        {caps.drafts && " · homegrown share credits each week's WAR to the roster that started the player"}
       </div>
     </>
   );

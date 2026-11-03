@@ -71,6 +71,8 @@ import {
   settledSeasons,
 } from "../src/lib/seasons.ts";
 import { playedWeeks, projectedRecord } from "../src/lib/projRecord.ts";
+import { fcPickLadder, marketNow, marketNowFc } from "../src/lib/values.ts";
+import { isStale, STALE_MS } from "../src/lib/liveStale.ts";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -734,4 +736,85 @@ test("playedWeeks counts a week only once it has an opponent score", () => {
   ];
   assert.deepEqual(playedWeeks(rows as never, 15), [1]);
   assert.deepEqual(playedWeeks(undefined, 15), []);
+});
+
+/* ------------------------------------------------------------------------
+   marketNow — the right-hand end of "then → now" on both ledgers. A port of
+   trade_analysis.py's mkt_side, so these pin the writer's rules, not prices.
+   ------------------------------------------------------------------------ */
+
+const VALS = {
+  picks: {
+    ktc: [["2027 Late 3rd", 2417], ["2028 Late 1st", 4409], ["2027 Mid 3rd", 2610], ["2028 Mid 1st", 4864]],
+    fc: [["2027 1st (Early)", 4904], ["2027 1st", 2896], ["2027 1st (Mid)", 3229], ["2028 1st", 2255]],
+  },
+  players: {
+    "1": { ktc: 5000, ktcTep: 5500, fc: 4000 },
+    "2": { ktc: 0, fc: 100 },
+  },
+};
+const KTC = new Map(VALS.picks.ktc as [string, number][]);
+const FC = fcPickLadder(VALS as never);
+const pk = (ps: number, rnd: number, tier?: string) => ({ kind: "pick", pid: null, ps, rnd, tier });
+const pl = (pid: string) => ({ kind: "player", pid });
+const side = (got: object[], mktBasis?: string) => ({ got, mktBasis }) as never;
+
+test("an unmade pick prices at its own tier, the one mktThen froze on", () => {
+  // 2026 W5: 2,417 + 4,409, where a Mid copy read 2,610 + 4,864 = 7,474
+  assert.equal(marketNow(side([pk(2027, 3, "Late"), pk(2028, 1, "Late")]), VALS as never, KTC), 6826);
+});
+
+test("a pick written before tiers existed reads Mid", () => {
+  assert.equal(marketNow(side([pk(2027, 3)]), VALS as never, KTC), 2610);
+});
+
+test("a made pick is the player, FAAB is skipped, and only tier+tep reads the premium column", () => {
+  const made = { kind: "pick", pid: "1", ps: 2024, rnd: 1 };
+  const faab = { kind: "faab", pid: null };
+  assert.equal(marketNow(side([made, faab]), VALS as never, KTC, "tep"), 5000);
+  assert.equal(marketNow(side([made, faab], "tier+tep"), VALS as never, KTC, "tep"), 5500);
+});
+
+test("one unpriceable asset voids the side, a zero included, as the writer's does", () => {
+  assert.equal(marketNow(side([pl("1"), pk(2031, 1, "Mid")]), VALS as never, KTC), null);
+  assert.equal(marketNow(side([pl("1"), pl("2")]), VALS as never, KTC), null);
+  assert.equal(marketNow(side([pl("404")]), VALS as never, KTC), null);
+  assert.equal(marketNow(side([pl("1")]), null, KTC), null);
+  // a side of nothing but FAAB has no market figure at all
+  assert.equal(marketNow(side([{ kind: "faab", pid: null }]), VALS as never, KTC), null);
+});
+
+test("FC's ladder: a plain label is Mid and an explicit (Mid) beats it either way round", () => {
+  assert.equal(FC.get("2027 Early 1st"), 4904);
+  assert.equal(FC.get("2027 Mid 1st"), 3229);
+  assert.equal(FC.get("2028 Mid 1st"), 2255);
+  const flipped = fcPickLadder({ picks: { fc: [["2027 1st (Mid)", 3229], ["2027 1st", 2896]] } } as never);
+  assert.equal(flipped.get("2027 Mid 1st"), 3229);
+});
+
+test("FC goes null on its own when its ladder has no such tier", () => {
+  assert.equal(marketNowFc(side([pl("1"), pk(2027, 1, "Early")]), VALS as never, FC), 8904);
+  // KTC prices a 2028 Late 1st; FC publishes no tier that far out
+  assert.equal(marketNowFc(side([pk(2028, 1, "Late")]), VALS as never, FC), null);
+});
+
+/* ------------------------------------------------------------------------
+   isStale — the feed caption on the League and live Seasons screens.
+   ------------------------------------------------------------------------ */
+
+test("a healthy feed between idle polls is not stale, however old the read", () => {
+  const now = 100 * 60_000;
+  const feed = { data: {}, fetched: now - 15 * 60_000, failures: 0 };
+  assert.equal(isStale(feed, now), false);
+});
+
+test("a failing feed goes stale only once its last good read has aged out", () => {
+  const now = 100 * 60_000;
+  assert.equal(isStale({ data: {}, fetched: now - 60_000, failures: 2 }, now), false);
+  assert.equal(isStale({ data: {}, fetched: now - STALE_MS, failures: 2 }, now), false);
+  assert.equal(isStale({ data: {}, fetched: now - STALE_MS - 1, failures: 1 }, now), true);
+});
+
+test("a feed with no read at all is stale", () => {
+  assert.equal(isStale({ data: null, fetched: 0, failures: 0 }, 1), true);
 });
