@@ -1,4 +1,4 @@
-import type { BracketFile, Franchises, Matchups, SummaryRow, Team, Weekly } from "./types";
+import type { BracketFile, Franchises, Matchups, SummaryRow, Team, Weekly, WeeklyRow } from "./types";
 import { indexKey, jl } from "./data";
 import { REG_WEEKS } from "./league";
 import { isSeasonSettled, ridOf } from "./seasons";
@@ -444,6 +444,55 @@ export function yearSpan(years: string[]): string {
  * and everything after the last drop rides with the last. Every regular-season
  * week then lands with exactly one franchise, which is what makes the sum hold.
  */
+function partitionWeeks(r: CareerSeason, wk: WeeklyRow[]) {
+  // Change-of-hands boundaries, not roster spans: owner i keeps every week
+  // from his own first one until owner i+1's, and the first owner also keeps
+  // everything before he arrived. `o.to` is deliberately not consulted here
+  // — it is where he DROPPED him, and the weeks between a drop and the next
+  // pickup are the ones that were going missing. It still decides who held
+  // him longest in `primary()` below, which is a question about roster time.
+  const ord = [...r.owners].sort((a, b) => a.from - b.from);
+  return ord.map((o, i) => {
+    const from = i === 0 ? -Infinity : o.from;
+    const to = i + 1 < ord.length ? ord[i + 1].from - 1 : Infinity;
+    return { o, mine: wk.filter(x => x[0] <= REG_WEEKS && x[0] >= from && x[0] <= to) };
+  });
+}
+
+/** one stint inside a season he changed hands in — a career-table sub-row */
+export interface SeasonStint {
+  owner: CareerSeason["owners"][number];
+  /** regular-season weeks credited to this stint. Null when the season's
+   *  weekly file is missing; pts and war are also null for a stint with no
+   *  regular-season weeks (a playoff pickup), which is "nothing to credit",
+   *  not zero. */
+  gp: number | null;
+  pts: number | null;
+  war: number | null;
+}
+
+/**
+ * Per-stint production for every season he changed hands in, keyed by season.
+ * The same partition ownerSplits uses, so a season's stints always sum back to
+ * its own row, and the same weekly files, which the cache already holds once
+ * the footer has loaded.
+ */
+export async function seasonStints(rows: CareerSeason[]): Promise<Record<string, SeasonStint[]>> {
+  const out: Record<string, SeasonStint[]> = {};
+  await Promise.all(rows.filter(r => r.owners.length > 1).map(async r => {
+    const wk = (await jl<Weekly>(`${r.season}/weekly.json`).catch(() => null))?.[r.pid];
+    out[r.season] = wk
+      ? partitionWeeks(r, wk).map(({ o, mine }) => ({
+        owner: o, gp: mine.length,
+        pts: mine.length ? mine.reduce((s, x) => s + x[1], 0) : null,
+        war: mine.length ? mine.reduce((s, x) => s + x[5], 0) : null,
+      }))
+      : [...r.owners].sort((a, b) => a.from - b.from)
+        .map(o => ({ owner: o, gp: null, pts: null, war: null }));
+  }));
+  return out;
+}
+
 export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
   type Acc = OwnerSplit & {
     yrs: Set<string>; last: string; ranks: number[]; marks: HonorKey[];
@@ -508,17 +557,8 @@ export async function ownerSplits(rows: CareerSeason[]): Promise<OwnerSplit[]> {
       bump(main, r.season, r.gp, r.pts, r.war);
       continue;
     }
-    // Change-of-hands boundaries, not roster spans: owner i keeps every week
-    // from his own first one until owner i+1's, and the first owner also keeps
-    // everything before he arrived. `o.to` is deliberately not consulted here
-    // — it is where he DROPPED him, and the weeks between a drop and the next
-    // pickup are the ones that were going missing. It still decides who held
-    // him longest in `primary()` below, which is a question about roster time.
-    const ord = [...r.owners].sort((a, b) => a.from - b.from);
-    ord.forEach((o, i) => {
-      const from = i === 0 ? -Infinity : o.from;
-      const to = i + 1 < ord.length ? ord[i + 1].from - 1 : Infinity;
-      const mine = wk.filter(x => x[0] <= REG_WEEKS && x[0] >= from && x[0] <= to);
+    // see partitionWeeks above for why the boundaries are changes of hands
+    partitionWeeks(r, wk).forEach(({ o, mine }) => {
       if (!mine.length) return;
       bump(o, r.season, mine.length,
         mine.reduce((s, x) => s + x[1], 0),

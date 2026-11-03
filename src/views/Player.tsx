@@ -29,22 +29,24 @@ import WeekGrid from "../components/WeekGrid";
 import QuickJump from "../components/QuickJump";
 import HonorMarks, { HonorLegend, HonorSprite } from "../components/HonorMarks";
 import {
-  honorTotals, loadCareer, loadHonors, ownerSplits, playerHonors, yearSpan,
-  type CareerSeason, type HonorIndex, type OwnerSplit,
+  honorTotals, loadCareer, loadHonors, ownerSplits, playerHonors, seasonStints, yearSpan,
+  type CareerSeason, type HonorIndex, type OwnerSplit, type SeasonStint,
 } from "../lib/honors";
 
 const num = (n: number) => n.toLocaleString("en-US");
 
-/** the franchises that held him in a season, in order, arrows between — the
- *  career table's Held by cell, and on a phone the season's second line */
-const heldBy = (owners: CareerSeason["owners"]) => owners.length
-  ? owners.map((o, k) => (
-    <Fragment key={`${o.team}-${o.from}`}>
-      {k > 0 && <span className="held-arrow">→</span>}
-      {o.team}
-    </Fragment>
-  ))
-  : <span className="fig quiet">—</span>;
+/** the career table's Held by cell, and on a phone the season's second line:
+ *  the franchise, or "N teams" when he changed hands. The chain itself lives
+ *  in the stint sub-rows under the season (Max, 2026-11-03) — printed inline
+ *  it ran over GP. Counted by franchise, so A → B → A is 2 teams, 3 stints. */
+const heldBy = (owners: CareerSeason["owners"]) => {
+  if (!owners.length) return <span className="fig quiet">—</span>;
+  const n = new Set(owners.map(o => o.fkey)).size;
+  return n > 1 ? `${n} teams` : owners[0].team;
+};
+/** a stint's roster span, "W3–9"; empty when the season had no matchups */
+const wkSpan = (o: CareerSeason["owners"][number]) =>
+  o.from ? `W${o.from}${o.to > o.from ? `–${o.to}` : ""}` : "";
 const WINDOWS = ["7", "14", "30"] as const;
 
 /**
@@ -104,6 +106,8 @@ export default function Player({ pid }: { pid: string }) {
   const [career, setCareer] = useState<CareerSeason[] | null>(null);
   /** career split by the franchise that held him — the table's footer */
   const [splits, setSplits] = useState<OwnerSplit[]>([]);
+  /** per-stint lines for the seasons he changed hands in — the sub-rows */
+  const [stints, setStints] = useState<Record<string, SeasonStint[]>>({});
   /**
    * THE PHONE SHAPE (≤640px, the same breakpoint `.hm` hides columns at).
    *
@@ -223,6 +227,7 @@ export default function Player({ pid }: { pid: string }) {
       setCareer(rows);
       // splits fetch weekly data only for seasons he changed hands in
       ownerSplits(rows).then(s => { if (live) setSplits(s); }).catch(() => {});
+      seasonStints(rows).then(s => { if (live) setStints(s); }).catch(() => {});
     }).catch(() => {});
     return () => { live = false; };
   }, [pid, last, league, meta]);
@@ -850,7 +855,7 @@ export default function Player({ pid }: { pid: string }) {
                                 {r.season}
                                 {mobile && <div className="pid-held">{heldBy(r.owners)}</div>}
                               </td>
-                              <td className="t name quiet hm"
+                              <td className="t name quiet hm held"
                                 title={r.owners.map(o => o.from
                                   ? `${o.team} · W${o.from}${o.to > o.from ? `–${o.to}` : ""}`
                                   : o.team).join("  →  ")}>
@@ -871,6 +876,29 @@ export default function Player({ pid }: { pid: string }) {
                                   : <span className="fig quiet">—</span>}
                               </td>
                             </tr>
+                            {/* one sub-row per stint when he changed hands, the
+                                PFR shape. Production splits by week; finish and
+                                honors are season-long facts and stay on the
+                                season row above. Same zebra as the season so
+                                the group reads as one. */}
+                            {(stints[r.season] ?? []).map(s => (
+                              <tr key={`${s.owner.fkey}-${s.owner.from}`}
+                                className={`${i % 2 ? "zebra " : ""}click stint${on ? " open" : ""}`}
+                                onClick={() => openSeason(r.season)}
+                                title={`${s.owner.team} · ${s.owner.manager}`}>
+                                <td className="t stint-wk">
+                                  {wkSpan(s.owner)}
+                                  {mobile && <div className="pid-held">{s.owner.team}</div>}
+                                </td>
+                                <td className="t name quiet hm held">{s.owner.team}</td>
+                                <td className="n fig quiet">{s.gp ?? "—"}</td>
+                                <td className="n fig quiet hm">{s.pts == null ? "—" : num(Math.round(s.pts))}</td>
+                                <td className="n fig quiet hm">{s.pts == null || !s.gp ? "—" : fmt(s.pts / s.gp, 1)}</td>
+                                <td className="n fig quiet edge">{s.war == null ? "—" : fmtWar(s.war)}</td>
+                                <td className="n fig quiet">—</td>
+                                <td className="t last edge"><span className="fig quiet">—</span></td>
+                              </tr>
+                            ))}
                             {on && (
                               <tr className="drawer-row">
                                 <td colSpan={mobile ? 5 : 8}>

@@ -1485,8 +1485,15 @@ tfoot tr.tot.sub > td { background: var(--zebra); }
 tfoot tr.tot.owner > td { background: var(--deep); }
 tfoot tr.tot.sub + tr.tot.owner > td { border-top: 1px solid var(--rule); }
 
-/* a mid-season handover in the career table's Held by cell */
-.held-arrow { color: var(--dim3); margin: 0 7px; font-size: 12px; }
+/* THE CAREER TABLE'S HELD BY (Max, 2026-11-03). A season he changed hands in
+   reads "N teams" and gets one sub-row per stint underneath, the Pro Football
+   Reference shape: the chain of names with arrows ran straight over GP. A single
+   franchise name that outgrows its column wraps, it is never clipped. */
+tbody td.held { white-space: normal; overflow-wrap: anywhere; }
+/* the stint sub-rows: tighter and quieter than the season row so the season
+   keeps the row's handle; the week span sits indented under the year */
+tbody tr.stint > td { padding-top: 5px; padding-bottom: 5px; font-size: 12.5px; }
+tbody tr.stint td.stint-wk { padding-left: 22px; font: 400 12px/1.4 var(--sans); color: var(--dim); }
 
 /* the key, under the career table: a divided strip, one cell per mark, the
    same anatomy as .figstrip. Definitions live in the cell's tooltip — printed
@@ -2382,7 +2389,6 @@ table.feed td.who .line { align-items: center; }
   font: 400 11.5px/1.35 var(--sans); color: var(--dim);
   white-space: normal; overflow-wrap: break-word;
 }
-.pid-held .held-arrow { margin: 0 5px; }
 
 /* ==========================================================================
    Player page — Recent trades (views/Player.tsx, data/recent_trades/*).
