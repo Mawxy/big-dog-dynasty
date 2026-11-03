@@ -389,9 +389,14 @@ test("pick index: a future 1st under CVI lands on the conversion floor, not the 
 
 test("pick index: a 1st is a strong dynasty asset and a weak contender asset",
   { skip: FIELD ? false : "committed league data not present in this clone" }, () => {
-    const { indexer, bridge } = FIELD!;
-    const first = indexer("2027 Early 1st", priceOf(bridge, "2027 Early 1st"))!;
-    const third = indexer("2027 Early 3rd", priceOf(bridge, "2027 Early 3rd"))!;
+    // A year out, off the live class like the test above. This said "2027"
+    // when 2027 was a year out; once it became the class drafting now it took
+    // no discount, and the check below compared base figures that sit within
+    // a point of each other and flip with the market.
+    const { indexer, bridge, currentClass } = FIELD!;
+    const year = currentClass + 1;
+    const first = indexer(`${year} Early 1st`, priceOf(bridge, `${year} Early 1st`))!;
+    const third = indexer(`${year} Early 3rd`, priceOf(bridge, `${year} Early 3rd`))!;
     assert.ok(first.dvi > first.cvi,
       "a future 1st must score higher on the dynasty index than the contender one");
     assert.ok(first.dvi > third.dvi, "a 1st must beat a 3rd under DVI");
@@ -407,12 +412,13 @@ test("pick index: a 1st is a strong dynasty asset and a weak contender asset",
 test("picks in the ledger: consolidating picks beats splitting them, and the "
   + "estimate is flagged",
 { skip: FIELD ? false : "committed league data not present in this clone" }, () => {
-  const { indexer, bridge } = FIELD!;
-  const p1 = priceOf(bridge, "2027 Early 1st")!;
-  const p3 = priceOf(bridge, "2027 Early 3rd")!;
+  // the live class, so the bands still exist once KTC stops pricing 2027
+  const { indexer, bridge, currentClass: y } = FIELD!;
+  const p1 = priceOf(bridge, `${y} Early 1st`)!;
+  const p3 = priceOf(bridge, `${y} Early 3rd`)!;
   const led = tradeLedger(
-    [pick("2027 Early 1st", p1)],
-    [pick("2027 Early 3rd", p3), pick("2027 Mid 3rd", priceOf(bridge, "2027 Mid 3rd")!)],
+    [pick(`${y} Early 1st`, p1)],
+    [pick(`${y} Early 3rd`, p3), pick(`${y} Mid 3rd`, priceOf(bridge, `${y} Mid 3rd`)!)],
     indexer,
   );
   assert.equal(led.a.estimated, 1);
