@@ -85,7 +85,176 @@
 
   --pad: 26px;          /* page gutter */
   --bar-track: var(--rule);
+
+  /* ---- C4 "Tale of the Tape" tokens (src/beta/lab/C4_SPEC.md §2.2) -------
+     Read only by the redesign lab (`.v3.c4`). Original values here; the three
+     other themes override them in the `[data-theme]` blocks below. */
+  --deep-ink: #eef2f6;   /* primary text on --deep bars */
+  --deep-dim: #7b8794;   /* labels and inactive tabs on bars */
+  --deep-acc: #f5c518;   /* links on bars — never --acc on --deep */
+  --slab-hi: #eef2f6;    /* high-contrast slab: active tab, "you" */
+  --slab-hi-ink: #05070a;
+  --slab-lo: #1b232c;    /* secondary slab: inactive tab, other side, chips */
+  --slab-lo-ink: #c3ccd6;
+  --loss: #3a4552;       /* losing bar in a tape row */
+  --war: #f5c518;        /* WAR fills — never borrows --acc */
+  --war-ink: #f5c518;    /* WAR figures as text */
 }
+
+/* ---- the lab's three other themes (C4_SPEC §2) ----------------------------
+   Set on <html> only while the redesign lab is mounted (beta/lab/LabShell.tsx)
+   and by index.html's boot script on a lab address, so the live board never
+   wears one. `original` has no block: :root above IS Original. Keep each
+   theme's --deep in step with beta/lab/theme.ts and the boot script. */
+:root[data-theme="newsprint"] {
+  --deep: #161616; --bg: #efe9dd; --band: #e5dccb; --zebra: #eae3d6; --sel: #ddd3c0;
+  --rule: #d0c5b0; --rule-2: #bfb39c; --hair: #e0d7c6;
+  --txt: #161616; --txt2: #3b362f; --dim: #685f4f; --dim2: #776e5d; --dim3: #9a907d;
+  --acc: #2445d6; --acc-ink: #ffffff; --acc-dim: #8a9de6;
+  --good: #1c6d45; --bad: #af3427; --drop: #a8474f; --warn: #9a5a12;
+  --qb: #7b3ec5; --rb: #1c6d45; --wr: #1d5dbc; --te: #9b481b;
+  --qb-mark: #7b3ec5; --rb-mark: #1c6d45; --wr-mark: #1d5dbc; --te-mark: #9b481b;
+  --honor-champ: #b8860b; --honor-mvp: #af3427; --honor-seed: #13807a;
+  --honor-star: #6b7a8c; --honor-bar: #9a907d;
+  --deep-ink: #efe9dd; --deep-dim: #b9ae98; --deep-acc: #7f9bff;
+  --slab-hi: #161616; --slab-hi-ink: #efe9dd; --slab-lo: #d6ccb8; --slab-lo-ink: #3b362f;
+  --loss: #c3b8a2; --war: #b8860b; --war-ink: #7f5900;
+  --war-pos: #1c6d45; --war-neg: #af3427;
+  color-scheme: light;
+}
+:root[data-theme="ringside"] {
+  --deep: #04070f; --bg: #0a0f1c; --band: #111a2c; --zebra: #0d1322; --sel: #16213a;
+  --rule: #1b2740; --rule-2: #2a3a5c; --hair: #111a2c;
+  --txt: #eef3fb; --txt2: #c2cde0; --dim: #7d8aa3; --dim2: #6c7891; --dim3: #56627a;
+  --acc: #3aa0ff; --acc-ink: #04070f; --acc-dim: #2a6fb0;
+  --good: #4fd08a; --bad: #ff6b75; --drop: #c58a90; --warn: #e8a35a;
+  --qb-mark: #b89bff; --rb-mark: #4fd08a; --wr-mark: #9cc8ff; --te-mark: #ff9a5c;
+  --honor-champ: #f5c518; --honor-mvp: #e03a4e; --honor-seed: #2fd3c8;
+  --honor-star: #9fb3c8; --honor-bar: #56627a;
+  --deep-ink: #eef3fb; --deep-dim: #7d8aa3; --deep-acc: #3aa0ff;
+  --slab-hi: #eef3fb; --slab-hi-ink: #04070f; --slab-lo: #1b2740; --slab-lo-ink: #c2cde0;
+  --loss: #34425e; --war: #f5c518; --war-ink: #f5c518;
+}
+:root[data-theme="vintage"] {
+  --deep: #1c2a44; --bg: #f3ead7; --band: #e9dec5; --zebra: #eee4cf; --sel: #e2d5b8;
+  --rule: #d8cba9; --rule-2: #c6b791; --hair: #e4d8bd;
+  --txt: #1c2a44; --txt2: #3a4560; --dim: #646054; --dim2: #736e60; --dim3: #978f7a;
+  --acc: #c2102d; --acc-ink: #ffffff; --acc-dim: #d9737f;
+  --good: #1c6f46; --bad: #8e1b2b; --drop: #a8474f; --warn: #9a5a12;
+  --qb: #7d3ec7; --rb: #1c6f46; --wr: #1e5ebe; --te: #9d491b;
+  --qb-mark: #7d3ec7; --rb-mark: #1c6f46; --wr-mark: #1e5ebe; --te-mark: #9d491b;
+  --honor-champ: #b8860b; --honor-mvp: #8e1b2b; --honor-seed: #13807a;
+  --honor-star: #5d6b80; --honor-bar: #978f7a;
+  --deep-ink: #f3ead7; --deep-dim: #aab4c8; --deep-acc: #ff7a7a;
+  --slab-hi: #1c2a44; --slab-hi-ink: #f3ead7; --slab-lo: #ddd0b2; --slab-lo-ink: #3a4560;
+  --loss: #cdbf9f; --war: #b8860b; --war-ink: #805a00;
+  --war-pos: #1c6f46; --war-neg: #8e1b2b;
+  color-scheme: light;
+}
+
+/* ---- the LIVE BOARD's themes (src/beta/liveTheme.ts, 2026-11-04) ----------
+   Opt-in palettes for the board as it ships, picked under More → Appearance.
+   Original stays the default and has no block: with no attribute, :root above
+   is the board exactly as it was. Ids carry a `live-` prefix so they can never
+   collide with the lab's (`original`, `newsprint`…), and the choice is saved
+   under its own key, so a lab pick never re-skins the live board or the other
+   way round.
+
+   Every block re-points the SAME tokens — no new names. Held to a stricter
+   bar than Original: --txt2, --dim, --dim2, --acc and every signed colour
+   clear 4.5:1 on all five surfaces (--deep, --bg, --band, --zebra, --sel), and
+   --acc-ink clears 4.5:1 on --acc. --dim3 stays decorative (~3:1).
+
+   LIGHT THEMES INVERT THE STACK: --deep is a tinted bar a step DARKER than the
+   board and --band (the raised table header) is the lightest surface. The live
+   shell sets ordinary text on --deep, so --deep is never a dark slab here.
+   Keep each theme's --bg in step with liveTheme.ts and the boot script. */
+:root[data-theme="live-midnight"] {
+  --deep: #040912; --bg: #09111e; --band: #0f1a2c; --zebra: #0c1524; --sel: #15233b;
+  --rule: #1a2a42; --rule-2: #2a3e5e; --hair: #0f1a2c;
+  --txt: #eef4fb; --txt2: #c4d1e2; --dim: #8296b0; --dim2: #7a8ea8; --dim3: #556884;
+  --acc: #5cb8ff; --acc-ink: #04101c; --acc-dim: #3478b0;
+  --good: #43d783; --bad: #ff6b75; --drop: #c88d93; --warn: #e8a35a;
+  --war-pos: #43d783; --war-neg: #ff7a83;
+  --honor-champ: #f5c518; --honor-bar: #556884;
+  color-scheme: dark;
+}
+:root[data-theme="live-ember"] {
+  --deep: #070504; --bg: #0e0b09; --band: #17130f; --zebra: #120f0c; --sel: #221b15;
+  --rule: #26201b; --rule-2: #3a3029; --hair: #17130f;
+  --txt: #f6f0ea; --txt2: #d6cbc0; --dim: #9a8d80; --dim2: #91857a; --dim3: #6a5f55;
+  --acc: #ff8c42; --acc-ink: #0e0b09; --acc-dim: #b0612e;
+  /* --warn moves off amber: the accent is already orange */
+  --good: #4fd08a; --bad: #ff6b75; --drop: #c98d92; --warn: #e6c35a;
+  --war-pos: #4fd08a; --war-neg: #ff7a83;
+  --honor-champ: #f5c518; --honor-bar: #6a5f55;
+  color-scheme: dark;
+}
+:root[data-theme="live-royal"] {
+  --deep: #06051a; --bg: #0c0b21; --band: #141332; --zebra: #100f29; --sel: #1d1b43;
+  --rule: #222048; --rule-2: #353266; --hair: #141332;
+  --txt: #f0eefc; --txt2: #cbc7e8; --dim: #918cbb; --dim2: #8883b3; --dim3: #625d8a;
+  --acc: #b69bff; --acc-ink: #0c0b21; --acc-dim: #7d66c9;
+  --good: #4fd08a; --bad: #ff6b8a; --drop: #c98da0; --warn: #e8a35a;
+  --war-pos: #4fd08a; --war-neg: #ff7a95;
+  --honor-champ: #f5c518; --honor-bar: #625d8a;
+  color-scheme: dark;
+}
+:root[data-theme="live-pressbox"] {
+  --deep: #ebe7dd; --bg: #f7f5f0; --band: #ffffff; --zebra: #f0ede6; --sel: #e8e3d8;
+  --rule: #d9d3c6; --rule-2: #c4bdae; --hair: #e7e2d8;
+  --txt: #14161a; --txt2: #3a3f47; --dim: #555a62; --dim2: #5f646b; --dim3: #7d8189;
+  --acc: #7d5a00; --acc-ink: #ffffff; --acc-dim: #c9a64a;
+  --good: #15693f; --bad: #a8302a; --drop: #9e4049; --warn: #8c4106;
+  --war-pos: #15693f; --war-neg: #a8302a;
+  --qb: #7b3ec5; --rb: #1c6d45; --wr: #1d5dbc; --te: #9b481b;
+  --qb-mark: #7b3ec5; --rb-mark: #1c6d45; --wr-mark: #1d5dbc; --te-mark: #9b481b;
+  --honor-champ: #b8860b; --honor-mvp: #b8283c; --honor-seed: #13807a;
+  --honor-star: #5d6b80; --honor-bar: #7d8189;
+  color-scheme: light;
+}
+:root[data-theme="live-chalk"] {
+  --deep: #e6eaf0; --bg: #f5f7fa; --band: #ffffff; --zebra: #eef1f5; --sel: #e3e9f1;
+  --rule: #d5dce6; --rule-2: #bcc6d3; --hair: #e4e9ef;
+  --txt: #0f1623; --txt2: #334052; --dim: #4f5b6c; --dim2: #5b6778; --dim3: #78839a;
+  --acc: #1f4fd1; --acc-ink: #ffffff; --acc-dim: #8ea6e8;
+  --good: #0f6b42; --bad: #ab3028; --drop: #a1434b; --warn: #874e0c;
+  --war-pos: #0f6b42; --war-neg: #ab3028;
+  --qb: #7b3ec5; --rb: #1c6d45; --wr: #1d5dbc; --te: #9b481b;
+  --qb-mark: #7b3ec5; --rb-mark: #1c6d45; --wr-mark: #1d5dbc; --te-mark: #9b481b;
+  --honor-champ: #b8860b; --honor-mvp: #b8283c; --honor-seed: #13807a;
+  --honor-star: #5d6b80; --honor-bar: #78839a;
+  color-scheme: light;
+}
+:root[data-theme="live-clay"] {
+  --deep: #eee2d5; --bg: #f8f1e8; --band: #fffaf4; --zebra: #f3eadf; --sel: #ecdfcf;
+  --rule: #e0d1bf; --rule-2: #cbb9a3; --hair: #efe4d6;
+  --txt: #1e1712; --txt2: #43372d; --dim: #5f5245; --dim2: #6a5c4e; --dim3: #86766a;
+  --acc: #9f3f0b; --acc-ink: #ffffff; --acc-dim: #d99a75;
+  /* --warn moves off orange: the accent is already terracotta */
+  --good: #1a6640; --bad: #9a1f2c; --drop: #9d3f47; --warn: #715800;
+  --war-pos: #1a6640; --war-neg: #9a1f2c;
+  --qb: #7b3ec5; --rb: #1c6d45; --wr: #1d5dbc; --te: #9b481b;
+  --qb-mark: #7b3ec5; --rb-mark: #1c6d45; --wr-mark: #1d5dbc; --te-mark: #9b481b;
+  --honor-champ: #b8860b; --honor-mvp: #8e1b2b; --honor-seed: #13807a;
+  --honor-star: #5d6b80; --honor-bar: #86766a;
+  color-scheme: light;
+}
+/* The few surfaces still drawn in literal hex (Original's carbon steps). Under
+   a live theme they take the nearest token instead, so a light board never
+   carries dark slabs. Original is untouched: these only match with the
+   attribute set. */
+:root[data-theme^="live-"] .dtbl tr.lvl0 { background: var(--zebra); }
+:root[data-theme^="live-"] .dtbl tr.lvl1 { background: var(--band); }
+:root[data-theme^="live-"] .dtbl tr.tap:hover { background: var(--sel); }
+:root[data-theme^="live-"] .dtbl tr.lvl2 td.lbl { color: var(--dim); }
+:root[data-theme^="live-"] .bgame.plc .bgame-head { background: var(--deep); }
+:root[data-theme^="live-"] .bgame.tap:hover { border-color: var(--rule-2); }
+:root[data-theme^="live-"] .weekcell .bar i { background: var(--dim3); }
+/* Defense vs position: the heat shades are inline data encoding (Defenses.tsx)
+   and stay as drawn; only the dead-neutral cell — the one inked --txt2 — moves
+   to the board's raised surface, as the lab does, so its ink stays legible. */
+:root[data-theme^="live-"] .dvp-tbl td.dvp-cell[style*="var(--txt2)"] { background: var(--band) !important; }
 
 *, *::before, *::after { box-sizing: border-box; }
 * { margin: 0; }
@@ -109,80 +278,6 @@ a:hover { text-decoration: underline; }
   padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
-/* masthead ---------------------------------------------------------------- */
-.mast {
-  display: flex;
-  align-items: stretch;
-  background: var(--deep);
-  /* the notch, on an iPhone web app (index.html viewport-fit=cover) */
-  padding-top: env(safe-area-inset-top, 0px);
-}
-.mast::before {                     /* the accent slab */
-  content: "";
-  flex: 0 0 6px;
-  background: var(--acc);
-}
-.mast-in {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-  padding: 14px var(--pad);
-}
-.mast-name {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-}
-.wordmark {
-  font: 700 27px/1 var(--cond);
-  letter-spacing: .03em;
-  text-transform: uppercase;
-}
-.wordmark-tag {
-  font: 600 15px/1 var(--cond);
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: var(--acc);
-}
-.mast-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.mast-updated {
-  font: 400 15px/1 var(--cond);
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-/* The projection-model control (components/ModelPicker), the site's ONE global
-   switch. Two segmented groups — model, then stream — because the six curves
-   are 3x2 and a flat six hides that.
-
-   DELIBERATELY NOT ACCENT-FILLED, unlike the lens control in §5 of the design
-   system. That pattern fills the selected segment with --acc, which works
-   inside a view; this sits above every view, so an accent here would compete
-   with each screen's headline figure for the one accent it is allowed. Selected
-   is --txt on --band, which still wins clearly against --dim2 without spending
-   the gold. Zero radius, as everywhere. */
-.mpick { display: flex; gap: 8px; }
-.mpick .mseg { display: flex; border: 1px solid var(--rule); }
-.mpick .mseg button {
-  font: 600 10.5px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
-  padding: 5px 8px; background: none; border: 0; cursor: pointer;
-  color: var(--dim2);
-}
-.mpick .mseg button + button { border-left: 1px solid var(--rule); }
-.mpick .mseg button:hover { color: var(--txt2); }
-.mpick .mseg button.on { background: var(--band); color: var(--txt); }
-@media (max-width: 640px) {
-  /* the masthead drops the freshness line on a phone; the model stays, because
-     it changes what the figures MEAN rather than just when they were built */
-  .mpick .mseg button { padding: 5px 6px; letter-spacing: .06em; }
-}
 /* The season chip. A SPAN carries the text and the <select> is laid over it
    transparently: a styled <select> sizes itself to its text without counting
    the trailing letter-space or the condensed font's overhang, so the last
@@ -342,34 +437,6 @@ a:hover { text-decoration: underline; }
 .lens .seg:hover:not(:disabled) { color: var(--txt); }
 .lens .seg.on { position: relative; background: var(--acc); border-color: var(--acc); color: var(--acc-ink); }
 .lens .seg:disabled { color: var(--dim3); cursor: not-allowed; }
-
-/* team-filter dropdown (trade ledger) — a multi-select, so deliberately not
-   the lens pattern: the trigger reads like a seg, the menu is checkable rows.
-   Zero radius throughout, like everything else. */
-.tdrop { position: relative; display: inline-block; padding: 10px var(--pad) 0; }
-.tdrop-btn {
-  display: inline-flex; align-items: center; gap: 8px;
-  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
-  padding: 6px 14px; background: var(--band); color: var(--txt);
-  border: 1px solid var(--rule); cursor: pointer;
-}
-.tdrop-btn .n { color: var(--acc); }
-.tdrop-backdrop { position: fixed; inset: 0; z-index: 40; }
-.tdrop-menu {
-  position: absolute; left: var(--pad); top: 100%; z-index: 41;
-  min-width: 230px; background: var(--band); border: 1px solid var(--rule);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
-}
-.tdrop-row {
-  display: flex; align-items: center; justify-content: space-between; gap: 14px;
-  width: 100%; text-align: left; background: none; border: 0;
-  border-top: 1px solid var(--hair); cursor: pointer;
-  font: 600 13px/1.2 var(--sans); color: var(--txt2); padding: 8px 12px;
-}
-.tdrop-row:first-child { border-top: 0; border-bottom: 1px solid var(--rule); }
-.tdrop-row:hover { color: var(--txt); background: var(--hair); }
-.tdrop-row[aria-selected="true"] { color: var(--txt); }
-.tdrop-row .ck { color: var(--acc); font: 700 12px/1 var(--cond); min-width: 12px; text-align: right; }
 
 input[type="search"] {
   background: var(--band);
@@ -541,25 +608,7 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   background: var(--band);
   padding: 16px var(--pad) 20px;
 }
-.drawer-head {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  flex-wrap: wrap;
-  margin-bottom: 14px;
-}
-.drawer-title {
-  font: 700 24px/1 var(--cond);
-  letter-spacing: .03em;
-  text-transform: uppercase;
-}
-.drawer-sub {
-  font: 400 15px/1.3 var(--cond);
-  letter-spacing: .1em;
-  text-transform: uppercase;
-  color: var(--dim);
-}
-.drawer-body { display: flex; gap: 36px; flex-wrap: wrap; align-items: flex-start; }
+
 .chart-label {
   font: 400 12px/1 var(--cond);
   letter-spacing: .22em;
@@ -723,33 +772,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   border-top: 3px solid var(--acc);
   background: var(--band);
 }
-.drawer-side { flex: 1 1 260px; padding: 10px 14px 12px; min-width: 0; }
-.drawer-side + .drawer-side { border-left: 1px solid var(--hair); }
-.drawer-team {
-  font: 600 11px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim); margin-bottom: 6px;
-}
-/* .drawer-line, NOT .drawer-row: that class name belongs to the table drawer
-   <tr> (see "row drawer" below). A bare `.drawer-row { display:flex }` here
-   once turned every open table drawer's <tr> into a flex box, which ejects it
-   from table layout and blows the rank column out to the drawer's width. */
-.drawer-line {
-  display: flex; align-items: baseline; gap: 10px;
-  padding: 4px 0; border-top: 1px solid var(--hair);
-}
-.drawer-line:first-of-type { border-top: 0; }
-.drawer-line .k {
-  flex: 0 0 118px;
-  font: 600 11px/1.4 var(--cond); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--dim);
-}
-.drawer-line .v {
-  flex: 1; font: 600 14px/1.3 var(--cond); font-variant-numeric: tabular-nums;
-}
-.drawer-line .d {
-  font: 600 13px/1.3 var(--cond); font-variant-numeric: tabular-nums;
-  text-align: right; min-width: 64px;
-}
 
 /* ---------- footnote + footer ------------------------------------------- */
 
@@ -761,14 +783,6 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   text-transform: uppercase;
   color: var(--dim3);
 }
-.site-foot {
-  border-top: 1px solid var(--rule);
-  background: var(--deep);
-  padding: 20px var(--pad) 30px;
-  display: flex; justify-content: space-between; gap: 20px; flex-wrap: wrap;
-}
-.site-foot p { font: 400 12px/1.6 var(--sans); color: var(--dim3); max-width: 640px; }
-.site-foot .attr { font: 400 12px/1.6 var(--sans); color: var(--dim3); }
 
 .empty { color: var(--dim); padding: 30px; text-align: center; }
 .retry {
@@ -805,35 +819,9 @@ td.fig.quiet { font-size: 13.5px; color: var(--dim); }
   .hm { display: none; }                 /* same escape hatch as v1 */
   thead th, tbody td { padding: 7px 8px; }
   td.fig { font-size: 13px; }
-  .wordmark { font-size: 22px; }
-  .mast-updated { display: none; }
   .head-fig { font-size: 23px; }         /* headline figures stay big on purpose */
-  .drawer-body { gap: 20px; }
   .trade-side { min-width: 100%; border-right: 0; }
   input[type="search"] { min-width: 0; flex: 1; }
-
-  /* TRADE MACHINE ON A PHONE.
-     The deltas table keeps all three currencies — they are the screen — and
-     drops only the unit note, which is explanatory and already carried by the
-     column headers. Three columns at 33/34/33 hold at 320px; four did not, and
-     shrinking the figures to fit would have made the one thing you came for
-     the smallest thing on screen. */
-  .verdict-band { padding: 12px 12px 14px; }
-  .verdict-band table.deltas td.sub,
-  .verdict-band table.deltas th:last-child { display: none; }
-  .verdict-band table.deltas th,
-  .verdict-band table.deltas td { padding: 4px 6px; }
-  .verdict-band table.deltas td.fig { font-size: 18px; }
-  /* the consolidation sub-rows keep their indent, at phone scale */
-  .verdict-band table.deltas tr.adj td.k { padding-left: 14px; }
-  /* the fixed widths above are for the 4-column desktop shape */
-  .verdict-band table.deltas { table-layout: auto; }
-
-  /* The offer strip stays a wrapping row, but a phone tap target is bigger than
-     a mouse one and the remove `x` sits inside the chip that selects it. */
-  .offerbar { gap: 5px; }
-  .offerbar .chip { padding: 7px 10px; }
-  .offerbar .chip .x { padding: 0 2px 0 4px; }
 
   /* The comparison table renders as .records on a phone — see TradeCalc.
      The selected row's fill is pulled 8px wider than the text on both sides
@@ -1096,7 +1084,6 @@ table.rankgrid .fill { display: block; height: 100%; background: var(--acc); }
 .pick-tables td.lead { font: 600 15px/1 var(--cond); color: var(--txt2); }
 .pick-tables td.raw { font: 600 16px/1 var(--cond); color: var(--txt2); }
 
-
 /* value tables share the Draft screen's signed-WAR pair */
 .pick-title.best  { color: var(--war-pos); }
 .pick-title.worst { color: var(--war-neg); }
@@ -1286,12 +1273,6 @@ button.dband:hover .band-label { color: var(--txt2); }
 /* quieter than a bracket game: it settles a finish, it doesn't advance anyone */
 .bgame.plc { background: var(--zebra); }
 .bgame.plc .bgame-head { background: #0a0d11; }
-
-/* a row of standalone game cards (upsets, superlatives) */
-.card-row {
-  display: flex; flex-wrap: wrap; gap: 18px; padding: 14px var(--pad) 4px;
-}
-.card-row > * { flex: 0 1 380px; }
 
 /* a bye: a real slot in the bracket, the week off the seed earned */
 .bgame.bye { background: var(--deep); border-style: dashed; }
@@ -1586,91 +1567,9 @@ tbody tr.stint td.stint-wk { padding-left: 22px; font: 400 12px/1.4 var(--sans);
 .weekcell.miss { opacity: .4; }
 .weekcell.miss .pts { color: var(--dim3); font-weight: 400; }
 
-/* ---- head-to-head: two score blocks, one border, a --deep vs spine ------- */
-.h2h-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 18px; padding: 0 var(--pad); }
-.h2h { display: flex; align-items: stretch; border: 1px solid var(--rule); background: var(--band); }
-.h2h.click { cursor: pointer; }
-.h2h.click:hover { border-color: var(--dim2); }
-/* the desktop unit is a keyboard control too — the phone one already was */
-.h2h.click:focus-visible { outline: 2px solid var(--acc); outline-offset: -1px; }
-.h2h-side { flex: 1 1 0; min-width: 0; padding: 9px 13px 12px; border-top: 3px solid transparent; }
-.h2h-side.win { border-top-color: var(--acc); }
-.h2h-spine {
-  flex: 0 0 32px; display: flex; align-items: center; justify-content: center;
-  background: var(--deep);
-  font: 600 11px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--dim3);
-}
-.h2h-side .nm {
-  font: 600 13.5px/1.35 var(--sans); color: var(--txt2);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.h2h-side.win .nm { color: var(--txt); }
-.h2h-side .score { font: 700 29px/1.1 var(--cond); font-variant-numeric: tabular-nums; margin-top: 2px; }
-.h2h-side.win .score { color: var(--acc); }
-.h2h-side .res { font: 400 11.5px/1.5 var(--sans); color: var(--dim); font-variant-numeric: tabular-nums; }
-.h2h-side .star {
-  display: flex; align-items: center; gap: 6px; margin-top: 7px; min-width: 0;
-  font: 400 12px/1.3 var(--sans); color: var(--txt2); white-space: nowrap;
-}
-.h2h-side .star .snm { overflow: hidden; text-overflow: ellipsis; }
-.h2h-side .star .spts { color: var(--dim); font-variant-numeric: tabular-nums; }
-/* One matchup on its own page — the same unit the week grid draws, at full
-   board width. The detail screen used to have a second head-to-head of its own
-   (.mscore/.mside), so clicking a matchup changed how the matchup looked. */
-.h2h-grid.solo { grid-template-columns: 1fr; margin-bottom: 16px; }
-/* points left on the bench is a criticism, not a stat */
-.h2h-side .res .left { color: var(--bad); }
-
 /* ---- trade baskets -------------------------------------------------------- */
 .baskets { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; padding: 0 var(--pad); align-items: start; }
 .basket { background: var(--bg); border: 1px solid var(--rule); }
-.basket-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  background: var(--deep); border-bottom: 1px solid var(--rule); padding: 9px 14px;
-  font: 700 15px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
-}
-.basket-head .n { font: 400 11.5px/1.4 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim); }
-/* verdict band under the baskets */
-/* The trade machine's offer strip. Chips, not a segmented control: the set
-   grows as you add offers, and a segmented control that gains a segment on
-   click stops reading as a fixed set of choices.
-   The chip carries no asset count — the figures below it are the reason to
-   look at an offer, and a count competed with them while answering nothing. */
-.offerbar { display: flex; flex-wrap: wrap; gap: 6px; padding: 14px var(--pad) 0; }
-.offerbar .chip { display: inline-flex; align-items: center; gap: 7px; }
-.offerbar .chip .x { color: var(--dim); padding-left: 2px; }
-.offerbar .chip .x:hover { color: var(--bad); }
-.offerbar .chip.add { color: var(--dim); }
-
-/* Both sides of the trade, signed, one row per currency. Mirrored on purpose:
-   a single "A − B" figure makes one side the subject and the other the
-   reference, and in a trade neither is. Two signed cells state the same fact
-   without choosing whose row it is. */
-.verdict-band table.deltas { width: 100%; table-layout: fixed; margin-bottom: 12px; }
-.verdict-band table.deltas th {
-  font: 600 11px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
-  color: var(--dim2); padding: 0 10px 6px; text-align: right;
-}
-.verdict-band table.deltas th.t { text-align: left; }
-.verdict-band table.deltas td { padding: 4px 10px; }
-.verdict-band table.deltas td.k {
-  font: 600 12px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--dim);
-}
-.verdict-band table.deltas td.fig { font: 700 20px/1.1 var(--cond); font-variant-numeric: tabular-nums; }
-.verdict-band table.deltas td.sub { font: 400 11.5px/1.4 var(--sans); color: var(--dim3); }
-/* The consolidation rows (TRADE_MACHINE_MODEL.md §1). Sub-rows of the currency
-   they correct — indented, quieter, tighter — so the eye reads
-   "net, adj, adjusted" as one block per currency rather than as ten peers. The
-   adjusted net is the only one of the two set in full ink: it is the figure the
-   correction was for. Never inked pos/neg — both sides are subject to the same
-   correction, so there is no winner in it to color. */
-.verdict-band table.deltas tr.adj td { padding-top: 2px; padding-bottom: 2px; }
-.verdict-band table.deltas tr.adj td.k {
-  padding-left: 24px; font: 400 11.5px/1.4 var(--sans);
-  letter-spacing: 0; text-transform: none; color: var(--dim);
-}
-.verdict-band table.deltas tr.adj td.fig { font-size: 15px; color: var(--txt2); }
-.verdict-band table.deltas tr.adj.net td.fig { font-size: 17px; color: var(--txt); }
 
 /* the comparison table: one row per offer, all against the same outgoing side */
 table.offers { width: 100%; table-layout: fixed; margin-top: 2px; }
@@ -1681,10 +1580,6 @@ table.offers tbody tr:hover { background: var(--band); }
    leader, and three filled cells across three rows would read as three winners
    of one thing. */
 table.offers td.lead { box-shadow: inset 0 -2px 0 var(--acc); }
-
-.verdict-band { background: var(--deep); border-top: 3px solid var(--acc); margin: 18px var(--pad) 0; padding: 14px 18px 16px; }
-.verdict-band .figs { display: flex; flex-wrap: wrap; gap: 8px 40px; }
-.verdict-band .prose { font: 400 13.5px/1.6 var(--sans); color: var(--txt2); margin-top: 12px; max-width: 860px; text-wrap: pretty; }
 
 /* ---- meter beside figure --------------------------------------------------
    The meter fills the cell (flex: 1 1 auto); the figure is fixed and
@@ -1722,19 +1617,6 @@ td.spine-cell .rank.top { color: var(--acc); }
 /* ---- row drawer: below the row, inside the table flow -------------------- */
 tr.drawer-row > td { padding: 0; border-bottom: 1px solid var(--rule); white-space: normal; }
 tr.drawer-row, tr.drawer-row:hover { background: none; cursor: default; }
-.drawer-figs { display: grid; grid-template-columns: repeat(2, minmax(92px, auto)); gap: 12px 26px; margin: 12px 0 14px; }
-.drawer-figs .k { font: 400 11px/1 var(--cond); letter-spacing: .2em; text-transform: uppercase; color: var(--dim2); margin-bottom: 4px; }
-.drawer-figs .v { font: 700 21px/1.1 var(--cond); font-variant-numeric: tabular-nums; }
-.drawer-figs .v.acc { color: var(--acc); }
-
-/* ---- projection range band: low→high fill, accent tick at the composite -- */
-.range-band { position: relative; height: 8px; background: var(--hair); }
-.range-band .fill { position: absolute; top: 0; bottom: 0; background: #2b3642; }
-.range-band .tick { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--acc); }
-.range-ends {
-  display: flex; justify-content: space-between; gap: 8px; margin-top: 3px;
-  font: 400 11px/1.3 var(--sans); color: var(--dim); font-variant-numeric: tabular-nums;
-}
 
 /* ---- group band rows inside a table body (roster sections) --------------- */
 tr.grpband th {
@@ -1791,12 +1673,6 @@ table.wktbl { width: auto; background: transparent; }
 .wktbl td { padding: 2px 14px 2px 0; font-size: 12.5px; border: 0; text-align: right; color: var(--txt); white-space: nowrap; }
 .wktbl th:first-child, .wktbl td:first-child { text-align: left; }
 .wktbl tbody tr:hover { background: transparent; }
-.ownevt { margin: 7px 0; line-height: 1.5; }
-.ownwk {
-  display: inline-block; background: var(--bg); border: 1px solid var(--rule);
-  padding: 0 6px; font-size: 11px; color: var(--dim); margin-right: 7px; white-space: nowrap;
-}
-.ownsides { margin: 4px 0 0 12px; padding-left: 9px; border-left: 2px solid var(--rule); }
 
 @media (max-width: 900px) {
   .split { display: block; }
@@ -1829,7 +1705,6 @@ table.wktbl { width: auto; background: transparent; }
    at the top of a split rail, and a `.chip` in the screen header on the
    full-width screens that have no rail. */
 
-
 /* ---- league home: activity + movers feeds ------------------------------ */
 .feeds { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 18px; }
 /* The band lives on the PANEL, not the table. Grid already stretches the two
@@ -1860,10 +1735,6 @@ table.feed tr.grp th.worst { color: var(--bad); }
 table.feed tbody + tbody tr.grp th { border-top: 1px solid var(--rule); }
 table.feed td.who { padding: 7px 10px; }
 table.feed td.who .line { align-items: center; }
-
-/* ---- matchup detail ----------------------------------------------------- */
-/* the score blocks are .h2h, shared with the week grid — see above */
-.mlineups { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 18px; margin: 0 var(--pad); }
 
 /* ==========================================================================
    Pinned identity block + scroll affordance on a board that overflows its box.
@@ -1955,7 +1826,6 @@ table.feed td.who .line { align-items: center; }
   .weekcell .war { font-size: 11px; }
   /* the box-plot rails and the draft board's own gutter */
   .box-row .lbl, .axis .pad { flex-basis: 44px; }
-  .card-row > * { flex: 1 1 100%; }
 
   /* TEXT CELLS WRAP RATHER THAN OVERLAP.
      A `table-layout: fixed` board hands each column its declared percentage
@@ -2058,13 +1928,6 @@ table.feed td.who .line { align-items: center; }
      left Draft and Trade machine invisible on a phone. Same right-edge fade
      the boards use, on the same reasoning. */
   .tabs { position: relative; }
-  .tabwrap { position: relative; }
-  .tabwrap.more::after {
-    content: "";
-    position: absolute; top: 0; bottom: 1px; right: 0; width: 34px;
-    background: linear-gradient(to right, rgba(17, 22, 28, 0), var(--band));
-    pointer-events: none;
-  }
 
   /* ------------------------------------------------------------------------
      RECORDS MODE (MOBILE.md M2). A phone shows either a real table or
@@ -2183,62 +2046,6 @@ table.feed td.who .line { align-items: center; }
   .rail-nav::-webkit-scrollbar { display: none; }
   .rail-nav button { white-space: nowrap; padding: 13px 10px; flex: 0 0 auto; }
 
-  /* ------------------------------------------------------------------------
-     STACKED MATCHUP UNITS (MOBILE.md M7). The .h2h unit rotates: sides stack,
-     the vs spine becomes a horizontal divider carrying the margin — a
-     deliberate exception to the desktop's no-margin rule, because stacked
-     scores are ~60px apart — and one footer line names the matchup's top
-     scorer. Units stack in one column with an 11px gap.
-     ------------------------------------------------------------------------ */
-  .h2h-grid { grid-template-columns: 1fr; gap: 11px; }
-  /* any unit not rebuilt as .m (the matchup detail's solo unit) still stacks
-     rather than squeezing two sides into 362px */
-  .h2h { flex-direction: column; }
-  .h2h-spine { flex: 0 0 auto; padding: 4px 0; }
-  .h2h.m { display: block; }
-  .h2h.m:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
-  .h2h.m .h2h-row {
-    display: flex; align-items: baseline; gap: 8px;
-    padding: 8px 12px 7px; border-top: 3px solid transparent;
-  }
-  .h2h.m .h2h-row.win { border-top-color: var(--acc); }
-  .h2h.m .wl { flex: 0 0 14px; font: 700 12px/1 var(--cond); color: var(--dim); }
-  .h2h.m .h2h-row.win .wl { color: var(--acc); }
-  .h2h.m .nm {
-    flex: 1 1 auto; min-width: 0;
-    font: 600 14px/1.35 var(--sans); color: var(--txt2);
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  }
-  .h2h.m .h2h-row.win .nm { color: var(--txt); }
-  .h2h.m .pts { flex: 0 0 auto; font: 700 20px/1 var(--cond); font-variant-numeric: tabular-nums; }
-  .h2h.m .h2h-row.win .pts { color: var(--acc); }
-  .h2h.m .sub2 {
-    flex: 0 0 52px; text-align: right;
-    font: 600 12px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--dim);
-  }
-  .h2h.m .h2h-div {
-    display: flex; align-items: center; gap: 10px; padding: 0 12px;
-    font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-    color: var(--dim3);
-  }
-  .h2h.m .h2h-div .ln { flex: 1 1 auto; border-top: 1px solid var(--rule); }
-  .h2h.m .h2h-div .by { color: var(--dim); font-variant-numeric: tabular-nums; }
-  .h2h.m .h2h-top {
-    display: flex; align-items: baseline; gap: 6px; margin-top: 7px;
-    padding: 7px 12px 9px; border-top: 1px solid var(--hair);
-    font: 400 12px/1.4 var(--sans); color: var(--txt2);
-    white-space: nowrap; overflow: hidden;
-  }
-  .h2h.m .h2h-top .k {
-    flex: 0 0 auto;
-    font: 600 9.5px/1.4 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-    color: var(--dim);
-  }
-  .h2h.m .h2h-top .tnm { overflow: hidden; text-overflow: ellipsis; }
-  .h2h.m .h2h-top .tpts { flex: 0 0 auto; color: var(--dim); font-variant-numeric: tabular-nums; }
-
-  /* trade verdict: the two index deltas and the WAR delta as a 2-column grid */
-  .verdict-band .figs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 18px; }
   /* the basket asset's remove control, grown to a finger's target without
      growing the line */
   .rec-x {
@@ -2253,7 +2060,6 @@ table.feed td.who .line { align-items: center; }
      ------------------------------------------------------------------------ */
   .band { padding: 7px 14px; }
   .verdict { margin: 14px; }
-  .verdict-band { padding: 12px 14px 14px; }
 
   /* Section bands stack: label on line one, the note on line two — and the
      note steps up to --dim, because at 390px it is often the only thing
@@ -2284,22 +2090,6 @@ table.feed td.who .line { align-items: center; }
   .chiprow .chip { flex: 0 0 auto; }
 
 }
-
-/* ---- the link across to the beta shell (App.tsx Shell masthead) ----------
-   The masthead's own vocabulary — condensed, uppercase, tracked, no border, no
-   radius — so it reads as a peer of the freshness line beside it rather than as
-   a button someone added. It takes --dim at rest because it is not this board's
-   headline, and the accent only on hover, which is the affordance every other
-   link on the site uses. */
-.mast-beta {
-  font: 600 12px/1 var(--cond);
-  letter-spacing: .14em;
-  text-transform: uppercase;
-  color: var(--dim);
-  white-space: nowrap;
-}
-.mast-beta:hover { color: var(--acc); text-decoration: none; }
-.mast-beta:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
 /* ==========================================================================
    Player page on a phone (views/Player.tsx, `.split.phone`, ≤640px).
@@ -2455,12 +2245,3 @@ table.feed td.who .line { align-items: center; }
   .rtx-more { padding: 10px var(--pad); }
 }
 
-/* the NFL opponent beside a lineup name on the matchup page
-   (components/MatchupDetail Opp): a label, not a figure — condensed, tracked,
-   quiet. BYE takes --warn, the same ink a bye carries on the week grid. */
-.mopp {
-  margin-left: 2px;
-  font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim2); white-space: nowrap;
-}
-.mopp.bye { color: var(--warn); }

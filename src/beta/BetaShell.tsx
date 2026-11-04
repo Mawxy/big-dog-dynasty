@@ -1,4 +1,6 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode,
+} from "react";
 import {
   Navigate, Route, Routes, useLocation, useNavigate, useNavigationType, useParams,
 } from "react-router-dom";
@@ -6,12 +8,17 @@ import type { Drafts, Team as TeamT } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { useLeagueCaps } from "../lib/caps";
 import { rookieDraftRecorded } from "../lib/seasons";
-import { CLASSIC_SEG, leagueSeg, useLeague, useLeaguePath } from "../lib/context";
+import {
+  LAB_SEG, ShellContext, classicToBeta, isRid, leagueSeg, useLeague, type Look,
+} from "../lib/context";
 import { IdentityContext, useIdentityState } from "../lib/identity";
 import { rosterSeasonOf } from "../lib/league";
 import ErrorBoundary from "../components/ErrorBoundary";
 import QuickJump from "../components/QuickJump";
 import { RetryScope, Sheet, SheetRow, useBetaPath } from "./ui";
+import {
+  LiveThemeContext, applyLiveTheme, readLiveTheme, writeLiveTheme, type LiveThemeId,
+} from "./liveTheme";
 import League from "./screens/League";
 import Team from "./screens/Team";
 import Claim from "./screens/Claim";
@@ -45,6 +52,13 @@ const PlayoffMachine = lazy(() => import("./screens/PlayoffMachine"));
    its stylesheet and heat math ride their own chunk */
 const Defenses = lazy(() => import("./screens/Defenses"));
 const History = lazy(() => import("../views/History"));
+/* THE INDEX PAGES AND THE OWNER-KEYED FRANCHISE PAGE (Max, 2026-11-04): they
+   lived only on the classic board, and retiring it moved them in here, mounted
+   the same way Draft and History are, so DVI/CVI's derivation and a redraft
+   league's franchise page are still one tap away. */
+const Dvi = lazy(() => import("../views/Dvi"));
+const Cvi = lazy(() => import("../views/Cvi"));
+const FranchisePage = lazy(() => import("../components/FranchisePage"));
 const Insights = lazy(() => import("../views/Insights"));
 
 /**
@@ -83,11 +97,39 @@ const HUB_OF: Record<string, string> = {
  * sit OUTSIDE the board because the board's own `teams.json` (identity, the
  * Team tab, More) is one of the fetches that can drop.
  */
-export default function BetaShell() {
-  return <RetryScope><BetaBoard /></RetryScope>;
+export default function BetaShell({ look = "live" }: { look?: Look }) {
+  const { league } = useLeague();
+  // the live board answers the bare league address; a trial look, the lab
+  const base = `/${leagueSeg(league)}${look === "live" ? "" : `/${LAB_SEG}`}`;
+  const shell = useMemo(() => ({ base, look }), [base, look]);
+  const board = (
+    <ShellContext.Provider value={shell}>
+      <RetryScope><BetaBoard base={base} look={look} /></RetryScope>
+    </ShellContext.Provider>
+  );
+  // the lab brings its own themes (LabShell); only the live board wears these
+  return look === "live" ? <LiveThemes>{board}</LiveThemes> : board;
 }
 
-function BetaBoard() {
+/**
+ * THE LIVE BOARD'S APPEARANCE (beta/liveTheme.ts). The attribute is set before
+ * paint and removed on the way out, so crossing into the lab hands <html>
+ * over clean and the lab's own theme takes it. Original sets nothing.
+ */
+function LiveThemes({ children }: { children: ReactNode }) {
+  const [theme, setThemeState] = useState<LiveThemeId>(readLiveTheme);
+  useLayoutEffect(() => {
+    applyLiveTheme(theme);
+    return () => applyLiveTheme(null);
+  }, [theme]);
+  const value = useMemo(() => ({
+    theme,
+    setTheme: (t: LiveThemeId) => { writeLiveTheme(t); setThemeState(t); },
+  }), [theme]);
+  return <LiveThemeContext.Provider value={value}>{children}</LiveThemeContext.Provider>;
+}
+
+function BetaBoard({ base, look }: { base: string; look: Look }) {
   const { meta, league, leagues } = useLeague();
   const loc = useLocation();
   const nav = useNavigate();
@@ -111,14 +153,16 @@ function BetaBoard() {
   const teams = teamsQ.data;
   const identity = useIdentityState(league.key || "default", teams);
 
-  // THE BARE LEAGUE ADDRESS (Max, 2026-09-02): this shell is the board; the
-  // classic one lives under /<league>/classic
-  const base = `/${leagueSeg(league)}`;
-  // the segment after the league — "" only on the index, which is a redirect.
-  // The league's own segment is not always `base`: a numeric-key address opens
-  // the same league (App's Shell resolves key or alias), so it is stripped by
-  // position, not by matching the alias.
-  const seg = loc.pathname.split("/").filter(Boolean)[1] ?? "";
+  // `base` is this mount's address: the bare league for the live board,
+  // /<league>/lab for a trial look.
+  // The segment after it — "" only on the index, which is a redirect. The
+  // league's own segment is not always the alias: a numeric-key address opens
+  // the same league, so it is stripped by position, not by matching the alias.
+  const lab = look !== "live";
+  const seg = loc.pathname.split("/").filter(Boolean)[lab ? 2 : 1] ?? "";
+  // the same screen on the other mount, query intact: the masthead's way across
+  const across = `/${leagueSeg(league)}${lab ? "" : `/${LAB_SEG}`}${
+    loc.pathname.split("/").slice(lab ? 3 : 2).join("/") ? `/${loc.pathname.split("/").slice(lab ? 3 : 2).join("/")}` : ""}${loc.search}`;
 
   /* ---- the index is a REDIRECT, not a screen ----------------------------
      A reader who has claimed a franchise opens on his own roster; one who has
@@ -245,7 +289,7 @@ function BetaBoard() {
 
   return (
     <IdentityContext.Provider value={identity}>
-      <div className="v3">
+      <div className={lab ? `v3 ${look}` : "v3"}>
         <header className={`v3-mast${finding ? " finding" : ""}`}>
           {/* The league name is on every screen. On the League tab it is the
               switcher (decision #6 — the sheet IS the user level, which is what
@@ -261,19 +305,16 @@ function BetaBoard() {
           ) : (
             <span className="lg flat">{league.name}</span>
           )}
-          <span className="tag">War Board Beta</span>
+          <span className="tag">{lab ? "War Board" : "War Board Beta"}</span>
           <MastSearch open={finding} onToggle={setFinding} />
-          {/* THE WAY BACK, mirroring the classic masthead's "Beta board →" in
-              the same corner, so a reader who crossed over from the top right
-              finds the return in the top right. Desktop only (beta.css): a
-              375px masthead holding a league name, a tag and the Search word
-              has no room for a fourth thing, and More already carries the
-              "Classic War Board" row for the phone. */}
-          <a className="classic desk" href={`#/${leagueSeg(league)}/${CLASSIC_SEG}`}
+          {/* THE WAY ACROSS, desktop only (beta.css): the same screen on the
+              other mount, so live and lab compare address for address. A
+              375px masthead has no room for it; More carries the row. */}
+          <a className="classic desk" href={`#${across}`}
             onClick={e => {
               if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              e.preventDefault(); nav(`/${leagueSeg(league)}/${CLASSIC_SEG}`);
-            }}>Classic board →</a>
+              e.preventDefault(); nav(across);
+            }}>{lab ? "← Live board" : "C4 trial →"}</a>
         </header>
 
         {/* Every screen below a tab needs an on-screen way back: an iOS web clip
@@ -347,14 +388,18 @@ function BetaBoard() {
                 <Route path="playoffs" element={<PlayoffMachine />} />
                 <Route path="recaps/:id" element={<Recaps />} />
                 <Route path="insights" element={<Insights />} />
-                {/* THE CLASSIC BOARD'S OLD BARE ADDRESSES. Every link anyone
-                    shared before 2026-09-02 named a classic view at
-                    /<league>/<view>, which is this shell's address now; the
-                    views this shell has no screen for forward to /classic
-                    with their path intact, so a bookmarked standings table or
-                    franchise page still opens. */}
+                <Route path="dvi" element={<Dvi />} />
+                <Route path="cvi" element={<Cvi />} />
+                {/* an owner-keyed (redraft) franchise; a roster id redirects
+                    to the Team screen, which reads that shape */}
+                <Route path="franchise/:fkey" element={<FranchiseRoute base={base} />} />
+                <Route path="franchise/:fkey/:tab" element={<FranchiseRoute base={base} />} />
+                {/* THE CLASSIC BOARD'S OLD BARE ADDRESSES. Every link shared
+                    before 2026-09-02 named a classic view at /<league>/<view>;
+                    the views this shell has no screen of that name for forward
+                    to the matching one, path and query intact. */}
                 {CLASSIC_ONLY.map(seg => (
-                  <Route key={seg} path={`${seg}/*`} element={<ToClassic />} />
+                  <Route key={seg} path={`${seg}/*`} element={<ToBeta base={base} lab={lab} />} />
                 ))}
                 <Route path="*" element={<Navigate to={base} replace />} />
               </Routes>
@@ -363,7 +408,7 @@ function BetaBoard() {
         </main>
 
         <nav className={`v3-nav${barAway ? " away" : ""}`} aria-label="Sections">
-          <div className="railtop">{meta.league}<b>War Board Beta</b></div>
+          <div className="railtop">{meta.league}<b>{lab ? "War Board" : "War Board Beta"}</b></div>
           {tabs.map(t => {
             const to = `${base}/${t.id}`;
             const on = active === t.id;
@@ -461,20 +506,14 @@ function MastSearch({ open, onToggle }: {
   // QuickJump builds the classic board's addresses; rebasing them here is what
   // keeps a jump inside this shell. Franchise pages live at team/:rid in it.
   const bp = useBetaPath();
-  const lp = useLeaguePath();
   const path = useCallback((p: string) => {
     const fkey = /^\/franchise\/([^/]+)$/.exec(p)?.[1];
-    /* A FRANCHISE KEY IS NOT ALWAYS A ROSTER ID. It is the roster_id in a
-       dynasty league and the owner's Sleeper user_id in a redraft or keeper one
-       (build_site_data.py: an inherited roster slot is a new franchise). This
-       shell's Team screen looks a franchise up strictly by roster_id, so
-       rebasing an 18-digit user_id onto /team/<id> landed every redraft team
-       hit on "No franchise …". Those keep the classic franchise page, which
-       knows how to read either shape — leaving the shell is the honest
-       outcome when the shell has no such screen. */
-    if (fkey != null && !/^\d{1,3}$/.test(fkey)) return lp(p);
-    return bp(fkey != null ? `/team/${fkey}` : p);
-  }, [bp, lp]);
+    /* A FRANCHISE KEY IS NOT ALWAYS A ROSTER ID: a roster_id in a dynasty
+       league, the owner's Sleeper user_id in a redraft one. classicToBeta
+       sends the first to /team/<rid> and keeps the second on the in-shell
+       franchise page, which reads either shape. */
+    return bp(fkey != null ? classicToBeta(p) : p);
+  }, [bp]);
   return (
     // Escape bubbles up from the input (QuickJump closes its list and lets the
     // event through), so one press closes the list and the field together.
@@ -550,18 +589,26 @@ function DraftDetailRoute() {
   return <DraftDetail key={season} />;
 }
 
-/** classic views with no beta screen: their old bare addresses forward */
-const CLASSIC_ONLY = [
-  "home", "stats", "value", "teams", "standings", "franchise", "weekly", "draft",
-  "trades", "dvi", "cvi", "playoffs",
-];
-
-function ToClassic() {
-  const { league } = useLeague();
-  const loc = useLocation();
-  const seg = leagueSeg(league);
-  // whichever spelling of the league the address used, key or alias
-  const rest = loc.pathname.replace(/^\/[^/]+/, "");
-  return <Navigate replace to={{ pathname: `/${seg}/${CLASSIC_SEG}${rest}`, search: loc.search }} />;
+function FranchiseRoute({ base }: { base: string }) {
+  const { players } = useLeague();
+  const p = useParams();
+  const fkey = p.fkey ?? "";
+  if (isRid(fkey)) return <Navigate replace to={`${base}/team/${fkey}`} />;
+  return <FranchisePage key={fkey} fkey={fkey} players={players} tab={p.tab} />;
 }
 
+/** classic first segments with no beta screen of that name: their old bare
+ *  addresses forward to the matching screen. `teams` and `playoffs` are here
+ *  AND have screens — the exact routes outrank these splats, so /teams is the
+ *  leaderboard and /teams/2025 that year's season. */
+const CLASSIC_ONLY = [
+  "home", "stats", "value", "teams", "standings", "weekly", "draft",
+  "trades", "playoffs",
+];
+
+function ToBeta({ base, lab }: { base: string; lab: boolean }) {
+  const loc = useLocation();
+  // strip the league (and the lab segment) by position, key or alias alike
+  const rest = loc.pathname.split("/").slice(lab ? 3 : 2).join("/");
+  return <Navigate replace to={`${base}${classicToBeta(`/${rest}${loc.search}`)}`} />;
+}

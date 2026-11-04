@@ -7,7 +7,7 @@
      insets are 0, so the beta shell's bottom bar sat flush on the screen's
      rounded corners and its outer two tabs were half a thumb from unreachable
      on an iPhone web app (Max, 2026-09-02). Every fixed/sticky edge pads by
-     the inset: the beta masthead and bar, the classic masthead, the body. -->
+     the inset: the beta masthead and bar, the body. -->
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Big Dog Dynasty — WAR Board</title>
 <!-- Inline SVG mark in public/ (Vite copies it into dist and rewrites the href
@@ -21,9 +21,40 @@
 <meta name="apple-mobile-web-app-title" content="WAR Board">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0c0f13">
+<!-- THE LAB'S THEME, BEFORE FIRST PAINT (src/beta/lab/C4_SPEC.md §2.1). On a
+     redesign-lab address (#/<league>/lab/...) the saved theme goes on <html>
+     before any stylesheet applies, so a light theme never flashes dark. Any
+     other address is the live board, which gets an attribute only when its
+     own opt-in theme is saved (Original sets none). Keep the --deep values in
+     step with src/beta/lab/theme.ts and the token blocks in src/style.css. -->
+<script>
+(function () {
+  try {
+    var seg = (location.hash.replace(/^#/, "").split("?")[0].split("/")[2] || "");
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (seg !== "lab") {
+      /* THE LIVE BOARD'S THEME (src/beta/liveTheme.ts): opt-in, saved under
+         its own key. Original sets no attribute. Keep these --bg values in
+         step with liveTheme.ts and the live-* blocks in style.css. */
+      var bg = { "live-midnight": "#09111e", "live-ember": "#0e0b09", "live-royal": "#0c0b21",
+                 "live-pressbox": "#f7f5f0", "live-chalk": "#f5f7fa", "live-clay": "#f8f1e8" };
+      var lt = localStorage.getItem("warboard.v3.livetheme");
+      if (!bg[lt]) return;
+      document.documentElement.setAttribute("data-theme", lt);
+      meta.setAttribute("content", bg[lt]);
+      return;
+    }
+    var deep = { original: "#05070a", newsprint: "#161616", ringside: "#04070f", vintage: "#1c2a44" };
+    var t = localStorage.getItem("warboard.v3.theme");
+    if (!deep[t]) t = "original";
+    document.documentElement.setAttribute("data-theme", t);
+    meta.setAttribute("content", deep[t]);
+  } catch (e) { /* private mode: Original */ }
+})();
+</script>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Saira+Condensed:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=Saira+Condensed:wght@500;600;700;800&display=swap" rel="stylesheet">
 <!-- The BETA shell's three faces: Barlow Condensed (labels), Public Sans
      (names, prose) and IBM Plex Mono, which every figure on a beta board is
      set in. One request for the three, alongside the classic board's own link

@@ -16,7 +16,7 @@ import { fmtWar, sgnWar } from "../beta/ui";
 import { fmtUsage, POS_USAGE, USAGE_LABEL, usageOf, type UsageKey, type UsagePhase } from "../lib/usage";
 import { useModel } from "../lib/model";
 import { clubName, latestSeasonOf, pInfo, POS_COLOR, REG_WEEKS, rosterSeasonOf } from "../lib/league";
-import { leagueSeg, useLeague } from "../lib/context";
+import { useLeague, useShellBase } from "../lib/context";
 import { useLeagueCaps } from "../lib/caps";
 import { RouteLink } from "../components/RouteLink";
 import { RECENT_NOTE, RecentFigs, RecentRows } from "../components/RecentTrades";
@@ -92,6 +92,8 @@ const NO_ABSENCES: Record<string, string> = {};
  */
 export default function Player({ pid }: { pid: string }) {
   const { meta, players, league } = useLeague();
+  // this mount's address (live board or lab); the full trades page is in-shell
+  const shellBase = useShellBase();
   const nav = useNavigate();
   const [shard, setShard] = useState<PlayerShard | null | undefined>(undefined);
   /** the usage table's window: the league's regular season, its bracket weeks, or both */
@@ -1225,7 +1227,7 @@ export default function Player({ pid }: { pid: string }) {
                         and 539 rows unfolding under a section is not a
                         section. The count is his real count. */}
                     {recent.n > RECENT_PREVIEW && (
-                      <RouteLink to={`/${leagueSeg(league)}/player/${pid}/trades`} className="rtx-more">
+                      <RouteLink to={`${shellBase}/player/${pid}/trades`} className="rtx-more">
                         View all {recent.n} →
                       </RouteLink>
                     )}

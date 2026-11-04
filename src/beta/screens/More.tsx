@@ -1,11 +1,13 @@
-import { Fragment, useMemo, useState, type ReactNode } from "react";
+import { Fragment, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { Drafts, Insights, Team, Values } from "../../lib/types";
 import { MATRIX_CURVES, type MatrixCurve } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
 import { rookieDraftRecorded } from "../../lib/seasons";
 import { hardRefresh } from "../../lib/data";
-import { CLASSIC_SEG, leagueSeg, useLeague } from "../../lib/context";
+import { LAB_SEG, leagueSeg, useLeague, useLook } from "../../lib/context";
+import { THEMES, useTheme } from "../lab/theme";
+import { LIVE_THEMES, useLiveTheme } from "../liveTheme";
 import { latestSeasonOf, rosterSeasonOf } from "../../lib/league";
 import { useIdentity } from "../../lib/identity";
 import { MODEL_NOTE, splitCurve, STREAM_NOTE, useModel } from "../../lib/model";
@@ -122,12 +124,14 @@ export default function More() {
   const [openModel, setOpenModel] = useState(false);
   const [openMeth, setOpenMeth] = useState(false);
 
-  /* THE CLASSIC BOARD'S OWN BASE. Not `useBetaPath` and not a bare "/": these
-     three rows leave the shell on purpose, and the league segment has to
-     survive the trip or the reader lands on whichever league the registry
-     defaults to. `leagueSeg` is the same function the classic router resolves
-     against, so the two can't drift. */
-  const classic = `/${leagueSeg(league)}/${CLASSIC_SEG}`;
+  /* THE OTHER MOUNT. The live board and the lab are the same screens under
+     two looks; this row crosses between them and keeps the league segment,
+     so the reader lands on the league they are in. */
+  const look = useLook();
+  const lab = look !== "live";
+  const theme = useTheme();
+  const liveTheme = useLiveTheme();
+  const across = `/${leagueSeg(league)}${lab ? "" : `/${LAB_SEG}`}/more`;
 
   const mine = teams?.find(t => t.roster_id === ident.rid);
 
@@ -287,24 +291,21 @@ export default function More() {
         <Row to={betaPath("/trade?scope=history")} name="Transaction ledger"
           sub="Every trade in league history, priced on the day and scored since"
           state={tradeState} />
-        {/* THE TWO INDEX PAGES STAY ON THE CLASSIC BOARD, and the sub-line says
-            so rather than letting the tap surprise anyone. They carry the
-            per-player component counts and the full derivation — a phone
-            leaderboard has room for the figure and nothing that qualifies it,
-            so rebuilding them here would have published a worse version of a
-            page that already exists. */}
-        <Row to={`${classic}/dvi`} name="DVI methodology"
-          sub="Dynasty Value Index — components and derivation, on the classic board"
+        {/* THE TWO INDEX PAGES, mounted in this shell since the classic board
+            was retired (2026-11-04). They carry the per-player component counts
+            and the full derivation, which a phone leaderboard has no room for. */}
+        <Row to={betaPath("/dvi")} name="DVI methodology"
+          sub="Dynasty Value Index — components and derivation"
           state={rated} />
-        <Row to={`${classic}/cvi`} name="CVI methodology"
-          sub="Contender Value Index — components and derivation, on the classic board"
+        <Row to={betaPath("/cvi")} name="CVI methodology"
+          sub="Contender Value Index — components and derivation"
           state={rated} />
         {/* THE GLOSSARY, opened in place rather than linked somewhere else.
             The two rows above cover DVI and CVI in full; this covers the four
             figures that have no page of their own — WAR, projected WAR, picks
             and market — and gives all six in one paragraph each. The honest
-            alternatives were the classic board's method paragraph, which lives
-            in `SiteFooter` with no anchor to link to, or a new beta route.
+            alternatives were the classic board's method paragraph (its footer,
+            since retired, had no anchor to link to) or a new beta route.
             Both cost more than the answer is long. */}
         <Row onTap={() => setOpenMeth(v => !v)} expanded={openMeth}
           name="The figures, defined"
@@ -332,6 +333,62 @@ export default function More() {
         )}
       </div>
 
+      {/* APPEARANCE — the lab's four themes (C4_SPEC §2.1). Lab only: the live
+          board has one look, and a picker there would offer themes it was
+          never drawn for. A tap applies instantly; nothing reloads. */}
+      {theme && (
+        <>
+          <Band label="Appearance" note="Four themes for the trial look — saved on this device" />
+          <div className="v3-more" role="radiogroup" aria-label="Theme">
+            {THEMES.map(t => {
+              const on = theme.theme === t.id;
+              return (
+                <button key={t.id} type="button" role="radio" aria-checked={on}
+                  className={`c4-theme${on ? " on" : ""}`}
+                  onClick={() => theme.setTheme(t.id)}>
+                  <span className="mk">{on ? "ON" : ""}</span>
+                  <span>
+                    <span className="nm">{t.name}</span>
+                    <span className="mt">{t.note}</span>
+                  </span>
+                  <span className="sw" aria-hidden="true">
+                    {t.swatch.map((c, i) => <i key={i} style={{ "--c": c } as CSSProperties} />)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
+      {/* APPEARANCE ON THE LIVE BOARD (beta/liveTheme.ts). Opt-in: Original is
+          the board as it ships and stays the default. Same row anatomy as the
+          status rows, with the swatch strip in the figure slot; the selected
+          row carries the rank spine rather than a second accent figure, so the
+          projection model stays this screen's one gold value. */}
+      {liveTheme && (
+        <>
+          <Band label="Appearance" note="Seven palettes, three dark and three light — saved on this device" />
+          <div className="v3-more" role="radiogroup" aria-label="Theme">
+            {LIVE_THEMES.map(t => {
+              const on = liveTheme.theme === t.id;
+              return (
+                <button key={t.id} type="button" role="radio" aria-checked={on}
+                  className={`mox-row mox-theme${on ? " on" : ""}`}
+                  onClick={() => liveTheme.setTheme(t.id)}>
+                  <span className="mox-nm">
+                    <span className="mox-n1">{t.name}</span>
+                    <span className="mox-n2">{t.note}</span>
+                  </span>
+                  <span className="mox-st">{on ? "On" : t.dark ? "Dark" : "Light"}</span>
+                  <span className="mox-sw" aria-hidden="true">
+                    {t.swatch.map((c, i) => <i key={i} style={{ "--c": c } as CSSProperties} />)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
       <Band label="This board" note="Settings, provenance, and the way back" />
       <div className="v3-more">
         {/* The one row on this screen whose figure is gold: it is the only
@@ -400,19 +457,24 @@ export default function More() {
         <Row onTap={() => { void hardRefresh(); }} name="Data freshness"
           sub="Rebuilt nightly, 06:00 UTC — tap to force a fresh copy, bypassing this device's cache"
           state={meta.updated} />
-        {/* THE WAY BACK. A plain row, deliberately: this is how a beta reader
-            returns to the normal site, and the one destination on the screen
-            that must never look like a setting or an experiment. It keeps the
-            league segment, so it lands on the same league the reader is in. */}
-        <Row to={classic} name="Classic War Board"
-          sub="The full-width original — same nightly data, same figures, more of them"
-          state="The original board" />
+        {/* THE WAY ACROSS. A plain row, deliberately: the lab is a place, not
+            a setting, and the live board is the one destination here that must
+            never look like an experiment. */}
+        {lab ? (
+          <Row to={across} name="Live War Board"
+            sub="The board as it ships — same screens, same nightly data, its own look"
+            state="Leave the lab" />
+        ) : (
+          <Row to={across} name="Redesign lab"
+            sub="C4 “Tale of the Tape” — the same screens in a trial look, four themes"
+            state="Trial" />
+        )}
       </div>
 
       <div className="tnote screen">
-        This is the beta shell, a phone-first prototype mounted beside the classic board.
-        Both read the same nightly data — nothing here computes a figure the other screen
-        would disagree with. The Drafts row names the rookie class rather than counting
+        {lab
+          ? "This is the redesign lab: the live board's screens, word for word, in a trial look. Both read the same nightly data — nothing here computes a figure the live board would disagree with."
+          : "This is the phone-first War Board. The redesign lab mounts the same screens in a trial look; both read the same nightly data, so nothing there computes a figure this board would disagree with."} The Drafts row names the rookie class rather than counting
         down to it: the nightly pull records picks once they are made and never carries
         the draft's start time, so there is no date on this deploy to count against.
       </div>

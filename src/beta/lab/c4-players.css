@@ -1,0 +1,657 @@
+/* ==========================================================================
+   C4 LAYER — the PLAYERS group (C4_SPEC.md §5 "Players" and "Player").
+
+   Players (screens/Players.tsx + players.css), the player page
+   (views/Player.tsx, whose classic rules live in style.css), Movers, Trends,
+   Defenses (+ defenses.css) and a player's Trades page.
+
+   Every rule is scoped under `.v3.c4`. NO HEX OR RGB IN THIS FILE: tokens only.
+   Screen scoping is done with :has() on markup each screen already renders,
+   so a rule here cannot reach another group's screen:
+     Players      main:has(> .plx-row1)          (the position-chip row)
+     Player       .split[class*="pos-mark-"]     (Player.tsx's split, alone)
+     Movers       main:has(> .v3-lens):has(> table.lgx-grid)
+     Trends       a.mox-row[href*="/movers/"]
+     Defenses     .dvp-tbl / .dvp-legend         (already screen-prefixed)
+     Trades page  main:has(> .v3-head > .ptx-back)
+   ========================================================================== */
+
+
+/* ==========================================================================
+   PLAYERS
+   ========================================================================== */
+
+/* ---- Value / Stats segmented, FIND · FILTER on its right (§4.6) ----------
+   Players.tsx wraps the two in `.plx-c4scope` in the lab only. */
+.v3.c4 .plx-c4scope {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center;
+  column-gap: 10px;
+  padding: 12px 12px 0;
+}
+.v3.c4 .plx-c4scope .v3-scopectl {
+  --s: 7px;
+  min-width: 0; margin-right: 2px;
+  display: flex; gap: 0; padding: 0;
+}
+/* the Stats segment carries the season and the phase on its face, so it
+   takes the width; past the row it ellipsizes rather than pushing FILTER off */
+.v3.c4 .plx-c4scope .v3-scopectl button {
+  flex: 1 1 auto; height: 36px; min-width: 0;
+  padding: 0 calc(var(--s) + 8px);
+  margin: 0 0 0 calc(4px - var(--s));
+  border: 0;
+  background: var(--slab-lo); color: var(--slab-lo-ink);
+  font: 700 13px/1 var(--cond); letter-spacing: .08em; text-transform: uppercase;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  clip-path: polygon(var(--s) 0, 100% 0, 100% 100%, 0 100%);
+}
+.v3.c4 .plx-c4scope .v3-scopectl button:first-child { flex: 1 0 auto; }
+.v3.c4 .plx-c4scope .v3-scopectl button:first-child {
+  margin-left: 0;
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%);
+}
+.v3.c4 .plx-c4scope .v3-scopectl button.on {
+  background: var(--slab-hi); color: var(--slab-hi-ink); font-weight: 800;
+}
+.v3.c4 .plx-c4scope .v3-scopectl button:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.v3.c4 .plx-c4scope .v3-scopectl .caret { margin-left: 6px; opacity: 1; }
+/* links on the board take the accent (§2.3.6); no underline, the lit one
+   carries the text-tab rule */
+.v3.c4 .plx-txtbtn {
+  border: 0; padding: 6px 0;
+  background: none; color: var(--acc);
+  font: 700 13px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+}
+.v3.c4 .plx-txtbtn:hover { color: var(--txt); }
+.v3.c4 .plx-txtbtn.on { color: var(--acc); box-shadow: inset 0 -2px 0 var(--acc); }
+
+/* ---- the chip rows ------------------------------------------------------- */
+.v3.c4 main:has(> .plx-row1) .plx-filters { padding: 10px 12px 0; gap: 0; }
+.v3.c4 .plx-filters .chip { flex: 0 0 auto; height: 32px; font: 700 14px/1 var(--cond); letter-spacing: .1em; }
+/* players.css fills a lit chip with --sel; in C4 the lit chip is the high slab */
+.v3.c4 .plx-filters .chip.on {
+  background: var(--slab-hi); border: 0; color: var(--slab-hi-ink); font-weight: 800;
+}
+.v3.c4 .plx-filters .chip:disabled { opacity: .45; }
+/* the position chips fill the row (34px, ALL in the high slab), each label in
+   its position's mark tone while it is not the one selected */
+.v3.c4 .plx-row1 .chip { flex: 1 1 0; height: 34px; font-weight: 800; }
+.v3.c4 .plx-row1 .chip:last-child { margin-right: 0; }
+.v3.c4 .plx-row1 .chip:nth-child(2):not(.on) { color: var(--qb-mark); }
+.v3.c4 .plx-row1 .chip:nth-child(3):not(.on) { color: var(--rb-mark); }
+.v3.c4 .plx-row1 .chip:nth-child(4):not(.on) { color: var(--wr-mark); }
+.v3.c4 .plx-row1 .chip:nth-child(5):not(.on) { color: var(--te-mark); }
+/* the key in front of the Show / Weeks rows */
+.v3.c4 .plx-filters2 .plx-fk {
+  min-width: 44px; padding-right: 4px;
+  font: 600 11px/1 var(--cond); letter-spacing: .16em; color: var(--dim);
+}
+.v3.c4 .plx-wkrow .plx-wkrange { gap: 4px; margin-left: 8px; }
+.v3.c4 .plx-wkpick {
+  height: 32px; padding: 0 6px;
+  background: var(--slab-lo); color: var(--slab-lo-ink);
+  border: 0; border-radius: 0;
+  font: 700 13px/1 var(--cond); letter-spacing: .08em;
+}
+.v3.c4 .plx-wkto { font: 600 11px/1 var(--cond); letter-spacing: .16em; color: var(--dim); }
+/* the search row and the active-criteria chips */
+.v3.c4 .plx-find { padding-top: 10px; gap: 12px; }
+.v3.c4 .plx-find input[type="search"] { height: 34px; margin-left: 0; padding: 0 10px; font: 400 13px/1 var(--sans); }
+.v3.c4 .plx-filters3 .plx-fchip .x { color: var(--slab-hi-ink); }
+
+/* ---- the sort strip (§4.6): full-width --deep, equal cells, the lit one a
+   solid accent block. Not slabs: it is the header row of the board. */
+.v3.c4 .plx-sort {
+  margin-top: 12px;
+  background: var(--deep);
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+}
+.v3.c4 .plx-sort .v3-lens { padding: 0; gap: 0; background: none; }
+.v3.c4 .plx-sort .v3-lens button,
+.v3.c4 .plx-sort .v3-lens button:first-child,
+.v3.c4 .plx-sort .v3-lens button:last-child {
+  flex: 1 0 0; min-width: max-content; height: 38px;
+  margin: 0; padding: 0 12px;
+  border: 0; clip-path: none;
+  background: none; color: var(--deep-dim);
+  font: 700 14px/1 var(--cond); letter-spacing: .1em;
+  overflow: visible;
+}
+.v3.c4 .plx-sort .v3-lens button:hover { color: var(--deep-ink); }
+.v3.c4 .plx-sort .v3-lens button.on { background: var(--acc); color: var(--acc-ink); font-weight: 800; }
+/* the direction toggle: a fixed cell at the strip's left, on the bar */
+.v3.c4 .plx-dir {
+  width: 38px;
+  border-right: 1px solid var(--rule);
+  color: var(--deep-acc);
+  font: 800 14px/1 var(--cond);
+}
+.v3.c4 .plx-dir:focus-visible { outline-color: var(--deep-acc); }
+
+/* ---- the header under the strip: state line + note, KEY on the right ----
+   On the board, not a bar: the strip above is already the bar. `.plx-bandr`
+   steps aside so the note(s) and the KEY land in the band's own grid. */
+.v3.c4 .band:has(.plx-keybtn) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 12px; row-gap: 0; align-items: center;
+  margin-top: 0;
+  padding: 9px 16px 7px 12px;
+  background: none; border: 0;
+}
+.v3.c4 .band:has(.plx-keybtn) .band-label {
+  grid-column: 1;
+  font: 700 14px/1.2 var(--cond); letter-spacing: .2em; color: var(--txt);
+}
+.v3.c4 .band:has(.plx-keybtn) .plx-bandr { display: contents; }
+.v3.c4 .band:has(.plx-keybtn) .band-note {
+  grid-column: 1; margin-top: 2px;
+  font: 400 11.5px/1.4 var(--sans); color: var(--dim);
+}
+.v3.c4 .band:has(.plx-keybtn) .band-note.plx-hint { display: none; }
+@media (min-width: 900px) {
+  .v3.c4 .band:has(.plx-keybtn) .band-note.plx-hint { display: block; }
+}
+.v3.c4 .band:has(.plx-keybtn) .plx-keybtn {
+  grid-column: 2; grid-row: 1 / span 3; align-self: center;
+  min-height: 28px; padding: 0 9px;
+  background: none; border: 1px solid var(--dim); color: var(--dim);
+  font: 700 12px/1 var(--cond); letter-spacing: .14em;
+}
+.v3.c4 .band:has(.plx-keybtn) .plx-keybtn:hover { color: var(--txt); border-color: var(--txt); }
+.v3.c4 .band:has(.plx-keybtn) .plx-keybtn.on { color: var(--acc); border-color: var(--acc); }
+/* the key itself */
+.v3.c4 .plx-keylist { padding: 12px 16px 14px 12px; border-top: 1px solid var(--rule); }
+.v3.c4 .plx-keylist dt { font: 700 11px/1 var(--cond); letter-spacing: .16em; color: var(--dim); }
+.v3.c4 .plx-keylist dd { font: 400 12.5px/1.5 var(--sans); color: var(--txt2); }
+
+/* ---- the rows (§4.5) ------------------------------------------------------ */
+.v3.c4 .plx-tbl { border-top: 1px solid var(--hair); }
+.v3.c4 .plx-tbl tbody tr.tap { height: 48px; }
+.v3.c4 .plx-tbl .idc-n { font-size: 17px; }
+/* a leaderboard: ranks 1–3 on the high slab, wherever a drawer has opened */
+.v3.c4 .plx-tbl tbody tr:nth-child(-n+3 of .tap) td.sp .rank {
+  background: var(--slab-hi); color: var(--slab-hi-ink);
+}
+.v3.c4 .plx-tbl td.plx-lead { padding-top: 5px; padding-bottom: 5px; }
+.v3.c4 .plx-tbl td.plx-lead .f.hd { font: 800 20px/1 var(--cond); color: var(--txt); }
+.v3.c4 .plx-micro { gap: 8px; margin-top: 3px; }
+.v3.c4 .plx-micro .o { font: 600 12px/1 var(--cond); letter-spacing: .06em; color: var(--dim); }
+.v3.c4 .plx-micro .o b { margin-left: 3px; font: 600 12px/1 var(--cond); color: var(--txt); }
+.v3.c4 .plx-micro .o .nul { color: var(--dim3); }
+.v3.c4 .plx-marks .hmark-x { font: 700 10px/1 var(--cond); color: var(--dim); }
+/* WAR is WAR ink, never the accent (§2.2) — lead, micro line and column */
+.v3.c4 .plx-tbl td.plx-lead.plx-k-war .f.hd,
+.v3.c4 .plx-micro .o.plx-k-war b,
+.v3.c4 .plx-tbl td.plx-k-war .f { color: var(--war-ink); }
+/* desktop header rows */
+.v3.c4 .plx-tbl thead tr.plx-grp th { background: var(--deep); color: var(--deep-dim); font: 600 11px/21px var(--cond); letter-spacing: .22em; }
+
+/* ---- the drawer ----------------------------------------------------------- */
+.v3.c4 .plx-draw { border-top: 0; box-shadow: inset 0 3px 0 var(--acc); padding: 14px 16px 14px 12px; }
+.v3.c4 .plx-draw .hd .nm { font: 700 17px/1.1 var(--cond); letter-spacing: .03em; text-transform: uppercase; }
+.v3.c4 .plx-draw .hd .mt { font: 400 11.5px/1.3 var(--sans); color: var(--dim); }
+.v3.c4 .plx-figs .k { font: 700 11px/1 var(--cond); letter-spacing: .14em; color: var(--dim); }
+.v3.c4 .plx-figs .v { font: 800 18px/1 var(--cond); }
+.v3.c4 .plx-figs .v.w { font: 600 13.5px/1.25 var(--sans); }
+.v3.c4 .plx-figs .s { font: 400 10.5px/1.35 var(--sans); color: var(--dim); }
+.v3.c4 .plx-weeks .k, .v3.c4 .plx-spread .k, .v3.c4 .plx-honors .k {
+  font: 700 11px/1 var(--cond); letter-spacing: .14em; color: var(--dim);
+}
+.v3.c4 .plx-honors .lb, .v3.c4 .plx-draw .plx-note { color: var(--dim); }
+.v3.c4 .plx-honors .hmark-x { font: 700 11px/1 var(--cond); color: var(--dim); }
+.v3.c4 .plx-spread .v { font: 600 10px var(--cond); fill: var(--dim); }
+.v3.c4 .plx-spread .v.dim { fill: var(--dim); }
+.v3.c4 .plx-go {
+  padding: 9px 14px;
+  border: 1px solid var(--acc); color: var(--acc);
+  font: 700 13px/1 var(--cond); letter-spacing: .12em;
+}
+
+/* ---- the filter sheet ------------------------------------------------------ */
+.v3.c4 .plx-vgrp { font: 600 12px/1 var(--cond); letter-spacing: .22em; color: var(--dim); }
+.v3.c4 .fsx-note, .v3.c4 .fsx-row .fsx-def { color: var(--dim); }
+.v3.c4 .fsx-val, .v3.c4 .fsx-op button { font-family: var(--cond); font-weight: 700; }
+.v3.c4 .fsx-add, .v3.c4 .fsx-clear { font: 700 12px/1 var(--cond); letter-spacing: .14em; }
+
+/* ---- the notes under the board: one --band callout, --rule-2 stripe -------
+   The "top 300 of N" line (when there is one) and the key paragraph are two
+   blocks in the markup; drawn as one callout, the first in --txt2. */
+.v3.c4 main:has(> .plx-row1) > .tnote.screen {
+  margin: 14px 12px 16px;
+  padding: 10px 12px 10px 18px;
+  background: var(--band);
+  box-shadow: inset 6px 0 0 var(--rule-2);
+  font: 400 12px/1.5 var(--sans); color: var(--dim);
+}
+.v3.c4 main:has(> .plx-row1) > .tnote.screen:has(+ .tnote.screen) {
+  margin-bottom: 0; padding-bottom: 4px; color: var(--txt2);
+}
+.v3.c4 main:has(> .plx-row1) > .tnote.screen + .tnote.screen { margin-top: 0; padding-top: 4px; }
+
+
+/* ==========================================================================
+   PLAYER — views/Player.tsx, mounted in the shell. Its rules are style.css's
+   classic ones, so every override is scoped to its split.
+   ========================================================================== */
+
+.v3.c4 main:has(> .board .split[class*="pos-mark-"]) { position: relative; }
+.v3.c4 main:has(> .board .split[class*="pos-mark-"]) > .board {
+  margin: 0 0 24px; border: 0; background: none;
+}
+
+/* ---- ← BACK + jump search, one row ----------------------------------------
+   The back control lives in the phone header below; it is lifted into the
+   title row, left of the screen title, which steps right to make room. */
+.v3.c4 main:has(> .board .split.phone[class*="pos-mark-"]) > .screen-head {
+  min-height: 52px; flex-wrap: nowrap;
+  padding: 10px 12px 0 80px;
+}
+.v3.c4 main:has(> .board .split[class*="pos-mark-"]) > .screen-head .screen-title {
+  font: 600 12px/1 var(--cond); letter-spacing: .22em; color: var(--dim);
+}
+.v3.c4 main:has(> .board .split.phone[class*="pos-mark-"]) > .screen-head .screen-title {
+  padding-left: 10px; border-left: 1px solid var(--rule-2);
+}
+.v3.c4 main:has(> .board .split[class*="pos-mark-"]) > .screen-head > div {
+  flex: 1 1 auto; max-width: 220px; min-width: 0;
+}
+.v3.c4 main:has(> .board .split[class*="pos-mark-"]) > .screen-head input[type="search"] {
+  width: 100%; min-width: 0 !important; height: 34px; padding: 0 10px;
+  border: 0; background: var(--band); color: var(--txt);
+  font: 400 12.5px/1 var(--sans);
+}
+.v3.c4 main:has(> .board .split[class*="pos-mark-"]) > .screen-head input[type="search"]::placeholder { color: var(--dim); }
+.v3.c4 .split[class*="pos-mark-"] .rail-back {
+  font: 600 14px/1 var(--cond); letter-spacing: .12em; color: var(--dim);
+}
+.v3.c4 .split[class*="pos-mark-"] .rail-back:hover { color: var(--acc); }
+.v3.c4 .split.phone[class*="pos-mark-"] .pid-head .rail-back {
+  position: absolute; top: 10px; left: 12px;
+  display: flex; align-items: center; height: 42px; margin: 0;
+}
+
+/* ---- the phone header, re-ordered so the jump chips sit under the tale
+   panel (§5 Player). The two wrappers step aside and the split stacks its
+   parts in the spec's order; nothing in the markup moves. */
+.v3.c4 .split.phone[class*="pos-mark-"] { display: flex; flex-direction: column; }
+.v3.c4 .split.phone[class*="pos-mark-"] > .pid-head,
+.v3.c4 .split.phone[class*="pos-mark-"] > .main { display: contents; }
+.v3.c4 .split.phone[class*="pos-mark-"] > .pid-head > *,
+.v3.c4 .split.phone[class*="pos-mark-"] > .main > * { min-width: 0; }
+.v3.c4 .split.phone[class*="pos-mark-"] > .main > * { order: 3; }
+.v3.c4 .split.phone[class*="pos-mark-"] > .main > .figstrip { order: 1; }
+.v3.c4 .split.phone[class*="pos-mark-"] > .pid-head > .pid-jump { order: 2; }
+
+/* identity: position badge + club, name, meta line, honors */
+.v3.c4 .split.phone[class*="pos-mark-"] .pid-row { gap: 12px; padding: 6px 12px 0; align-items: flex-start; }
+.v3.c4 .split[class*="pos-mark-"] .pid-id > div:first-child > span:not(.pos),
+.v3.c4 .split[class*="pos-mark-"] .rail > div:has(> .pos) > span:not(.pos) {
+  font: 700 14px/1.2 var(--cond) !important; letter-spacing: .14em !important; color: var(--dim) !important;
+}
+.v3.c4 .split[class*="pos-mark-"] .pid-id .pos,
+.v3.c4 .split[class*="pos-mark-"] .rail .pos {
+  height: 22px; min-width: 32px; padding: 0 8px 0 6px;
+  font: 800 13px/1 var(--cond);
+}
+.v3.c4 .split[class*="pos-mark-"] .rail-name {
+  font: 800 40px/1 var(--cond); letter-spacing: .02em;
+  overflow-wrap: break-word;
+}
+.v3.c4 .split.phone[class*="pos-mark-"] .pid-id .rail-name { font-size: 40px; }
+.v3.c4 .split[class*="pos-mark-"] .rail-sub {
+  margin-top: 5px; font: 400 12.5px/1.45 var(--sans); color: var(--dim);
+}
+.v3.c4 .split.phone[class*="pos-mark-"] .pid-honors { margin: 8px 0 0; padding: 0 12px; gap: 8px; }
+.v3.c4 .split[class*="pos-mark-"] .pid-honors .k,
+.v3.c4 .split[class*="pos-mark-"] .rail-h {
+  font: 600 11px/1 var(--cond); letter-spacing: .16em; color: var(--dim);
+}
+.v3.c4 .split[class*="pos-mark-"] .hmark-x { font: 700 12px/1 var(--cond); color: var(--dim); }
+
+/* ---- the tale panel (§4.3): Dynasty index | the season's WAR | Contender
+   index, then the Career WAR tile under it. One figure strip in the markup,
+   placed by grid. 80px tall, so --s is 16px; the sides stay equal width. */
+.v3.c4 .split[class*="pos-mark-"] .figstrip {
+  --s: 16px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 90px minmax(0, 1fr);
+  grid-template-rows: minmax(80px, auto) auto;
+  row-gap: 6px;
+  padding: 14px 12px 0;
+  background: none; overflow: visible;
+}
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell {
+  display: flex; flex-direction: column; justify-content: space-between;
+  min-width: 0; margin: 0;
+  border: 0;
+  font-variant-numeric: tabular-nums;
+}
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figkey {
+  margin: 0; color: inherit; white-space: nowrap;
+  font: 700 11px/1 var(--cond); letter-spacing: .14em;
+}
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figval,
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figval.acc {
+  margin: 4px 0 0; color: inherit;
+  font: 800 34px/.9 var(--cond);
+}
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figsub {
+  margin-top: 4px; color: inherit;
+  font: 400 10.5px/1.25 var(--sans);
+  white-space: normal; overflow: visible;
+}
+/* left: Dynasty index, the high slab, cut on its right */
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(1) {
+  grid-column: 1; grid-row: 1;
+  padding: 8px 22px 8px 12px;
+  background: var(--slab-hi); color: var(--slab-hi-ink);
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%);
+}
+/* right: Contender index, the low slab, mirrored */
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(2) {
+  grid-column: 3; grid-row: 1;
+  align-items: flex-end; text-align: right;
+  padding: 8px 12px 8px 22px;
+  background: var(--slab-lo); color: var(--slab-lo-ink);
+  clip-path: polygon(0 0, 100% 0, 100% 100%, var(--s) 100%);
+}
+/* center: the season's WAR on the accent, a trapezoid whose sides run
+   parallel to its neighbours' cuts, 4px off them */
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(3) {
+  grid-column: 2; grid-row: 1;
+  margin: 0 -12px;
+  align-items: center; justify-content: center; text-align: center;
+  padding: 6px 18px;
+  background: var(--acc); color: var(--acc-ink);
+  clip-path: polygon(var(--s) 0, calc(100% - var(--s)) 0, 100% 100%, 0 100%);
+}
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(3) .figkey { font-size: 10px; letter-spacing: .12em; }
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(3) .figval { font-size: 28px; line-height: 1; margin-top: 3px; }
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(3) .figsub { font-size: 9.5px; font-weight: 600; margin-top: 2px; }
+/* under it: the Career WAR tile, --band, WAR ink */
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(4) {
+  grid-column: 1 / -1; grid-row: 2;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline;
+  column-gap: 10px;
+  padding: 8px 10px;
+  background: var(--band); color: var(--dim);
+}
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(4) .figkey { grid-column: 1; grid-row: 1; font-weight: 600; }
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(4) .figval {
+  grid-column: 2; grid-row: 1 / span 2; align-self: center;
+  margin: 0; font-size: 22px; line-height: 1; color: var(--war-ink);
+}
+.v3.c4 .split[class*="pos-mark-"] .figstrip .figcell:nth-child(4) .figsub { grid-column: 1; grid-row: 2; margin-top: 3px; color: var(--dim); }
+
+/* ---- jump chips (§4.6): parallelograms, 32px, --s 7px, 4px gutters -------- */
+.v3.c4 .split[class*="pos-mark-"] .pid-jump {
+  --s: 7px;
+  display: flex; gap: 0;
+  width: auto; margin: 10px 0 0; padding: 0 12px;
+  border: 0;
+}
+.v3.c4 .split[class*="pos-mark-"] .pid-jump button,
+.v3.c4 .split[class*="pos-mark-"] .pid-jump button:first-child {
+  flex: 0 0 auto; height: 32px;
+  padding: 0 calc(var(--s) + 8px);
+  margin: 0 calc(4px - var(--s)) 0 0;
+  border: 0;
+  background: var(--slab-lo); color: var(--slab-lo-ink);
+  font: 700 13px/1 var(--cond); letter-spacing: .1em;
+  clip-path: polygon(var(--s) 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%);
+}
+.v3.c4 .split[class*="pos-mark-"] .pid-jump button:last-child { margin-right: 0; }
+.v3.c4 .split[class*="pos-mark-"] .pid-jump button:hover { color: var(--txt); }
+
+/* ---- hand-written bands: the --deep strip carries the label, the note
+   sits UNDER it on the board (§4.2) — the classic markup puts both in one
+   flex row, so the row stacks and the label takes the bar. */
+.v3.c4 .split[class*="pos-mark-"] .main .band {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
+  margin-top: 16px; padding: 0;
+  background: none; border: 0;
+}
+.v3.c4 .split[class*="pos-mark-"] .main .band .band-label {
+  display: block;
+  padding: 8px 16px;
+  background: var(--deep);
+  border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule);
+}
+.v3.c4 .split[class*="pos-mark-"] .main .band .band-note {
+  display: block;
+  padding: 6px 16px 4px;
+  font: 400 11.5px/1.5 var(--sans); color: var(--dim);
+  text-wrap: pretty;
+}
+.v3.c4 .split[class*="pos-mark-"] .pid-ladder .band { margin-top: 14px; }
+
+/* Usage's phase chips → text tabs (§4.6) */
+.v3.c4 .split[class*="pos-mark-"] .main .band .band-note:has(.chip) {
+  display: flex; gap: 16px; padding: 6px 16px 2px;
+}
+.v3.c4 .split[class*="pos-mark-"] .main .band .band-note .chip {
+  height: 30px; margin: 0; padding: 0;
+  background: none; border: 0; clip-path: none;
+  color: var(--dim);
+  font: 700 14px/1 var(--cond); letter-spacing: .12em;
+}
+.v3.c4 .split[class*="pos-mark-"] .main .band .band-note .chip:hover { color: var(--txt); }
+.v3.c4 .split[class*="pos-mark-"] .main .band .band-note .chip.on {
+  background: none; color: var(--txt); box-shadow: inset 0 -2px 0 var(--acc);
+}
+
+/* ---- Career WAR bars: played years --war, projected --loss, --hair track -- */
+.v3.c4 .split[class*="pos-mark-"] .pid-ladder .rail-ladder { padding: 4px 0 6px; }
+.v3.c4 .split[class*="pos-mark-"] .rail-war {
+  grid-template-columns: 46px minmax(0, 1fr) 46px; gap: 10px;
+  min-height: 30px; padding: 0 16px 0 12px;
+}
+.v3.c4 .split[class*="pos-mark-"] .rail-war.proj { background: none; }
+.v3.c4 .split[class*="pos-mark-"] .rail-war .yr,
+.v3.c4 .split[class*="pos-mark-"] .pid-ladder .rail-war .yr {
+  font: 800 16px/1 var(--cond); letter-spacing: .02em; color: var(--txt);
+}
+.v3.c4 .split[class*="pos-mark-"] .rail-war.proj .yr { color: var(--dim); }
+.v3.c4 .split[class*="pos-mark-"] .rail-war.mark .yr { color: var(--acc); }
+.v3.c4 .split[class*="pos-mark-"] .rail-war .bar,
+.v3.c4 .split[class*="pos-mark-"] .pid-ladder .rail-war .bar { height: 10px; background: var(--hair); }
+.v3.c4 .split[class*="pos-mark-"] .rail-war .bar i { background: var(--war) !important; }
+.v3.c4 .split[class*="pos-mark-"] .rail-war.proj .bar i { background: var(--loss) !important; }
+.v3.c4 .split[class*="pos-mark-"] .rail-war .v,
+.v3.c4 .split[class*="pos-mark-"] .pid-ladder .rail-war .v {
+  font: 800 17px/1 var(--cond); color: var(--txt);
+}
+.v3.c4 .split[class*="pos-mark-"] .rail-war.proj .v { color: var(--txt2); }
+.v3.c4 .split[class*="pos-mark-"] .rail-war.mark::before { width: 4px; }
+/* the desktop rail's ladder, at rail size */
+@media (min-width: 900px) {
+  .v3.c4 .split[class*="pos-mark-"] .rail .rail-war { grid-template-columns: 36px minmax(0, 1fr) 40px; gap: 8px; padding: 2px 6px; }
+  .v3.c4 .split[class*="pos-mark-"] .rail .rail-war .yr { font-size: 13px; }
+  .v3.c4 .split[class*="pos-mark-"] .rail .rail-war .v { font-size: 14px; }
+  .v3.c4 .split[class*="pos-mark-"] .rail .rail-war .bar { height: 8px; }
+}
+
+/* ---- Model read callout ---------------------------------------------------- */
+.v3.c4 .split[class*="pos-mark-"] .verdict { margin: 12px 12px 0; }
+
+/* ---- the tables: Projection, Comparables, Career, Usage, Ownership, Market */
+.v3.c4 .split[class*="pos-mark-"] thead tr:not(.grp) { background: var(--band); }
+.v3.c4 .split[class*="pos-mark-"] thead th {
+  padding: 6px 8px;
+  font: 600 11px/1.1 var(--cond); letter-spacing: .12em; color: var(--dim);
+  border-bottom: 0;
+}
+.v3.c4 .split[class*="pos-mark-"] thead tr:not(.grp) th:first-child { padding-left: 12px; }
+.v3.c4 .split[class*="pos-mark-"] thead tr:not(.grp) th:last-child { padding-right: 16px; }
+.v3.c4 .split[class*="pos-mark-"] tr.grp { background: var(--deep); }
+.v3.c4 .split[class*="pos-mark-"] tr.grp th {
+  padding: 6px 8px 5px; color: var(--deep-dim);
+  font: 600 11px/1 var(--cond); letter-spacing: .22em;
+}
+/* never the accent on a bar: the Implied group reads in the bar's link ink */
+.v3.c4 .split[class*="pos-mark-"] tr.grp th.value { color: var(--deep-acc); }
+.v3.c4 .split[class*="pos-mark-"] thead th.key { color: var(--acc); font-weight: 700; }
+.v3.c4 .split[class*="pos-mark-"] table:not(.usage-tbl) thead th.key { color: var(--war-ink); }
+.v3.c4 .split[class*="pos-mark-"] thead th.sorted { color: var(--txt); box-shadow: inset 0 -2px 0 var(--acc); }
+.v3.c4 .split[class*="pos-mark-"] tbody td {
+  height: 44px; padding: 6px 8px;
+  border-bottom: 1px solid var(--hair);
+}
+.v3.c4 .split[class*="pos-mark-"] tbody td:first-child { padding-left: 12px; }
+.v3.c4 .split[class*="pos-mark-"] tbody td.last { padding-right: 16px; }
+.v3.c4 .split[class*="pos-mark-"] tbody tr.drawer-row > td { height: auto; padding: 0; }
+.v3.c4 .split[class*="pos-mark-"] td.fig { font: 600 15px/1.2 var(--cond); font-variant-numeric: tabular-nums; }
+.v3.c4 .split[class*="pos-mark-"] td.fig.strong { font: 800 16px/1.15 var(--cond); letter-spacing: .04em; color: var(--txt); }
+.v3.c4 .split[class*="pos-mark-"] td.fig.quiet,
+.v3.c4 .split[class*="pos-mark-"] .fig.quiet { color: var(--dim); }
+.v3.c4 .split[class*="pos-mark-"] td .fig { font: 700 15px/1.2 var(--cond); font-variant-numeric: tabular-nums; }
+/* a player's name in a row is Saira; a franchise or a source is Archivo */
+.v3.c4 .split[class*="pos-mark-"] td.name {
+  font: 700 16px/1.15 var(--cond); letter-spacing: .03em; text-transform: uppercase;
+  white-space: normal;
+}
+.v3.c4 .split[class*="pos-mark-"] td.name.quiet {
+  font: 600 12.5px/1.35 var(--sans); letter-spacing: 0; text-transform: none; color: var(--txt2);
+}
+.v3.c4 .split[class*="pos-mark-"] td .pid-sub,
+.v3.c4 .split[class*="pos-mark-"] td .pid-held {
+  margin-top: 2px;
+  font: 400 11px/1.3 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim);
+}
+.v3.c4 .split[class*="pos-mark-"] td.sub { font: 400 12px/1.35 var(--sans); color: var(--dim); }
+.v3.c4 .split[class*="pos-mark-"] .head-fig.sm { font: 800 18px/1 var(--cond); }
+/* WAR figures are WAR ink, never the accent (§2.2). The classic markup inks
+   them --acc inline; Usage's lead column is not WAR and keeps it. */
+.v3.c4 .split[class*="pos-mark-"] table:not(.usage-tbl) .head-fig.sm[style*="var(--acc)"] { color: var(--war-ink) !important; }
+.v3.c4 .split[class*="pos-mark-"] .tot-yrs { font: 600 11px/1 var(--cond); letter-spacing: .1em; color: var(--dim); }
+.v3.c4 .split[class*="pos-mark-"] tfoot tr.tot > td { background: var(--band); }
+.v3.c4 .split[class*="pos-mark-"] .pos.wide { height: 22px; padding: 0 8px 0 6px; font: 800 13px/1 var(--cond); }
+/* captions under the tables */
+.v3.c4 .split[class*="pos-mark-"] .tnote { font: 400 11.5px/1.5 var(--sans); color: var(--dim); }
+.v3.c4 .split[class*="pos-mark-"] .tscroll-hint { padding-left: 16px; font: 400 11px/1.4 var(--sans); color: var(--dim); }
+.v3.c4 .split[class*="pos-mark-"] .hmark-legend { color: var(--dim); }
+
+/* ---- recent trades (also the Trades page, below) ---------------------------
+   The four figures as two pairs of count boxes (§4.8): cut, then start, 4px
+   gutter, both --slab-lo. 72px tall, so --s is 14px. */
+.v3.c4 .rtx-figs {
+  --s: 14px;
+  display: grid; grid-template-columns: 1fr 1fr;
+  row-gap: 4px; column-gap: 0;
+  padding: 10px 12px 6px;
+  background: none;
+}
+.v3.c4 .rtx-figs .fg,
+.v3.c4 .rtx-figs .fg:first-child,
+.v3.c4 .rtx-figs .fg:nth-child(odd) {
+  min-height: 72px; min-width: 0;
+  display: flex; flex-direction: column; justify-content: space-between;
+  margin: 0; border: 0;
+  padding: 8px calc(var(--s) + 8px) 8px 12px;
+  background: var(--slab-lo); color: var(--slab-lo-ink);
+  clip-path: polygon(0 0, 100% 0, calc(100% - var(--s)) 100%, 0 100%);
+}
+.v3.c4 .rtx-figs .fg:nth-child(even) {
+  margin-left: calc(4px - var(--s));
+  padding: 8px 12px 8px calc(var(--s) + 8px);
+  clip-path: polygon(var(--s) 0, 100% 0, 100% 100%, 0 100%);
+}
+.v3.c4 .rtx-figs .k { font: 700 11px/1 var(--cond); letter-spacing: .16em; color: var(--slab-lo-ink); }
+.v3.c4 .rtx-figs .v { margin-top: 4px; font: 800 24px/1 var(--cond); color: var(--txt); }
+.v3.c4 .rtx-figs .s { margin-top: 3px; font: 400 10.5px/1.3 var(--sans); color: var(--slab-lo-ink); }
+.v3.c4 .rtx { padding: 9px 16px 10px 12px; border-bottom: 1px solid var(--hair); }
+.v3.c4 .rtx-when { font: 700 12px/1.2 var(--cond); letter-spacing: .1em; color: var(--dim); }
+.v3.c4 .rtx-when .tep { font: 600 10px/1 var(--cond); color: var(--dim); }
+.v3.c4 .rtx-sides { font: 400 13px/1.5 var(--sans); color: var(--txt2); }
+.v3.c4 .rtx-side .pick, .v3.c4 .rtx-side .sep { color: var(--dim); }
+.v3.c4 .rtx-side .for { font: 700 11px/1 var(--cond); letter-spacing: .14em; color: var(--dim); }
+.v3.c4 .rtx-paid .v { font: 800 17px/1 var(--cond); color: var(--txt); }
+.v3.c4 .rtx-paid .k { margin-top: 3px; font: 600 10px/1 var(--cond); letter-spacing: .14em; color: var(--dim); }
+.v3.c4 .rtx-more {
+  padding: 11px 16px;
+  font: 700 13px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
+  color: var(--acc);
+}
+
+
+/* ==========================================================================
+   A PLAYER'S TRADES PAGE — screens/PlayerTrades.tsx
+   ========================================================================== */
+.v3.c4 .v3-head > .ptx-back {
+  font: 600 14px/1 var(--cond); letter-spacing: .12em; color: var(--dim);
+  margin-bottom: 4px; text-align: left;
+}
+.v3.c4 .v3-head > .ptx-back:hover { color: var(--acc); }
+.v3.c4 main:has(> .v3-head > .ptx-back) > .tnote.screen { color: var(--dim); }
+
+
+/* ==========================================================================
+   MOVERS — screens/Movers.tsx. The lens is the base slab segment; the
+   market's chips are the base chips, in two groups.
+   ========================================================================== */
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) > .v3-filters { padding-top: 0; }
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) .mvx-gap { flex-basis: 12px; }
+/* the name wraps to a second line rather than clipping: four figure columns
+   leave the identity cell little room at 390px */
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) .lgx-grid .idc-n {
+  white-space: normal; overflow: visible; text-overflow: clip; text-wrap: balance;
+}
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) .lgx-grid tbody tr.v3row,
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) .lgx-grid tbody tr.tap { height: 48px; }
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) .lgx-grid .f.hd { font: 800 17px/1.1 var(--cond); }
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) > .tnote.screen { padding-top: 12px; color: var(--dim); }
+
+
+/* ==========================================================================
+   TRENDS — screens/Trends.tsx: three rows to the movers boards.
+   ========================================================================== */
+.v3.c4 a.mox-row[href*="/movers/"] {
+  min-height: 58px; padding: 10px 16px 10px 12px;
+  border-bottom: 1px solid var(--hair);
+}
+.v3.c4 a.mox-row[href*="/movers/"]:hover { background: var(--sel); }
+.v3.c4 a.mox-row[href*="/movers/"] .mox-n1 {
+  font: 700 16px/1.15 var(--cond); letter-spacing: .06em; text-transform: uppercase; color: var(--txt);
+}
+.v3.c4 a.mox-row[href*="/movers/"] .mox-n2 { margin-top: 3px; font: 400 11.5px/1.4 var(--sans); color: var(--dim); }
+.v3.c4 a.mox-row[href*="/movers/"] .mox-st {
+  font: 700 14px/1.2 var(--cond); letter-spacing: .04em; color: var(--txt2);
+}
+.v3.c4 a.mox-row[href*="/movers/"] .mox-st .nul { color: var(--dim3); }
+.v3.c4 main:has(a.mox-row[href*="/movers/"]) > .tnote.screen { padding-top: 12px; color: var(--dim); }
+
+
+/* ==========================================================================
+   DEFENSE VS POSITION — screens/Defenses.tsx + defenses.css
+   The heat shades are set INLINE from three hex constants in Defenses.tsx
+   (NEUTRAL / SOFT / TOUGH, and the two inks). They are data encoding and
+   CSS cannot re-derive them from tokens; only the dead-neutral cell — the one
+   that inks --txt2 — is re-pointed to the board's raised surface.
+   ========================================================================== */
+.v3.c4 .dvp-legend {
+  gap: 8px; padding: 8px 16px 8px 12px;
+  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase; color: var(--dim);
+}
+.v3.c4 .dvp-legend .sw { gap: 2px; }
+.v3.c4 .dvp-legend .sw i { width: 18px; height: 12px; }
+.v3.c4 .dvp-legend .scale { font: 400 11px/1 var(--sans); letter-spacing: 0; text-transform: none; color: var(--dim); }
+.v3.c4 .dvp-tbl tbody tr.v3row, .v3.c4 .dvp-tbl tbody tr.tap { height: 48px; }
+.v3.c4 .dvp-tbl td.dvp-cell { padding: 0 8px; border-left: 2px solid var(--bg); border-bottom: 2px solid var(--bg); }
+.v3.c4 .dvp-tbl td.dvp-cell[style*="var(--txt2)"] { background: var(--band) !important; }
+.v3.c4 .dvp-tbl .dvp-cell .v { font: 700 16px/1.05 var(--cond); }
+.v3.c4 .dvp-tbl .dvp-cell.on .v { font-weight: 800; }
+.v3.c4 .dvp-tbl .dvp-cell .r { margin-top: 2px; font: 600 11px/1 var(--cond); letter-spacing: .04em; opacity: .85; }
+.v3.c4 .dvp-tbl .dvp-cell .nul { color: var(--dim3); }
+
+
+/* ==========================================================================
+   BANDS ON THIS GROUP'S SCREENS: label left, link right, as a row.
+   style.css stacks a phone band as a column and c4.css's `align-items:
+   center` then centres the label; re-stated here for these screens only.
+   ========================================================================== */
+.v3.c4 main:has(a.mox-row[href*="/movers/"]) > .band,
+.v3.c4 main:has(> .v3-lens):has(> table.lgx-grid) > .band,
+.v3.c4 main:has(> .dvp-legend) > .band,
+.v3.c4 main:has(> .v3-head > .ptx-back) > .band {
+  flex-direction: row; justify-content: space-between; align-items: center;
+}

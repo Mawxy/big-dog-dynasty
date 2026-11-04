@@ -3,7 +3,7 @@ import {
   useState, type Dispatch, type ReactNode, type SetStateAction,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { leagueSeg, useLeague } from "../lib/context";
+import { useLook, useShellBase } from "../lib/context";
 import { fmtWar2, sgnWar2, WAR_DP_BETA } from "../lib/stats";
 
 /* ---- WAR figures, at this shell's precision ------------------------------
@@ -19,16 +19,13 @@ export const fmtWar = fmtWar2;
 export const sgnWar = sgnWar2;
 
 /**
- * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/team`.
- *
- * THE BETA SHELL IS THE BOARD (Max, 2026-09-02): it answers the bare league
- * address, and the classic board moved under /<league>/classic. Every beta
- * internal link goes through this; `lib/context.useLeaguePath` is the
- * CLASSIC builder now and would drop the reader out of the shell mid-tap.
+ * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/team`
+ * on the live board, `/big-dog/lab/team` in the lab. Every beta internal link
+ * goes through this, so a tap never crosses from one mount to the other.
  */
 export function useBetaPath() {
-  const seg = leagueSeg(useLeague().league);
-  return useCallback((p: string) => `/${seg}${p.startsWith("/") ? p : `/${p}`}`, [seg]);
+  const base = useShellBase();
+  return useCallback((p: string) => `${base}${p.startsWith("/") ? p : `/${p}`}`, [base]);
 }
 
 /**
@@ -66,6 +63,22 @@ export function Band({ label, note, right, total }: {
    *  the accent has to be spendable in one place to stay one accent. */
   total?: ReactNode;
 }) {
+  const look = useLook();
+  /* C4 DRAWS THE NOTE UNDER THE BAR (C4_SPEC §4.2), not beside the label: a
+     --deep strip carrying a sentence of Archivo is a strip that can no longer
+     be thin. Same words, one line lower, on the board's own surface. */
+  if (look === "c4") return (
+    <>
+      <div className="band">
+        <span className="band-label">
+          {label}
+          {total != null && <span className="band-total">{total}</span>}
+        </span>
+        {right}
+      </div>
+      {note && <div className="c4-note">{note}</div>}
+    </>
+  );
   return (
     <div className="band">
       <span className="band-label">

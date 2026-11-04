@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { Col, Grp } from "./DataTable";
 import { POS_CHIPS, POS_COLOR } from "../lib/league";
-import { useLeaguePath } from "../lib/context";
+import { useShellPath } from "../lib/context";
 import { PlayerLink } from "./PlayerLink";
 import PosBadge from "./PosBadge";
 
@@ -133,7 +133,7 @@ export function mobileCols(cols: PlayerCol[], figIds: string[]): PlayerCol[] {
  */
 export function BoardScope({ on }: { on: "value" | "stats" }) {
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  const lp = useShellPath();
   const chip = (label: string, to: string, sel: boolean) => (
     <button type="button" className={`chip ${sel ? "on" : ""}`}
       onClick={() => nav(lp(to))}>{label}</button>

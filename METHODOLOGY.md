@@ -773,7 +773,7 @@ roster whose owner Sleeper lost).
 
 ## Trade machine
 
-**Owner:** `src/lib/tradeModel.ts` · shared by the classic and beta shells,
+**Owner:** `src/lib/tradeModel.ts` · shared by the board and the redesign lab,
 locked by `tests/tradeModel.test.ts`
 
 One pinned outgoing basket, priced against many competing offers, so every row

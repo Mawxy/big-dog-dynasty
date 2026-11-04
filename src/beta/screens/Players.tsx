@@ -8,7 +8,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
-import { leagueSeg, useLeague } from "../../lib/context";
+import { leagueSeg, useLeague, useLook } from "../../lib/context";
 import { useCviQuery, useDviQuery, useOutlook1 } from "../../lib/useIndices";
 import { useEcrShown } from "../model";
 import { outlookLabel, outlookNote } from "../../lib/outlook";
@@ -725,6 +725,10 @@ export default function Players() {
      board that grew columns at a different width than the shell changed shape
      would be two layouts crossing over in the middle. */
   const mobile = useMobile("(max-width: 899px)");
+  /* THE REDESIGN LAB (C4_SPEC §5, Players): Find and Filter ride on the
+     Value / Stats row instead of the position row. Same two controls, one
+     row higher; the live board renders exactly as before. */
+  const c4 = useLook() === "c4";
 
   /* One sort state per tense rather than one shared. The two column sets share
      only `war`, and a reader who ordered the price board by KTC has not said
@@ -1463,6 +1467,38 @@ export default function Players() {
     return (MICRO_LABEL[id] ?? c?.short ?? c?.label ?? String(id)).toUpperCase();
   };
 
+  const scopeCtl = (
+    <ScopeControl value={scope} onChange={setScope} seasons={seasons}
+      currentLabel="Value" historyLabel="Stats" allTime pickOnReturn
+      sheetTitle="Season and phase"
+      suffix={PHASES.find(p => p.id === phase)!.label}
+      extra={close => (
+        <>
+          <div className="plx-vgrp">Phase</div>
+          {PHASES.map(p => (
+            <SheetRow key={p.id} name={p.label} on={phase === p.id}
+              mark={phase === p.id ? "Here" : undefined}
+              onClick={() => { setPhase(p.id); close(); }} />
+          ))}
+        </>
+      )} />
+  );
+  const findFilter = (
+    <>
+      {/* TEXT, NOT ICONS. The board has none anywhere else, and two glyphs
+          here would be the first — a magnifier and a funnel are exactly the
+          decoration this shell has spent three months not having. */}
+      <button type="button" className={`plx-txtbtn${q ? " on" : ""}`}
+        aria-expanded={findOpen} onClick={() => setFindOpen(v => !v)}>
+        {q ? `Find · ${q}` : "Find"}
+      </button>
+      <button type="button" className={`plx-txtbtn${filters.length ? " on" : ""}`}
+        onClick={() => setFilterOpen(true)}>
+        {filters.length ? `Filter · ${filters.length}` : "Filter"}
+      </button>
+    </>
+  );
+
   return (
     <>
       {/* THE MARK SPRITE, mounted once. Every <HonorMark> on the board is a
@@ -1501,20 +1537,7 @@ export default function Players() {
 
           Below them, the row that narrows WHICH PLAYERS: the position chips,
           Find and Filter. Two families, two shapes. */}
-      <ScopeControl value={scope} onChange={setScope} seasons={seasons}
-        currentLabel="Value" historyLabel="Stats" allTime pickOnReturn
-        sheetTitle="Season and phase"
-        suffix={PHASES.find(p => p.id === phase)!.label}
-        extra={close => (
-          <>
-            <div className="plx-vgrp">Phase</div>
-            {PHASES.map(p => (
-              <SheetRow key={p.id} name={p.label} on={phase === p.id}
-                mark={phase === p.id ? "Here" : undefined}
-                onClick={() => { setPhase(p.id); close(); }} />
-            ))}
-          </>
-        )} />
+      {c4 ? <div className="plx-c4scope">{scopeCtl}{findFilter}</div> : scopeCtl}
 
       {/* THE SHOW ROW: which figures the board carries. Its own row with a
           key in front, because "Box score" and "Maxalytics" are not a closed
@@ -1583,18 +1606,10 @@ export default function Players() {
           <button key={p} type="button" className={`chip${pos === p ? " on" : ""}`}
             onClick={() => setPos(p)}>{p}</button>
         ))}
-        <span className="plx-spacer" />
-        {/* TEXT, NOT ICONS. The board has none anywhere else, and two glyphs
-            here would be the first — a magnifier and a funnel are exactly the
-            decoration this shell has spent three months not having. */}
-        <button type="button" className={`plx-txtbtn${q ? " on" : ""}`}
-          aria-expanded={findOpen} onClick={() => setFindOpen(v => !v)}>
-          {q ? `Find · ${q}` : "Find"}
-        </button>
-        <button type="button" className={`plx-txtbtn${filters.length ? " on" : ""}`}
-          onClick={() => setFilterOpen(true)}>
-          {filters.length ? `Filter · ${filters.length}` : "Filter"}
-        </button>
+        {!c4 && <>
+          <span className="plx-spacer" />
+          {findFilter}
+        </>}
       </div>
       {/* the search field is a row only while it is open. It is the rarest
           thing anyone does to a leaderboard and it was costing a permanent
@@ -1847,7 +1862,7 @@ export default function Players() {
                       ) : null}
                     </>} />
                   {mobile ? (
-                    <td className="n plx-lead">
+                    <td className={`n plx-lead plx-k-${s.sort}`}>
                       {/* THE PICKED KEY IS THE LEAD FIGURE. No meter beside it
                           (Max, 2026-09-02): the WAR bar read as a gauge, not a
                           statistic, and the headline weight already says which
@@ -1856,7 +1871,7 @@ export default function Players() {
                       {micro.length > 0 && (
                         <div className="plx-micro">
                           {micro.map(k => (
-                            <span key={k} className="o">
+                            <span key={k} className={`o plx-k-${k}`}>
                               {microLabel(k)}
                               <b>{cellOf(r, k)}</b>
                             </span>
@@ -1865,7 +1880,7 @@ export default function Players() {
                       )}
                     </td>
                   ) : cols.map(c => (
-                    <td key={c.id} className={`n${c.edge ? " plx-edge" : ""}`}>
+                    <td key={c.id} className={`n plx-k-${c.id}${c.edge ? " plx-edge" : ""}`}>
                       <span className={`f${c.id === s.sort ? " hd" : ""}`}>
                         {cellOf(r, c.id)}
                       </span>

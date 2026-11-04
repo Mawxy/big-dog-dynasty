@@ -7,7 +7,7 @@ import { useJson } from "../lib/useJson";
 import { useCvi, useDvi, useProjWar1 } from "../lib/useIndices";
 import { fmt, fmtWar, sgnWar, clsOf, ord } from "../lib/stats";
 import { lineupOf, optimalLineup, pInfo, POS_COLOR, pricedLineup, rosterSeasonOf, SLOT_LABEL } from "../lib/league";
-import { useLeague, useLeaguePath } from "../lib/context";
+import { useLeague, useShellPath } from "../lib/context";
 import { useLeagueCaps } from "../lib/caps";
 import { readTrades, tradeWhen, txKind, txTag } from "../lib/trades";
 import { useMobile } from "../lib/useWidth";
@@ -196,7 +196,7 @@ export default function FranchisePage({ fkey, players, tab }:
   { fkey: string; players: PlayersMin; tab?: string }) {
   const { meta, league } = useLeague();
   const nav = useNavigate();
-  const lp = useLeaguePath();
+  const lp = useShellPath();
   // MOBILE.md M6 — the rail becomes a header, the ladder reads at the foot of
   // the page, and every table section renders as records
   const mobile = useMobile();

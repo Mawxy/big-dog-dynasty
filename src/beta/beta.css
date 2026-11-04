@@ -106,9 +106,9 @@
   font: 600 11px/1 var(--cond); letter-spacing: .18em; text-transform: uppercase;
   color: var(--dim2);
 }
-/* THE WAY BACK TO CLASSIC — style.css's `.mast-beta` in this masthead's
-   vocabulary, in the same corner it occupies over there. Desktop only: the
-   phone bar has no width for a fourth item and More carries the row. */
+/* THE WAY ACROSS — the same screen on the other mount (live board <-> the
+   redesign lab). Desktop only: the phone bar has no width for a fourth item
+   and More carries the row. */
 .v3-mast .classic {
   display: none;
   margin-left: 14px;

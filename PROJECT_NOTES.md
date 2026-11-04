@@ -591,58 +591,73 @@ those files exist, so the local result is 857 / 0 skipped.
 **A failure here is a change in what a figure means**, not a broken test —
 decide whether the methodology moved on purpose before touching the test.
 
-## Site (both shells)
+## Site (the board + the redesign lab)
 
 **Router:** `HashRouter`, league-first. **The beta shell IS the board** (Max,
-2026-09-02): it answers the **bare league address** `#/<league>/...`, and the
-classic board moved to `#/<league>/classic/...` (`CLASSIC_SEG` in
-`src/lib/context.ts`). `#/<league>/beta/*` and `#/<league>/v3/*` are
-drop-segment redirects; old season-first URLs (`#/players/2025`) are
-`LegacyRedirect`s onto `/classic`; a classic view's old BARE address is
-forwarded to `/classic` by BetaShell's `ToClassic`. Route table in
-`src/App.tsx` (~:217–246).
+2026-09-02): it answers the **bare league address** `#/<league>/...`. **The
+classic board was retired 2026-11-04** (Max): its Shell, tab strip, footer and
+the seven views only it mounted (Home, Stats, Value, Franchises, Weekly,
+Trades, Ledger — plus the components only they used) are deleted. Every address
+it answered — `#/<league>/classic/...`, the pre-league `#/players/2025` shapes,
+and a classic view's old BARE address such as `#/<league>/stats` — forwards
+through **`classicToBeta`** (`src/lib/context.ts`) onto the matching beta
+screen, query (`?m=`) intact: `value`/`stats`/`players` → `players`, `weekly`
+→ `seasons`, `teams/<season>` and `standings/<season>` → `seasons/<season>`,
+`playoffs/<season>` → `seasons/<season>/playoffs`, `trades` → `trade`, `ledger`
+→ `trade?scope=history`, `draft` → `drafts`, `home` → `league`,
+`franchise/<rid>` → `team/<rid>`. `#/<league>/beta/*` and `#/<league>/v3/*`
+are still drop-segment redirects. Route table in `src/App.tsx`.
 
-**Three path builders, and using the wrong one is the classic bug.**
-`useLeaguePath` (`lib/context.ts`) → `/<league>/classic<path>`, for a
-classic-only view. `useBetaPath` (`beta/ui.tsx`) → `/<league><path>`, for a
-beta-only screen. **`useShellPath`** takes the CLASSIC path and lands it in
-whichever shell the reader is actually in, via `useShell()` (which reads the
-URL) plus a rename table (`draft→drafts`, `weekly→seasons`,
-`home`/`""`→`league`) and `/franchise/<rid>` → `/team/<rid>` when the key is a
-roster id. **Any component mounted in BOTH shells must use this one** — Player,
-Draft, DraftDetail, History, Insights, QuickJump, PlayerLink, TradeCalc and the
-rest of the shared components; building a classic link there is what dropped a
-beta reader into `/classic` on the first tap of a Draft chip. A path with no
-beta equivalent stays classic on purpose.
+**The classic-only pages that mattered moved INTO the shell:** `dvi`, `cvi`
+(the index derivations, More's methodology rows) and `franchise/<owner id>` —
+the redraft league's owner-keyed franchise page (`components/FranchisePage`),
+since the Team screen reads roster ids only.
 
-### Classic board — `#/<league>/classic/...`
+**Path builders.** `useBetaPath` (`beta/ui.tsx`) → `<base><path>` for a beta
+screen. **`useShellPath`** (`lib/context.ts`) takes a CLASSIC-shaped path
+(`/weekly/2025/6/3`, `/franchise/4`) and lands it on the matching beta screen
+via `classicToBeta` — the older views mounted in the shell (Player, Draft,
+DraftDetail, History, Insights, FranchisePage, QuickJump, PlayerLink,
+PlayerBoard) keep writing classic paths and use this. Both read the mount's
+`base` from **`ShellContext`**, so a link never crosses from the board into
+the lab or back. `useLeaguePath` and `useShell` are gone.
 
-Tabs: **League · Players · Teams · Season · Draft · Trade · Insights**;
-masthead carries the model picker, the "Rebuilt nightly · `meta.updated`" stamp
-(no clock time — the cron is 06:17 UTC and GitHub starts scheduled runs hours
-late) and the "← Beta board" link. Every view is lazy-loaded, Home included: the
-landing page is the beta shell's now, and it never mounts Home.
+### The redesign lab — `#/<league>/lab/...` (2026-11-04)
 
-| Route (under `/:league/classic`) | View |
-|---|---|
-| `/`, `/home` | Home — champion + title race, power rankings (starters DVI, projected records), value plays (DVI−CVI), market movers (KTC 7d), dynasty movers, recent waivers/trades |
-| `/value` | one merged price table: DVI, CVI, Proj WAR, Analog, KTC, FantasyCalc, ECR; team filter incl. "No team" |
-| `/stats[/:season]`, `/stats/all` | production only: GP, PPG, volatility, WAR (metered), WAR/G; all-time aggregates careers |
-| `/teams[/:season]`, `/teams/all` | Value board / Standings (seed, record, projected record, vs median, luck, lineup WAR) / All-time |
-| `/franchise/:fkey[/:tab]` | franchise page: roster with group bands, seat-rank strengths, picks, year-by-year, drafts, trades, waivers, rename history |
-| `/weekly/:season[/:wk[/:mid]]`, `/weekly/:season/playoffs` | one week at a time: matchup grid, top performers with "Started for"; playoffs scope = `PlayoffPanel` (bracket, WPA, win share, MVP/MVP+, playoff WAR) |
-| `/draft[/:sub]`, `/draft/history/:season` | pick values (box plots, slot heat map, tiered returns) vs what we did |
-| `/trades` | trade machine (`TradeCalc`) |
-| `/ledger` | every trade scored on realized WAR, team multi-select, then-vs-now market drawer |
-| `/history` | year-by-year league story (hand-maintained `LEAGUE_NOTES`, keyed by league; Big Dog's 2022–23 only) |
-| `/insights` | cross-league benchmarks beside this league's figures |
-| `/dvi`, `/cvi` | bare index boards, file order, never metered |
-| `/player/:pid` | split rail: honors, career ladder, projection table on the site's curve (WAR proj, WAR pace, proj finish), closest comparables, career with owner splits, ownership, market values, usage |
+The slot the classic board held. `src/beta/lab/LabShell.tsx` (its own lazy
+chunk) mounts **the same `BetaShell`**, every screen and route, with
+`look="c4"`: root `<div class="v3 c4">`, base `/<league>/lab`. Content is
+identical by construction; only the skin differs, so `/big-dog/league` and
+`/big-dog/lab/league` compare address for address. The masthead's desktop link
+and More's last row cross to the same screen on the other mount.
+
+**Current trial: C4 "Tale of the Tape"** — spec in `src/beta/lab/C4_SPEC.md`,
+which is the ONLY design source for the lab (the broadcast design-system skill
+does not apply there). CSS: `lab/c4.css` (base: type, slant system, masthead,
+nav, bands, tables, badges, segments, chips, tiles, callouts, the theme
+picker) then `c4-league.css`, `c4-team.css`, `c4-players.css`,
+`c4-trade.css`, all scoped under `.v3.c4`, tokens only. `Band` (ui.tsx) draws
+its note under the bar when `useLook() === "c4"`; any other lab-only markup is
+gated the same way.
+
+**Four themes** (Original = today's palette, Newsprint, Ringside blue,
+Vintage): token blocks `:root[data-theme=…]` in `src/style.css` plus the C4
+tokens (`--deep-ink`, `--deep-dim`, `--deep-acc`, `--slab-hi[-ink]`,
+`--slab-lo[-ink]`, `--loss`, `--war`, `--war-ink`) on `:root`. Picked under
+More → Appearance (lab only), persisted as `warboard.v3.theme`
+(`lab/theme.ts`), applied before first paint by the boot script in
+`index.html` — **only on a lab address** — and removed when the lab
+unmounts, so the live board never wears a theme. Keep each theme's `--deep`
+in step across style.css, theme.ts and the boot script.
+
+The live board still loads Barlow Condensed / IBM Plex Mono / Public Sans;
+that `<link>` can go only once C4 (Saira + Archivo, now loaded with 800) is
+promoted to the board.
 
 ### Beta shell — `#/<league>/...` (the default board)
 
-Phone-first, lazy-loaded with its own CSS, entered from the classic masthead
-and left from its More screen (or the desktop-only "Classic board →" link).
+Phone-first, lazy-loaded with its own CSS. More's last row and the
+desktop-only masthead link cross to the same screen in the redesign lab.
 Bottom tab bar **My Team · League · Players · Trade · More**, plus a seasonal
 **Draft** tab while the roster season's rookie draft has not been recorded
 (`lib/seasons.rookieDraftRecorded`, gated on `caps.drafts` so the redraft
@@ -661,25 +676,23 @@ the League tab). The bar hides on scroll-down and returns on scroll-up.
 | `trade` | `Trade.tsx` — Build (machine) + History (ledger, reads the frozen `trade_snapshots.json`); `ledger` → here with `?scope=history` |
 | `more` | `More.tsx` — model picker, refresh row, deep links |
 | `trends`, `movers/:kind` | `Trends.tsx` / `Movers.tsx` — value \| dynasty \| market |
-| `player/:pid[/trades]` | classic `Player` in-shell; `PlayerTrades.tsx` for the full window |
+| `player/:pid[/trades]` | `views/Player` in-shell; `PlayerTrades.tsx` for the full window |
 | `seasons[/:season[/:wk[/:mid]]]` | `Seasons.tsx` — the week floor, rebuilt on League's modules (2026-09-15) |
-| `drafts[/:sub]`, `drafts/history/:season`, `history`, `insights` | classic views mounted in-shell |
+| `drafts[/:sub]`, `drafts/history/:season`, `history`, `insights`, `dvi`, `cvi` | older views (`src/views/`) mounted in-shell |
+| `franchise/:fkey[/:tab]` | `components/FranchisePage` for an owner-keyed (redraft) franchise; a roster id redirects to `team/:rid` |
 | `rankings[/:scope]` | redirect → `players` |
 
-**`CLASSIC_ONLY`** (BetaShell ~:554) lists the classic first segments the shell
-has no screen for — `home`, `stats`, `value`, `teams`, `standings`,
-`franchise`, `weekly`, `draft`, `trades`, `dvi`, `cvi`, `playoffs` — whose old
-bare addresses forward to `/classic` with path and query intact. `teams` is in
-the list AND has a beta screen: the exact `teams` route outranks the `teams/*`
-forward, so `/teams` is the beta leaderboard and `/teams/2025` the classic
-standings. Rule: no *functional* improvement may live only in beta.
+**`CLASSIC_ONLY`** (BetaShell) lists the classic first segments with no beta
+screen of that name — `home`, `stats`, `value`, `teams`, `standings`,
+`weekly`, `draft`, `trades`, `playoffs` — whose bare addresses forward through
+`classicToBeta`. `teams` and `playoffs` are in the list AND have screens: the
+exact routes outrank the `teams/*` / `playoffs/*` forwards.
 
 **An address can name another league.** Back after the league switch lands on a
 URL whose first segment is a different registered league while every league file
-in hand was fetched under the loaded one, so `BetaBoard` reloads the page, as the
-classic `Shell` does. It cannot loop: the reload resolves to the requested league
-and the segment then matches. The active tab and `ToClassic` strip the league
-segment by position, so a numeric-key address works the same as an alias.
+in hand was fetched under the loaded one, so `BetaBoard` reloads the page. It cannot loop: the reload resolves to the
+requested league and the segment then matches. The active tab and `ToBeta` strip the league
+(and lab) segment by position, so a numeric-key address works the same as an alias.
 
 **Shared definitions worth knowing.** `beta/model.ts#starterSet` is the ONE
 starters-DVI definition — **each index prices its own best legal lineup**
@@ -692,12 +705,13 @@ in-progress season cannot hand out an Elite season or a title.
 **UI conventions.** Dark "Broadcast" theme, zero border-radius, two type
 roles (Archivo / Saira Condensed; beta adds IBM Plex Mono for figures). Pos
 colors QB `#9333ea`, RB green, WR blue, TE orange; mark tints are separate
-tokens. Name click navigates, row click opens a drawer (classic only). One
+tokens. Name click navigates; rows navigate (no drawers in the shell). One
 metered column per table — the sorted one — and indices are never metered.
 Nulls are `—`, estimates `≈`. Every chart is hand-rolled SVG (no charting
 library — adding one is a deliberate reversal). `hm` hides columns ≤640px;
 records mode on mobile. GoatCounter pageviews, queued until the collector
-loads. Design system in the `war-board-design-system` skill.
+loads. Design system in the `war-board-design-system` skill — for the live
+board only; the lab's trial look follows `src/beta/lab/C4_SPEC.md`.
 
 ## Known caveats (tracked)
 

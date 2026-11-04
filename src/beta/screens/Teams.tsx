@@ -16,7 +16,8 @@ import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, SheetRow, Spine, sortBy, TapRow, Th,
   useBetaPath, useSort, useSticky,
 } from "../ui";
-import { leagueSeg } from "../../lib/context";
+import { leagueSeg, useLook } from "../../lib/context";
+import { useIdentity } from "../../lib/identity";
 import "./players.css";
 import "./teams.css";
 
@@ -274,6 +275,10 @@ function ValueBoard() {
   const [slice, setSlice] = useState<Slice>("start");
   const [pos, setPos] = useState("ALL");
   const [open, setOpen] = useState<number | null>(null);
+  /** the lab marks the reader's own row (C4_SPEC §2.3); the live board does not */
+  const ident = useIdentity();
+  const c4 = useLook() === "c4";
+  const youRid = c4 ? ident.rid : null;
 
   /* 900px, not style.css's 640px: the beta shell's own desktop breakpoint is
      where the nav bar becomes a rail and the tables gain their padding. */
@@ -518,13 +523,13 @@ function ValueBoard() {
                  these nodes in place rather than remounting the list, which is
                  what keeps the reader's scroll position where they left it. */
               <Fragment key={r.rid}>
-                <TapRow className={`${i % 2 ? "zebra" : ""}${open === r.rid ? " plx-on" : ""}`}
+                <TapRow className={`${i % 2 ? "zebra" : ""}${open === r.rid ? " plx-on" : ""}${youRid != null && r.rid === youRid ? " c4-you" : ""}`}
                   onTap={() => setOpen(open === r.rid ? null : r.rid)}>
                   {/* No accent on the leader's ordinal. "Top by whatever you
                       last sorted by" is not a threshold, and this screen spends
                       its accent on the sort. No position color either — a
                       franchise has no position. */}
-                  <Spine rank={i + 1} />
+                  <Spine rank={i + 1} top={c4 && i < 3} />
                   {/* THE NAME IS THE LINK, THE ROW IS THE DRAWER — the Players
                       board's split. The name goes straight to the team page;
                       anywhere else on the row opens the drawer in place. */}

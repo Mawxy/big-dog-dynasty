@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext } from "react";
-import { useLocation } from "react-router-dom";
 import type { LeagueEntry, Leagues, Meta, PlayersMin } from "./types";
 
 /** `leagues` is the whole registry, not just the resolved entry: the router
@@ -19,99 +18,102 @@ export function useLeague() {
  *  league_id, which every league always has. */
 export const leagueSeg = (l: LeagueEntry) => l.alias || l.key || "league";
 
-/** the classic board's mount under a league: /<league>/classic/... (Max,
- *  2026-09-02 — the beta shell took the bare league address and the classic
- *  board moved here). Every classic link goes through `useLeaguePath`, which
- *  carries this; the beta shell's links go through beta/ui `useBetaPath`. */
+/**
+ * THE CLASSIC BOARD IS GONE (Max, 2026-11-04). Its old addresses —
+ * `/<league>/classic/...`, the pre-league `#/players/2025` shapes and the bare
+ * `/<league>/stats`-style links shared before 2026-09-02 — all forward onto
+ * the beta shell through `classicToBeta` below, so a bookmark still lands.
+ *
+ * The slot it held is the LAB: `/<league>/lab/...` mounts the same beta
+ * shell, screen for screen, under a trial look (C4 "Tale of the Tape" first).
+ * Nothing in the lab computes a figure the live board does not; only the
+ * skin differs, which is what makes the two comparable side by side.
+ */
 export const CLASSIC_SEG = "classic";
+export const LAB_SEG = "lab";
+
+/** the looks a beta shell can wear. `live` is the board as it ships. */
+export type Look = "live" | "c4";
 
 /**
- * Prefix an in-app path with the current league AND the classic board's
- * segment: `lp("/players")` -> `/big-dog/classic/players`. Every classic
- * internal link goes through this so no click has to bounce off the legacy
- * redirect. (The beta shell has its own builder, `useBetaPath`, which lands
- * on the bare league address.)
- *
- * Memoized on the league SEGMENT, which is the only thing the closure reads —
- * so the identity holds for the life of the page (switching leagues re-boots).
- * A fresh closure per render is a dependency that always changes, and it was
- * invalidating the column memos on Teams and forcing QuickJump to suppress the
- * exhaustive-deps rule to keep its typeahead off the critical path.
+ * Which mount of the beta shell a screen is rendering in, and the address it
+ * answers at: `/<league>` for the live board, `/<league>/lab` for a trial.
+ * Provided by BetaShell; every in-shell link is built from `base`, so a tap in
+ * the lab stays in the lab.
  */
-export function useLeaguePath() {
+export const ShellContext = createContext<{ base: string; look: Look } | null>(null);
+
+/** the current mount's base, falling back to the live board's address for a
+ *  component rendered outside any shell (none today; cheap insurance) */
+export function useShellBase(): string {
+  const v = useContext(ShellContext);
   const seg = leagueSeg(useLeague().league);
-  return useCallback(
-    (p: string) => `/${seg}/${CLASSIC_SEG}${p.startsWith("/") ? p : `/${p}`}`, [seg]);
+  return v?.base ?? `/${seg}`;
+}
+
+export function useLook(): Look {
+  return useContext(ShellContext)?.look ?? "live";
 }
 
 /**
- * Which shell a view is mounted in, read off the URL: the classic board lives
- * under /<league>/classic and the beta shell answers the bare league address.
- *
- * The classic views the beta shell mounts as its "everything else" bucket
- * (Draft, DraftDetail, Weekly, Player…) are rendered by BOTH shells, so a
- * link they build cannot be a classic link by construction — that is what
- * dropped a beta reader into /classic on the first tap of a Draft chip.
+ * A FRANCHISE KEY IS NOT ALWAYS A ROSTER ID: it is the roster_id in a dynasty
+ * league and the owner's 18-digit Sleeper user_id in a redraft or keeper one.
+ * The Team screen looks a franchise up strictly by roster_id, so an
+ * owner-keyed franchise keeps the franchise page, mounted in the shell at
+ * /franchise/<key> since the classic board was retired.
  */
-export function useShell(): "classic" | "beta" {
-  const seg = leagueSeg(useLeague().league);
-  const { pathname } = useLocation();
-  const classic = `/${seg}/${CLASSIC_SEG}`;
-  return pathname === classic || pathname.startsWith(`${classic}/`) ? "classic" : "beta";
+export const isRid = (key: string) => /^\d{1,3}$/.test(key);
+
+/**
+ * A classic-board path, rewritten onto the beta shell's screens. Relative to
+ * the shell's base, query string preserved: `/weekly/2025/6/3` ->
+ * `/seasons/2025/6/3`, `/ledger` -> `/trade?scope=history`. A first segment
+ * this table does not name is already a beta path and passes through.
+ */
+export function classicToBeta(p: string): string {
+  const q = p.indexOf("?");
+  const path = q < 0 ? p : p.slice(0, q);
+  const search = q < 0 ? "" : p.slice(q + 1);
+  const [, first = "", ...rest] = (path.startsWith("/") ? path : `/${path}`).split("/");
+  const tail = rest.filter(Boolean);
+  const join = (h: string, r: string[] = []) => `/${[h, ...r].join("/")}`;
+  let to: string;
+  switch (first) {
+    case "": case "home": to = "/league"; break;
+    // the two player boards and their old shared tab are one board now
+    case "stats": case "value": case "players": to = "/players"; break;
+    case "draft": to = join("drafts", tail); break;
+    case "weekly": to = join("seasons", tail); break;
+    case "standings": to = tail[0] ? join("seasons", [tail[0]]) : "/seasons"; break;
+    case "playoffs": to = tail[0] ? join("seasons", [tail[0], "playoffs"]) : "/playoffs"; break;
+    case "trades": to = "/trade"; break;
+    case "ledger": to = "/trade?scope=history"; break;
+    case "teams":
+      // /teams/<season>/<rid>[/<tab>] is a franchise; /teams/<season> was that
+      // year's standings; /teams and /teams/all are the franchise board
+      if (tail.length >= 2 && isRid(tail[1])) to = join("team", [tail[1]]);
+      else if (tail[0] && tail[0].toLowerCase() !== "all") to = join("seasons", [tail[0]]);
+      else to = "/teams";
+      break;
+    case "franchise":
+      to = tail[0] ? (isRid(tail[0]) ? join("team", [tail[0]]) : join("franchise", [tail[0]])) : "/teams";
+      break;
+    default: to = join(first, tail);
+  }
+  if (!search) return to;
+  return to.includes("?") ? `${to}&${search}` : `${to}?${search}`;
 }
 
-/** the beta shell's name for a classic view's first path segment; a segment
- *  not listed keeps its name (player, teams, history, insights…).
- *
- *  `""` is the empty first segment of `lp("/")` — the classic board's League
- *  dashboard, which the beta shell answers at /league. `home` is the same
- *  screen's named address, and it is in BetaShell's CLASSIC_ONLY list, so
- *  without this entry a "Dashboard" button in the beta shell would bounce
- *  through the shell and out to /classic/home. */
-const BETA_SEG: Record<string, string> = {
-  draft: "drafts", weekly: "seasons", home: "league", "": "league",
-};
-
 /**
- * A FRANCHISE KEY IS NOT ALWAYS A ROSTER ID (the same rule BetaShell's
- * MastSearch writes out): it is the roster_id in a dynasty league and the
- * owner's 18-digit Sleeper user_id in a redraft or keeper one. The beta
- * shell's Team screen looks a franchise up strictly by roster_id, so an
- * owner-keyed franchise has no beta screen and keeps the classic page, which
- * knows how to read either shape.
- */
-const isRid = (key: string) => /^\d{1,3}$/.test(key);
-
-/**
- * `useLeaguePath` for a view that lives in both shells: takes the CLASSIC
- * path (`/draft/history/2025`, `/weekly/2025/6/3`, `/player/4034`) and lands
- * it in whichever shell the reader is in — `/big-dog/classic/draft/history/2025`
- * on the classic board, `/big-dog/drafts/history/2025` in the beta shell.
- * Views keep writing classic paths, so nothing at a call site changes when
- * the classic board is retired; only this table does.
- *
- * A path with no beta equivalent stays classic — `/franchise/<user_id>` above,
- * and any first segment BetaShell lists as CLASSIC_ONLY that is not renamed
- * here. Landing a reader on the classic board is the honest outcome when the
- * shell has no such screen; dropping him on a beta route that cannot resolve
- * the id is not.
+ * The path builder for a view written against the classic board's shapes
+ * (Player, Draft, DraftDetail, History, Insights, FranchisePage, QuickJump,
+ * PlayerLink…): takes the CLASSIC path and lands it on the matching screen of
+ * whichever beta mount the reader is in, live or lab. Views keep writing
+ * classic paths; only `classicToBeta` knows the renames.
  */
 export function useShellPath() {
-  const seg = leagueSeg(useLeague().league);
-  const shell = useShell();
-  return useCallback((p: string) => {
-    const path = p.startsWith("/") ? p : `/${p}`;
-    const classic = `/${seg}/${CLASSIC_SEG}${path}`;
-    if (shell === "classic") return classic;
-    const [, first = "", ...rest] = path.split("/");
-    // /franchise/<rid> -> the beta Team screen; /franchise/<user_id> has none
-    if (first === "franchise") {
-      if (rest.length !== 1 || !isRid(rest[0])) return classic;
-      return `/${seg}/team/${rest[0]}`;
-    }
-    const head = BETA_SEG[first] ?? first;
-    return `/${seg}/${head}${rest.length ? `/${rest.join("/")}` : ""}`;
-  }, [seg, shell]);
+  const base = useShellBase();
+  return useCallback((p: string) => `${base}${classicToBeta(p)}`, [base]);
 }
 
 /**
