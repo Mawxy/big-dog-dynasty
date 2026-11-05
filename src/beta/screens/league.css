@@ -187,10 +187,14 @@
 /* the middle block: spread and total stacked, the way a scoreboard card posts
    them, on the --deep spine. The spread is quoted from the favorite's side
    with a marker pointing at it; after kickoff the block reads Final. Wide
-   enough for "◂ −12.5" in the figure face at 12px and no wider — the two
-   sides need the room. */
+   enough for "◂ −102.5" in the figure face at 12px and no wider — the two
+   sides need the room. UNEVEN ON A PHONE (Max, 2026-11-05): the old 18vw
+   basis held "−78" but not "−29.5", and a flex item never shrinks below its
+   content, so every half-point spread widened its own block and the column
+   zigzagged down the page. The basis now holds the widest figure outright,
+   so every card's block is the same width. */
 .lgx-game .mid {
-  flex: 0 0 clamp(62px, 18vw, 84px); display: flex; flex-direction: column; align-items: center; justify-content: center;
+  flex: 0 0 clamp(78px, 20vw, 88px); display: flex; flex-direction: column; align-items: center; justify-content: center;
   gap: 1px; padding: 6px 4px;
   background: var(--deep);
 }
@@ -203,7 +207,7 @@
   white-space: nowrap;
 }
 .lgx-game .mid .v + .k { margin-top: 4px; }
-.lgx-game .mid .v.edge { display: grid; grid-template-columns: 14px auto 14px; column-gap: 4px; align-items: center; }
+.lgx-game .mid .v.edge { display: grid; grid-template-columns: 10px auto 10px; column-gap: 3px; align-items: center; }
 .lgx-game .mid .v.edge .n { text-align: center; }
 /* the spread's arrow takes the accent — it is the card's one pointer at the
    favorite; the drawer's per-slot arrows stay plain (Max, 2026-09-09) */
@@ -221,7 +225,8 @@
   .lgx-game .side .nm { font-size: 14.5px; }
   .lgx-game .side .fig { font-size: 21px; }
   /* the arrow slots go back to the wider gutter once the width is there */
-  .lgx-drawer .sd-mid .edge { grid-template-columns: 14px auto 14px; column-gap: 4px; }
+  .lgx-drawer .sd-mid .edge,
+  .lgx-game .mid .v.edge { grid-template-columns: 14px auto 14px; column-gap: 4px; }
 }
 
 /* ---- no meter -----------------------------------------------------------
