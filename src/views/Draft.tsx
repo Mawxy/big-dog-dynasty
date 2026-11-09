@@ -313,14 +313,18 @@ export default function Draft() {
   const medAll = Object.values(corpus?.slotMed ?? {}).filter((v): v is number => v != null);
   const hiPos = Math.max(0.01, ...medAll.filter(v => v > 0));
   const hiNeg = Math.max(0.01, ...medAll.filter(v => v < 0).map(Math.abs));
-  const heatBg = (m: number | null) => m == null ? "#0f1318" : Math.abs(m) < 0.005 ? "#151a21"
+  /* The ramp is data encoding and keeps its literal stops (each cell inks
+     itself off its own luminance, so it reads on any board). The two cells
+     that carry no value, empty and dead-even, are surfaces rather than data:
+     they take the board's tokens so a light theme draws no dark slabs. */
+  const heatBg = (m: number | null) => m == null ? "var(--zebra)" : Math.abs(m) < 0.005 ? "var(--band)"
     : m > 0 ? mix("#2e8f56", "#43d783", Math.sqrt(m / hiPos))
       : mix("#241419", "#a8474f", Math.sqrt(Math.abs(m) / hiNeg));
   // Ink comes from the cell's own computed luminance, not from the value:
   // dark on the light greens, cream on the dark roses. The switch at 0.173 is
   // where each option stops clearing 4.5:1, so no cell lands in the band where
   // neither reads. A single flat ink can't cover a ramp this wide.
-  const heatFg = (m: number | null) => m == null ? "#3d4650" : Math.abs(m) < 0.005 ? "#7b8794"
+  const heatFg = (m: number | null) => m == null ? "var(--dim3)" : Math.abs(m) < 0.005 ? "var(--dim)"
     : lum(heatBg(m)) > 0.173 ? "#08170e" : "#fdeee0";
   // The ramp's endpoints, and ONLY that — they label the two ends of the
   // color legend. They used to also ring the matching cells in the grid,
@@ -410,15 +414,15 @@ export default function Draft() {
                     <svg viewBox="0 0 800 46" preserveAspectRatio="none">
                       {TICKS.map(t => (
                         <line key={t} x1={sx(t)} y1={16} x2={sx(t)} y2={46}
-                          stroke={t === 0 ? "#4e5d6c" : "var(--rule)"} strokeWidth={1} />
+                          stroke={t === 0 ? "var(--dim3)" : "var(--rule)"} strokeWidth={1} />
                       ))}
                       {b.s && <>
-                        <line x1={sx(b.s.mn)} y1={31} x2={sx(b.s.mx)} y2={31} stroke="#4e5d6c" strokeWidth={1.5} />
+                        <line x1={sx(b.s.mn)} y1={31} x2={sx(b.s.mx)} y2={31} stroke="var(--dim3)" strokeWidth={1.5} />
                         {/* whisker end caps */}
-                        <line x1={sx(b.s.mn)} y1={23} x2={sx(b.s.mn)} y2={39} stroke="#4e5d6c" strokeWidth={1.5} />
-                        <line x1={sx(b.s.mx)} y1={23} x2={sx(b.s.mx)} y2={39} stroke="#4e5d6c" strokeWidth={1.5} />
+                        <line x1={sx(b.s.mn)} y1={23} x2={sx(b.s.mn)} y2={39} stroke="var(--dim3)" strokeWidth={1.5} />
+                        <line x1={sx(b.s.mx)} y1={23} x2={sx(b.s.mx)} y2={39} stroke="var(--dim3)" strokeWidth={1.5} />
                         <rect x={sx(b.s.q1)} y={19} width={Math.max(1, sx(b.s.q3) - sx(b.s.q1))} height={24}
-                          fill="#1e262f" stroke="#54636f" strokeWidth={1.5} />
+                          fill="var(--sel)" stroke="var(--dim3)" strokeWidth={1.5} />
                         <line x1={sx(b.s.md)} y1={17} x2={sx(b.s.md)} y2={45} stroke="var(--acc)" strokeWidth={3} />
                       </>}
                     </svg>

@@ -86,7 +86,8 @@ export default function Seasons() {
   const mw = mwQ.data;
   const caps = useLeagueCaps();
   const odds = useJson<WeekOdds>(caps.odds ? `${season}/odds.json` : null).data;
-  const weekly = useJson<Weekly>(`${season}/weekly.json`).data;
+  const weeklyQ = useJson<Weekly>(`${season}/weekly.json`);
+  const weekly = weeklyQ.data;
   const teams = useJson<Team[]>(`${season}/teams.json`).data;
   const bracket = useJson<BracketFile>(`${season}/bracket.json`).data;
   const fr = useJson<Franchises>("franchises.json").data;
@@ -199,7 +200,7 @@ export default function Seasons() {
           <Matchup season={season} wk={wk} rid={mid} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf}
             proj={phist?.[String(wk)] ?? null} nfl={nfl} />
         ) : (
-          <WeekBoard season={season} wk={wk} mw={mw} odds={odds} weekly={weekly} teams={teams} nameOf={nameOf} ptsOf={ptsOf} nfl={nfl} />
+          <WeekBoard season={season} wk={wk} mw={mw} odds={odds} weekly={weekly} weeklyFailed={weeklyQ.error} teams={teams} nameOf={nameOf} ptsOf={ptsOf} nfl={nfl} />
         )}
     </>
   );
@@ -256,7 +257,11 @@ function nflWeek(games: NflGames | null | undefined, clubs: Record<string, strin
   return { board, clubOf, line };
 }
 
-function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf, nfl }: WeekProps & { teams: Team[] | null | undefined }) {
+function WeekBoard({ season, wk, mw, odds, weekly, weeklyFailed = false, teams, nameOf, ptsOf, nfl }: WeekProps & {
+  teams: Team[] | null | undefined;
+  /** weekly.json failed: the performers band says so rather than wait */
+  weeklyFailed?: boolean;
+}) {
   const { players } = useLeague();
   const betaPath = useBetaPath();
   const rows = useMemo(() => weekRows(mw, wk), [mw, wk]);
@@ -312,7 +317,7 @@ function WeekBoard({ season, wk, mw, odds, weekly, teams, nameOf, ptsOf, nfl }: 
             })}
             settled={!!weekly}
             empty={pos => `no ${pos} scored`} />
-          <Performers wk={wk} rows={rows} weekly={weekly} nameOf={nameOf} betaPath={betaPath} />
+          <Performers wk={wk} rows={rows} weekly={weekly} failed={weeklyFailed} nameOf={nameOf} betaPath={betaPath} />
         </>
       )}
       <div className="tnote screen">
@@ -433,8 +438,10 @@ function useSlots(wk: number, ptsOf: PtsOf, weekly?: Weekly | null,
    Started players only, by WAR. The badge-rank on the sub-line is rank within
    position for THIS sort; the phone folds points onto the sub-line, the
    desktop gets them as columns. */
-export function Performers({ wk, rows, weekly, nameOf, betaPath, est = false }: {
+export function Performers({ wk, rows, weekly, failed = false, nameOf, betaPath, est = false }: {
   wk: number; rows: WeekRow[]; weekly: Weekly | null | undefined;
+  /** the weekly file's fetch failed: say so rather than wait on it forever */
+  failed?: boolean;
   nameOf: (rid: number) => string; betaPath: (p: string) => string;
   /** the live week: the WAR column is an estimate (lib/liveWar) and says so */
   est?: boolean;
@@ -470,7 +477,8 @@ export function Performers({ wk, rows, weekly, nameOf, betaPath, est = false }: 
             {all ? `Top ${PERF_FOLDED} ▴` : `All ${Math.min(PERF_ALL, perf.length)} ▾`}
           </button>
         )} />
-      {!weekly ? <div className="empty">Loading…</div> : !perf.length ? <div className="empty">No scored starter this week.</div> : (
+      {failed ? <DataError what="Player scores didn't load" />
+        : !weekly ? <div className="empty">Loading…</div> : !perf.length ? <div className="empty">No scored starter this week.</div> : (
         <table className="v3tbl lgx-grid">
           <thead>
             <tr>

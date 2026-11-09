@@ -31,7 +31,10 @@
   --txt: #eef2f6;
   --txt2: #c3ccd6;
   --dim: #7b8794;
-  --dim2: #6b7784;
+  /* 4.5:1 on --bg AND --band (4.9 / 4.6). It was #6b7784, which fell to 4.0
+     on --band while carrying honor counts and rank movement at 9-11px; the six
+     opt-in themes already held it to 4.5. */
+  --dim2: #76828f;
   /* DECORATIVE ONLY: 3.2:1 on --bg fails 4.5:1 — captions >=12px and legends,
      never a value a reader must read (those take --dim or lighter) */
   --dim3: #5c6874;
@@ -1293,7 +1296,7 @@ button.dband:hover .band-label { color: var(--txt2); }
 }
 .bside { display: flex; align-items: center; gap: 9px; padding: 8px 10px; }
 .bside + .bside { border-top: 1px solid var(--hair); }
-.bside .seed { width: 16px; text-align: center; font: 600 11px/1 var(--cond); color: var(--dim3); }
+.bside .seed { width: 16px; text-align: center; font: 600 11px/1 var(--cond); color: var(--dim); }
 .bside .team {
   flex: 1; font: 600 13.5px/1.25 var(--sans); color: var(--txt2);
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
@@ -1557,7 +1560,7 @@ tbody tr.stint td.stint-wk { padding-left: 22px; font: 400 12px/1.4 var(--sans);
 .weekcell:nth-child(-n+7) { border-top: 0; }
 .weekcell:nth-child(7n+1) { border-left: 0; }
 .weekcell .top { display: flex; justify-content: space-between; align-items: baseline; gap: 6px; }
-.weekcell .wk { font: 400 11px/1 var(--cond); letter-spacing: .08em; color: var(--dim3); }
+.weekcell .wk { font: 400 11px/1 var(--cond); letter-spacing: .08em; color: var(--dim); }
 .weekcell .pts { font: 600 14px/1 var(--cond); font-variant-numeric: tabular-nums; }
 .weekcell .bar { height: 4px; background: var(--bar-track); margin: 6px 0 5px; }
 .weekcell .bar i { display: block; height: 100%; background: #4e5d6c; }
@@ -1720,8 +1723,6 @@ table.feed .nm { font: 600 13.5px/1.35 var(--sans); color: var(--txt); }
 table.feed .line { display: flex; align-items: baseline; gap: 6px; min-width: 0; padding: 1px 0; }
 table.feed .line .nm { flex: 0 0 auto; }
 table.feed .line .by { flex: 1 1 auto; white-space: normal; }
-table.feed .arrow { color: var(--good); font-size: 10px; }
-table.feed .arrow.alt { color: var(--wr); }
 table.feed .add { color: var(--good); }
 table.feed .drop { color: var(--bad); }
 /* group bands inside a feed: left-aligned and colored by direction, unlike

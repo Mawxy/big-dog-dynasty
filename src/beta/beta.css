@@ -65,6 +65,12 @@
      under the masthead offsets by the padded height. */
   --masth: calc(42px + env(safe-area-inset-top, 0px));
   --v3pad: 14px;
+  /* TABULAR FIGURES, INHERITED. `font-variant-numeric` is reset by every
+     `font:` shorthand, so declaring it on the root reaches nothing that sets
+     its own font. `font-feature-settings` is not reset by the shorthand, so
+     this one line makes every figure in the shell tabular, whichever face it
+     is set in. */
+  font-feature-settings: "tnum";
   min-height: 100vh;
   background: var(--bg);
   /* clear the fixed bar, plus the home-indicator strip on an iOS web clip */
@@ -943,3 +949,34 @@
   .v3 .draft-screen .pick-tables td.raw { font-size: 15px; }
   .v3 .draft-screen td.fig { font-size: 14.5px; }
 }
+
+/* == the classic views' figures, re-pointed to the figure face ===========
+   The views and components this shell mounts from the retired classic board
+   (Player, FranchisePage, History, DraftDetail, PlayoffBracket, WeekGrid,
+   RecentTrades, IndexBoard) set their figures with a `font:` shorthand naming
+   --cond, so under `.v3` they read in Barlow Condensed while every figure the
+   shell draws itself is mono. Only the FAMILY moves here: sizes, weights and
+   their media-query steps stay where style.css sets them. Labels on the same
+   components (`.rec-key`, `.bside .pts.rest`) are words and keep --cond. */
+.v3 .head-fig,
+.v3 .stat-v,
+.v3 .figval,
+.v3 .rec-fig,
+.v3 .rail-war .v,
+.v3 .rtx-figs .v,
+.v3 .rtx-paid .v,
+.v3 .trade-side .total,
+.v3 .trade-asset .war,
+.v3 table.rankgrid .fig,
+.v3 .bside .pts:not(.rest),
+.v3 .bside .seed,
+.v3 .weekcell:not(.bye) .pts,
+.v3 .weekcell .war,
+.v3 td.spine-cell .rank {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+}
+/* a mono digit is the wider glyph: the two largest classic figures step down
+   one notch so a five-character figure keeps the cell it had */
+.v3 .stat-v { font-size: 26px; }
+.v3 .trade-side .total { font-size: 24px; }

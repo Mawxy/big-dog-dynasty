@@ -1,8 +1,9 @@
 import { quart } from "../lib/stats";
 
-/** Shared palette for hand-rolled SVG charts. */
-export const AXIS = "#8b96a5";
-const FILL = "#1e6fd933", STROKE = "#1e6fd9";
+/** Shared palette for hand-rolled SVG charts: tokens, so the marks follow
+ *  the theme (the same whisker, box and stroke the Players spread plot uses). */
+export const AXIS = "var(--dim)";
+const FILL = "var(--sel)", STROKE = "var(--rule-2)";
 
 export interface BoxStats { mn: number; q1: number; md: number; q3: number; mx: number }
 

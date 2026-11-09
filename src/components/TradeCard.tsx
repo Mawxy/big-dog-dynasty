@@ -146,8 +146,8 @@ function SideHead({ s, fig }: { s: TradeSide; fig: SideFig }) {
           <div className="k">Realized · to come</div>
           <div className="total">
             {fmtWar(s.war)}
-            <span style={{ font: "400 14px/1 var(--cond)", color: "var(--dim)" }}>
-              {" "}· {sgnWar(s.future ?? 0)}
+            <span style={{ font: "400 13px/1 var(--mono)", fontVariantNumeric: "tabular-nums", color: "var(--dim)" }}>
+              {" "}· {s.future == null ? "—" : sgnWar(s.future)}
             </span>
           </div>
         </div>

@@ -2066,10 +2066,10 @@ function Honors({ marks, pos }: { marks?: [HonorKey, number][]; pos: string }) {
  *
  * `boxStats` is the classic board's, imported: the five-number summary is
  * arithmetic and there should be exactly one of it. The MARKS are drawn here
- * rather than reusing `BoxMarks`, which hardcodes a blue box — on this shell
- * that blue is the WR position color, and position color is the badge and the
- * spine and nothing else. Achromatic box, accent median, which is the one
- * figure on it worth pointing at.
+ * rather than reusing `BoxMarks`, which once hardcoded a blue box (the WR
+ * position color, and position color is the badge and the spine and nothing
+ * else). Achromatic box, accent median, which is the one figure on it worth
+ * pointing at.
  *
  * Under four scored weeks there is no distribution to draw and it renders
  * nothing — quartiles of three numbers are three numbers with a box round them.

@@ -22,7 +22,7 @@ import TeamHonorMarks from "../../components/TeamHonorMarks";
 import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamHonors";
 import DraftBoardGrid from "../../components/DraftBoardGrid";
 import { buildHistory } from "../../lib/draftHistory";
-import { useSeasonPhase, useStandings } from "../model";
+import { useSeasonPhase, useStandingsQ } from "../model";
 import {
   isStale, useLiveWeekFeed, useNflBoardFeed, type LiveSide, type Scoreboard,
 } from "../../lib/liveScores";
@@ -355,7 +355,8 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
   const teams = useJson<Team[]>(`${rosterSeason}/teams.json`).data;
   // the result season's files: the same files when a week of the roster
   // season has been played, the previous season's before that
-  const mwR = useJson<Matchups>(`${resultSeason}/matchups.json`).data;
+  const mwRQ = useJson<Matchups>(`${resultSeason}/matchups.json`);
+  const mwR = mwRQ.data;
   const oddsR = useJson<WeekOdds>(caps.odds ? `${resultSeason}/odds.json` : null).data;
   const weeklyR = useJson<Weekly>(`${resultSeason}/weekly.json`).data;
   const teamsR = useJson<Team[]>(`${resultSeason}/teams.json`).data;
@@ -809,7 +810,8 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
           low its negative, the upset its caution — the semantic tokens the
           rest of the board already gives those three facts. The margin stays
           neutral: a close game is not good or bad for anyone. */}
-      {!lastWeek ? <div className="empty">{mwR ? "No week played yet." : "Loading…"}</div> : (
+      {mwRQ.error ? <DataError what="Last week didn't load" />
+        : !lastWeek ? <div className="empty">{mwR ? "No week played yet." : "Loading…"}</div> : (
         <div className="lgx-even">
         <Strip figures={[
           { key: "top", label: "Top score",
@@ -1180,7 +1182,7 @@ function futuresLines(fair: Record<string, number>): Record<string, string> {
 function Standings({ rosterSeason }: { rosterSeason: string }) {
   const betaPath = useBetaPath();
   const caps = useLeagueCaps();
-  const rows = useStandings(rosterSeason);
+  const { rows, error: standingsErr } = useStandingsQ(rosterSeason);
   // the season simulation, where this league has one — odds.json is a default-
   // league file, and the table below stands on its own without it
   const oddsQ = useJson<WeekOdds>(caps.odds ? `${rosterSeason}/odds.json` : null);
@@ -1251,7 +1253,8 @@ function Standings({ rosterSeason }: { rosterSeason: string }) {
         note={preseason && sim ? "Nothing played yet · in projected-finish order"
           : "Wins, then points · Max PF is the best lineup every week · Elo is all-play, with the all-play record under it"}
         right={<ViewAll to={betaPath("/teams")} label="Teams →" />} />
-      {!ordered ? <div className="empty">Loading…</div> : (
+      {standingsErr ? <DataError what="Standings didn't load" />
+        : !ordered ? <div className="empty">Loading…</div> : (
         <table className="v3tbl lgx-grid lgx-wrap">
           <thead>
             <tr>
@@ -2272,7 +2275,7 @@ function HistoryView({ season }: { season: string }) {
   const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const { keyOf, hrefOf } = useFranchiseIndex(rosterSeasonOf(league));
-  const rows = useStandings(season);
+  const { rows, error: standingsErr } = useStandingsQ(season);
   /* the QUERY, not just its data: an em dash is a claim ("there is no such
      figure") and a fetch in flight is not entitled to make it, so the champion
      block waits on `loading` rather than on `data`. A 404 settles loading to
@@ -2283,10 +2286,9 @@ function HistoryView({ season }: { season: string }) {
   const fr = useJson<Franchises>("franchises.json").data;
   const sumQ = useJson<SummaryRow[]>(`${season}/summary.json`);
   const sum = sumQ.data;
-  /* already fetched by useStandings — same path, so the cache serves it, and
-     its `error` therefore doubles as the standings' error: useStandings builds
-     `rows` from this file and that season's matchups, so a null `rows` with
-     this query failed is a failure rather than a wait. */
+  /* already fetched by useStandingsQ — same path, so the cache serves it. The
+     standings' own failure is `standingsErr`, which covers this file and that
+     season's matchups. */
   const teamsQ = useJson<Team[]>(`${season}/teams.json`);
   const teams = teamsQ.data;
   // the draft that stocked this season, off the same file and the same model
@@ -2452,7 +2454,7 @@ function HistoryView({ season }: { season: string }) {
           Gated on the fetch, not on the data: an em dash is a claim, and a
           champion block full of them while the files are still in flight makes
           a claim the screen is about to contradict. */}
-      {teamsQ.error ? <DataError what={`${season} didn't load`} />
+      {standingsErr ? <DataError what={`${season} didn't load`} />
         : !rows || brq.loading ? <div className="empty">Loading {season}…</div> : <>
         <div className="lgx-champ">
           <div className="k">{season} champion</div>
@@ -2514,7 +2516,7 @@ function HistoryView({ season }: { season: string }) {
       {/* ---- final standings ---------------------------------------------- */}
       <Band label={`${season} final standings`}
         note="# is the playoff seed — regular-season record, then points" />
-      {teamsQ.error ? <DataError what={`${season} standings didn't load`} />
+      {standingsErr ? <DataError what={`${season} standings didn't load`} />
         : !rows ? <div className="empty">Loading {season}…</div> : (
         <table className="v3tbl lgx-grid lgx-wrap">
           <thead>

@@ -86,7 +86,7 @@ export default function PickTable<R extends PickRow>({
               </td>
               <td className="n sub">{r.expected == null ? "—" : sgnWar(r.expected)}</td>
               <td className="n raw">{sgnWar(r.war)}</td>
-              <td className="n vs" style={{ color: warInk(r.diff ?? 0) }}>{sgnWar(r.diff ?? 0)}</td>
+              <td className="n vs" style={r.diff == null ? undefined : { color: warInk(r.diff) }}>{r.diff == null ? "—" : sgnWar(r.diff)}</td>
             </tr>
           ))}
         </tbody>

@@ -908,8 +908,8 @@ export default function FranchisePage({ fkey, players, tab }:
                               <td className="c"><PosBadge pos={p.pos} /></td>
                               <td className={`n ${np || p.traded ? "fig quiet" : clsOf(p.war)}`}>
                                 {np ? "—" : fmtWar(p.war)}</td>
-                              <td className={`n hm ${np || p.traded ? "fig quiet" : clsOf(p.war_roster ?? 0)}`}>
-                                {np || p.traded ? "—" : fmtWar(p.war_roster ?? 0)}</td>
+                              <td className={`n hm ${np || p.traded || p.war_roster == null ? "fig quiet" : clsOf(p.war_roster)}`}>
+                                {np || p.traded || p.war_roster == null ? "—" : fmtWar(p.war_roster)}</td>
                               <td className="n hm fig quiet">{p.expected == null ? "—" : fmtWar(p.expected)}</td>
                               <td className={`n ${np || p.diff == null ? "fig quiet" : clsOf(p.diff)}`}>
                                 {np || p.diff == null ? "—" : sgnWar(p.diff)}</td>

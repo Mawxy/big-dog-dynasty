@@ -241,9 +241,18 @@ export interface StandingRow {
  * not pay for nine.
  */
 export function useStandings(season: string | null) {
-  const teams = useJson<Team[]>(season ? `${season}/teams.json` : null).data;
-  const mw = useJson<Matchups>(season ? `${season}/matchups.json` : null).data;
-  return useMemo<StandingRow[] | null>(() => {
+  return useStandingsQ(season).rows;
+}
+
+/** The same standings with the fetch's failure kept. `rows` is null both
+ *  while the two files are in flight and after either one fails, so a screen
+ *  that gates "Loading…" on `rows` alone waits forever on a failed fetch.
+ *  Gate on `error` first. */
+export function useStandingsQ(season: string | null) {
+  const teamsQ = useJson<Team[]>(season ? `${season}/teams.json` : null);
+  const mwQ = useJson<Matchups>(season ? `${season}/matchups.json` : null);
+  const teams = teamsQ.data, mw = mwQ.data;
+  const rows = useMemo<StandingRow[] | null>(() => {
     if (!teams || !mw) return null;
     const ps = mw.playoff_start || 15;
     const rows = teams.map(t => {
@@ -269,6 +278,7 @@ export function useStandings(season: string | null) {
     order.forEach((r, i) => { r.rank = i + 1; });
     return order;
   }, [teams, mw]);
+  return { rows, error: teamsQ.error || mwQ.error };
 }
 
 /* ========================================================================

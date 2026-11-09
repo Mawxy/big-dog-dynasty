@@ -188,7 +188,8 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board 
   const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const pairs = useFuture(wk, mw, odds);
-  const sproj = useJson<SleeperProjFile>(caps.projections ? "proj_sleeper.json" : null).data;
+  const sprojQ = useJson<SleeperProjFile>(caps.projections ? "proj_sleeper.json" : null);
+  const sproj = sprojQ.data;
   const pair = pairs.find(p => p.a.rid === rid || p.b.rid === rid);
   const lineup = useMemo(
     () => lineupOf(meta).filter(sl => !["BN", "IR", "TAXI"].includes(sl)), [meta]);
@@ -279,7 +280,7 @@ export function FutureMatchup({ season, wk, rid, mw, odds, teams, nameOf, board 
       <Band label="Lineups" note={noProj ? "as the managers have set them · no projection is published for this league"
         : setWeek ? "as the managers have set them · projected points"
         : "each roster's best projected lineup · today's rosters"} />
-      {!sproj && caps.projections ? <div className="empty">Loading…</div> : (
+      {!sproj && caps.projections && !sprojQ.error ? <div className="empty">Loading…</div> : (
         <div className="ssx-lineups">
           <SlotDrawer
             a={{ rid: a.rid, name: nameOf(a.rid), slots: la.slots }}

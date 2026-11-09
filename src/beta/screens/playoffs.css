@@ -76,7 +76,7 @@
   font: 600 10.5px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
 }
 .pm-side.lost .nm { color: var(--dim); }
-.pm-side.lost .wp { color: var(--dim3); }
+.pm-side.lost .wp { color: var(--dim); }
 .pm-vs {
   flex: 0 0 34px; display: flex; align-items: center; justify-content: center;
   background: var(--deep); color: var(--dim2);

@@ -686,10 +686,10 @@ function Drawer({ r, allTime, phase, to, nameOf }: {
               );
               return (
                 <div key={c.wk} className="weekcell">
-                  <div className="top"><span className="wk">W{c.wk}</span><span className="pts">{fmt(c.pts ?? 0, 1)}</span></div>
-                  <div className="bar"><i style={{ width: `${Math.round(Math.max(0, c.pts ?? 0) / max * 100)}%` }} /></div>
+                  <div className="top"><span className="wk">W{c.wk}</span><span className="pts">{c.pts == null ? "—" : fmt(c.pts, 1)}</span></div>
+                  <div className="bar">{c.pts != null && <i style={{ width: `${Math.round(Math.max(0, c.pts) / max * 100)}%` }} />}</div>
                   <div className={`war ${c.res === "W" ? "good" : c.res === "L" ? "bad" : ""}`}
-                    title={c.opp != null ? `vs ${nameOf(one.season, c.opp)}, ${fmt(c.oppPts ?? 0, 1)}` : undefined}>
+                    title={c.opp != null ? `vs ${nameOf(one.season, c.opp)}${c.oppPts != null ? `, ${fmt(c.oppPts, 1)}` : ""}` : undefined}>
                     {c.res}{c.oppPts != null ? ` · ${fmt(c.oppPts, 1)}` : ""}
                   </div>
                 </div>

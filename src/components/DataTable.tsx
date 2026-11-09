@@ -283,7 +283,7 @@ export default function DataTable<T, X>({
                 onKeyDown={act ? e => {
                   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSort(c); }
                 } : undefined}>
-                {c.label}{sortId === c.id ? (dir < 0 ? " ▼" : " ▲") : ""}
+                {c.label}{sortId === c.id ? (dir < 0 ? " ▾" : " ▴") : ""}
               </th>
             );
           })}
