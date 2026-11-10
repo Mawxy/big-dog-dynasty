@@ -372,6 +372,17 @@
 /* Two lines, like the identity cell opposite it: the picked sort key on line 1
    at figure size, the keys it displaced on line 2. Same height, so the row
    stays 44px honestly rather than by padding. */
+/* THE RANK COLUMN IS ONE WIDTH AT EVERY POSITION (Max, 2026-11-10). The
+   table is auto-layout, so the column grew to fit its widest ordinal: ALL,
+   RB and WR rank into three digits, QB and TE stop at two, and every switch
+   between them moved the whole name column 8px sideways. The ordinal's box
+   is held at three digits' width whatever it holds (`ch` is one digit in
+   the mono face; 13px is the box's own padding in beta.css), so the name
+   starts on the same pixel under every chip. Teams shares this table and
+   takes the same column. Not in the lab: C4 draws the ordinal as a slab and
+   sizes it itself. */
+.v3:not(.c4) .v3tbl.plx-tbl td.sp .rank { min-width: calc(3ch + 13px); }
+
 .plx-tbl td.plx-lead { padding-top: 4px; padding-bottom: 4px; }
 
 /* THE DEMOTED KEYS. Values, not ranks — the desktop board shows these three as

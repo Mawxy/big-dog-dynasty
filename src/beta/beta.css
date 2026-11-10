@@ -817,6 +817,13 @@
    not change with the lens the way Rankings' featured column does — so they
    belong in the stylesheet, and the class keeps them off every other v3tbl. */
 .v3tbl.roster th.lens { width: 16%; }
+/* `lens` IS ALSO style.css's LENS CONTROL, a flex row (Max, 2026-11-10). On
+   this <th> that rule turned the header cell's box into a flex container,
+   which ignores `text-align`: the DVI / CVI label sat at the LEFT of a column
+   whose figures are right-aligned, about 10px off them at every width. The
+   class name stays (the width above keys on it); the cell goes back to being
+   a cell. */
+.v3tbl th.lens { display: table-cell; }
 .v3tbl.roster th.war { width: 18%; }
 .v3tbl.roster th.mkt { width: 20%; }
 

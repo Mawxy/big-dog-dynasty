@@ -652,7 +652,13 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
             <div className="lgx-median">
               <span className="k">League median</span>
               <span className="v">{fmt((isLive ? liveMedian : thisWeek.median) as number, 1)}</span>
-              <span className="s">{isLive ? "of the points so far" : "of the projected totals"}</span>
+              {/* A SCORED WEEK'S MEDIAN IS OF ITS FINALS (Max, 2026-11-10). The
+                  figure was already the actual one (`thisWeek.scored` takes the
+                  week's real points above); only this caption still said
+                  "projected", for a past week reached through the picker. Same
+                  words the Seasons screen puts under a final week's median. */}
+              <span className="s">{thisWeek.scored ? "of the week's scores"
+                : isLive ? "of the points so far" : "of the projected totals"}</span>
             </div>
           )}
           {thisWeek.games.map(g => {
@@ -1775,9 +1781,10 @@ export function PosLeaders({ leaders, settled, empty }: {
                 </RouteLink>
               : <span className="nm">{settled ? DASH : "\u00a0"}</span>}
             <div className="sub">
-              {/* the figure in its own span so the C4 lab can ink a WAR
-                  figure as WAR; unstyled on the live board */}
-              {row ? <><span className="lgx-pv">{row.value}</span>{` · ${row.note}`}</> : settled ? empty(pos) : "\u00a0"}
+              {/* the figure and the separator in their own spans so the C4 lab
+                  can ink a WAR figure as WAR and lift the figure out to the
+                  row's right edge; unstyled on the live board */}
+              {row ? <><span className="lgx-pv">{row.value}</span><span className="lgx-sep">{" · "}</span><span className="lgx-pn">{row.note}</span></> : <span className="lgx-pn">{settled ? empty(pos) : "\u00a0"}</span>}
             </div>
           </div>
         );

@@ -348,6 +348,12 @@
   font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase;
 }
 .lgx-all:hover { color: var(--txt); }
+/* AS A <button> (the record book's "All 100" fold, Seasons' "All 50"). The
+   reset lived in seasons.css under `.band`, so it only existed once that lazy
+   chunk had loaded: opened cold, the Record book drew this as a native grey
+   button with gold text on it, 1.4:1 (Max, 2026-11-10). It belongs with the
+   class, in the sheet every screen already has. */
+button.lgx-all { background: none; border: 0; padding: 0; cursor: pointer; }
 .lgx-all:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
 /* Whose move it was, on the third line of a roster-move row. `.idc-s` already

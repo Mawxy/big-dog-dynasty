@@ -19,6 +19,8 @@ import { RetryScope, Sheet, SheetRow, useBetaPath } from "./ui";
 import {
   LiveThemeContext, applyLiveTheme, readLiveTheme, writeLiveTheme, type LiveThemeId,
 } from "./liveTheme";
+import { UiContext, readUi, useUi, writeUi, type UiMode } from "./mobile/uiMode";
+import { Icon } from "./mobile/icons";
 import League from "./screens/League";
 import Team from "./screens/Team";
 import Claim from "./screens/Claim";
@@ -107,8 +109,50 @@ export default function BetaShell({ look = "live" }: { look?: Look }) {
       <RetryScope><BetaBoard base={base} look={look} /></RetryScope>
     </ShellContext.Provider>
   );
-  // the lab brings its own themes (LabShell); only the live board wears these
-  return look === "live" ? <LiveThemes>{board}</LiveThemes> : board;
+  // the lab brings its own themes (LabShell); only the live board wears these,
+  // and only the live board offers the mobile-first UI (mobile/uiMode.ts)
+  return look === "live" ? <LiveThemes><UiModes>{board}</UiModes></LiveThemes> : board;
+}
+
+/**
+ * THE INTERFACE SWITCH (mobile/uiMode.ts): the current UI, or the mobile-first
+ * one, on the same address. Saved on this device and changed under More.
+ *
+ * The mobile-first stylesheet is its OWN CHUNK, fetched the first time the
+ * mode is on, so a reader on the current UI never downloads it. On a boot
+ * with the mode already saved the board waits for that sheet before it
+ * paints, so the screen never flashes the other interface; on a switch made
+ * from More the board is already on screen and the sheet simply lands.
+ * Every rule in it is scoped under `.v3.mf`, so it staying loaded after a
+ * switch back changes nothing.
+ */
+function UiModes({ children }: { children: ReactNode }) {
+  const [ui, setUiState] = useState<UiMode>(readUi);
+  const [ready, setReady] = useState(ui !== "mobile");
+  useEffect(() => {
+    if (ui !== "mobile") return;
+    let live = true;
+    // a failed fetch still paints: the current UI under a class it ignores
+    const done = () => { if (live) setReady(true); };
+    import("./mobile/mobile.css").then(done, done);
+    return () => { live = false; };
+  }, [ui]);
+  // on <html> too, for the two things outside the shell's root: the page
+  // field behind an overscroll, and the boot script's first paint
+  useLayoutEffect(() => {
+    const root = document.documentElement;
+    if (ui === "mobile") root.dataset.ui = "mobile"; else delete root.dataset.ui;
+    return () => { delete root.dataset.ui; };
+  }, [ui]);
+  const value = useMemo(() => ({
+    ui,
+    setUi: (m: UiMode) => { writeUi(m); setUiState(m); window.scrollTo(0, 0); },
+  }), [ui]);
+  return (
+    <UiContext.Provider value={value}>
+      {ready ? children : <div className="empty">Loading…</div>}
+    </UiContext.Provider>
+  );
 }
 
 /**
@@ -159,6 +203,8 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
   // league's own segment is not always the alias: a numeric-key address opens
   // the same league, so it is stripped by position, not by matching the alias.
   const lab = look !== "live";
+  // the mobile-first UI: live board only, and only while it is switched on
+  const mobile = useUi()?.ui === "mobile" && !lab;
   const seg = loc.pathname.split("/").filter(Boolean)[lab ? 2 : 1] ?? "";
   // the same screen on the other mount, query intact: the masthead's way across
   const across = `/${leagueSeg(league)}${lab ? "" : `/${LAB_SEG}`}${
@@ -286,11 +332,24 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
   const onLeague = active === "league";
   // where ← Back goes when there is nothing behind it: this screen's hub
   const hub = `${base}${active ? `/${active}` : ""}`;
+  // a screen below a tab gets an on-screen way back (the player page carries
+  // its own) — one test, read by both interfaces' back controls
+  const showBack = !tabs.some(t => t.id === seg) && seg !== "" && seg !== "player";
 
   return (
     <IdentityContext.Provider value={identity}>
-      <div className={lab ? `v3 ${look}` : "v3"}>
+      <div className={lab ? `v3 ${look}` : mobile ? "v3 mf" : "v3"}>
         <header className={`v3-mast${finding ? " finding" : ""}`}>
+          {/* THE MOBILE-FIRST UI'S BACK STEP lives IN the bar, where a thumb
+              already expects it, instead of on a row of its own under it.
+              Same rule and same target as the `.v3-back` row below. */}
+          {mobile && showBack && (
+            <a className="mf-back" href={`#${hub}`} aria-label="Back"
+              onClick={e => {
+                e.preventDefault();
+                if (window.history.state?.idx === 0) nav(hub); else nav(-1);
+              }}><Icon id="back" /></a>
+          )}
           {/* The league name is on every screen. On the League tab it is the
               switcher (decision #6 — the sheet IS the user level, which is what
               lets the whole user-home screen be deleted); everywhere else it is
@@ -306,7 +365,7 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
             <span className="lg flat">{league.name}</span>
           )}
           <span className="tag">{lab ? "War Board" : "War Board Beta"}</span>
-          <MastSearch open={finding} onToggle={setFinding} />
+          <MastSearch open={finding} onToggle={setFinding} icon={mobile} />
           {/* THE WAY ACROSS, desktop only (beta.css): the same screen on the
               other mount, so live and lab compare address for address. A
               375px masthead has no room for it; More carries the row. */}
@@ -324,7 +383,7 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
             ON A SHARED DEEP LINK THERE IS NO BACK: the router's history index is
             0, so nav(-1) leaves the board or does nothing. The hub is the step
             up the reader wanted. */}
-        {!tabs.some(t => t.id === seg) && seg !== "" && seg !== "player" && (
+        {showBack && !mobile && (
           <a className="v3-back" href={`#${hub}`}
             onClick={e => {
               e.preventDefault();
@@ -429,6 +488,7 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
                 onPointerUp={cancelHold} onPointerLeave={cancelHold}
                 onPointerCancel={cancelHold} onPointerMove={moveHold}
                 onContextMenu={t.id === "league" ? e => e.preventDefault() : undefined}>
+                {mobile && <Icon id={t.id} />}
                 {t.label}
                 {"dot" in t && t.dot && <span className="dot" />}
               </a>
@@ -493,8 +553,10 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
  * library and is not getting one for this, and the ⌕ glyph that would avoid one
  * is missing from most of the stack's faces — a tofu box is worse than a label.
  */
-function MastSearch({ open, onToggle }: {
+function MastSearch({ open, onToggle, icon }: {
   open: boolean; onToggle: (v: boolean) => void;
+  /** the mobile-first UI draws the control as a glyph; the label stays in aria */
+  icon?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   // QuickJump owns its field, so the reveal focuses it through the DOM rather
@@ -522,7 +584,9 @@ function MastSearch({ open, onToggle }: {
       <div className="findbox" ref={box}><QuickJump path={path} /></div>
       <button type="button" className="findbtn"
         aria-expanded={open} aria-label={open ? "Close search" : "Search"}
-        onClick={() => onToggle(!open)}>{open ? "Close" : "Search"}</button>
+        onClick={() => onToggle(!open)}>
+        {icon ? <Icon id={open ? "close" : "search"} size={22} /> : open ? "Close" : "Search"}
+      </button>
     </div>
   );
 }

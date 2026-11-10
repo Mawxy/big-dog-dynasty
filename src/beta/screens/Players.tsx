@@ -218,7 +218,7 @@ function maxaStrip(pos: string): Key[] {
 }
 
 /* THE STRIP SCROLLS (Max, 2026-09-16). Capped at four keys, the phone lost
-   GP and Points on the box score and Car %, RB touch % and G under the usage
+   GP and Points on the box score and Car %, RBT % and G under the usage
    lens — half of what the desktop header can sort by. So the strip carries
    EVERY column of the lens in column order and scrolls sideways, the way the
    Seasons week strip does, with the lit key scrolled into view. The

@@ -287,9 +287,10 @@
   color: var(--txt2);
 }
 .v3.c4 .lgx-even .v3strip .s {
-  grid-area: s; margin: 0;
+  grid-area: s; margin: 0; max-width: none;
   font: 400 12px/1.35 var(--sans); color: var(--txt2);
 }
+.v3.c4 .lgx-even .v3strip a.cell, .v3.c4 .lgx-even .v3strip a.cell * { text-decoration: none; }
 .v3.c4 .lgx-even .v3strip .v {
   grid-area: v; margin: 0; text-align: right;
   font: 800 22px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--txt);
@@ -314,17 +315,18 @@
 .v3.c4 .lgx-pos4 .lgx-mvp {
   position: relative;
   display: grid;
-  grid-template-columns: 86px minmax(0, 1fr);
-  grid-template-areas: "k nm" "k sub";
+  grid-template-columns: 86px minmax(0, 1fr) auto;
+  grid-template-areas: "k nm pv" "k sub pv";
   align-items: center; column-gap: 10px; row-gap: 2px;
   min-height: 48px;
   padding: 7px var(--v3pad) 7px 16px;
   border-bottom: 1px solid var(--hair);
   background: var(--bg);
 }
-/* the second league.css tint: the position wash, over the board */
+/* THE SAME OBJECT TWICE: the four leaders take the four facts' neutral wash,
+   not a position wash. The badge and the spine already carry the position. */
 @supports (background: color-mix(in srgb, currentColor 10%, transparent)) {
-  .v3.c4 .lgx-pos4 .lgx-mvp { background: color-mix(in srgb, var(--c4-mark, var(--rule-2)) 8%, var(--bg)); }
+  .v3.c4 .lgx-pos4 .lgx-mvp { background: color-mix(in srgb, var(--rule-2) 12%, var(--bg)); }
 }
 .v3.c4 .lgx-pos4 .lgx-posspine { width: 4px; }
 .v3.c4 .lgx-pos4 .lgx-mvp .k {
@@ -347,8 +349,18 @@
   grid-area: sub; margin: 0;
   font: 400 11px/1.35 var(--sans); color: var(--dim);
 }
+/* the figure leaves the sub-line for the row's right edge, in the facts'
+   figure face, so all eight rows end on one right-aligned column. The sub
+   is display: contents so its figure and note spans take the grid's cells. */
+.v3.c4 .lgx-pos4 .lgx-mvp .sub { display: contents; }
+.v3.c4 .lgx-pos4 .lgx-mvp .lgx-sep { display: none; }
+.v3.c4 .lgx-pos4 .lgx-mvp .lgx-pn {
+  grid-area: sub; margin: 0;
+  font: 400 11px/1.35 var(--sans); color: var(--dim);
+}
 .v3.c4 .lgx-pos4 .lgx-pv {
-  font: 700 12.5px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--txt);
+  grid-area: pv; text-align: right;
+  font: 800 22px/1 var(--cond); font-variant-numeric: tabular-nums; color: var(--txt);
 }
 .v3.c4 .c4-note + .lgx-pos4 .lgx-pv { color: var(--war-ink); }
 

@@ -8,6 +8,7 @@ import { hardRefresh } from "../../lib/data";
 import { LAB_SEG, leagueSeg, useLeague, useLook } from "../../lib/context";
 import { THEMES, useTheme } from "../lab/theme";
 import { LIVE_THEMES, useLiveTheme } from "../liveTheme";
+import { UI_MODES, useUi } from "../mobile/uiMode";
 import { latestSeasonOf, rosterSeasonOf } from "../../lib/league";
 import { useIdentity } from "../../lib/identity";
 import { MODEL_NOTE, splitCurve, STREAM_NOTE, useModel } from "../../lib/model";
@@ -131,6 +132,7 @@ export default function More() {
   const lab = look !== "live";
   const theme = useTheme();
   const liveTheme = useLiveTheme();
+  const uiMode = useUi();
   const across = `/${leagueSeg(league)}${lab ? "" : `/${LAB_SEG}`}/more`;
 
   const mine = teams?.find(t => t.roster_id === ident.rid);
@@ -333,6 +335,31 @@ export default function More() {
         )}
       </div>
 
+      {/* INTERFACE — the current UI or the mobile-first one (mobile/uiMode.ts).
+          Live board only. Two layouts over the same screens and the same data;
+          a tap switches instantly, nothing reloads, and every palette below
+          works under both. */}
+      {uiMode && (
+        <>
+          <Band label="Interface" note="Two layouts for the same board — saved on this device" />
+          <div className="v3-more" role="radiogroup" aria-label="Interface">
+            {UI_MODES.map(m => {
+              const on = uiMode.ui === m.id;
+              return (
+                <button key={m.id} type="button" role="radio" aria-checked={on}
+                  className={`mox-row mox-theme${on ? " on" : ""}`}
+                  onClick={() => uiMode.setUi(m.id)}>
+                  <span className="mox-nm">
+                    <span className="mox-n1">{m.name}</span>
+                    <span className="mox-n2">{m.note}</span>
+                  </span>
+                  <span className="mox-st">{on ? "On" : m.id === "mobile" ? "Trial" : "Off"}</span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      )}
       {/* APPEARANCE — the lab's four themes (C4_SPEC §2.1). Lab only: the live
           board has one look, and a picker there would offer themes it was
           never drawn for. A tap applies instantly; nothing reloads. */}

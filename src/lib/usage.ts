@@ -63,9 +63,14 @@ export const USAGE_LABEL: Record<UsageKey, { label: string; short?: string; def:
   car_share: { label: "Car %", def:
     "Carry share: his carries over his team's in the weeks he had a stat line, every "
     + "position in the denominator." },
-  rb_touch_share: { label: "RB touch %", short: "RB %", def:
-    "Share of the RB room's touches: his carries plus receptions over those of every running "
-    + "back on his team in the weeks he played." },
+  /* "RBT %", NOT "RB touch %" (Max, 2026-11-10): it was the one two-word header
+     on the RB board long enough to wrap, so the header row grew a line when RB
+     was picked and shrank back on every other position. One short label, the
+     same on the board, the phone sort strip and the player page (it carried a
+     second abbreviation, "RB %", for those); the Key says what it stands for. */
+  rb_touch_share: { label: "RBT %", def:
+    "RB touch share. His share of the running back room's touches: his carries plus "
+    + "receptions over those of every running back on his team in the weeks he played." },
   snap_pct: { label: "Snap %", short: "SNAP", def:
     "Offensive snap share: his snaps over his team's, summed over the weeks he had a stat "
     + "line in the window (nflverse snap counts, 2012 on)." },
