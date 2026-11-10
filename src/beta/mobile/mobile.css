@@ -1,0 +1,1580 @@
+/* ==========================================================================
+   THE MOBILE-FIRST UI (Max, 2026-11-10) — the board, designed for a thumb.
+
+   A second interface for the live board, switched under More → Interface
+   (mobile/uiMode.ts). The shell adds the class `mf` to its root while the
+   mode is on, and EVERY rule here is scoped under `.v3.mf`, so this sheet can
+   stay loaded after a switch back to the current UI without touching it. It
+   is its own chunk: BetaShell imports it the first time the mode is on.
+
+   WHAT THIS LAYER IS. The same screens, routes and components as the current
+   UI, so every feature is here by construction. It replaces the chrome and
+   the visual language, not the content:
+
+     - One family. Public Sans carries labels, names and figures; figures stay
+       tabular (`tnum` is set on `.v3`). The condensed and mono roles are
+       re-pointed at it here, which is what moves every screen at once.
+     - Sentence case, no tracking. Labels read as words, not as engraving.
+     - 44px is the floor for anything a thumb presses; rows are 52px.
+     - Type floor of 12px; names 15px; section titles 17px.
+     - Shape: pills for choices, 14px cards for modules, 20px sheets.
+     - Sections are separated by an 8px field rule rather than by dark bands.
+     - One accent: where you are (the lit tab, the sorted column) and the
+       screen's headline figure. A selected choice is neutral, not gold.
+
+   COLOUR IS NOT REDEFINED. Every colour is one of style.css's tokens, so the
+   seven palettes under More → Appearance work here unchanged, light and dark.
+   ========================================================================== */
+
+.v3.mf {
+  --ui: "Public Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --cond: var(--ui);
+  --sans: var(--ui);
+  --mono: var(--ui);
+
+  --v3pad: 16px;
+  /* ONE GUTTER. The classic views this shell mounts read style.css's --pad
+     (14px on a phone, 26px on a desktop) while the beta screens read --v3pad,
+     so a title on one and a table on the other never shared a left edge.
+     Here they are the same number at every width. */
+  --pad: var(--v3pad);
+  --navh: 60px;
+  --masth: calc(52px + env(safe-area-inset-top, 0px));
+
+  --r-card: 14px;
+  --r-ctl: 10px;
+  --r-pill: 999px;
+  --tap: 44px;
+  /* the one separator. --hair is --band in the dark palettes, which is no
+     line at all on a card; --rule at part strength reads on field and card */
+  --line: color-mix(in srgb, var(--rule-2) 46%, transparent);
+  --card: var(--band);
+  /* a pressed / selected neutral */
+  --chip: color-mix(in srgb, var(--txt) 9%, transparent);
+  --acc-wash: color-mix(in srgb, var(--acc) 16%, transparent);
+  /* CONTRAST FLOOR. --dim3 is the base sheet's "decorative only" grey, about
+     3:1, and it had drifted onto text a reader needs: axis scales, week
+     labels, sample sizes, sub-lines. Here it is the same grey as --dim2,
+     which holds 4.5:1 on the field and on a card in all seven palettes, so
+     nothing in this interface is set below that by inheritance. */
+  --dim3: var(--dim2);
+
+  background: var(--bg);
+  color: var(--txt);
+  font-family: var(--ui);
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ---- the two blanket rules ----------------------------------------------
+   The current UI sets tracking and uppercase on several hundred rules, one at
+   a time. This interface has neither, anywhere, so it says so once. The
+   `!important` is the point: it is what lets one line stand against every
+   rule in five stylesheets without restating them. */
+.v3.mf, .v3.mf * { letter-spacing: 0 !important; }
+.v3.mf * { text-transform: none !important; }
+/* a figure is tabular whichever rule set its font */
+.v3.mf { font-variant-numeric: tabular-nums; }
+
+.v3.mf a { text-decoration: none; }
+.v3.mf a:hover { text-decoration: none; }
+.v3.mf :focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; border-radius: 6px; }
+
+/* ==========================================================================
+   CHROME
+   ========================================================================== */
+
+/* ---- app bar ------------------------------------------------------------- */
+
+.v3.mf .v3-mast {
+  gap: 4px;
+  padding-left: var(--v3pad); padding-right: 8px;
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(16px);
+  backdrop-filter: saturate(1.4) blur(16px);
+  border-bottom: 1px solid var(--line);
+}
+.v3.mf .v3-mast .lg {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: center; gap: 6px;
+  height: var(--tap);
+  font: 700 17px/1.2 var(--ui);
+  color: var(--txt);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v3.mf .v3-mast .lg.flat { color: var(--txt); display: block; line-height: var(--tap); }
+.v3.mf .v3-mast .lg .caret {
+  flex: 0 0 auto;
+  display: inline-grid; place-items: center;
+  width: 22px; height: 22px; border-radius: var(--r-pill);
+  background: var(--chip); color: var(--txt2);
+  font-size: 12px;
+}
+/* the wordmark is chrome a phone bar has no room for; More states it */
+.v3.mf .v3-mast .tag { display: none; }
+
+/* the in-bar back step */
+.v3.mf .mf-back {
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  width: var(--tap); height: var(--tap);
+  margin-left: -12px;
+  border-radius: var(--r-pill);
+  color: var(--txt);
+}
+.v3.mf .mf-back:active { background: var(--chip); }
+
+/* search: a glyph at rest, the whole bar while open */
+.v3.mf .v3-find { margin-left: 0; gap: 4px; }
+.v3.mf .v3-find .findbtn {
+  display: grid; place-items: center;
+  width: var(--tap); height: var(--tap); padding: 0;
+  border: 0; border-radius: var(--r-pill);
+  background: none; color: var(--txt);
+}
+.v3.mf .v3-find .findbtn:active { background: var(--chip); }
+.v3.mf .v3-mast.finding .mf-back,
+.v3.mf .v3-mast.finding .lg { display: none; }
+/* the matches: a floating card the width of the bar, rows a thumb can hit.
+   QuickJump styles its popover inline, hence the `!important`s. */
+.v3.mf .v3-find [role="listbox"] {
+  left: 0 !important; right: 0 !important; top: calc(100% + 10px) !important;
+  min-width: 0 !important; max-width: none !important;
+  border: 0 !important; border-radius: var(--r-card);
+  background: var(--bg) !important;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, .45), 0 0 0 1px var(--line);
+}
+.v3.mf .v3-find [role="option"] {
+  min-height: 48px; gap: 12px !important; padding: 8px 14px !important;
+  font-size: 15.5px !important; font-weight: 500;
+}
+.v3.mf .v3-find [role="option"] + [role="option"] { border-top: 1px solid var(--line); }
+.v3.mf .v3-find .findbox input[type="search"] {
+  height: 40px; padding: 0 14px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--chip); color: var(--txt);
+  font: 400 16px/1 var(--ui);
+}
+
+/* ---- tab bar ------------------------------------------------------------- */
+
+.v3.mf .v3-nav {
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  -webkit-backdrop-filter: saturate(1.4) blur(16px);
+  backdrop-filter: saturate(1.4) blur(16px);
+  border-top: 1px solid var(--line);
+  transition: transform .22s cubic-bezier(.2, .7, .2, 1);
+}
+.v3.mf .v3-nav a {
+  gap: 2px;
+  border-top: 0;
+  color: var(--dim);
+  font: 600 12px/1.2 var(--ui);
+  transition: color .15s ease;
+}
+.v3.mf .v3-nav a .mf-ic {
+  box-sizing: content-box;
+  padding: 3px 16px;
+  border-radius: var(--r-pill);
+  transition: background-color .15s ease;
+}
+.v3.mf .v3-nav a.on { background: none; color: var(--txt); }
+.v3.mf .v3-nav a.on .mf-ic { background: var(--acc-wash); color: var(--acc); }
+.v3.mf .v3-nav a:active .mf-ic { background: var(--chip); }
+.v3.mf .v3-nav a .dot {
+  top: 8px; margin-right: -18px;
+  width: 7px; height: 7px; border-radius: 50%;
+  box-shadow: 0 0 0 2px var(--bg);
+}
+
+/* ---- screen title -------------------------------------------------------- */
+
+.v3.mf .v3-head {
+  display: block;
+  padding: 16px var(--v3pad) 6px;
+}
+.v3.mf .v3-head h1 {
+  font: 800 28px/1.12 var(--ui);
+  color: var(--txt);
+  text-wrap: balance;
+}
+.v3.mf .v3-head .sub {
+  display: block; margin: 4px 0 0;
+  font: 400 13.5px/1.4 var(--ui); color: var(--dim);
+}
+
+/* ---- sections ------------------------------------------------------------
+   A band was a dark full-bleed strip with an engraved label. Here it is a
+   section title on the page field, and the gap above it is the separator. */
+
+.v3.mf .band {
+  /* a ROW that wraps: the base sheet turns bands into columns on a phone, and
+     a wrapping column sends the note into a second column, off the screen */
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: baseline;
+  justify-content: space-between; gap: 2px 12px;
+  margin-top: 14px;
+  padding: 18px var(--v3pad) 8px;
+  background: none;
+  border: 0; border-top: 8px solid var(--deep);
+}
+.v3.mf .v3-head + .band,
+.v3.mf .v3-scopectl + .band,
+.v3.mf main > .band:first-child { margin-top: 0; border-top: 0; padding-top: 12px; }
+.v3.mf .band-label {
+  font: 700 17px/1.3 var(--ui); color: var(--txt);
+  white-space: normal; text-wrap: balance;
+}
+.v3.mf .band-label .band-total {
+  margin-left: 8px;
+  font: 700 15px/1.3 var(--ui); color: var(--acc);
+}
+.v3.mf .band-note {
+  flex: 1 1 100%;
+  font: 400 13px/1.45 var(--ui); color: var(--dim);
+  text-align: left; text-wrap: pretty;
+}
+.v3.mf .band-side { flex: 1 1 100%; flex-direction: column; align-items: flex-start; gap: 6px; }
+.v3.mf button.dband { border-left: 0; border-right: 0; border-bottom: 0; }
+
+.v3.mf .tnote { font: 400 12.5px/1.5 var(--ui); color: var(--dim); text-wrap: pretty; }
+.v3.mf .tnote.screen { padding: 14px var(--v3pad) 24px; }
+.v3.mf .empty { font: 400 14px/1.5 var(--ui); color: var(--dim); }
+
+/* ==========================================================================
+   CONTROLS
+   ========================================================================== */
+
+/* ---- scope: the screen's top-level tabs ---------------------------------- */
+
+.v3.mf .v3-scopectl {
+  gap: 4px;
+  padding: 6px calc(var(--v3pad) - 12px) 0;
+  border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: none;
+}
+.v3.mf .v3-scopectl::-webkit-scrollbar { display: none; }
+.v3.mf .v3-scopectl button {
+  flex: 0 0 auto;
+  position: relative;
+  height: var(--tap); padding: 0 12px; margin: 0;
+  background: none; border: 0;
+  font: 600 15px/1 var(--ui); color: var(--dim);
+  white-space: nowrap;
+}
+.v3.mf .v3-scopectl button.on { background: none; color: var(--txt); }
+.v3.mf .v3-scopectl button.on::after {
+  content: ""; position: absolute; left: 12px; right: 12px; bottom: -1px;
+  height: 3px; border-radius: 3px 3px 0 0; background: var(--acc);
+}
+.v3.mf .v3-scopectl .caret { margin-left: 4px; font-size: 11px; opacity: .7; }
+
+/* ---- pills: every chip, in every row ------------------------------------- */
+
+.v3.mf .chip,
+.v3.mf .filter-chip,
+.v3.mf .season-chip {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: none; color: var(--txt2);
+  font: 600 14px/1 var(--ui);
+  white-space: nowrap;
+}
+.v3.mf .chip.on,
+.v3.mf .filter-chip.on {
+  background: var(--txt); border-color: var(--txt); color: var(--bg);
+}
+.v3.mf .season-chip { background: var(--chip); border-color: transparent; color: var(--txt); }
+.v3.mf .chip:active, .v3.mf .filter-chip:active { background: var(--chip); }
+.v3.mf .chip.on:active { background: var(--txt2); }
+
+/* ---- lens: an exclusive choice, as a segmented track --------------------- */
+
+.v3.mf .v3-lens {
+  margin: 10px var(--v3pad) 4px;
+  padding: 3px; gap: 2px;
+  background: var(--chip);
+  border: 0; border-radius: 12px;
+}
+.v3.mf .v3-lens button {
+  min-height: 36px; padding: 0 6px;
+  border: 0; border-radius: 9px;
+  /* --txt2, not --dim: the track is a tint, and --dim on it is 4.3:1 */
+  font: 600 13.5px/1.1 var(--ui); color: var(--txt2);
+  transition: background-color .15s ease, color .15s ease;
+}
+.v3.mf .v3-lens button.on {
+  background: var(--bg); color: var(--txt);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .28), 0 0 0 1px var(--line);
+}
+
+.v3.mf .v3-filters { gap: 8px; padding: 10px var(--v3pad); }
+.v3.mf .v3-filters .chip { padding: 0 14px; font-size: 14px; }
+
+/* ---- fields and buttons -------------------------------------------------- */
+
+.v3.mf input[type="search"],
+.v3.mf input[type="text"] {
+  min-height: var(--tap); padding: 0 14px;
+  border: 1px solid transparent; border-radius: 12px;
+  background: var(--chip); color: var(--txt);
+  font: 400 16px/1.3 var(--ui);
+}
+.v3.mf input[type="search"]:focus,
+.v3.mf input[type="text"]:focus { outline: 0; border-color: var(--acc); }
+.v3.mf select {
+  border-radius: var(--r-ctl);
+  font-family: var(--ui);
+}
+.v3.mf .retry {
+  min-height: 40px; padding: 0 18px;
+  border-radius: var(--r-pill);
+  font: 600 14px/1 var(--ui);
+}
+
+/* ==========================================================================
+   TABLES — the phone table, with room to press
+   ========================================================================== */
+
+.v3.mf .v3tbl thead th {
+  padding: 9px 6px 8px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+  font: 600 12px/1.2 var(--ui); color: var(--dim);
+}
+.v3.mf .v3tbl thead th.sorted { color: var(--acc); }
+.v3.mf .v3tbl tbody td {
+  padding: 8px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.v3.mf .v3tbl thead th:last-child,
+.v3.mf .v3tbl tbody th:last-child,
+.v3.mf .v3tbl tbody td:last-child { padding-right: var(--v3pad); }
+.v3.mf .v3tbl tbody tr.zebra { background: none; }
+.v3.mf .v3tbl tbody tr.tap,
+.v3.mf .v3tbl tbody tr.v3row { height: 54px; }
+.v3.mf .v3tbl tbody tr.tap:hover { background: none; }
+.v3.mf .v3tbl tbody tr.tap:active { background: var(--chip); }
+.v3.mf .v3tbl tbody tr.on { background: var(--acc-wash); }
+
+/* ---- THE GUTTER RULE ------------------------------------------------------
+   Everything on a screen starts on one vertical line, --v3pad in from the
+   edge: the title, a section's label, a control row, and the FIRST COLUMN OF
+   EVERY TABLE. The last column ends the same distance from the other edge.
+   A table sits full-bleed (its row rules run edge to edge), so the inset is
+   padding on its outer cells rather than a margin on the table.
+
+   The exceptions are tables that are already inside something inset — a
+   card, a drawer, a padded scroller — where the container's edge is what sits
+   on the gutter and the cells keep a small inner pad. */
+.v3.mf main table > * > tr > :first-child { padding-left: var(--v3pad); }
+.v3.mf main table > * > tr > :last-child { padding-right: var(--v3pad); }
+.v3.mf main :is(.dwrap, .pick-tables, .feed-panel, .rcp-body, .tms-draw, .drawer, .plx-draw, .panel, .rankwrap, .wkwrap, .lgx-drawer) table > * > tr > :first-child { padding-left: 12px; }
+.v3.mf main :is(.dwrap, .pick-tables, .feed-panel, .rcp-body, .tms-draw, .drawer, .plx-draw, .panel, .rankwrap, .wkwrap, .lgx-drawer) table > * > tr > :last-child { padding-right: 12px; }
+/* the first column's header sits over its first character, never centred
+   over a rank it is wider than */
+.v3.mf main table > thead > tr > th:first-child { text-align: left; }
+/* a row that only holds a drawer has no cell padding at all */
+.v3.mf main table > * > tr.plx-drawrow > td,
+.v3.mf main table > * > tr.tms-drawrow > td,
+.v3.mf main table > * > tr.drawer-row > td { padding: 0; }
+
+/* ---- THE RANK COLUMN IS ONE WIDTH, WHATEVER IT HOLDS ------------------------
+   The ordinal sits in a box as wide as its column, sized for three digits,
+   so "9", "42" and "300" all leave the name beside them on the same pixel.
+   Without the box an auto-layout table grows the column to fit its widest
+   ordinal, and the names step sideways every time a filter changes how many
+   rows there are (ALL ranks to 300, QB to 70). The ordinal starts ON the
+   gutter; the position colour is a rounded tick on the screen's edge. */
+.v3.mf .v3tbl { --rankw: calc(var(--v3pad) + 30px); }
+.v3.mf .v3tbl.mtx-lineup { --rankw: calc(var(--v3pad) + 40px); }
+.v3.mf .v3tbl th.sp,
+.v3.mf .v3tbl.mtx-lineup th.sp {
+  width: var(--rankw); padding-left: var(--v3pad); padding-right: 0; text-align: left;
+}
+.v3.mf .v3tbl td.sp,
+.v3.mf .v3tbl.mtx-lineup td.sp { width: var(--rankw); padding: 0; text-align: left; }
+.v3.mf .v3tbl td.sp .spine {
+  top: 9px; bottom: 9px; width: 4px;
+  border-radius: 0 4px 4px 0;
+}
+.v3.mf .v3tbl td.sp .rank,
+.v3.mf .v3tbl.mtx-lineup td.sp .rank {
+  display: inline-block; box-sizing: border-box;
+  width: var(--rankw); padding: 0 2px 0 var(--v3pad);
+  text-align: left; white-space: nowrap;
+  font: 600 13.5px/1 var(--ui); color: var(--dim);
+}
+.v3.mf .v3tbl td.sp .rank.top { color: var(--acc); }
+.v3.mf .v3tbl td.sp .mv { margin-left: var(--v3pad); font: 600 10px/1.3 var(--ui); color: var(--dim); }
+/* the name follows the rank box directly: the box already carries the gap */
+.v3.mf .v3tbl td.sp + td { padding-left: 2px; }
+.v3.mf .v3tbl th.sp + th { padding-left: 2px; }
+
+.v3.mf .idc-n { font: 600 15px/1.25 var(--ui); }
+.v3.mf .idc-n a:hover { color: var(--txt); }
+.v3.mf .idc-s { margin-top: 2px; font: 400 12.5px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .idc-s .tg { font: 600 11.5px/1 var(--ui); color: var(--txt2); }
+.v3.mf .idc-s .tg.ir { color: var(--warn); }
+
+.v3.mf .v3tbl td .f { font: 600 15px/1.2 var(--ui); }
+.v3.mf .v3tbl td .f.q { font: 400 13px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .v3tbl td .idc-s .f { font: 500 12px/1.3 var(--ui); }
+.v3.mf .v3tbl td .mark { font: 600 12.5px/1.3 var(--ui); }
+.v3.mf .meter-row .fig { font: 600 14px/1 var(--ui); }
+
+.v3.mf .v3spine { flex-basis: 4px; border-radius: 0 4px 4px 0; align-self: center; height: 32px; min-height: 0; }
+
+/* ---- figure strip: a rail of cards --------------------------------------- */
+
+.v3.mf .v3strip {
+  gap: 8px;
+  padding: 8px var(--v3pad) 10px;
+  background: none; border: 0;
+  scroll-snap-type: x proximity;
+  scroll-padding-left: var(--v3pad);
+}
+.v3.mf .v3strip .cell {
+  flex: 1 0 auto; min-width: 118px;
+  padding: 12px 14px 13px;
+  border: 0; border-radius: var(--r-card);
+  background: var(--card);
+  scroll-snap-align: start;
+}
+.v3.mf .v3strip .k { font: 500 12px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .v3strip .v { margin-top: 6px; font: 700 22px/1.1 var(--ui); }
+.v3.mf .v3strip .s { margin-top: 4px; font: 400 12px/1.3 var(--ui); color: var(--dim); max-width: 160px; }
+.v3.mf .v3strip a.cell:active, .v3.mf .v3strip button.cell:active { background: var(--sel); }
+
+/* ==========================================================================
+   SHEETS — rise from the bottom edge, rounded, with a grab handle
+   ========================================================================== */
+
+.v3.mf .v3-scrim { background: rgba(0, 0, 0, .5); animation: mf-fade .18s ease both; }
+.v3.mf .v3-sheet {
+  border: 0; border-radius: 20px 20px 0 0;
+  background: var(--bg);
+  box-shadow: 0 -8px 40px rgba(0, 0, 0, .35);
+  max-height: 86vh;
+  animation: mf-rise .26s cubic-bezier(.2, .8, .2, 1) both;
+}
+.v3.mf .v3-sheet::before {
+  content: ""; display: block;
+  width: 36px; height: 4px; margin: 8px auto 0;
+  border-radius: 4px; background: var(--rule-2);
+}
+.v3.mf .v3-sheet .sheet-band {
+  position: sticky; top: 0; z-index: 2;
+  align-items: center;
+  padding: 8px 8px 8px var(--v3pad);
+  background: var(--bg); border-bottom: 1px solid var(--line);
+}
+.v3.mf .v3-sheet .sheet-band .k { font: 700 17px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .v3-sheet .sheet-band .x {
+  min-height: 36px; padding: 0 14px;
+  border-radius: var(--r-pill); background: var(--chip);
+  font: 600 14px/1 var(--ui); color: var(--txt);
+}
+.v3.mf .v3-sheet .lrow {
+  min-height: 60px; padding: 10px var(--v3pad);
+  border-bottom: 1px solid var(--line);
+}
+.v3.mf .v3-sheet .lrow.on { background: var(--acc-wash); }
+.v3.mf .v3-sheet .lrow .nm { font: 600 16px/1.3 var(--ui); }
+.v3.mf .v3-sheet .lrow .mt { font: 400 13px/1.4 var(--ui); }
+.v3.mf .v3-sheet .lrow .mark { font: 700 13px/1 var(--ui); }
+
+@keyframes mf-rise { from { transform: translateY(24px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes mf-fade { from { opacity: 0; } to { opacity: 1; } }
+
+/* ==========================================================================
+   SHARED MODULES
+   ========================================================================== */
+
+/* a fetch that did not land */
+.v3.mf .v3-err {
+  margin: 10px var(--v3pad);
+  padding: 14px 16px 16px;
+  border: 0; border-left: 4px solid var(--warn); border-radius: var(--r-card);
+  background: var(--card);
+}
+.v3.mf .v3-err .k { font: 700 14px/1.3 var(--ui); }
+.v3.mf .v3-err .body { font: 400 14px/1.5 var(--ui); }
+
+/* activity feed */
+.v3.mf .v3-act { padding: 14px var(--v3pad); border-bottom: 1px solid var(--line); }
+.v3.mf .v3-act .when { font: 500 12.5px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .v3-act .when .go { font: 600 13px/1.2 var(--ui); }
+.v3.mf .v3-baskets { gap: 8px; margin-top: 10px; background: none; }
+.v3.mf .v3-baskets .bk { padding: 10px 12px; border-radius: 12px; background: var(--card); }
+.v3.mf .v3-baskets .bk .who { font: 600 12.5px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .v3-baskets .bk .it { margin-top: 5px; font: 500 14px/1.35 var(--ui); color: var(--txt); }
+.v3.mf .v3-wv { font: 400 14px/1.4 var(--ui); }
+.v3.mf .v3-wv .k { font: 600 12px/1 var(--ui); color: var(--dim); }
+
+/* the identity form */
+.v3.mf .v3-idbox { padding: 12px var(--v3pad) 16px; }
+.v3.mf .v3-idbox label { font: 600 13px/1.3 var(--ui); color: var(--dim); margin-bottom: 8px; }
+.v3.mf .v3-idbox input { min-height: var(--tap); border-radius: 12px; border-color: transparent; background: var(--chip); font: 400 16px/1.3 var(--ui); padding: 0 14px; }
+.v3.mf .v3-idbox button {
+  min-height: var(--tap); padding: 0 18px; border-radius: var(--r-pill);
+  font: 700 14px/1 var(--ui);
+}
+
+/* ==========================================================================
+   MORE — grouped cards of rows
+   ========================================================================== */
+
+.v3.mf .v3-more {
+  margin: 4px var(--v3pad) 0;
+  border-radius: var(--r-card);
+  background: var(--card);
+  overflow: hidden;
+}
+.v3.mf .mox-row {
+  min-height: 62px; gap: 12px;
+  padding: 11px 14px 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.v3.mf .v3-more > .mox-row:last-child { border-bottom: 0; }
+.v3.mf .mox-row:hover { background: none; }
+.v3.mf .mox-row:active { background: var(--chip); }
+.v3.mf .mox-n1 { font: 600 16px/1.3 var(--ui); }
+.v3.mf .mox-n2 { margin-top: 2px; font: 400 13px/1.4 var(--ui); color: var(--dim); }
+.v3.mf .mox-st {
+  max-width: 44%;
+  font: 500 13.5px/1.3 var(--ui); color: var(--dim);
+}
+.v3.mf .mox-st.mox-acc { color: var(--acc); font-weight: 700; }
+/* a row that goes somewhere says so */
+.v3.mf a.mox-row::after {
+  content: ""; flex: 0 0 auto;
+  width: 8px; height: 8px; margin-left: -2px;
+  border-right: 2px solid var(--dim2); border-top: 2px solid var(--dim2);
+  transform: rotate(45deg);
+}
+.v3.mf .mox-body { padding: 0 0 4px; background: color-mix(in srgb, var(--bg) 45%, transparent); }
+.v3.mf .mox-body .mox-row { min-height: 50px; padding-left: 28px; }
+.v3.mf .mox-body .mox-row .mox-n1 { font-size: 15px; }
+.v3.mf .mox-note { padding: 10px 16px 8px; }
+.v3.mf .v3-more .v3-meth { padding: 8px 16px 6px; border-bottom: 0; }
+.v3.mf .v3-more .v3-meth dt { margin-top: 14px; font: 700 14px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .v3-more .v3-meth dd { font: 400 14px/1.55 var(--ui); color: var(--txt2); }
+.v3.mf .v3-more .mnote { padding: 10px 16px 14px; }
+
+/* a chosen option: a check, not a spine */
+.v3.mf .mox-theme.on::before { content: none; }
+.v3.mf .mox-theme .mox-st { min-width: 0; }
+.v3.mf .mox-theme.on .mox-st {
+  padding: 4px 10px; border-radius: var(--r-pill);
+  background: var(--acc); color: var(--acc-ink); font-weight: 700;
+}
+.v3.mf .mox-sw { gap: 0; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); }
+.v3.mf .mox-sw i { width: 12px; height: 24px; box-shadow: none; }
+
+/* ==========================================================================
+   DESKTOP — the same language on the rail
+   ========================================================================== */
+
+@media (min-width: 900px) {
+  .v3.mf { --v3pad: 24px; }
+  .v3.mf .v3-nav {
+    padding: 0 10px; border-top: 0; border-right: 1px solid var(--line);
+    -webkit-backdrop-filter: none; backdrop-filter: none; background: var(--bg);
+  }
+  .v3.mf .v3-nav .railtop {
+    margin: 0 -10px 8px; padding: 18px 20px 14px;
+    border-bottom: 1px solid var(--line);
+    font: 800 17px/1.2 var(--ui);
+  }
+  .v3.mf .v3-nav .railtop b { margin-top: 4px; font: 600 12px/1 var(--ui); color: var(--dim); }
+  .v3.mf .v3-nav a {
+    height: 44px; gap: 12px; padding: 0 10px;
+    border-left: 0; border-radius: 10px;
+    font: 600 14.5px/1 var(--ui);
+  }
+  .v3.mf .v3-nav a .mf-ic { padding: 0; background: none; }
+  .v3.mf .v3-nav a.on { background: var(--acc-wash); color: var(--txt); }
+  .v3.mf .v3-nav a.on .mf-ic { background: none; }
+  .v3.mf .v3-nav .railgrp { padding: 18px 10px 6px; font: 600 12px/1 var(--ui); color: var(--dim); }
+  .v3.mf .v3-nav a.sub { height: 38px; padding-left: 46px; font-size: 14px; color: var(--dim); }
+  .v3.mf .v3-nav a.sub.on { background: var(--chip); }
+  .v3.mf .v3-mast .lg { flex: 0 1 auto; }
+  .v3.mf .v3-find { margin-left: auto; }
+  /* the field is resident on the rail layout, so its reveal button is not */
+  .v3.mf .v3-find .findbtn { display: none; }
+  .v3.mf .v3-find .findbox input[type="search"] { width: 280px; }
+  .v3.mf .v3-mast .classic { font: 600 13px/1 var(--ui); margin: 0 8px 0 14px; }
+  .v3.mf .v3-sheet { border-radius: 20px; }
+  .v3.mf .v3-sheet::before { display: none; }
+  .v3.mf .v3tbl tbody tr.tap, .v3.mf .v3tbl tbody tr.v3row { height: 48px; }
+  .v3.mf .v3-more { max-width: 720px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .v3.mf .v3-sheet, .v3.mf .v3-scrim { animation: none; }
+  .v3.mf .v3-nav, .v3.mf .v3-nav a, .v3.mf .v3-nav a .mf-ic { transition: none; }
+}
+
+/* ==========================================================================
+   SHARED PIECES FROM THE BASE SHEET (style.css) — the classic views this shell
+   mounts (player page, drafts, history, the franchise page) are built from
+   these, so restating them here is what carries those screens across.
+   ========================================================================== */
+
+/* ---- every other table --------------------------------------------------- */
+
+.v3.mf thead tr:not(.grp) { background: var(--bg); }
+.v3.mf thead th {
+  padding: 9px 8px 8px;
+  border-bottom: 1px solid var(--line);
+  font: 600 12px/1.25 var(--ui); color: var(--dim);
+}
+.v3.mf thead th.sorted, .v3.mf thead th.key { color: var(--acc); }
+.v3.mf tbody td { padding: 10px 8px; border-bottom: 1px solid var(--line); }
+.v3.mf tfoot td { border-bottom: 1px solid var(--line); }
+.v3.mf tbody tr.zebra { background: none; }
+.v3.mf tbody tr.open { background: var(--acc-wash); }
+.v3.mf tbody td.edge, .v3.mf tfoot td.edge { border-left: 1px solid var(--line); }
+.v3.mf tr.grp { background: var(--bg); }
+.v3.mf tr.grp th { padding: 8px 0 2px; font: 600 11.5px/1.2 var(--ui); color: var(--dim); }
+.v3.mf tr.grpband th {
+  padding: 16px var(--v3pad) 6px;
+  background: none; border: 0; border-top: 8px solid var(--deep);
+  font: 700 15px/1.3 var(--ui); color: var(--txt);
+}
+.v3.mf tr.grpband th .note { font: 400 12.5px/1.4 var(--ui); color: var(--dim); }
+.v3.mf tr.grpband th .tot { font: 700 14px/1 var(--ui); }
+.v3.mf td.name { font: 600 15px/1.35 var(--ui); }
+.v3.mf td.sub { font: 400 12.5px/1.4 var(--ui); color: var(--dim); }
+.v3.mf td.fig { font: 500 14px/1.4 var(--ui); }
+.v3.mf td.fig.strong { font-weight: 700; }
+.v3.mf td.fig.quiet { font-size: 13.5px; color: var(--dim); }
+.v3.mf .head-fig { font: 700 20px/1.1 var(--ui); }
+.v3.mf .head-fig.sm { font-size: 17px; }
+.v3.mf .head-fig.md { font-size: 19px; }
+.v3.mf .head-fig.src { font-size: 16px; }
+.v3.mf td.spine-cell .spine { top: 9px; bottom: 9px; width: 4px; border-radius: 0 4px 4px 0; }
+.v3.mf td.spine-cell { text-align: left; }
+.v3.mf main table > * > tr > td.spine-cell { padding: 0; }
+.v3.mf td.spine-cell .rank {
+  box-sizing: border-box; min-width: calc(var(--v3pad) + 30px);
+  padding: 9px 6px 9px var(--v3pad); text-align: left;
+  font: 600 14px/1 var(--ui);
+}
+.v3.mf tr.drawer-row > td { border-bottom: 0; }
+.v3.mf .tscroll.stuck thead tr:not(.grp) th:first-child,
+.v3.mf .tscroll.stuck thead tr:not(.grp) th:nth-child(2) { background: var(--bg); }
+.v3.mf .tscroll.stuck thead tr:not(.grp) th:nth-child(2),
+.v3.mf .tscroll.stuck tbody tr:not(.drawer-row) td.name { box-shadow: 1px 0 0 var(--line); }
+.v3.mf .tscroll.stuck tbody tr.zebra td.spine-cell,
+.v3.mf .tscroll.stuck tbody tr.zebra td.name { background: var(--bg); }
+.v3.mf .tscroll-hint { padding: 6px var(--v3pad) 0; font-size: 12.5px; }
+
+/* ---- position badge: a soft tag ------------------------------------------ */
+
+.v3.mf .pos {
+  width: auto; min-width: 34px; padding: 3px 7px;
+  border-radius: 7px;
+  font: 700 12px/1.3 var(--ui);
+}
+.v3.mf .pos.sm, .v3.mf .pos.mini { min-width: 28px; padding: 2px 5px; font-size: 11px; border-radius: 6px; }
+
+/* ---- drawers, panels, verdicts: cards ------------------------------------ */
+
+.v3.mf .drawer {
+  margin: 4px 12px 12px; padding: 14px 16px 16px;
+  border: 0; border-radius: var(--r-card);
+  background: var(--card);
+}
+.v3.mf .panel {
+  margin: 8px var(--v3pad) 16px; padding: 14px 16px 16px;
+  border: 0; border-radius: var(--r-card); background: var(--card);
+}
+.v3.mf .verdict {
+  margin: 12px var(--v3pad); padding: 14px 16px 16px;
+  border: 0; border-radius: var(--r-card);
+  background: var(--card);
+}
+.v3.mf .verdict .k { font: 700 15px/1.3 var(--ui); color: var(--acc); }
+.v3.mf .verdict .meta { margin-top: 4px; font: 400 12.5px/1.5 var(--ui); color: var(--dim); }
+.v3.mf .verdict .body { margin-top: 10px; font: 400 15px/1.6 var(--ui); color: var(--txt2); }
+.v3.mf .chart-label, .v3.mf .stat-k { font: 500 12.5px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .stat-v { font: 700 24px/1.2 var(--ui); }
+.v3.mf .footnote { background: none; font: 400 12.5px/1.5 var(--ui); color: var(--dim); }
+.v3.mf .name-note { font: 600 11.5px/1.4 var(--ui); }
+
+.v3.mf .dlink, .v3.mf .dexpand {
+  min-height: 36px; padding: 0 14px;
+  display: inline-flex; align-items: center;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--chip); color: var(--txt);
+  font: 600 13.5px/1 var(--ui);
+}
+.v3.mf .tlink { color: var(--acc); }
+.v3.mf .tlink:hover { text-decoration: none; }
+
+/* ---- figure strip (classic views): a two-up grid of cards ----------------- */
+
+.v3.mf .figstrip {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  padding: 8px var(--v3pad) 10px;
+  background: none;
+}
+.v3.mf .figcell, .v3.mf .figcell:first-child, .v3.mf .figcell:nth-child(odd) {
+  min-width: 0; padding: 12px 14px 13px;
+  border: 0; border-radius: var(--r-card);
+  background: var(--card);
+}
+.v3.mf .figkey { margin-bottom: 6px; font: 500 12px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .figval { font: 700 22px/1.1 var(--ui); }
+.v3.mf .figsub { margin-top: 4px; font: 400 12px/1.35 var(--ui); color: var(--dim); white-space: normal; }
+/* the player page's strip scrolls sideways: a rail of the same cards */
+.v3.mf .split.phone .figstrip {
+  display: flex; gap: 8px; padding: 10px var(--v3pad);
+  scroll-snap-type: x proximity; scroll-padding-left: var(--v3pad);
+}
+.v3.mf .split.phone .figcell,
+.v3.mf .split.phone .figcell:first-child,
+.v3.mf .split.phone .figcell:last-child {
+  flex: 0 0 auto; min-width: 128px; max-width: 240px; padding: 12px 14px 13px;
+  border: 0; scroll-snap-align: start;
+}
+.v3.mf .split.phone .figval { font-size: 22px; }
+
+/* ---- identity header (player page, franchise page) ------------------------ */
+
+.v3.mf .rail { background: none; border: 0; padding: 14px var(--v3pad) 6px; }
+.v3.mf .pid-head { background: none; border: 0; padding: 10px var(--v3pad) 0; }
+.v3.mf .rail-back {
+  display: inline-flex; align-items: center;
+  min-height: 36px; margin: 0 0 10px -12px; padding: 0 12px;
+  border-radius: var(--r-pill);
+  font: 600 14px/1 var(--ui); color: var(--txt2);
+}
+.v3.mf .rail-back:active { background: var(--chip); }
+.v3.mf .rail-name, .v3.mf .pid-id .rail-name { font: 800 26px/1.12 var(--ui); text-wrap: balance; }
+.v3.mf .rail-sub { margin-top: 5px; font: 400 13.5px/1.5 var(--ui); color: var(--dim); }
+.v3.mf .pid-sub, .v3.mf .pid-held { font: 400 13px/1.4 var(--ui); }
+.v3.mf .rail-h { margin: 22px 0 8px; font: 700 15px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .pid-honors { margin-top: 12px; }
+.v3.mf .pid-honors .k { font: 500 12.5px/1 var(--ui); color: var(--dim); }
+.v3.mf .hmark-x { font: 700 12px/1 var(--ui); }
+.v3.mf .portrait { border-radius: 12px; }
+.v3.mf .rail-claim {
+  display: inline-flex; align-items: center;
+  min-height: 36px; margin-top: 12px; padding: 0 14px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--chip); color: var(--txt);
+  font: 600 13.5px/1 var(--ui);
+}
+
+/* the in-page jump bar: text tabs, like the scope control */
+.v3.mf .pid-jump {
+  gap: 4px; margin-top: 12px;
+  padding: 0 calc(var(--v3pad) - 12px);
+  border-top: 0; border-bottom: 1px solid var(--line);
+}
+.v3.mf .pid-jump button {
+  flex: 0 0 auto; min-height: var(--tap); padding: 0 12px;
+  border: 0;
+  font: 600 14.5px/1 var(--ui); color: var(--dim);
+}
+.v3.mf .pid-jump button:active { color: var(--txt); }
+.v3.mf .rail-nav { gap: 4px; margin: 8px -12px 0; }
+.v3.mf .rail-nav button {
+  min-height: var(--tap); padding: 0 12px; border-radius: var(--r-pill);
+  font: 600 14.5px/1 var(--ui); color: var(--dim);
+}
+
+/* season ladders */
+.v3.mf .rail-season { padding: 10px 10px 11px; border-top: 1px solid var(--line); }
+.v3.mf .pid-ladder .rail-season { padding: 10px var(--v3pad) 11px; }
+.v3.mf .rail-season.mark::before, .v3.mf .rail-war.mark::before {
+  top: 8px; bottom: 8px; width: 4px; border-radius: 0 4px 4px 0;
+}
+.v3.mf .rail-season .yr { font: 700 15px/1 var(--ui); }
+.v3.mf .rail-season .fin { font: 500 12.5px/1 var(--ui); }
+.v3.mf .rail-season .rec { font: 600 14px/1 var(--ui); }
+.v3.mf .rail-season .tname { margin-top: 4px; font: 400 12.5px/1.4 var(--ui); }
+.v3.mf .rail-war { min-height: 32px; }
+.v3.mf .pid-ladder .rail-war { grid-template-columns: 48px 1fr 52px; padding: 4px var(--v3pad); }
+.v3.mf .rail-war .yr, .v3.mf .pid-ladder .rail-war .yr { font: 600 13.5px/1 var(--ui); }
+.v3.mf .rail-war .v, .v3.mf .pid-ladder .rail-war .v { font: 600 13.5px/1 var(--ui); }
+.v3.mf .rail-war .bar, .v3.mf .pid-ladder .rail-war .bar { height: 10px; border-radius: 5px; overflow: hidden; }
+.v3.mf .rail-war .bar i { border-radius: 5px; }
+.v3.mf .rail-war.proj { background: none; }
+
+/* honor legend */
+.v3.mf .hmark-legend {
+  gap: 8px; margin: 8px var(--v3pad); padding: 0;
+  background: none; border: 0;
+}
+.v3.mf .hmark-leg, .v3.mf .hmark-leg + .hmark-leg {
+  flex: 1 1 140px; justify-content: flex-start;
+  padding: 10px 12px; border: 0; border-radius: 12px; background: var(--card);
+}
+.v3.mf .hmark-leg .lb { font: 500 12.5px/1.2 var(--ui); white-space: normal; }
+.v3.mf .rail .hmark-legend { margin: 10px 0 0; }
+.v3.mf .rail .hmark-leg + .hmark-leg { border: 0; }
+
+/* week grid and week cards */
+.v3.mf .weekgrid { border: 0; gap: 3px; background: none; }
+.v3.mf .weekcell, .v3.mf .weekcell:nth-child(n) {
+  min-width: 0; padding: 7px 5px 8px;
+  border: 0; border-radius: 8px;
+  background: color-mix(in srgb, var(--txt) 5%, transparent);
+}
+/* the week over its score, not beside it: a 44px cell has no room for both */
+.v3.mf .weekcell .top { flex-direction: column; align-items: flex-start; gap: 4px; }
+.v3.mf .weekcell .wk { font: 500 11px/1 var(--ui); }
+.v3.mf .weekcell .pts { font: 700 13px/1 var(--ui); }
+.v3.mf .weekcell .war { font: 500 11.5px/1 var(--ui); }
+.v3.mf .weekcell .bar { border-radius: 2px; overflow: hidden; }
+.v3.mf .week-card { border-radius: 10px; padding: 9px 12px; background: var(--card); }
+
+/* playoff bracket cards */
+.v3.mf .bgame { border: 0; border-radius: var(--r-card); background: var(--card); overflow: hidden; }
+.v3.mf .bgame-head { padding: 8px 12px; background: none; border-bottom: 1px solid var(--line); font: 600 12px/1.2 var(--ui); }
+.v3.mf .bside { padding: 10px 12px; }
+.v3.mf .bside + .bside { border-top: 1px solid var(--line); }
+.v3.mf .bside .team { font: 600 14.5px/1.25 var(--ui); }
+.v3.mf .bside .pts { font: 700 16px/1 var(--ui); }
+.v3.mf .bside .seed { font: 600 12px/1 var(--ui); }
+.v3.mf .pbr-lbl { font: 700 14px/1.2 var(--ui); color: var(--txt); }
+.v3.mf .pbr-plc-rule span { font: 600 12px/1 var(--ui); }
+
+/* classic trade cards (draft detail) */
+.v3.mf .trade { border: 0; border-radius: var(--r-card); overflow: hidden; background: var(--card); }
+.v3.mf .trade-head { background: none; border-bottom: 1px solid var(--line); padding: 10px 14px; }
+.v3.mf .trade-side { padding: 12px 14px 14px; border-right: 0; }
+.v3.mf .trade-side .k { font: 500 12.5px/1 var(--ui); color: var(--dim); }
+.v3.mf .trade-side .total { font: 700 22px/1.1 var(--ui); }
+.v3.mf .trade-asset { border-top: 1px solid var(--line); padding: 7px 0; }
+.v3.mf .trade-asset .nm { font: 500 14px/1.4 var(--ui); }
+.v3.mf .trade-asset .war { font: 600 15px/1 var(--ui); }
+.v3.mf .trade-wk, .v3.mf .trade-verdict { font: 700 14px/1 var(--ui); }
+.v3.mf .trade-drawer { border-top: 1px solid var(--line); background: none; }
+
+/* meters and bars: rounded */
+.v3.mf .meter-row .meter, .v3.mf .meter .track { border-radius: 5px; overflow: hidden; }
+.v3.mf .meter-row .meter > i { border-radius: 5px; }
+
+/* records (phone layout of the classic DataTable) */
+.v3.mf .rec { padding: 12px var(--v3pad) 13px; border-bottom: 1px solid var(--line); }
+.v3.mf .rec.zebra { background: none; }
+.v3.mf .rec.open { background: var(--acc-wash); }
+.v3.mf .rec .spine { top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; }
+.v3.mf .rec-rk { font: 600 14px/1 var(--ui); }
+.v3.mf .rec-id { font: 600 15px/1.35 var(--ui); }
+.v3.mf .rec-id .rec-sub { font: 400 12.5px/1.4 var(--ui); }
+.v3.mf .rec-fig, .v3.mf .rec-fig .head-fig { font: 700 18px/1 var(--ui); }
+.v3.mf .rec-key { font: 500 11.5px/1 var(--ui); }
+.v3.mf .mk { font: 500 11.5px/1.5 var(--ui); }
+.v3.mf .mv { font: 600 13px/1.5 var(--ui); }
+.v3.mf .rec-line { font: 400 13.5px/1.45 var(--ui); }
+.v3.mf .records .rec { margin-left: 0; margin-right: 0; padding-left: var(--v3pad); padding-right: var(--v3pad); }
+.v3.mf .rec-side .side-team { font: 600 12.5px/1.45 var(--ui); }
+.v3.mf .rec-side .side-got { font: 400 13px/1.45 var(--ui); }
+
+/* the classic tab strip: text tabs */
+.v3.mf .tabs {
+  gap: 4px; padding: 0 calc(var(--v3pad) - 12px);
+  background: none; border-bottom: 1px solid var(--line);
+  overflow-x: auto; scrollbar-width: none;
+}
+.v3.mf .tabs::-webkit-scrollbar { display: none; }
+.v3.mf .tabs button {
+  position: relative; flex: 0 0 auto;
+  min-height: var(--tap); padding: 0 12px;
+  background: none; border: 0;
+  font: 600 15px/1 var(--ui); color: var(--dim); white-space: nowrap;
+}
+.v3.mf .tabs button.on { background: none; color: var(--txt); }
+.v3.mf .tabs button.on::after {
+  content: ""; position: absolute; left: 12px; right: 12px; bottom: 0;
+  height: 3px; border-radius: 3px 3px 0 0; background: var(--acc);
+}
+
+/* the classic lens (.seg): a pill row */
+.v3.mf .lens { gap: 8px; padding: 10px var(--v3pad) 0; }
+.v3.mf .lens .seg, .v3.mf .lens .seg:first-child {
+  min-height: 36px; margin: 0; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: none; color: var(--txt2);
+  font: 600 14px/1 var(--ui);
+}
+.v3.mf .lens .seg.on { background: var(--txt); border-color: var(--txt); color: var(--bg); }
+/* the classic views' page frame is not a frame here: the page is the field */
+.v3.mf .board { margin: 0; border: 0; background: none; }
+
+/* the classic views' title row */
+.v3.mf .screen-head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px;
+  padding: 16px var(--v3pad) 8px;
+  background: none; border: 0;
+}
+.v3.mf .screen-title { font: 800 28px/1.12 var(--ui); color: var(--txt); }
+.v3.mf .screen-note { font: 400 13.5px/1.5 var(--ui); color: var(--dim); }
+.v3.mf .screen-note b { font: 700 13.5px/1 var(--ui); }
+/* On the player and franchise pages that row is a generic word ("Player")
+   beside a second copy of the search the app bar already carries. The name
+   under it is the title, so the row steps aside. */
+.v3.mf .screen-head:has(+ .board > .split) { display: none; }
+
+/* ==========================================================================
+   LEAGUE (screens/league.css) — games, tiles and counts as cards
+   ========================================================================== */
+
+/* a matchup: one card, two sides, the line between them */
+.v3.mf .lgx-games {
+  gap: 8px; padding: 4px var(--v3pad) 6px;
+  background: none; border: 0;
+}
+.v3.mf .lgx-game {
+  border-radius: var(--r-card); background: var(--card);
+  overflow: hidden;
+}
+.v3.mf .lgx-game:hover { background: var(--card); }
+.v3.mf .lgx-game:active { background: var(--sel); }
+.v3.mf .lgx-game.open { background: var(--card); border-radius: var(--r-card) var(--r-card) 0 0; }
+.v3.mf .lgx-game .side { padding: 12px 6px 13px 14px; gap: 6px; }
+.v3.mf .lgx-game .side.r { padding: 12px 14px 13px 6px; }
+.v3.mf .lgx-game .side .nm { font: 600 14.5px/1.25 var(--ui); }
+.v3.mf .lgx-game .side .fig { margin-top: 2px; font: 700 20px/1 var(--ui); color: var(--txt2); }
+.v3.mf .lgx-game .side.won .fig { color: var(--acc); }
+.v3.mf .lgx-game .side .proj { font: 500 12.5px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-game .side .proj .k { font: 500 11.5px/1 var(--ui); color: var(--dim); }
+.v3.mf .lgx-game .mid {
+  flex-basis: 84px; gap: 2px; padding: 8px 2px;
+  background: none;
+  border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+  margin: 10px 0;
+}
+.v3.mf .lgx-game .mid .k { font: 500 11px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-game .mid .v { font: 600 13px/1.3 var(--ui); }
+
+/* the matchup's lineups open under it, as the same card continued */
+.v3.mf .lgx-drawer {
+  margin-top: -8px;
+  border: 0; border-top: 1px solid var(--line);
+  border-radius: 0 0 var(--r-card) var(--r-card);
+  background: var(--card); overflow: hidden;
+}
+.v3.mf .ssx-lineups .lgx-drawer { margin: 4px var(--v3pad) 8px; border-top: 0; border-radius: var(--r-card); }
+.v3.mf .lgx-drawer .sd-head { padding: 10px 14px 8px; }
+.v3.mf .lgx-drawer .sd-head .k { font: 600 12.5px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-drawer .sd-row { border-top: 1px solid var(--line); min-height: 46px; }
+.v3.mf .lgx-drawer .sd-side { padding: 7px 6px 7px 14px; }
+.v3.mf .lgx-drawer .sd-side.r { padding: 7px 14px 7px 6px; }
+.v3.mf .lgx-drawer .sd-side .nm { font: 500 13.5px/1.3 var(--ui); }
+.v3.mf .lgx-drawer .sd-side .nm .tg { font: 600 11px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-drawer .sd-side .nm .n2 { font: 400 12px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .lgx-drawer .sd-side .v { font: 600 14px/1 var(--ui); }
+.v3.mf .lgx-drawer .sd-side .p { font: 500 11.5px/1 var(--ui); color: var(--dim); }
+.v3.mf .lgx-drawer .sd-side .w { font: 600 11.5px/1 var(--ui); }
+.v3.mf .lgx-drawer .sd-side .w .wl { font: 500 10.5px/1 var(--ui); color: var(--dim); }
+.v3.mf .lgx-drawer .sd-mid { background: none; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.v3.mf .lgx-drawer .sd-mid .slot { font: 600 11px/1 var(--ui); color: var(--dim); }
+.v3.mf .lgx-drawer .sd-mid .edge { font: 600 12px/1 var(--ui); }
+.v3.mf .lgx-drawer .sd-tot { border-top: 1px solid var(--rule-2); }
+.v3.mf .lgx-drawer .sd-tot .sd-side .v { font-size: 16px; }
+
+.v3.mf .lgx-median { gap: 8px; padding: 2px var(--v3pad) 8px; background: none; }
+.v3.mf .lgx-median .k { font: 500 13px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-median .v { font: 700 15px/1.2 var(--ui); }
+.v3.mf .lgx-median .s { font: 400 12.5px/1.3 var(--ui); color: var(--dim); }
+
+/* tile grids: last week's four, the position leaders, the history strip */
+.v3.mf .lgx-hstrip .v3strip,
+.v3.mf .lgx-even .v3strip,
+.v3.mf .lgx-pos4,
+.v3.mf .lgx-mvps {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  padding: 4px var(--v3pad) 8px;
+  background: none; border: 0; overflow: visible;
+}
+.v3.mf .lgx-even + .lgx-pos4, .v3.mf .lgx-hstrip + .lgx-pos4 { padding-top: 0; }
+.v3.mf .lgx-hstrip .v3strip .cell,
+.v3.mf .lgx-even .v3strip .cell,
+.v3.mf .lgx-even .v3strip .cell:first-child,
+.v3.mf .lgx-mvp,
+.v3.mf .lgx-pos4 .lgx-mvp {
+  position: relative; min-width: 0;
+  padding: 12px 14px 13px;
+  border: 0; border-radius: var(--r-card);
+  background: var(--card);
+}
+.v3.mf .lgx-even .v3strip .cell::before { content: none; }
+.v3.mf .lgx-pos4 .lgx-mvp {
+  padding-left: 18px;
+  background: color-mix(in srgb, var(--pos-c, var(--rule-2)) 14%, var(--card));
+}
+.v3.mf .lgx-posspine { top: 12px; bottom: 12px; width: 4px; border-radius: 0 4px 4px 0; }
+.v3.mf .lgx-mvp .k { font: 500 12px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-mvp .nm { margin-top: 6px; font: 700 16.5px/1.2 var(--ui); }
+.v3.mf .lgx-mvp .sub { margin-top: 4px; font: 400 12.5px/1.4 var(--ui); color: var(--dim); }
+
+.v3.mf .lgx-champ {
+  margin: 4px var(--v3pad) 8px; padding: 16px 16px 15px;
+  border: 0; border-radius: var(--r-card);
+  background: var(--acc-wash);
+}
+.v3.mf .lgx-champ .k { font: 600 12.5px/1.2 var(--ui); color: var(--txt2); }
+.v3.mf .lgx-champ .nm { margin-top: 6px; font: 800 26px/1.12 var(--ui); color: var(--acc); text-wrap: balance; }
+.v3.mf .lgx-champ .sub { margin-top: 6px; font: 400 13px/1.4 var(--ui); color: var(--txt2); }
+
+.v3.mf .lgx-counts { gap: 8px; padding: 4px var(--v3pad) 8px; background: none; border: 0; }
+.v3.mf .lgx-count {
+  flex-wrap: wrap; gap: 4px 8px;
+  padding: 12px 14px; border-radius: var(--r-card); background: var(--card);
+}
+.v3.mf .lgx-count .k { font: 500 12.5px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-count .v { font: 700 20px/1 var(--ui); }
+.v3.mf .lgx-count .go { font: 600 13px/1.2 var(--ui); }
+
+/* a section's "see all" link */
+.v3.mf .lgx-all, .v3.mf .band button.lgx-all, .v3.mf .pm-clr {
+  display: inline-flex; align-items: center; min-height: 28px;
+  font: 600 13.5px/1.2 var(--ui); color: var(--acc);
+}
+.v3.mf .lgx-quiet { padding: 12px var(--v3pad) 16px; border: 0; font: 400 14px/1.5 var(--ui); }
+.v3.mf .lgx-wkpick, .v3.mf .plx-wkpick {
+  min-height: 34px; padding: 0 8px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--bg); color: var(--txt);
+  font: 600 14px/1 var(--ui);
+}
+.v3.mf .v3tbl tbody tr.lgx-cols th {
+  padding: 10px 6px 8px; background: var(--bg);
+  border-top: 0; border-bottom: 1px solid var(--line);
+  font: 600 12px/1.2 var(--ui); color: var(--dim);
+}
+.v3.mf .v3tbl tbody tr.lgx-cols th:last-child { padding-right: var(--v3pad); }
+.v3.mf .v3tbl tbody tr.lgx-cols th:first-child { padding-left: var(--v3pad); text-align: left; }
+.v3.mf .v3tbl tbody tr.lgx-cols th.sp + th { padding-left: 2px; }
+.v3.mf .lgx-wrap tbody td { height: 62px; }
+.v3.mf .v3-act.lgx-trade:hover { background: none; }
+.v3.mf .v3-act.lgx-trade:active { background: var(--chip); }
+.v3.mf .lgx-bkfig { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--line); }
+.v3.mf .lgx-bkfig .k { font: 500 11.5px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .lgx-bkfig .v { font: 600 13.5px/1 var(--ui); }
+
+/* ---- recaps: an article, set like one ------------------------------------ */
+
+.v3.mf .rcp-item { border: 0; background: none; }
+.v3.mf .rcp-head { gap: 8px; padding: 6px var(--v3pad) 14px; }
+.v3.mf .rcp-head:hover { background: none; }
+.v3.mf .rcp-kick { font: 700 12.5px/1.2 var(--ui); color: var(--acc); }
+.v3.mf .rcp-title { font: 800 22px/1.18 var(--ui); }
+.v3.mf .rcp-dek { font: 400 15px/1.6 var(--ui); color: var(--txt2); }
+.v3.mf .rcp-more {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; min-height: 36px; padding: 0 14px;
+  margin-top: 4px; border-radius: var(--r-pill); background: var(--chip);
+  font: 600 13.5px/1 var(--ui); color: var(--txt);
+}
+.v3.mf .rcp-item.open .rcp-head { background: none; }
+.v3.mf .rcp-body {
+  margin: 0 var(--v3pad) 12px; padding: 4px 16px 18px;
+  border: 0; border-radius: var(--r-card); background: var(--card);
+  font: 400 15px/1.65 var(--ui);
+}
+.v3.mf .rcp-body h3 { margin-top: 22px; padding-bottom: 0; border: 0; font: 700 16px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .rcp-body h4 { font: 700 14px/1.4 var(--ui); color: var(--txt2); }
+.v3.mf .rcp-tblwrap { margin-left: -8px; margin-right: -8px; border: 0; border-radius: 10px; background: var(--bg); overflow: hidden; }
+.v3.mf .rcp-tbl th { padding: 8px 6px; background: none; border-bottom: 1px solid var(--line); font: 600 11.5px/1.2 var(--ui); }
+.v3.mf .rcp-tbl td { border-top: 1px solid var(--line); font: 400 13px/1.35 var(--ui); }
+.v3.mf .rcp-tbl td.r { font: 600 14px/1.2 var(--ui); }
+.v3.mf .rcp-tbl tbody tr:nth-child(odd) td { background: none; }
+.v3.mf .rcp-foot { font: 400 12.5px/1.4 var(--ui); color: var(--dim); }
+
+/* ==========================================================================
+   PLAYERS / TEAMS (screens/players.css, teams.css) — one line per control,
+   each line scrolls sideways instead of wrapping into a stack
+   ========================================================================== */
+
+.v3.mf .plx-filters,
+.v3.mf .plx-filters2.plx-wkrow {
+  flex-wrap: nowrap; overflow-x: auto; row-gap: 0;
+  scrollbar-width: none;
+  padding-top: 5px; padding-bottom: 5px;
+}
+.v3.mf .plx-filters::-webkit-scrollbar { display: none; }
+.v3.mf .plx-row1 { padding-top: 10px; }
+.v3.mf .plx-filters .chip.on { background: var(--txt); border-color: var(--txt); color: var(--bg); }
+/* the position row holds five chips and two actions on a 390px line */
+.v3.mf .plx-row1 { gap: 6px; }
+.v3.mf .plx-row1 .chip { min-width: 44px; padding: 0 11px; }
+.v3.mf .plx-row1 .plx-txtbtn { padding: 0 12px; }
+.v3.mf .plx-filters2 .plx-fk {
+  min-width: 0; padding-right: 2px;
+  font: 500 13px/1 var(--ui); color: var(--dim);
+}
+.v3.mf .plx-wkto { font: 500 13px/1 var(--ui); color: var(--dim); }
+.v3.mf .plx-spacer { flex: 0 0 4px; }
+.v3.mf .plx-txtbtn {
+  display: inline-flex; align-items: center;
+  min-height: 36px; padding: 0 14px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--chip); color: var(--txt);
+  font: 600 14px/1 var(--ui);
+}
+.v3.mf .plx-txtbtn.on { background: var(--acc-wash); color: var(--acc); }
+.v3.mf .plx-find { padding-top: 4px; padding-bottom: 6px; }
+.v3.mf .plx-filters input[type="search"] { flex: 1 1 auto; min-width: 180px; }
+.v3.mf .plx-filters3 .plx-fchip .x { margin-left: 6px; }
+.v3.mf .plx-vgrp { padding: 18px var(--v3pad) 6px; font: 700 14px/1.2 var(--ui); color: var(--txt2); }
+.v3.mf .tmx-filters .tmx-sep { margin: 6px 2px; background: var(--line); }
+
+/* the sort bar: sticks under the app bar; the sorted key is the accent */
+.v3.mf .plx-sort {
+  align-items: center; gap: 8px;
+  margin-top: 6px; padding: 8px 0 8px var(--v3pad);
+  background: color-mix(in srgb, var(--bg) 90%, transparent);
+  -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px);
+  border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
+}
+.v3.mf .plx-dir {
+  width: 36px; height: 36px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--acc-wash); color: var(--acc);
+  font: 700 13px/1 var(--ui);
+}
+.v3.mf .plx-sort .v3-lens {
+  margin: 0; padding: 0 var(--v3pad) 0 0; gap: 6px;
+  background: none; border-radius: 0;
+}
+.v3.mf .plx-sort .v3-lens button,
+.v3.mf .plx-sort .v3-lens button:first-child {
+  min-height: 36px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  font: 600 14px/1 var(--ui); color: var(--txt2);
+}
+.v3.mf .plx-sort .v3-lens button.on {
+  background: var(--acc-wash); border-color: transparent; color: var(--acc);
+  box-shadow: none;
+}
+.v3.mf .plx-sort + .band, .v3.mf .plx-sort + * > .band:first-child { margin-top: 0; border-top: 0; }
+
+.v3.mf .plx-keybtn {
+  min-height: 30px; padding: 0 12px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--chip); color: var(--txt2);
+  font: 600 12.5px/1 var(--ui);
+}
+.v3.mf .plx-keybtn.on { background: var(--acc-wash); color: var(--acc); }
+.v3.mf .plx-bandr { flex: 1 1 100%; justify-content: flex-start; align-items: center; }
+.v3.mf .plx-keylist {
+  margin: 4px var(--v3pad) 8px; padding: 14px 16px 16px;
+  border: 0; border-radius: var(--r-card); background: var(--card);
+}
+.v3.mf .plx-keylist dt { margin-top: 14px; font: 700 14px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .plx-keylist dd { font: 400 14px/1.55 var(--ui); }
+
+.v3.mf .plx-tbl td.plx-lead { padding-top: 8px; padding-bottom: 8px; }
+.v3.mf .plx-micro { gap: 10px; margin-top: 3px; }
+.v3.mf .plx-micro .o { font: 500 12px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .plx-micro .o b { margin-left: 3px; font: 600 12px/1.2 var(--ui); color: var(--txt2); }
+.v3.mf .plx-marks .hmark-x, .v3.mf .plx-honors .hmark-x { font: 700 11px/1 var(--ui); color: var(--dim); }
+.v3.mf .plx-tbl tbody tr.tap.plx-on { background: var(--acc-wash); }
+
+/* the row's drawer: a card under the row it belongs to */
+.v3.mf .plx-tbl tbody tr.plx-drawrow > td,
+.v3.mf .v3tbl.tms-tbl tbody tr.tms-drawrow > td { border-bottom: 1px solid var(--line); }
+.v3.mf .plx-draw {
+  margin: 8px 12px 12px; padding: 14px 16px 16px;
+  border: 0; border-radius: var(--r-card); background: var(--card);
+}
+.v3.mf .plx-draw .hd .nm { font: 700 16px/1.25 var(--ui); }
+.v3.mf .plx-draw .hd .mt { font: 400 13px/1.3 var(--ui); }
+.v3.mf .plx-figs { gap: 14px 14px; margin-top: 14px; }
+.v3.mf .plx-figs .k,
+.v3.mf .plx-weeks .k,
+.v3.mf .plx-spread .k,
+.v3.mf .plx-honors .k { font: 500 12px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .plx-figs .v { margin-top: 5px; font: 700 17px/1.1 var(--ui); }
+.v3.mf .plx-figs .v.w { font: 600 14px/1.3 var(--ui); }
+.v3.mf .plx-figs .s { margin-top: 4px; font: 400 12px/1.35 var(--ui); color: var(--dim); }
+.v3.mf .plx-honors { border-top: 1px solid var(--line); }
+.v3.mf .plx-honors .lb, .v3.mf .plx-draw .plx-note { font: 400 12.5px/1.45 var(--ui); color: var(--dim); }
+.v3.mf .plx-spread .v { font: 600 10px var(--ui); }
+.v3.mf .plx-go, .v3.mf .trx-favor .go {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: var(--tap); margin-top: 16px; padding: 0 20px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--acc); color: var(--acc-ink);
+  font: 700 14.5px/1 var(--ui);
+}
+.v3.mf .plx-go:hover { background: var(--acc); color: var(--acc-ink); }
+.v3.mf .plx-go:active { opacity: .85; }
+
+/* the filter sheet */
+.v3.mf .fsx { padding: 8px var(--v3pad) 18px; }
+.v3.mf .fsx-empty, .v3.mf .fsx-note { font: 400 14px/1.5 var(--ui); }
+.v3.mf .fsx-note { font-size: 12.5px; color: var(--dim); }
+.v3.mf .fsx-row { gap: 8px; padding: 12px 0 10px; border-bottom: 1px solid var(--line); grid-template-columns: minmax(0, 1fr) auto 84px 40px; }
+.v3.mf .fsx-row .fsx-def { font: 400 12.5px/1.4 var(--ui); color: var(--dim); }
+.v3.mf .fsx-field, .v3.mf .fsx-val {
+  min-height: 40px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: var(--r-ctl);
+  background: var(--bg); font: 500 15px/1.3 var(--ui);
+}
+.v3.mf .fsx-op { gap: 0; }
+.v3.mf .fsx-op button { width: 40px; min-height: 40px; padding: 0; border-color: var(--line); background: var(--bg); font: 600 15px/1 var(--ui); }
+.v3.mf .fsx-op button:first-child { border-radius: var(--r-ctl) 0 0 var(--r-ctl); }
+.v3.mf .fsx-op button:last-child { border-radius: 0 var(--r-ctl) var(--r-ctl) 0; }
+.v3.mf .fsx-op button.on { background: var(--txt); border-color: var(--txt); color: var(--bg); }
+.v3.mf .fsx-x, .v3.mf .v3-side .asset .x, .v3.mf .rec-x {
+  width: 40px; height: 40px;
+  border: 0; border-radius: var(--r-pill); background: var(--chip); color: var(--txt2);
+}
+.v3.mf .fsx-foot { gap: 8px; padding-top: 14px; }
+.v3.mf .fsx-add, .v3.mf .fsx-clear {
+  min-height: var(--tap); padding: 0 18px;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--acc); color: var(--acc-ink);
+  font: 700 14px/1 var(--ui);
+}
+.v3.mf .fsx-clear { background: var(--chip); color: var(--txt); }
+
+/* ==========================================================================
+   TEAM (screens/team.css)
+   ========================================================================== */
+
+.v3.mf .v3tbl.mtx-lineup td.sp .rank { font: 700 12px/1 var(--ui); color: var(--txt2); }
+.v3.mf .v3tbl.mtx-lineup tbody tr.mtx-sf td { background: none; }
+.v3.mf .v3tbl.roster td .f:not(.q) { font: 600 14.5px/1.2 var(--ui); }
+.v3.mf .v3-lens .lens-rk { margin-left: 5px; color: var(--acc); }
+
+/* strengths: a row per seat, a rounded bar per index */
+.v3.mf .mtx-str-row { gap: 12px; padding: 12px var(--v3pad); border-bottom: 1px solid var(--line); }
+.v3.mf .mtx-str-row.mtx-zebra { background: none; }
+.v3.mf .mtx-tier { top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; }
+/* the seat label starts on the gutter, like every other first column */
+.v3.mf .mtx-seat { flex-basis: 40px; padding-left: 0; font: 700 13px/1 var(--ui); color: var(--txt2); }
+.v3.mf .mtx-str-cells { gap: 8px; }
+.v3.mf .mtx-k { flex-basis: 30px; font: 500 12px/1 var(--ui); color: var(--dim); }
+.v3.mf .mtx-track { height: 8px; border-radius: 4px; }
+.v3.mf .mtx-fill { border-radius: 4px; }
+.v3.mf .mtx-fig { flex-basis: 34px; font: 700 14px/1 var(--ui); }
+.v3.mf .mtx-who { flex-basis: 92px; font: 400 12.5px/1.3 var(--ui); }
+
+/* franchise seasons */
+/* the year column: the gutter plus four digits, so "2026" never touches the
+   team name beside it whatever the gutter is */
+.v3.mf .v3tbl.tms-tbl th.tms-yr, .v3.mf .v3tbl.tms-tbl td.tms-yr,
+.v3.mf .v3tbl.tms-weeks th.tms-yr, .v3.mf .v3tbl.tms-weeks td.tms-yr {
+  width: calc(var(--v3pad) + 50px); padding-left: var(--v3pad);
+}
+.v3.mf .v3tbl.tms-tbl tbody tr.tap.tms-on { background: var(--acc-wash); }
+.v3.mf .v3tbl.tms-tbl tr.tms-sum td { background: none; border-top: 1px solid var(--rule-2); }
+.v3.mf .v3tbl.tms-tbl td .tms-sub { margin-top: 4px; font: 400 12px/1 var(--ui); }
+.v3.mf .tms-draw {
+  margin: 8px 12px 12px; border: 0; border-radius: var(--r-card);
+  background: var(--card); overflow: hidden;
+}
+.v3.mf .tms-draw .hd { padding: 12px 14px 8px; }
+.v3.mf .tms-draw .hd .k { font: 700 14px/1.2 var(--ui); }
+.v3.mf .tms-draw .hd .mt { font: 400 12.5px/1.3 var(--ui); }
+.v3.mf .tms-draw .v3tbl thead th { background: none; }
+.v3.mf .tms-draw .v3tbl tbody tr.zebra { background: none; }
+.v3.mf .v3tbl.tms-weeks tr.tms-grp td {
+  padding: 12px var(--v3pad) 6px; background: none; border: 0;
+  font: 700 13px/1.2 var(--ui); color: var(--txt2);
+}
+
+/* ==========================================================================
+   TRADE (screens/trade.css)
+   ========================================================================== */
+
+.v3.mf .trx-chips { flex-wrap: nowrap; gap: 8px; padding: 10px var(--v3pad); overflow-x: auto; scrollbar-width: none; }
+.v3.mf .trx-chips::-webkit-scrollbar { display: none; }
+.v3.mf .trx-chip, .v3.mf .trx-fil {
+  flex: 0 0 auto;
+  min-height: 36px; padding: 0 14px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  background: none; color: var(--txt2);
+  font: 600 14px/1 var(--ui);
+}
+.v3.mf .trx-chip.on, .v3.mf .trx-fil.on { background: var(--txt); border-color: var(--txt); color: var(--bg); }
+.v3.mf .trx-chip.on .x { color: var(--bg); }
+.v3.mf .trx-chip.add { border-style: dashed; border-color: var(--rule-2); color: var(--acc); }
+.v3.mf .trx-fils { justify-content: flex-start; gap: 8px; }
+
+/* the two baskets: side-by-side cards */
+.v3.mf .v3-sides { gap: 8px; padding: 4px var(--v3pad) 8px; background: none; }
+.v3.mf .v3-side { border-radius: var(--r-card); background: var(--card); overflow: hidden; }
+.v3.mf .trx-sidehd {
+  align-items: center; min-height: var(--tap); padding: 8px 10px 8px 12px;
+  background: none; border-bottom: 1px solid var(--line);
+}
+.v3.mf .trx-sidehd .k { font: 700 13.5px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .trx-sidehd .k.none { color: var(--txt2); }
+.v3.mf .trx-sidehd .n { font: 600 12.5px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .v3-side .asset { gap: 6px; padding: 8px 6px 8px 0; border-bottom: 1px solid var(--line); }
+.v3.mf .v3-side .asset .x { flex: 0 0 auto; width: 32px; height: 32px; font: 600 15px/1 var(--ui); }
+.v3.mf .v3-side .empty2 { padding: 16px 12px; font: 400 13.5px/1.4 var(--ui); color: var(--dim); }
+.v3.mf .v3-side .addbtn {
+  min-height: var(--tap); padding: 0 12px;
+  font: 700 14px/1 var(--ui); color: var(--acc);
+  border-top: 1px solid var(--line);
+}
+.v3.mf .v3-side .asset + .addbtn, .v3.mf .v3-side .empty2 + .addbtn { border-top: 0; }
+.v3.mf .trx-dropped { padding: 8px 12px 12px; font: 400 12.5px/1.4 var(--ui); }
+.v3.mf .trx-figs dt { font: 500 11.5px/1 var(--ui); color: var(--dim); }
+.v3.mf .trx-figs dd { font: 700 13.5px/1 var(--ui); }
+.v3.mf .trx-figs.trx-tally { padding: 10px 12px 12px; background: none; border-top: 1px solid var(--line); gap: 7px 10px; }
+
+/* who it favours */
+.v3.mf .trx-favor { margin: 8px var(--v3pad) 12px; border: 0; border-radius: var(--r-card); background: var(--card); overflow: hidden; }
+.v3.mf .trx-favor .band { margin: 0; padding: 14px 14px 10px; border: 0; background: none; }
+.v3.mf .trx-favor .lk { font: 700 16px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .trx-favor .r { font: 400 12.5px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .trx-favor .row { padding: 12px 14px; border-bottom: 0; border-top: 1px solid var(--line); row-gap: 9px; }
+.v3.mf .trx-favor .row.alt { background: none; }
+.v3.mf .trx-favor .t { font: 600 13px/1.2 var(--ui); color: var(--txt2); }
+.v3.mf .trx-favor .f { font: 700 16px/1 var(--ui); }
+.v3.mf .trx-favor .v { font: 700 13px/1.2 var(--ui); }
+.v3.mf .trx-favor .fb { height: 10px; border: 0; border-radius: 5px; background: var(--chip); }
+.v3.mf .trx-favor .fb .fill { border-radius: 5px; }
+.v3.mf .trx-favor .drawer { margin: 0; padding: 12px 14px 14px; border: 0; border-top: 1px solid var(--line); border-radius: 0; background: color-mix(in srgb, var(--bg) 45%, transparent); }
+.v3.mf .trx-favor .opts li { padding: 8px 0; border-top: 1px solid var(--line); }
+.v3.mf .trx-favor .nm { font: 600 14.5px/1.25 var(--ui); }
+.v3.mf .trx-favor .sb, .v3.mf .trx-favor .to, .v3.mf .trx-favor .none { font: 400 12.5px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .trx-favor .go { min-height: 36px; margin-top: 0; padding: 0 14px; font-size: 13.5px; }
+
+/* compare all offers */
+.v3.mf .trx-cmp { gap: 8px; padding: 4px var(--v3pad) 8px; }
+.v3.mf .trx-cmpcard { padding: 12px 14px 14px; border: 0; border-radius: var(--r-card); background: var(--card); }
+.v3.mf .trx-cmpcard.on { background: var(--acc-wash); }
+.v3.mf .trx-cmphd { font: 700 13.5px/1.2 var(--ui); color: var(--txt2); }
+.v3.mf .trx-cmpsides { gap: 8px; margin-top: 10px; background: none; }
+.v3.mf .trx-cmpside { padding: 9px 10px 10px; border-radius: 10px; background: var(--bg); }
+.v3.mf .trx-cmpside .who { font: 600 12.5px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .trx-cmpside .its { margin-top: 5px; font: 500 13.5px/1.35 var(--ui); color: var(--txt); }
+.v3.mf .trx-cmpnil { font: 400 13.5px/1.4 var(--ui); color: var(--dim); }
+
+/* the asset picker (a sheet) */
+.v3.mf .trx-psearch { padding: 10px var(--v3pad); background: none; border-bottom: 1px solid var(--line); }
+.v3.mf .trx-prow { min-height: 56px; padding: 8px var(--v3pad) 8px 0; gap: 10px; border-bottom: 1px solid var(--line); }
+.v3.mf .trx-prow:hover { background: none; }
+.v3.mf .trx-prow:active { background: var(--chip); }
+.v3.mf .trx-prow .v { font: 600 14px/1 var(--ui); }
+.v3.mf .trx-pempty { font: 400 14px/1.5 var(--ui); }
+
+/* the ledger: every trade a card */
+.v3.mf .trx-feed { gap: 10px; padding: 4px var(--v3pad) 12px; }
+.v3.mf .trx-card {
+  padding: 12px 0 10px; border: 0; border-radius: var(--r-card);
+  background: var(--card); overflow: hidden;
+}
+.v3.mf .trx-card:hover { background: var(--card); }
+.v3.mf .trx-card:active { background: var(--sel); }
+.v3.mf .trx-card.on { border: 0; box-shadow: inset 0 0 0 2px var(--acc); }
+.v3.mf .trx-cardhd { margin-bottom: 6px; padding: 0 14px; }
+.v3.mf .trx-cardhd .when { font: 700 14px/1.3 var(--ui); color: var(--txt); }
+.v3.mf .trx-cardhd .edge .k { font: 500 11.5px/1.4 var(--ui); color: var(--dim); }
+.v3.mf .trx-cardhd .edge .v { font: 700 13.5px/1.3 var(--ui); }
+.v3.mf .trx-cardhd .edge .n { font: 400 12.5px/1.3 var(--ui); }
+.v3.mf .trx-card .v3tbl thead th { position: static; background: none; }
+.v3.mf .v3tbl.trg thead th:first-child, .v3.mf .v3tbl.trg tbody th:first-child { padding-left: 14px; }
+.v3.mf .v3tbl.trg thead th:last-child, .v3.mf .v3tbl.trg tbody td:last-child { padding-right: 14px; }
+.v3.mf .v3tbl.trg .trg-h .mgr { font: 700 13.5px/1.25 var(--ui); }
+.v3.mf .v3tbl.trg .trg-h .tm { font: 400 12px/1.3 var(--ui); }
+.v3.mf .v3tbl.trg tbody th.trg-k { padding: 8px 6px 8px 14px; border-bottom: 1px solid var(--line); font: 500 11.5px/1.5 var(--ui); color: var(--dim); }
+.v3.mf .trg-a .nm { font: 600 14px/1.3 var(--ui); }
+.v3.mf .trg-a .sb, .v3.mf .v3tbl.trg td .d { font: 400 12px/1.3 var(--ui); }
+.v3.mf .v3tbl.trg td .f { font: 600 13.5px/1.3 var(--ui); }
+.v3.mf .trx-go { padding: 6px 14px 0; font: 600 13px/1.3 var(--ui); color: var(--acc); }
+
+/* one trade, and where its pieces went */
+.v3.mf .trl-item { padding: 14px 0 10px; border-bottom: 1px solid var(--line); }
+.v3.mf .trl-id .nm { font: 700 16px/1.25 var(--ui); }
+.v3.mf .trl-id .sb, .v3.mf .trl-now .s, .v3.mf .trl-st .e .sb { font: 400 12.5px/1.35 var(--ui); }
+.v3.mf .trl-now .k { font: 500 11.5px/1.4 var(--ui); color: var(--dim); }
+.v3.mf .trl-now .v { font: 700 13.5px/1.3 var(--ui); }
+.v3.mf .trl-st { min-height: 40px; }
+.v3.mf .trl-st .w { font: 500 12px/1.35 var(--ui); }
+.v3.mf .trl-st .e .t { font: 400 14px/1.35 var(--ui); }
+.v3.mf .trl-st .mk::after { border-radius: 50%; }
+.v3.mf .trl-back, .v3.mf .ptx-back { margin-bottom: 4px; }
+
+/* ==========================================================================
+   SEASONS, PLAYOFFS, DEFENSES
+   ========================================================================== */
+
+/* the week picker: a rail of pills (it is a v3-lens, re-shaped) */
+.v3.mf .v3-lens.ssx-weeks {
+  margin: 8px 0 4px; padding: 0 var(--v3pad); gap: 6px;
+  background: none; border-radius: 0;
+}
+.v3.mf .v3-lens.ssx-weeks button {
+  min-width: 46px; min-height: 36px; padding: 0 10px;
+  border: 1px solid var(--line); border-radius: var(--r-pill);
+  font: 600 13.5px/1 var(--ui); color: var(--txt2);
+}
+.v3.mf .v3-lens.ssx-weeks button.on { background: var(--txt); border-color: var(--txt); color: var(--bg); box-shadow: none; }
+.v3.mf .v3-lens.ssx-weeks button:disabled { border-color: transparent; color: var(--dim3); }
+
+.v3.mf .pm-fills { flex-wrap: nowrap; }
+.v3.mf .pm-fills .pm-k { font: 500 13px/1 var(--ui); color: var(--dim); }
+.v3.mf .pm-d { font: 600 12.5px/1 var(--ui); }
+.v3.mf .pm-games { gap: 8px; padding: 4px var(--v3pad) 10px; background: none; border: 0; }
+.v3.mf .pm-game, .v3.mf .pm-game:nth-child(n) {
+  min-height: 56px; border: 0; border-radius: var(--r-card);
+  background: var(--card); overflow: hidden;
+}
+.v3.mf .pm-side { padding: 10px 8px 10px 14px; border-top: 0; }
+.v3.mf .pm-side.r { padding: 10px 14px 10px 8px; }
+.v3.mf .pm-side:hover { background: none; }
+.v3.mf .pm-side:active { background: var(--chip); }
+.v3.mf .pm-side .nm { font: 600 14px/1.25 var(--ui); }
+.v3.mf .pm-side .wp { font: 600 13px/1 var(--ui); }
+.v3.mf .pm-side.won { background: var(--acc-wash); }
+.v3.mf .pm-side.won .wp, .v3.mf .pm-side.lost .wp { font: 700 12px/1 var(--ui); }
+.v3.mf .pm-vs { flex-basis: 30px; background: none; font: 500 11.5px/1 var(--ui); color: var(--dim); }
+.v3.mf .pm-tbl tbody tr.pm-cut td { border-bottom: 2px solid var(--rule-2); }
+
+.v3.mf .dvp-legend { font: 400 12.5px/1 var(--ui); }
+.v3.mf .dvp-legend .sw { gap: 0; border-radius: 4px; overflow: hidden; }
+.v3.mf .dvp-tbl td.dvp-cell { border-left: 3px solid var(--bg); border-bottom: 3px solid var(--bg); border-radius: 10px; }
+.v3.mf .dvp-tbl .dvp-cell .v { font: 700 15px/1.1 var(--ui); }
+.v3.mf .dvp-tbl .dvp-cell .r { font: 500 11.5px/1 var(--ui); }
+
+/* a table's own group heading carries a note beside it; on a phone the note
+   goes under the heading instead of pushing the table wider than the page */
+.v3.mf tr.grpband th { white-space: normal; }
+.v3.mf tr.grpband th > div { flex-wrap: wrap; gap: 2px 12px; }
+.v3.mf .band-note { white-space: normal; min-width: 0; }
+
+@media (max-width: 899px) {
+  /* "max +12.08" under the WAR figure needs more than the 17% the current
+     UI's mono 11px was sized for */
+  .v3.mf .v3tbl.tms-tbl thead th.sorted { width: 23% !important; }
+  .v3.mf .v3tbl.tms-tbl td .tms-sub { font-size: 11.5px; }
+}
+.v3.mf .v3tbl td .f.q { font-size: 12.5px; }
+/* inside the games stack the median line is already inset by the stack */
+.v3.mf .lgx-games > .lgx-median { padding-left: 0; padding-right: 0; }
+
+/* ==========================================================================
+   POLISH PASS against the 20-rule list (Max, 2026-11-10). Each block names
+   the rule it answers. The audit itself is scratch/mobile_first_ui_20_rules.
+   ========================================================================== */
+
+/* ---- 8. GROUP WITH SPACING: figure columns are one width ------------------
+   An auto-layout table sizes each column to its own header, so "WS" made a
+   46px column and "Exp PPG" a 61px one, and the right-aligned figures under
+   them sat 46px apart, then 61, then 52. The figure columns of one table are
+   now the same width, wide enough for the longest header on a second line,
+   so every figure is the same distance from the next. Group rules (the
+   Players board's "Wins added | Expected") stay the only uneven step. */
+.v3.mf .v3tbl.roster { --figw: 60px; }
+.v3.mf .v3tbl.pm-tbl { --figw: 62px; }
+/* `min-width`, not `width`: the name column is `width: 100%` (it takes what
+   is left), and beside a 100% column an auto table gives every other column
+   only its minimum. The minimum is the one number it will not go under. */
+.v3.mf .v3tbl.roster thead th.n,
+.v3.mf .v3tbl.pm-tbl thead th.n { min-width: var(--figw); }
+.v3.mf .v3tbl.roster thead th.n:last-child,
+.v3.mf .v3tbl.pm-tbl thead th.n:last-child { min-width: calc(var(--figw) - 6px + var(--v3pad)); }
+@media (min-width: 900px) {
+  .v3.mf .v3tbl.roster, .v3.mf .v3tbl.pm-tbl { --figw: 84px; }
+  /* 80px where there is room; on a narrow desktop the columns give some back
+     so eight of them (the QB board) never squeeze the name under ~240px.
+     208px is the rail, 320px the rank and a readable name. */
+  /* THE FIGURE SITS IN THE MIDDLE OF ITS COLUMN, NOT AGAINST ITS RIGHT EDGE
+     (Max, 2026-11-10). A right-aligned figure with a small right pad left
+     ~42px of air on its left and 12px on its right, so between two group
+     rules the block of figures hugged the right-hand rule. The right pad is
+     now half of what the column has to spare: (column - figure) / 2, where
+     --figc is the width of a typical figure on that board. The figures still
+     right-align with each other, so decimals line up; the column of them is
+     what is centred. Headers take the same pad and stay over the figures.
+
+     --figw: 88px on the stat boards where there is room; on a narrow desktop
+     the columns give some back so eight of them (the QB board) never squeeze
+     the name under ~240px (208px is the rail, 320px the rank and a readable
+     name). The value boards hold wider figures ("10,348") and a wider header
+     ("FantasyCalc"), and at most six columns, so they take a wider one. */
+  .v3.mf .v3tbl.plx-tbl { --figw: clamp(64px, calc((100vw - 528px) / 9), 88px); --figc: 34px; }
+  .v3.mf .v3tbl.plx-tbl.plx-cur { --figw: clamp(88px, calc((100vw - 528px) / 6), 108px); --figc: 46px; }
+  .v3.mf .v3tbl.plx-tbl { --figp: calc((var(--figw) - var(--figc)) / 2); }
+  .v3.mf .v3tbl.plx-tbl thead tr.plx-cols th.n {
+    min-width: var(--figw); padding-left: 4px; padding-right: var(--figp);
+    white-space: normal; vertical-align: bottom; text-wrap: balance;
+  }
+  .v3.mf .v3tbl.plx-tbl tbody td.n { padding-left: 4px; padding-right: var(--figp); }
+  /* the last column ends on the gutter and keeps the same air on its left */
+  .v3.mf .v3tbl.plx-tbl thead tr.plx-cols th.n:last-child { min-width: calc(var(--figw) - var(--figp) + var(--v3pad)); padding-right: var(--v3pad); }
+  .v3.mf .v3tbl.plx-tbl tbody td.n:last-child { padding-right: var(--v3pad); }
+}
+
+/* ---- 15. TEXT CONTRAST and the 12px floor ---------------------------------
+   What the measurement still found under 11.5px or under 4.5:1 once --dim3
+   was lifted. */
+.v3.mf .lgx-pos4 .lgx-mvp .k,
+.v3.mf .lgx-pos4 .lgx-mvp .sub { color: var(--txt2); }   /* on a position tint */
+.v3.mf .dvp-tbl .dvp-cell .r { opacity: 1; }
+.v3.mf .lgx-game .mid .k { font-size: 12px; }
+.v3.mf .rtx-side .for,
+.v3.mf .rtx-paid .k,
+.v3.mf .rtx-when .tep { font: 500 12px/1.3 var(--ui); color: var(--dim); }
+.v3.mf .rtx-when { font: 600 13px/1.3 var(--ui); }
+.v3.mf .rtx-sides { font: 400 14px/1.5 var(--ui); }
+.v3.mf .rtx-paid .v { font: 700 16px/1.1 var(--ui); }
+.v3.mf .rtx-figs .k { font: 500 12px/1.2 var(--ui); color: var(--dim); }
+.v3.mf .rtx-figs .v { font: 700 20px/1.1 var(--ui); }
+.v3.mf .rtx-figs .s { font: 400 12px/1.4 var(--ui); color: var(--dim); }
+.v3.mf .rtx { border-bottom: 1px solid var(--line); }
+.v3.mf .rtx.zebra { background: none; }
+.v3.mf .rtx-more { font: 600 13.5px/1 var(--ui); border-bottom: 0; }
+.v3.mf .pos.sm, .v3.mf .pos.mini, .v3.mf .pick-tables .pos.mini { font-size: 12px; }
+.v3.mf .tot-yrs { font: 500 12px/1 var(--ui); color: var(--dim); }
+.v3.mf .heat-head span { font-size: 12px; }
+.v3.mf .heat-note { font-size: 12.5px; color: var(--dim); }
+.v3.mf .box-row .lbl .n,
+.v3.mf .draft-screen .box-row .lbl .n { font: 500 12px/1 var(--ui); color: var(--dim); }
+.v3.mf .draft-screen .box-row .plot .lab.end,
+.v3.mf .draft-screen .axis .scale span { font: 500 12px/1 var(--ui); color: var(--dim); }
+.v3.mf .dtbl td.lbl .caret { font-size: 12px; }
+.v3.mf .v3tbl td.sp .mv { font-size: 12px; }
+.v3.mf .plx-marks .hmark-x, .v3.mf .plx-honors .hmark-x { font-size: 12px; }
+.v3.mf .lgx-drawer .sd-side .w .wl { font-size: 12px; }
+.v3.mf .plx-spread .v { font-size: 12px; }
+.v3.mf .v3-mast .lg .caret, .v3.mf .v3-scopectl .caret { font-size: 12px; opacity: 1; }
+/* the fold toggle is a text button wherever it sits */
+.v3.mf button.lgx-all { background: none; border: 0; padding: 0; cursor: pointer; }
+
+/* ---- 14. INNER RADIUS = OUTER - PADDING -----------------------------------
+   A 14px card with 14-16px of padding leaves nothing for the corner inside
+   it, so a box nested in a card takes a small radius, not a second 10px one
+   that reads as a different shape. The lens track (12px, 3px pad, 9px
+   segments) already follows the rule. */
+.v3.mf .trx-cmpside { border-radius: 6px; }
+.v3.mf .rcp-tblwrap { border-radius: 6px; }
+.v3.mf .plx-draw .weekcell, .v3.mf .tms-draw .weekcell, .v3.mf .drawer .weekcell { border-radius: 4px; }
+.v3.mf .v3-baskets .bk { border-radius: 10px; }
+.v3.mf .trx-card .v3-baskets .bk, .v3.mf .lgx-drawer .v3-baskets .bk { border-radius: 6px; }
+
+/* ---- 20. ANIMATE USEFUL FEEDBACK ------------------------------------------
+   Three moments had none: a drawer opening under the row that was tapped, a
+   choice changing, and a press. Short and one-directional; all of it is off
+   under prefers-reduced-motion. */
+@keyframes mf-open { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.v3.mf .plx-draw, .v3.mf .tms-draw, .v3.mf .lgx-drawer, .v3.mf .rcp-body,
+.v3.mf .mox-body, .v3.mf .plx-keylist, .v3.mf .trx-favor .drawer, .v3.mf .drawer {
+  animation: mf-open .16s ease-out both;
+}
+.v3.mf .chip, .v3.mf .filter-chip, .v3.mf .trx-chip, .v3.mf .trx-fil,
+.v3.mf .plx-txtbtn, .v3.mf .v3-scopectl button, .v3.mf .lens .seg {
+  transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+.v3.mf .v3tbl tbody tr.tap, .v3.mf .mox-row, .v3.mf .lgx-game, .v3.mf .trx-card {
+  transition: background-color .12s ease;
+}
+@media (prefers-reduced-motion: reduce) {
+  .v3.mf .plx-draw, .v3.mf .tms-draw, .v3.mf .lgx-drawer, .v3.mf .rcp-body,
+  .v3.mf .mox-body, .v3.mf .plx-keylist, .v3.mf .trx-favor .drawer, .v3.mf .drawer { animation: none; }
+  .v3.mf *, .v3.mf *::before, .v3.mf *::after { transition: none !important; }
+}
