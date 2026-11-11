@@ -6,7 +6,7 @@ import { useLeagueCaps } from "../../lib/caps";
 import { rookieDraftRecorded } from "../../lib/seasons";
 import { hardRefresh } from "../../lib/data";
 import { useLeague } from "../../lib/context";
-import { LIVE_THEMES, useLiveTheme } from "../liveTheme";
+import { LIVE_THEMES, useLiveTheme, type LiveThemeId } from "../liveTheme";
 import { UI_MODES, useUi } from "../mobile/uiMode";
 import { latestSeasonOf, rosterSeasonOf } from "../../lib/league";
 import { useIdentity } from "../../lib/identity";
@@ -14,7 +14,7 @@ import { MODEL_NOTE, splitCurve, STREAM_NOTE, useModel } from "../../lib/model";
 import { useIndexModels } from "../../lib/useIndices";
 import { useSeasonPhase } from "../model";
 import { useMarketMovers } from "../movers";
-import { Band, NUL, useBetaPath } from "../ui";
+import { Band, NUL, Sheet, useBetaPath } from "../ui";
 import { RouteLink } from "../../components/RouteLink";
 import "./more.css";
 
@@ -126,6 +126,10 @@ export default function More() {
 
   const liveTheme = useLiveTheme();
   const uiMode = useUi();
+  // the mobile-first UI picks a theme in a sheet; the previous UI keeps its list
+  const mobileUi = uiMode?.ui === "mobile";
+  const [picking, setPicking] = useState(false);
+  const curTheme = LIVE_THEMES.find(t => t.id === liveTheme?.theme) ?? LIVE_THEMES[0];
 
   const mine = teams?.find(t => t.roster_id === ident.rid);
 
@@ -357,9 +361,36 @@ export default function More() {
           status rows, with the swatch strip in the figure slot; the selected
           row carries the rank spine rather than a second accent figure, so the
           projection model stays this screen's one gold value. */}
-      {liveTheme && (
+      {/* THEME ON THE MOBILE-FIRST UI (Max, 2026-11-11): one row that opens
+          the picker (`ThemeSheet`, below), so this screen stays one row long
+          however many palettes there are. The previous UI keeps the list
+          under it, unchanged. */}
+      {liveTheme && mobileUi && (
         <>
-          <Band label="Appearance" note="Seven palettes, three dark and three light — saved on this device" />
+          <Band label="Appearance" note="Saved on this device" />
+          <div className="v3-more">
+            <button type="button" className="mox-row mox-theme" aria-haspopup="dialog"
+              aria-expanded={picking} onClick={() => setPicking(true)}>
+              <span className="mox-nm">
+                <span className="mox-n1">Theme</span>
+                <span className="mox-n2">{LIVE_THEMES.length} palettes, {LIVE_THEMES.filter(t => t.dark).length} dark
+                  and {LIVE_THEMES.filter(t => !t.dark).length} light</span>
+              </span>
+              <span className="mox-st">{curTheme.name}</span>
+              <span className="mox-sw" aria-hidden="true">
+                {curTheme.swatch.map((c, i) => <i key={i} style={{ "--c": c } as CSSProperties} />)}
+              </span>
+            </button>
+          </div>
+          {picking && (
+            <ThemeSheet theme={liveTheme.theme} onPick={liveTheme.setTheme}
+              onClose={() => setPicking(false)} />
+          )}
+        </>
+      )}
+      {liveTheme && !mobileUi && (
+        <>
+          <Band label="Appearance" note={`${LIVE_THEMES.length} palettes, ${LIVE_THEMES.filter(t => t.dark).length} dark and ${LIVE_THEMES.filter(t => !t.dark).length} light — saved on this device`} />
           <div className="v3-more" role="radiogroup" aria-label="Theme">
             {LIVE_THEMES.map(t => {
               const on = liveTheme.theme === t.id;
@@ -515,4 +546,54 @@ function Row({
     );
   }
   return <div className={cls}>{body}</div>;
+}
+
+/**
+ * THE THEME PICKER (Max, 2026-11-11) — mobile-first UI only.
+ *
+ * A sheet of small colour chips instead of a list on More, so adding a
+ * palette adds a chip here and nothing to the screen. Grouped dark and light,
+ * four across. A tap applies the palette at once and the sheet STAYS UP, so a
+ * reader can try several in a row; Close, Escape or the scrim puts it away.
+ *
+ * A chip shows the two colours that make a palette: its board (`--bg`) and
+ * its accent, split on a diagonal. They are the theme's own swatch literals
+ * because a chip shows a palette that is not the one applied. The note
+ * ("Lime on field green") is the chip's tooltip and accessible name.
+ * Styles: mobile/mobile.css (`.thx-*`).
+ */
+function ThemeSheet({ theme, onPick, onClose }: {
+  theme: LiveThemeId; onPick: (t: LiveThemeId) => void; onClose: () => void;
+}) {
+  const groups = [
+    { label: "Dark", items: LIVE_THEMES.filter(t => t.dark) },
+    { label: "Light", items: LIVE_THEMES.filter(t => !t.dark) },
+  ];
+  return (
+    <Sheet label="Choose a theme" title="Theme" onClose={onClose}>
+      <div className="thx">
+        {groups.map(g => (
+          <div key={g.label} role="radiogroup" aria-label={`${g.label} themes`}>
+            <div className="thx-k">{g.label}<b>{g.items.length}</b></div>
+            <div className="thx-grid">
+              {g.items.map(t => {
+                const on = t.id === theme;
+                const [, pb, pa] = t.swatch;
+                return (
+                  <button key={t.id} type="button" role="radio" aria-checked={on}
+                    className={`thx-tile${on ? " on" : ""}`} title={t.note}
+                    aria-label={`${t.name}: ${t.note}`} onClick={() => onPick(t.id)}>
+                    <span className="thx-chip" aria-hidden="true"
+                      style={{ "--pb": pb, "--pa": pa } as CSSProperties} />
+                    <span className="thx-nm">{t.name}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        <div className="thx-note">A tap applies the theme right away. Saved on this device.</div>
+      </div>
+    </Sheet>
+  );
 }

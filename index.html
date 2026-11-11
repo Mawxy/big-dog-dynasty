@@ -30,7 +30,10 @@
 (function () {
   try {
     var bg = { "live-midnight": "#09111e", "live-ember": "#0e0b09", "live-royal": "#0c0b21",
-               "live-pressbox": "#f7f5f0", "live-chalk": "#f5f7fa", "live-clay": "#f8f1e8" };
+               "live-pressbox": "#f7f5f0", "live-chalk": "#f5f7fa", "live-clay": "#f8f1e8",
+               "live-turf": "#091710", "live-rosewood": "#160a0e", "live-blackout": "#060707",
+               "live-graphite": "#1b1d1f", "live-seafoam": "#f2f9f8", "live-lilac": "#f4f1fa",
+               "live-blush": "#faf1f4", "live-fairway": "#f5f8f3", "live-fog": "#e8ecf0" };
     var lt = localStorage.getItem("warboard.v3.livetheme");
     if (!bg[lt]) return;
     document.documentElement.setAttribute("data-theme", lt);

@@ -23,7 +23,7 @@
        screen's headline figure. A selected choice is neutral, not gold.
 
    COLOUR IS NOT REDEFINED. Every colour is one of style.css's tokens, so the
-   seven palettes under More → Appearance work here unchanged, light and dark.
+   palettes under More → Appearance work here unchanged, light and dark.
    ========================================================================== */
 
 .v3.mf {
@@ -55,7 +55,7 @@
   /* CONTRAST FLOOR. --dim3 is the base sheet's "decorative only" grey, about
      3:1, and it had drifted onto text a reader needs: axis scales, week
      labels, sample sizes, sub-lines. Here it is the same grey as --dim2,
-     which holds 4.5:1 on the field and on a card in all seven palettes, so
+     which holds 4.5:1 on the field and on a card in every palette, so
      nothing in this interface is set below that by inheritance. */
   --dim3: var(--dim2);
 
@@ -571,6 +571,50 @@
 .v3.mf .mox-sw { gap: 0; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 1px var(--line); }
 .v3.mf .mox-sw i { width: 12px; height: 24px; box-shadow: none; }
 
+/* ---- the theme picker (More → Theme; ThemeSheet in screens/More.tsx) -------
+   One row on More opens this sheet, so the screen stays one row long however
+   many palettes there are. Small chips, four across, grouped dark and light;
+   a tap applies the palette at once and the sheet stays up, so several can
+   be tried in a row. A chip is the two colours that make a palette, its
+   board (--pb) and its accent (--pa), split on a diagonal and taken from the
+   theme's own swatch literals because it shows a palette that is not the one
+   applied. The chosen chip takes a neutral ring and a bold name. This
+   interface only: the previous UI keeps its list. */
+.v3.mf .thx { padding: 0 var(--v3pad) 18px; }
+.v3.mf .thx-k {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 16px 0 10px;
+  font: 600 13px/1 var(--ui); color: var(--dim);
+}
+.v3.mf .thx-k b { font-weight: 600; font-variant-numeric: tabular-nums; color: var(--dim2); }
+.v3.mf .thx-grid {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px 10px;
+}
+.v3.mf .thx-tile {
+  display: block; width: 100%; min-width: 0; padding: 0;
+  border: 0; background: none; color: var(--txt2);
+  text-align: center; cursor: pointer;
+}
+.v3.mf .thx-chip {
+  display: block; height: var(--tap);
+  border-radius: var(--r-ctl);
+  background: linear-gradient(135deg, var(--pb) 0 60%, var(--pa) 60% 100%);
+  box-shadow: inset 0 0 0 1px var(--rule-2);
+  transition: transform .12s ease;
+}
+.v3.mf .thx-tile:active .thx-chip { transform: scale(.96); }
+.v3.mf .thx-tile.on .thx-chip { outline: 2px solid var(--txt); outline-offset: 2px; }
+.v3.mf .thx-tile:focus-visible { outline: none; }
+.v3.mf .thx-tile:focus-visible .thx-chip { outline: 2px solid var(--acc); outline-offset: 2px; }
+.v3.mf .thx-nm {
+  display: block; margin-top: 7px;
+  font: 600 12px/1.25 var(--ui);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.v3.mf .thx-tile.on .thx-nm { font-weight: 700; color: var(--txt); }
+.v3.mf .thx-note { padding: 16px 0 0; font: 400 13px/1.45 var(--ui); color: var(--dim); }
+
 /* ==========================================================================
    DESKTOP — the same language on the rail
    ========================================================================== */
@@ -611,6 +655,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .v3.mf .v3-sheet, .v3.mf .v3-scrim { animation: none; }
+  .v3.mf .thx-chip { transition: none; }
   .v3.mf .v3-nav, .v3.mf .v3-nav a, .v3.mf .v3-nav a .mf-ic { transition: none; }
 }
 

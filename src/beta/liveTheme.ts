@@ -14,6 +14,10 @@ import { createContext, useContext } from "react";
  * `swatch` is the picker's strip — `--deep`, `--bg`, `--acc`, `--good` — and is
  * literal because a row shows a theme that is not applied. Keep both in step
  * with style.css and index.html.
+ *
+ * Sixteen since 2026-11-11, eight dark and eight light. Keep the dark ones
+ * together and the light ones together: the picker groups by `dark`, and the
+ * previous UI's list reads this array top to bottom.
  */
 export const LIVE_THEMES = [
   { id: "original", name: "Original", note: "Gold on carbon — the board as it ships", dark: true,
@@ -24,12 +28,30 @@ export const LIVE_THEMES = [
     bg: "#0e0b09", swatch: ["#070504", "#0e0b09", "#ff8c42", "#4fd08a"] },
   { id: "live-royal", name: "Royal", note: "Lavender on midnight indigo", dark: true,
     bg: "#0c0b21", swatch: ["#06051a", "#0c0b21", "#b69bff", "#4fd08a"] },
+  { id: "live-turf", name: "Turf", note: "Lime on field green", dark: true,
+    bg: "#091710", swatch: ["#050c08", "#091710", "#c3ea4d", "#3fd6a2"] },
+  { id: "live-rosewood", name: "Rosewood", note: "Rose on deep wine", dark: true,
+    bg: "#160a0e", swatch: ["#0b0507", "#160a0e", "#ff8fb3", "#4fd08a"] },
+  { id: "live-blackout", name: "Blackout", note: "Ice blue on near black", dark: true,
+    bg: "#060707", swatch: ["#000000", "#060707", "#5fdcf2", "#4fd08a"] },
+  { id: "live-graphite", name: "Graphite", note: "Periwinkle on soft charcoal", dark: true,
+    bg: "#1b1d1f", swatch: ["#131516", "#1b1d1f", "#a3b8ff", "#4fd08a"] },
   { id: "live-pressbox", name: "Press box", note: "Old gold on warm paper — the house look, lights up", dark: false,
     bg: "#f7f5f0", swatch: ["#ebe7dd", "#f7f5f0", "#7d5a00", "#15693f"] },
   { id: "live-chalk", name: "Chalk", note: "Cobalt on cool white", dark: false,
     bg: "#f5f7fa", swatch: ["#e6eaf0", "#f5f7fa", "#1f4fd1", "#0f6b42"] },
   { id: "live-clay", name: "Clay", note: "Terracotta on sand", dark: false,
     bg: "#f8f1e8", swatch: ["#eee2d5", "#f8f1e8", "#9f3f0b", "#1a6640"] },
+  { id: "live-seafoam", name: "Seafoam", note: "Deep teal on pale aqua", dark: false,
+    bg: "#f2f9f8", swatch: ["#dfefee", "#f2f9f8", "#0a6b6b", "#15693f"] },
+  { id: "live-lilac", name: "Lilac", note: "Violet on pale lavender", dark: false,
+    bg: "#f4f1fa", swatch: ["#e4dcf1", "#f4f1fa", "#6238c2", "#15693f"] },
+  { id: "live-blush", name: "Blush", note: "Raspberry on soft pink", dark: false,
+    bg: "#faf1f4", swatch: ["#f2dbe2", "#faf1f4", "#ad1f5b", "#15693f"] },
+  { id: "live-fairway", name: "Fairway", note: "Fairway green on pale sage", dark: false,
+    bg: "#f5f8f3", swatch: ["#e6ede0", "#f5f8f3", "#3f6a0c", "#0f6b4f"] },
+  { id: "live-fog", name: "Fog", note: "Navy ink on cool grey", dark: false,
+    bg: "#e8ecf0", swatch: ["#d6dce3", "#e8ecf0", "#1c3d6b", "#15693f"] },
 ] as const;
 
 export type LiveThemeId = typeof LIVE_THEMES[number]["id"];

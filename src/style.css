@@ -176,6 +176,117 @@
   --honor-star: #5d6b80; --honor-bar: #86766a;
   color-scheme: light;
 }
+/* ---- nine more (2026-11-11), to make eight dark and eight light -------------
+   Generated, then checked against the same bar as the six above: --txt2,
+   --dim, --dim2, --acc, every signed colour and (light) every position colour
+   clear 4.5:1 on all five surfaces, and --acc-ink clears 4.5:1 on --acc. Where
+   the accent sits near a signed colour the signed one moves: Turf and Fairway
+   take a bluer green for --good, Rosewood and Blush an orange-red for --bad. */
+:root[data-theme="live-turf"] {
+  --deep: #050c08; --bg: #091710; --band: #0f251a; --zebra: #0c1d14; --sel: #163525;
+  --rule: #1b3c2b; --rule-2: #2c5942; --hair: #0f251a;
+  --txt: #f1f6f4; --txt2: #caddd4; --dim: #81a794; --dim2: #77a18c; --dim3: #4d7561;
+  --acc: #c3ea4d; --acc-ink: #091710; --acc-dim: #7c9a36;
+  --good: #3fd6a2; --bad: #ff6b75; --drop: #c88d93; --warn: #e8a35a;
+  --war-pos: #3fd6a2; --war-neg: #ff7c84;
+  --honor-champ: #f5c518; --honor-bar: #4d7561;
+  color-scheme: dark;
+}
+:root[data-theme="live-rosewood"] {
+  --deep: #0b0507; --bg: #160a0e; --band: #241016; --zebra: #1c0d11; --sel: #331720;
+  --rule: #3a1d25; --rule-2: #562e3a; --hair: #241016;
+  --txt: #f6f1f2; --txt2: #ddcbd0; --dim: #aa858f; --dim2: #a57e89; --dim3: #7d535f;
+  --acc: #ff8fb3; --acc-ink: #160a0e; --acc-dim: #a65c74;
+  --good: #4fd08a; --bad: #ff7a5c; --drop: #d09a8e; --warn: #e8a35a;
+  --war-pos: #4fd08a; --war-neg: #ff866b;
+  --honor-champ: #f5c518; --honor-bar: #7d535f;
+  color-scheme: dark;
+}
+:root[data-theme="live-blackout"] {
+  --deep: #000000; --bg: #060707; --band: #121213; --zebra: #0b0c0c; --sel: #1c1d1e;
+  --rule: #242526; --rule-2: #393a3d; --hair: #121213;
+  --txt: #f3f3f4; --txt2: #d2d3d5; --dim: #909398; --dim2: #85888e; --dim3: #5d6065;
+  --acc: #5fdcf2; --acc-ink: #060707; --acc-dim: #3d8b99;
+  --good: #4fd08a; --bad: #ff6b75; --drop: #c88d93; --warn: #e8a35a;
+  --war-pos: #4fd08a; --war-neg: #ff7881;
+  --honor-champ: #f5c518; --honor-bar: #5d6065;
+  color-scheme: dark;
+}
+:root[data-theme="live-graphite"] {
+  --deep: #131516; --bg: #1b1d1f; --band: #25282b; --zebra: #1f2124; --sel: #2f3237;
+  --rule: #36393d; --rule-2: #4b4e53; --hair: #25282b;
+  --txt: #f3f3f4; --txt2: #d1d3d6; --dim: #9da2a8; --dim2: #979ba2; --dim3: #626871;
+  --acc: #a3b8ff; --acc-ink: #1b1d1f; --acc-dim: #6f7daa;
+  --good: #4fd08a; --bad: #ff6b75; --drop: #c88d93; --warn: #e8a35a;
+  --war-pos: #4fd08a; --war-neg: #ff7c84;
+  --honor-champ: #f5c518; --honor-bar: #626871;
+  color-scheme: dark;
+}
+:root[data-theme="live-seafoam"] {
+  --deep: #dfefee; --bg: #f2f9f8; --band: #ffffff; --zebra: #eaf5f4; --sel: #d9eceb;
+  --rule: #cae5e3; --rule-2: #afd7d5; --hair: #ddeeed;
+  --txt: #10201f; --txt2: #2b4846; --dim: #425f5e; --dim2: #4a6a69; --dim3: #6a928f;
+  --acc: #0a6b6b; --acc-ink: #ffffff; --acc-dim: #84b5b5;
+  --good: #15693f; --bad: #a8302a; --drop: #9e4049; --warn: #8c4106;
+  --war-pos: #15693f; --war-neg: #a8302a;
+  --qb: #7b3ec5; --rb: #1c6d45; --wr: #1d5dbc; --te: #9b481b;
+  --qb-mark: #7b3ec5; --rb-mark: #1c6d45; --wr-mark: #1d5dbc; --te-mark: #9b481b;
+  --honor-champ: #b6840b; --honor-mvp: #b8283c; --honor-seed: #11756f;
+  --honor-star: #5b697e; --honor-bar: #6a928f;
+  color-scheme: light;
+}
+:root[data-theme="live-lilac"] {
+  --deep: #e4dcf1; --bg: #f4f1fa; --band: #ffffff; --zebra: #ede8f6; --sel: #dfd6ef;
+  --rule: #d3c6e9; --rule-2: #bca9dd; --hair: #e3daf1;
+  --txt: #161021; --txt2: #3e3253; --dim: #584c6d; --dim2: #63557a; --dim3: #8a7da1;
+  --acc: #6238c2; --acc-ink: #ffffff; --acc-dim: #b09ce0;
+  --good: #15693f; --bad: #a8302a; --drop: #9c3f48; --warn: #8c4106;
+  --war-pos: #15693f; --war-neg: #a8302a;
+  --qb: #793bc4; --rb: #1b6b44; --wr: #1c5bb9; --te: #98461a;
+  --qb-mark: #793bc4; --rb-mark: #1b6b44; --wr-mark: #1c5bb9; --te-mark: #98461a;
+  --honor-champ: #b1810b; --honor-mvp: #b2273a; --honor-seed: #106b66;
+  --honor-star: #536073; --honor-bar: #8a7da1;
+  color-scheme: light;
+}
+:root[data-theme="live-blush"] {
+  --deep: #f2dbe2; --bg: #faf1f4; --band: #ffffff; --zebra: #f7e8ec; --sel: #f0d5dd;
+  --rule: #eac5d0; --rule-2: #e0a6b8; --hair: #f2d9e1;
+  --txt: #211015; --txt2: #53323c; --dim: #6a4a54; --dim2: #77535e; --dim3: #a17d88;
+  --acc: #ad1f5b; --acc-ink: #ffffff; --acc-dim: #d68fad;
+  --good: #15693f; --bad: #a3341c; --drop: #974839; --warn: #8c4106;
+  --war-pos: #15693f; --war-neg: #a3341c;
+  --qb: #7a3dc5; --rb: #1c6c44; --wr: #1d5cbb; --te: #9a471b;
+  --qb-mark: #7a3dc5; --rb-mark: #1c6c44; --wr-mark: #1d5cbb; --te-mark: #9a471b;
+  --honor-champ: #b2820b; --honor-mvp: #8e1b2b; --honor-seed: #106c67;
+  --honor-star: #556275; --honor-bar: #a17d88;
+  color-scheme: light;
+}
+:root[data-theme="live-fairway"] {
+  --deep: #e6ede0; --bg: #f5f8f3; --band: #ffffff; --zebra: #eef3eb; --sel: #e1eadb;
+  --rule: #d5e2cd; --rule-2: #c0d3b3; --hair: #e4ecdf;
+  --txt: #171f12; --txt2: #36472b; --dim: #4d5e41; --dim2: #576a4a; --dim3: #799169;
+  --acc: #3f6a0c; --acc-ink: #ffffff; --acc-dim: #9fb486;
+  --good: #0f6b4f; --bad: #a8302a; --drop: #9e4049; --warn: #8c4106;
+  --war-pos: #0f6b4f; --war-neg: #a8302a;
+  --qb: #7b3ec5; --rb: #1c6d45; --wr: #1d5dbc; --te: #9b481b;
+  --qb-mark: #7b3ec5; --rb-mark: #1c6d45; --wr-mark: #1d5dbc; --te-mark: #9b481b;
+  --honor-champ: #b6840b; --honor-mvp: #b8283c; --honor-seed: #11746e;
+  --honor-star: #5b697e; --honor-bar: #799169;
+  color-scheme: light;
+}
+:root[data-theme="live-fog"] {
+  --deep: #d6dce3; --bg: #e8ecf0; --band: #f6f8f9; --zebra: #e1e6eb; --sel: #d0d7e0;
+  --rule: #c2cbd6; --rule-2: #a8b5c5; --hair: #d7dde4;
+  --txt: #13181d; --txt2: #2e3946; --dim: #425160; --dim2: #4c5b6d; --dim3: #728499;
+  --acc: #1c3d6b; --acc-ink: #ffffff; --acc-dim: #8e9eb5;
+  --good: #15693f; --bad: #a8302a; --drop: #993e47; --warn: #8c4106;
+  --war-pos: #15693f; --war-neg: #a8302a;
+  --qb: #7639bf; --rb: #1b6942; --wr: #1c59b4; --te: #94451a;
+  --qb-mark: #7639bf; --rb-mark: #1b6942; --wr-mark: #1c59b4; --te-mark: #94451a;
+  --honor-champ: #ac7d0a; --honor-mvp: #ae2639; --honor-seed: #0f6863;
+  --honor-star: #525e70; --honor-bar: #728499;
+  color-scheme: light;
+}
 /* The few surfaces still drawn in literal hex (Original's carbon steps). Under
    a live theme they take the nearest token instead, so a light board never
    carries dark slabs. Original is untouched: these only match with the

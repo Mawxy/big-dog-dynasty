@@ -638,6 +638,20 @@ Interface and saved per device (`warboard.v3.ui`, `beta/mobile/uiMode.ts`):
 
 A device with no saved choice gets `mobile`; a saved `classic` is honored.
 
+**Theme picker (2026-11-11, mobile-first only).** More → Appearance is one
+"Theme" row that opens `ThemeSheet` (`screens/More.tsx`, styles `.thx-*` in
+`mobile.css`): small colour chips, four across, grouped dark and light. A chip
+is the palette's board and accent colours. A tap applies at once and the sheet
+stays up. The previous UI keeps its list of rows.
+
+**Sixteen palettes, eight dark and eight light.** Dark: Original, Midnight,
+Ember, Royal, Turf, Rosewood, Blackout, Graphite. Light: Press box, Chalk,
+Clay, Seafoam, Lilac, Blush, Fairway, Fog. A new palette is an entry in
+`LIVE_THEMES` (`beta/liveTheme.ts`), a `:root[data-theme="live-…"]` block in
+`style.css` and its `--bg` in the `index.html` boot script; the picker needs
+nothing. Every opt-in palette holds the bar written above the blocks in
+`style.css` (4.5:1 for text, accent and signed colours on all five surfaces).
+
 **The redesign lab is gone (2026-11-11).** `#/<league>/lab/...`, the C4 "Tale
 of the Tape" trial, its four themes (`warboard.v3.theme`), the `Look` type and
 `useLook()` are deleted. An old lab address drops the segment
