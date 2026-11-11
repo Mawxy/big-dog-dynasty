@@ -15,7 +15,7 @@ import { useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useOutlook1, usePaceWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
-import { fmt, ord, sgn } from "../../lib/stats";
+import { fmt, ord, sgn, WAR_DP } from "../../lib/stats";
 import { isSeasonSettled, ridOf, seasonRowOf } from "../../lib/seasons";
 import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf,
@@ -819,7 +819,7 @@ export default function Team() {
           )}
 
           <div className="main">
-            <div className="figstrip">
+            <div className="figstrip fig4">
               {figures.map(f => (
                 <div className="figcell" key={f.key}>
                   <div className="figkey">{f.label}</div>
@@ -1002,14 +1002,13 @@ function RosterTable({ band, lens, betaPath, pace }: {
                     `.v3tbl.roster td .f` in team.css. */}
                 {stats ? (() => {
                   /* THE SEASON AS PLAYED: each figure over its rate. WAR per
-                     game at three places — the rate lives in the third digit
-                     the way a season total lives in the second. */
+                     game at two places, like every WAR figure (WAR_DP). */
                   const st = r.st;
                   const gp = st?.gp ?? null;
                   return <>
                     <td className="n">
                       <span className="f">{st?.war == null ? NUL : sgnWar(st.war)}</span>
-                      <div className="idc-s r">{st?.war != null && gp ? `${sgn(st.war / gp, 3)}/g` : ""}</div>
+                      <div className="idc-s r">{st?.war != null && gp ? `${sgn(st.war / gp, WAR_DP)}/g` : ""}</div>
                     </td>
                     <td className="n">
                       <span className="f">{st?.pts == null ? NUL : fmt(st.pts, 1)}</span>
@@ -1021,14 +1020,20 @@ function RosterTable({ band, lens, betaPath, pace }: {
                     </td>
                   </>;
                 })() : <>
+                  {/* each figure over a blank line (`.mtx-ph`): the Stats lens
+                      sets a rate there, and the row keeps that height under
+                      every lens instead of jumping on a switch */}
                   <td className="n">
                     <span className="f">{r.idx == null ? NUL : fmt(r.idx, 1)}</span>
+                    <div className="idc-s r mtx-ph" aria-hidden="true">{"\u00a0"}</div>
                   </td>
                   <td className="n">
                     <span className="f">{r.war == null ? NUL : sgnWar(r.war)}</span>
+                    <div className="idc-s r mtx-ph" aria-hidden="true">{"\u00a0"}</div>
                   </td>
                   <td className="n">
                     <span className="f">{r.market == null ? NUL : r.market.toLocaleString()}</span>
+                    <div className="idc-s r mtx-ph" aria-hidden="true">{"\u00a0"}</div>
                   </td>
                 </>}
               </>

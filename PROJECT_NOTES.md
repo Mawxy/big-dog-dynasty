@@ -713,7 +713,9 @@ roles (Archivo / Saira Condensed; beta adds IBM Plex Mono for figures). Pos
 colors QB `#9333ea`, RB green, WR blue, TE orange; mark tints are separate
 tokens. Name click navigates; rows navigate (no drawers in the shell). One
 metered column per table — the sorted one — and indices are never metered.
-Nulls are `—`, estimates `≈`. Every chart is hand-rolled SVG (no charting
+Nulls are `—`, estimates `≈`. **WAR prints at two decimals everywhere**
+(`WAR_DP` in `lib/stats.ts`, Max 2026-11-11), never three; the one exception is
+the Draft plot's axis ticks, a scale at one place so the labels fit. Every chart is hand-rolled SVG (no charting
 library — adding one is a deliberate reversal). `hm` hides columns ≤640px;
 records mode on mobile. GoatCounter pageviews, queued until the collector
 loads. Design system in the `war-board-design-system` skill, which

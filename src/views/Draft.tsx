@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { DraftPick, Drafts, Franchises, PickBucket, PickValues } from "../lib/types";
 import { useJson } from "../lib/useJson";
-import { fmt, sgn, sgnWar2 as sgnWar, warInk } from "../lib/stats";
+import { fmt, fmtWar, sgn, sgnWar2 as sgnWar, warInk } from "../lib/stats";
 import { LEAGUE_TEAMS } from "../lib/league";
 import { useShellPath } from "../lib/context";
 import { buildHistory, type History } from "../lib/draftHistory";
@@ -599,7 +599,7 @@ export default function Draft() {
           <div className="tnote">
             Median WAR a pick returned in each season since it was drafted — * marks a year the corpus has
             not scored yet. Hit % is the share of picks returning at
-            least {fmt(corpus.hitThreshold, 0)} WAR across their first three seasons.
+            least {fmtWar(corpus.hitThreshold)} WAR across their first three seasons.
             Franchise % is the share that became a franchise player at their own position —
             three seasons clearing that position's bar (QB 1.00, RB 0.70, WR 0.85, TE 0.50 WAR).
             The bars differ by position on purpose: one flat threshold measures the shape of the

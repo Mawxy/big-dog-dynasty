@@ -153,7 +153,7 @@
 .v3-find .findbtn:focus-visible { outline: 2px solid var(--acc); outline-offset: 1px; }
 
 /* A BAND'S OWN TOTAL, beside its label (ui.tsx Band's `total` prop). The
-   grouped roster tables on Team need "Starters +3.412 WAR" at the top of the
+   grouped roster tables on Team need "Starters +3.41 WAR" at the top of the
    group, not in a footer row that is off-screen by the time the reader reaches
    it. Accent, tabular, condensed — it is a figure, not part of the label, so it
    drops the label's tracking and takes back its own letterforms. */

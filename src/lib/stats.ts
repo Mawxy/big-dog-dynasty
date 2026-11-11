@@ -19,19 +19,21 @@ export const fmt = (n: number, d = 2) => {
 };
 
 /**
- * Decimals for a WAR figure. THE number — before this the board rendered the
- * same trade asset at 3dp on the ledger and 2dp on the franchise page, and a
- * player's season at 3dp on the stats board and 2dp on his own page.
+ * Decimals for a WAR figure. THE number, and it is TWO (Max, 2026-11-11):
+ * "WAR should never display to 3 decimals." Every WAR figure on the site
+ * reads at this precision: season totals, week cells, per-game rates, trade
+ * assets, pick values, benchmarks.
  *
- * Three, because WAR is small-magnitude: a whole season is single digits and a
- * week is hundredths, so the third place is signal rather than noise. It is
- * also what the design system's own figure examples carry — a metered `1.268`,
- * a week grid reading `+0.134` — and what `sgn` already defaulted to.
+ * It was three until then for the older in-shell views (franchise page, trade
+ * cards, week grid, History, Insights) while the beta screens were already at
+ * two, so the same player's season read 1.346 on one page and 1.35 on the
+ * next. One number ends that.
  *
  * WAR only. Points, PPG, the indices and market values keep their own
- * precision; they are different quantities at different magnitudes.
+ * precision; they are different quantities at different magnitudes. This is
+ * display: the data files still carry three places.
  */
-export const WAR_DP = 3;
+export const WAR_DP = 2;
 
 /** standard normal CDF (Abramowitz–Stegun 26.2.17, |err| < 7.5e-8) */
 export function normCdf(x: number): number {
@@ -76,18 +78,13 @@ export const fmtWar = (v: number) => fmt(v, WAR_DP);
 /** a WAR figure, signed with a true minus glyph */
 export const sgnWar = (v: number) => sgn(v, WAR_DP);
 
-/* ---- WAR at the beta board's precision -----------------------------------
-   TWO DECIMALS (Max, 2026-09-02): "1.35", not "1.346" — the third digit is
-   noise a mono column pays width for. beta/ui re-exports these as its own
-   fmtWar/sgnWar. The Draft pages read at this precision in BOTH shells (Max,
-   2026-09-15): they are one component mounted twice, and the classic board is
-   being retired, so they take the survivor's precision rather than carrying
-   two. */
-export const WAR_DP_BETA = 2;
-/** a WAR figure, unsigned, at two places */
-export const fmtWar2 = (v: number) => fmt(v, WAR_DP_BETA);
-/** a WAR figure, signed with a true minus glyph, at two places */
-export const sgnWar2 = (v: number) => sgn(v, WAR_DP_BETA);
+/* ---- the older names for the same thing ----------------------------------
+   The beta screens went to two places first (Max, 2026-09-02) and carried
+   their own constant and formatters. Since 2026-11-11 the whole site is at
+   two, so these are aliases kept for the files that import them. */
+export const WAR_DP_BETA = WAR_DP;
+export const fmtWar2 = fmtWar;
+export const sgnWar2 = sgnWar;
 
 /** 1 -> "1st", 12 -> "12th" — teens handled (11th/12th/13th) */
 export const ord = (n: number) => {
