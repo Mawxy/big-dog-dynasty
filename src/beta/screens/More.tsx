@@ -5,8 +5,7 @@ import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
 import { rookieDraftRecorded } from "../../lib/seasons";
 import { hardRefresh } from "../../lib/data";
-import { LAB_SEG, leagueSeg, useLeague, useLook } from "../../lib/context";
-import { THEMES, useTheme } from "../lab/theme";
+import { useLeague } from "../../lib/context";
 import { LIVE_THEMES, useLiveTheme } from "../liveTheme";
 import { UI_MODES, useUi } from "../mobile/uiMode";
 import { latestSeasonOf, rosterSeasonOf } from "../../lib/league";
@@ -125,15 +124,8 @@ export default function More() {
   const [openModel, setOpenModel] = useState(false);
   const [openMeth, setOpenMeth] = useState(false);
 
-  /* THE OTHER MOUNT. The live board and the lab are the same screens under
-     two looks; this row crosses between them and keeps the league segment,
-     so the reader lands on the league they are in. */
-  const look = useLook();
-  const lab = look !== "live";
-  const theme = useTheme();
   const liveTheme = useLiveTheme();
   const uiMode = useUi();
-  const across = `/${leagueSeg(league)}${lab ? "" : `/${LAB_SEG}`}/more`;
 
   const mine = teams?.find(t => t.roster_id === ident.rid);
 
@@ -335,10 +327,10 @@ export default function More() {
         )}
       </div>
 
-      {/* INTERFACE — the current UI or the mobile-first one (mobile/uiMode.ts).
-          Live board only. Two layouts over the same screens and the same data;
-          a tap switches instantly, nothing reloads, and every palette below
-          works under both. */}
+      {/* INTERFACE — the mobile-first UI (the default) or the previous one
+          (mobile/uiMode.ts). Two layouts over the same screens and the same
+          data; a tap switches instantly, nothing reloads, and every palette
+          below works under both. */}
       {uiMode && (
         <>
           <Band label="Interface" note="Two layouts for the same board — saved on this device" />
@@ -353,34 +345,7 @@ export default function More() {
                     <span className="mox-n1">{m.name}</span>
                     <span className="mox-n2">{m.note}</span>
                   </span>
-                  <span className="mox-st">{on ? "On" : m.id === "mobile" ? "Trial" : "Off"}</span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
-      {/* APPEARANCE — the lab's four themes (C4_SPEC §2.1). Lab only: the live
-          board has one look, and a picker there would offer themes it was
-          never drawn for. A tap applies instantly; nothing reloads. */}
-      {theme && (
-        <>
-          <Band label="Appearance" note="Four themes for the trial look — saved on this device" />
-          <div className="v3-more" role="radiogroup" aria-label="Theme">
-            {THEMES.map(t => {
-              const on = theme.theme === t.id;
-              return (
-                <button key={t.id} type="button" role="radio" aria-checked={on}
-                  className={`c4-theme${on ? " on" : ""}`}
-                  onClick={() => theme.setTheme(t.id)}>
-                  <span className="mk">{on ? "ON" : ""}</span>
-                  <span>
-                    <span className="nm">{t.name}</span>
-                    <span className="mt">{t.note}</span>
-                  </span>
-                  <span className="sw" aria-hidden="true">
-                    {t.swatch.map((c, i) => <i key={i} style={{ "--c": c } as CSSProperties} />)}
-                  </span>
+                  <span className="mox-st">{on ? "On" : "Off"}</span>
                 </button>
               );
             })}
@@ -484,24 +449,10 @@ export default function More() {
         <Row onTap={() => { void hardRefresh(); }} name="Data freshness"
           sub="Rebuilt nightly, 06:00 UTC — tap to force a fresh copy, bypassing this device's cache"
           state={meta.updated} />
-        {/* THE WAY ACROSS. A plain row, deliberately: the lab is a place, not
-            a setting, and the live board is the one destination here that must
-            never look like an experiment. */}
-        {lab ? (
-          <Row to={across} name="Live War Board"
-            sub="The board as it ships — same screens, same nightly data, its own look"
-            state="Leave the lab" />
-        ) : (
-          <Row to={across} name="Redesign lab"
-            sub="C4 “Tale of the Tape” — the same screens in a trial look, four themes"
-            state="Trial" />
-        )}
       </div>
 
       <div className="tnote screen">
-        {lab
-          ? "This is the redesign lab: the live board's screens, word for word, in a trial look. Both read the same nightly data — nothing here computes a figure the live board would disagree with."
-          : "This is the phone-first War Board. The redesign lab mounts the same screens in a trial look; both read the same nightly data, so nothing there computes a figure this board would disagree with."} The Drafts row names the rookie class rather than counting
+        This is the phone-first War Board. The Drafts row names the rookie class rather than counting
         down to it: the nightly pull records picks once they are made and never carries
         the draft's start time, so there is no date on this deploy to count against.
       </div>

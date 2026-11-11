@@ -24,24 +24,17 @@ export const leagueSeg = (l: LeagueEntry) => l.alias || l.key || "league";
  * `/<league>/stats`-style links shared before 2026-09-02 — all forward onto
  * the beta shell through `classicToBeta` below, so a bookmark still lands.
  *
- * The slot it held is the LAB: `/<league>/lab/...` mounts the same beta
- * shell, screen for screen, under a trial look (C4 "Tale of the Tape" first).
- * Nothing in the lab computes a figure the live board does not; only the
- * skin differs, which is what makes the two comparable side by side.
+ * The redesign lab that took its slot (`/<league>/lab/...`, the C4 trial) was
+ * scrapped on 2026-11-11. App.tsx drops the segment, so an old lab link lands
+ * on the same screen of the board.
  */
 export const CLASSIC_SEG = "classic";
-export const LAB_SEG = "lab";
-
-/** the looks a beta shell can wear. `live` is the board as it ships. */
-export type Look = "live" | "c4";
 
 /**
- * Which mount of the beta shell a screen is rendering in, and the address it
- * answers at: `/<league>` for the live board, `/<league>/lab` for a trial.
- * Provided by BetaShell; every in-shell link is built from `base`, so a tap in
- * the lab stays in the lab.
+ * The address the beta shell answers at: `/<league>`. Provided by BetaShell;
+ * every in-shell link is built from `base`.
  */
-export const ShellContext = createContext<{ base: string; look: Look } | null>(null);
+export const ShellContext = createContext<{ base: string } | null>(null);
 
 /** the current mount's base, falling back to the live board's address for a
  *  component rendered outside any shell (none today; cheap insurance) */
@@ -49,10 +42,6 @@ export function useShellBase(): string {
   const v = useContext(ShellContext);
   const seg = leagueSeg(useLeague().league);
   return v?.base ?? `/${seg}`;
-}
-
-export function useLook(): Look {
-  return useContext(ShellContext)?.look ?? "live";
 }
 
 /**
@@ -108,7 +97,7 @@ export function classicToBeta(p: string): string {
  * The path builder for a view written against the classic board's shapes
  * (Player, Draft, DraftDetail, History, Insights, FranchisePage, QuickJump,
  * PlayerLink…): takes the CLASSIC path and lands it on the matching screen of
- * whichever beta mount the reader is in, live or lab. Views keep writing
+ * the beta shell. Views keep writing
  * classic paths; only `classicToBeta` knows the renames.
  */
 export function useShellPath() {

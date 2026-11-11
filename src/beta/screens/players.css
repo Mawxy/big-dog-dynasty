@@ -379,9 +379,8 @@
    is held at three digits' width whatever it holds (`ch` is one digit in
    the mono face; 13px is the box's own padding in beta.css), so the name
    starts on the same pixel under every chip. Teams shares this table and
-   takes the same column. Not in the lab: C4 draws the ordinal as a slab and
-   sizes it itself. */
-.v3:not(.c4) .v3tbl.plx-tbl td.sp .rank { min-width: calc(3ch + 13px); }
+   takes the same column. */
+.v3 .v3tbl.plx-tbl td.sp .rank { min-width: calc(3ch + 13px); }
 
 .plx-tbl td.plx-lead { padding-top: 4px; padding-bottom: 4px; }
 

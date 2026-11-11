@@ -9,11 +9,6 @@ import { createContext, useContext } from "react";
  * change at all. The others are `:root[data-theme="live-…"]` blocks in
  * style.css — they re-point the existing tokens and add none.
  *
- * Kept apart from the lab's themes (beta/lab/theme.ts) on purpose: its own
- * ids (`live-` prefix), its own storage key, its own context. Entering the lab
- * swaps to the lab's theme and leaving it restores this one; neither choice
- * ever overwrites the other.
- *
  * `bg` is each theme's `--bg`, repeated because the boot script in index.html
  * and `<meta name="theme-color">` need it before any stylesheet applies.
  * `swatch` is the picker's strip — `--deep`, `--bg`, `--acc`, `--good` — and is

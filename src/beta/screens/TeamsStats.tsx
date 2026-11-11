@@ -4,8 +4,7 @@ import type { BracketFile, EloFile, Franchises, Matchups, Team, Weekly } from ".
 import { indexKey, jl } from "../../lib/data";
 import { useJson } from "../../lib/useJson";
 import { useSettledSeasons } from "../../lib/caps";
-import { useLeague, useLook } from "../../lib/context";
-import { useIdentity } from "../../lib/identity";
+import { useLeague } from "../../lib/context";
 import { rosterSeasonOf } from "../../lib/league";
 import { fmt, ord, sd, sgn } from "../../lib/stats";
 import { useMobile } from "../../lib/useWidth";
@@ -392,11 +391,7 @@ export default function TeamsStats({ season, played, phase }: {
      reads the roster season's slots: in a redraft league that opened whoever
      holds the slot today. The franchise key finds its current page, and one
      that has left the league has none. */
-  const { hrefOf, keyOf } = useFranchiseIndex(rosterSeasonOf(league));
-  /** the lab marks the reader's own row (C4_SPEC §2.3); the live board does not */
-  const ident = useIdentity();
-  const c4 = useLook() === "c4";
-  const youKey = c4 ? keyOf(rosterSeasonOf(league), ident.rid) : null;
+  const { hrefOf } = useFranchiseIndex(rosterSeasonOf(league));
   const mobile = useMobile("(max-width: 899px)");
   const allTime = season === ALL_SEASONS;
   const seasons = useMemo(() => (allTime ? played : [season]), [allTime, played, season]);
@@ -547,9 +542,9 @@ export default function TeamsStats({ season, played, phase }: {
           <tbody>
             {ordered.map((r, i) => (
               <Fragment key={r.fkey}>
-                <TapRow className={`${i % 2 ? "zebra" : ""}${open === r.fkey ? " plx-on" : ""}${youKey != null && r.fkey === youKey ? " c4-you" : ""}`}
+                <TapRow className={`${i % 2 ? "zebra" : ""}${open === r.fkey ? " plx-on" : ""}`}
                   onTap={() => setOpen(open === r.fkey ? null : r.fkey)}>
-                  <Spine rank={i + 1} top={c4 && i < 3} />
+                  <Spine rank={i + 1} />
                   <IdCell name={r.team} to={hrefOf(r.fkey) ?? undefined}
                     sub={allTime
                       ? `${r.manager} · ${r.parts.length} season${r.parts.length === 1 ? "" : "s"}`

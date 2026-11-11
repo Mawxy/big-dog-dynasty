@@ -591,7 +591,7 @@ those files exist, so the local result is 857 / 0 skipped.
 **A failure here is a change in what a figure means**, not a broken test —
 decide whether the methodology moved on purpose before touching the test.
 
-## Site (the board + the redesign lab)
+## Site (the board)
 
 **Router:** `HashRouter`, league-first. **The beta shell IS the board** (Max,
 2026-09-02): it answers the **bare league address** `#/<league>/...`. **The
@@ -619,45 +619,37 @@ screen. **`useShellPath`** (`lib/context.ts`) takes a CLASSIC-shaped path
 via `classicToBeta` — the older views mounted in the shell (Player, Draft,
 DraftDetail, History, Insights, FranchisePage, QuickJump, PlayerLink,
 PlayerBoard) keep writing classic paths and use this. Both read the mount's
-`base` from **`ShellContext`**, so a link never crosses from the board into
-the lab or back. `useLeaguePath` and `useShell` are gone.
+`base` from **`ShellContext`**. `useLeaguePath` and `useShell` are gone.
 
-### The redesign lab — `#/<league>/lab/...` (2026-11-04)
+### The interface — mobile-first by default (2026-11-11)
 
-The slot the classic board held. `src/beta/lab/LabShell.tsx` (its own lazy
-chunk) mounts **the same `BetaShell`**, every screen and route, with
-`look="c4"`: root `<div class="v3 c4">`, base `/<league>/lab`. Content is
-identical by construction; only the skin differs, so `/big-dog/league` and
-`/big-dog/lab/league` compare address for address. The masthead's desktop link
-and More's last row cross to the same screen on the other mount.
+Two interfaces over the same shell, routes and screens, switched under More →
+Interface and saved per device (`warboard.v3.ui`, `beta/mobile/uiMode.ts`):
 
-**Current trial: C4 "Tale of the Tape"** — spec in `src/beta/lab/C4_SPEC.md`,
-which is the ONLY design source for the lab (the broadcast design-system skill
-does not apply there). CSS: `lab/c4.css` (base: type, slant system, masthead,
-nav, bands, tables, badges, segments, chips, tiles, callouts, the theme
-picker) then `c4-league.css`, `c4-team.css`, `c4-players.css`,
-`c4-trade.css`, all scoped under `.v3.c4`, tokens only. `Band` (ui.tsx) draws
-its note under the bar when `useLook() === "c4"`; any other lab-only markup is
-gated the same way.
+- **`mobile` — the default.** Root `<div class="v3 mf">`. App bar with an
+  in-bar back step, icon tab bar (`mobile/icons.tsx`), and the visual layer in
+  `mobile/mobile.css`, every rule scoped under `.v3.mf` on top of `beta.css`
+  and the screen sheets. `BetaShell` imports it statically, so it ships with
+  the shell. One family (Public Sans), 44px minimum targets, 12px type floor,
+  one gutter. Rules and audit: `scratch/mobile_first_ui_2026-11-10.md` and
+  `scratch/mobile_first_ui_20_rules_2026-11-10.md`.
+- **`classic` — "Previous".** Root `<div class="v3">`: `beta.css` and the
+  screen sheets alone. Kept selectable for now.
 
-**Four themes** (Original = today's palette, Newsprint, Ringside blue,
-Vintage): token blocks `:root[data-theme=…]` in `src/style.css` plus the C4
-tokens (`--deep-ink`, `--deep-dim`, `--deep-acc`, `--slab-hi[-ink]`,
-`--slab-lo[-ink]`, `--loss`, `--war`, `--war-ink`) on `:root`. Picked under
-More → Appearance (lab only), persisted as `warboard.v3.theme`
-(`lab/theme.ts`), applied before first paint by the boot script in
-`index.html` — **only on a lab address** — and removed when the lab
-unmounts, so the live board never wears a theme. Keep each theme's `--deep`
-in step across style.css, theme.ts and the boot script.
+A device with no saved choice gets `mobile`; a saved `classic` is honored.
 
-The live board still loads Barlow Condensed / IBM Plex Mono / Public Sans;
-that `<link>` can go only once C4 (Saira + Archivo, now loaded with 800) is
-promoted to the board.
+**The redesign lab is gone (2026-11-11).** `#/<league>/lab/...`, the C4 "Tale
+of the Tape" trial, its four themes (`warboard.v3.theme`), the `Look` type and
+`useLook()` are deleted. An old lab address drops the segment
+(`DropSegRedirect` in `App.tsx`) and lands on the same screen.
+
+The document still loads two font links: Saira Condensed + Archivo (read by
+`style.css`, which the older in-shell views use) and Barlow Condensed / IBM
+Plex Mono / Public Sans (the shell).
 
 ### Beta shell — `#/<league>/...` (the default board)
 
-Phone-first, lazy-loaded with its own CSS. More's last row and the
-desktop-only masthead link cross to the same screen in the redesign lab.
+Phone-first, lazy-loaded with its own CSS.
 Bottom tab bar **My Team · League · Players · Trade · More**, plus a seasonal
 **Draft** tab while the roster season's rookie draft has not been recorded
 (`lib/seasons.rookieDraftRecorded`, gated on `caps.drafts` so the redraft
@@ -692,7 +684,7 @@ exact routes outrank the `teams/*` / `playoffs/*` forwards.
 URL whose first segment is a different registered league while every league file
 in hand was fetched under the loaded one, so `BetaBoard` reloads the page. It cannot loop: the reload resolves to the
 requested league and the segment then matches. The active tab and `ToBeta` strip the league
-(and lab) segment by position, so a numeric-key address works the same as an alias.
+segment by position, so a numeric-key address works the same as an alias.
 
 **Shared definitions worth knowing.** `beta/model.ts#starterSet` is the ONE
 starters-DVI definition — **each index prices its own best legal lineup**
@@ -710,8 +702,8 @@ metered column per table — the sorted one — and indices are never metered.
 Nulls are `—`, estimates `≈`. Every chart is hand-rolled SVG (no charting
 library — adding one is a deliberate reversal). `hm` hides columns ≤640px;
 records mode on mobile. GoatCounter pageviews, queued until the collector
-loads. Design system in the `war-board-design-system` skill — for the live
-board only; the lab's trial look follows `src/beta/lab/C4_SPEC.md`.
+loads. Design system in the `war-board-design-system` skill, which
+describes the previous look and not yet the mobile-first interface.
 
 ## Known caveats (tracked)
 

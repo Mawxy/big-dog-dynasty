@@ -8,7 +8,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
-import { leagueSeg, useLeague, useLook } from "../../lib/context";
+import { leagueSeg, useLeague } from "../../lib/context";
 import { useCviQuery, useDviQuery, useOutlook1 } from "../../lib/useIndices";
 import { useEcrShown } from "../model";
 import { outlookLabel, outlookNote } from "../../lib/outlook";
@@ -725,10 +725,6 @@ export default function Players() {
      board that grew columns at a different width than the shell changed shape
      would be two layouts crossing over in the middle. */
   const mobile = useMobile("(max-width: 899px)");
-  /* THE REDESIGN LAB (C4_SPEC §5, Players): Find and Filter ride on the
-     Value / Stats row instead of the position row. Same two controls, one
-     row higher; the live board renders exactly as before. */
-  const c4 = useLook() === "c4";
 
   /* One sort state per tense rather than one shared. The two column sets share
      only `war`, and a reader who ordered the price board by KTC has not said
@@ -1537,7 +1533,7 @@ export default function Players() {
 
           Below them, the row that narrows WHICH PLAYERS: the position chips,
           Find and Filter. Two families, two shapes. */}
-      {c4 ? <div className="plx-c4scope">{scopeCtl}{findFilter}</div> : scopeCtl}
+      {scopeCtl}
 
       {/* THE SHOW ROW: which figures the board carries. Its own row with a
           key in front, because "Box score" and "Maxalytics" are not a closed
@@ -1606,10 +1602,8 @@ export default function Players() {
           <button key={p} type="button" className={`chip${pos === p ? " on" : ""}`}
             onClick={() => setPos(p)}>{p}</button>
         ))}
-        {!c4 && <>
-          <span className="plx-spacer" />
-          {findFilter}
-        </>}
+        <span className="plx-spacer" />
+        {findFilter}
       </div>
       {/* the search field is a row only while it is open. It is the rarest
           thing anyone does to a leaderboard and it was costing a permanent

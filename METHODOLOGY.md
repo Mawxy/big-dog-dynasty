@@ -773,8 +773,7 @@ roster whose owner Sleeper lost).
 
 ## Trade machine
 
-**Owner:** `src/lib/tradeModel.ts` · shared by the board and the redesign lab,
-locked by `tests/tradeModel.test.ts`
+**Owner:** `src/lib/tradeModel.ts` · locked by `tests/tradeModel.test.ts`
 
 One pinned outgoing basket, priced against many competing offers, so every row
 of the comparison shares a denominator. Each side is scored in three

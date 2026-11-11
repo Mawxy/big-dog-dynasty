@@ -3,7 +3,7 @@ import {
   useState, type Dispatch, type ReactNode, type SetStateAction,
 } from "react";
 import { useNavigate } from "react-router-dom";
-import { useLook, useShellBase } from "../lib/context";
+import { useShellBase } from "../lib/context";
 import { fmtWar2, sgnWar2, WAR_DP_BETA } from "../lib/stats";
 
 /* ---- WAR figures, at this shell's precision ------------------------------
@@ -19,9 +19,8 @@ export const fmtWar = fmtWar2;
 export const sgnWar = sgnWar2;
 
 /**
- * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/team`
- * on the live board, `/big-dog/lab/team` in the lab. Every beta internal link
- * goes through this, so a tap never crosses from one mount to the other.
+ * An in-app path inside the beta shell: `betaPath("/team")` -> `/big-dog/team`.
+ * Every beta internal link goes through this.
  */
 export function useBetaPath() {
   const base = useShellBase();
@@ -63,22 +62,6 @@ export function Band({ label, note, right, total }: {
    *  the accent has to be spendable in one place to stay one accent. */
   total?: ReactNode;
 }) {
-  const look = useLook();
-  /* C4 DRAWS THE NOTE UNDER THE BAR (C4_SPEC §4.2), not beside the label: a
-     --deep strip carrying a sentence of Archivo is a strip that can no longer
-     be thin. Same words, one line lower, on the board's own surface. */
-  if (look === "c4") return (
-    <>
-      <div className="band">
-        <span className="band-label">
-          {label}
-          {total != null && <span className="band-total">{total}</span>}
-        </span>
-        {right}
-      </div>
-      {note && <div className="c4-note">{note}</div>}
-    </>
-  );
   return (
     <div className="band">
       <span className="band-label">

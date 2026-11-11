@@ -1,11 +1,11 @@
 /* ==========================================================================
    THE MOBILE-FIRST UI (Max, 2026-11-10) — the board, designed for a thumb.
 
-   A second interface for the live board, switched under More → Interface
-   (mobile/uiMode.ts). The shell adds the class `mf` to its root while the
-   mode is on, and EVERY rule here is scoped under `.v3.mf`, so this sheet can
-   stay loaded after a switch back to the current UI without touching it. It
-   is its own chunk: BetaShell imports it the first time the mode is on.
+   The board's default interface since 2026-11-11; the previous one stays
+   selectable under More → Interface (mobile/uiMode.ts). The shell adds the
+   class `mf` to its root while this mode is on, and EVERY rule here is scoped
+   under `.v3.mf`, so the sheet does nothing to the previous UI. BetaShell
+   imports it statically, after beta.css, so it ships with the shell.
 
    WHAT THIS LAYER IS. The same screens, routes and components as the current
    UI, so every feature is here by construction. It replaces the chrome and
@@ -603,7 +603,6 @@
   /* the field is resident on the rail layout, so its reveal button is not */
   .v3.mf .v3-find .findbtn { display: none; }
   .v3.mf .v3-find .findbox input[type="search"] { width: 280px; }
-  .v3.mf .v3-mast .classic { font: 600 13px/1 var(--ui); margin: 0 8px 0 14px; }
   .v3.mf .v3-sheet { border-radius: 20px; }
   .v3.mf .v3-sheet::before { display: none; }
   .v3.mf .v3tbl tbody tr.tap, .v3.mf .v3tbl tbody tr.v3row { height: 48px; }

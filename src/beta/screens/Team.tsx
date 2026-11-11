@@ -12,7 +12,7 @@ import TeamHonorMarks, { TeamHonorLegend } from "../../components/TeamHonorMarks
 import { franchiseHonors, teamHonorTotals, useTeamHonors } from "../../lib/teamHonors";
 import { useJson } from "../../lib/useJson";
 import { useLeagueCaps } from "../../lib/caps";
-import { useLeague, useLook } from "../../lib/context";
+import { useLeague } from "../../lib/context";
 import { useCvi, useDvi, useOutlook1, usePaceWar1 } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { fmt, ord, sgn } from "../../lib/stats";
@@ -1061,10 +1061,6 @@ function RosterTable({ band, lens, betaPath, pace }: {
  * seat" rather than as a value.
  */
 function Seats({ rows, n, lens }: { rows: RankRow[]; n: number; lens: IdxLens }) {
-  /* THE LAB'S HOOKS (C4_SPEC §5): the seat as a position badge, and each rank
-     tiered top three / bottom three. Classes only, and only under the lab's
-     look — the live board renders exactly what it did. */
-  const c4 = useLook() === "c4";
   if (!rows.length) return null;
   return (
     <div className="mtx-str">
@@ -1080,11 +1076,10 @@ function Seats({ rows, n, lens }: { rows: RankRow[]; n: number; lens: IdxLens })
         return (
           <div key={seat.label} className={`mtx-str-row${i % 2 ? " mtx-zebra" : ""}`}>
             <span className="mtx-tier" style={{ background: tier }} />
-            <span className={`mtx-seat${c4 ? ` pos ${seat.label.replace(/\d+$/, "")}` : ""}`}>{seat.label}</span>
+            <span className="mtx-seat">{seat.label}</span>
             <div className="mtx-str-cells">
               {cells.map(({ key, label, c }) => (
-                <div key={key} className={`mtx-str-cell${!c4 ? ""
-                  : c.rank <= 3 ? " c4-good" : c.rank > n - 3 ? " c4-bad" : ""}`} title={c.pid
+                <div key={key} className="mtx-str-cell" title={c.pid
                   ? `${c.name} — ${fmt(c.value, 1)}`
                     + (c.posRank ? ` — ${c.pos}${c.posRank}` : "")
                   : "no player for this seat"}>

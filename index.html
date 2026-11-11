@@ -21,34 +21,20 @@
 <meta name="apple-mobile-web-app-title" content="WAR Board">
 <link rel="manifest" href="/site.webmanifest">
 <meta name="theme-color" content="#0c0f13">
-<!-- THE LAB'S THEME, BEFORE FIRST PAINT (src/beta/lab/C4_SPEC.md §2.1). On a
-     redesign-lab address (#/<league>/lab/...) the saved theme goes on <html>
-     before any stylesheet applies, so a light theme never flashes dark. Any
-     other address is the live board, which gets an attribute only when its
-     own opt-in theme is saved (Original sets none). Keep the --deep values in
-     step with src/beta/lab/theme.ts and the token blocks in src/style.css. -->
+<!-- THE BOARD'S THEME, BEFORE FIRST PAINT (src/beta/liveTheme.ts). An opt-in
+     palette, saved under its own key, goes on <html> before any stylesheet
+     applies, so a light theme never flashes dark. Original sets no attribute.
+     Keep these --bg values in step with liveTheme.ts and the live-* blocks in
+     style.css. -->
 <script>
 (function () {
   try {
-    var seg = (location.hash.replace(/^#/, "").split("?")[0].split("/")[2] || "");
-    var meta = document.querySelector('meta[name="theme-color"]');
-    if (seg !== "lab") {
-      /* THE LIVE BOARD'S THEME (src/beta/liveTheme.ts): opt-in, saved under
-         its own key. Original sets no attribute. Keep these --bg values in
-         step with liveTheme.ts and the live-* blocks in style.css. */
-      var bg = { "live-midnight": "#09111e", "live-ember": "#0e0b09", "live-royal": "#0c0b21",
-                 "live-pressbox": "#f7f5f0", "live-chalk": "#f5f7fa", "live-clay": "#f8f1e8" };
-      var lt = localStorage.getItem("warboard.v3.livetheme");
-      if (!bg[lt]) return;
-      document.documentElement.setAttribute("data-theme", lt);
-      meta.setAttribute("content", bg[lt]);
-      return;
-    }
-    var deep = { original: "#05070a", newsprint: "#161616", ringside: "#04070f", vintage: "#1c2a44" };
-    var t = localStorage.getItem("warboard.v3.theme");
-    if (!deep[t]) t = "original";
-    document.documentElement.setAttribute("data-theme", t);
-    meta.setAttribute("content", deep[t]);
+    var bg = { "live-midnight": "#09111e", "live-ember": "#0e0b09", "live-royal": "#0c0b21",
+               "live-pressbox": "#f7f5f0", "live-chalk": "#f5f7fa", "live-clay": "#f8f1e8" };
+    var lt = localStorage.getItem("warboard.v3.livetheme");
+    if (!bg[lt]) return;
+    document.documentElement.setAttribute("data-theme", lt);
+    document.querySelector('meta[name="theme-color"]').setAttribute("content", bg[lt]);
   } catch (e) { /* private mode: Original */ }
 })();
 </script>

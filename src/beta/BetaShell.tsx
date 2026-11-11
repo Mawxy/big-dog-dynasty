@@ -8,9 +8,7 @@ import type { Drafts, Team as TeamT } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { useLeagueCaps } from "../lib/caps";
 import { rookieDraftRecorded } from "../lib/seasons";
-import {
-  LAB_SEG, ShellContext, classicToBeta, isRid, leagueSeg, useLeague, type Look,
-} from "../lib/context";
+import { ShellContext, classicToBeta, isRid, leagueSeg, useLeague } from "../lib/context";
 import { IdentityContext, useIdentityState } from "../lib/identity";
 import { rosterSeasonOf } from "../lib/league";
 import ErrorBoundary from "../components/ErrorBoundary";
@@ -38,6 +36,9 @@ import PlayerTrades from "./screens/PlayerTrades";
 import TradeDetail from "./screens/TradeDetail";
 import Recaps from "./screens/Recaps";
 import "./beta.css";
+/* the mobile-first UI's layer, after the base sheet it refines. Static, not a
+   chunk of its own: it is the default interface, so the shell ships with it */
+import "./mobile/mobile.css";
 
 /* The deep destinations More points at are the classic board's views, mounted
    INSIDE this shell rather than linked out to. They are prop-compatible as they
@@ -99,66 +100,43 @@ const HUB_OF: Record<string, string> = {
  * sit OUTSIDE the board because the board's own `teams.json` (identity, the
  * Team tab, More) is one of the fetches that can drop.
  */
-export default function BetaShell({ look = "live" }: { look?: Look }) {
+export default function BetaShell() {
   const { league } = useLeague();
-  // the live board answers the bare league address; a trial look, the lab
-  const base = `/${leagueSeg(league)}${look === "live" ? "" : `/${LAB_SEG}`}`;
-  const shell = useMemo(() => ({ base, look }), [base, look]);
-  const board = (
-    <ShellContext.Provider value={shell}>
-      <RetryScope><BetaBoard base={base} look={look} /></RetryScope>
-    </ShellContext.Provider>
+  const base = `/${leagueSeg(league)}`;
+  const shell = useMemo(() => ({ base }), [base]);
+  return (
+    <LiveThemes>
+      <UiModes>
+        <ShellContext.Provider value={shell}>
+          <RetryScope><BetaBoard base={base} /></RetryScope>
+        </ShellContext.Provider>
+      </UiModes>
+    </LiveThemes>
   );
-  // the lab brings its own themes (LabShell); only the live board wears these,
-  // and only the live board offers the mobile-first UI (mobile/uiMode.ts)
-  return look === "live" ? <LiveThemes><UiModes>{board}</UiModes></LiveThemes> : board;
 }
 
 /**
- * THE INTERFACE SWITCH (mobile/uiMode.ts): the current UI, or the mobile-first
- * one, on the same address. Saved on this device and changed under More.
+ * THE INTERFACE SWITCH (mobile/uiMode.ts): the mobile-first UI, which is the
+ * default, or the previous one, on the same address. Saved on this device and
+ * changed under More.
  *
- * The mobile-first stylesheet is its OWN CHUNK, fetched the first time the
- * mode is on, so a reader on the current UI never downloads it. On a boot
- * with the mode already saved the board waits for that sheet before it
- * paints, so the screen never flashes the other interface; on a switch made
- * from More the board is already on screen and the sheet simply lands.
- * Every rule in it is scoped under `.v3.mf`, so it staying loaded after a
- * switch back changes nothing.
+ * The mobile-first stylesheet ships with the shell (imported above), so the
+ * board never paints in the other interface first. Every rule in it is scoped
+ * under `.v3.mf`, so a reader on the previous UI carries it and nothing there
+ * reads it.
  */
 function UiModes({ children }: { children: ReactNode }) {
   const [ui, setUiState] = useState<UiMode>(readUi);
-  const [ready, setReady] = useState(ui !== "mobile");
-  useEffect(() => {
-    if (ui !== "mobile") return;
-    let live = true;
-    // a failed fetch still paints: the current UI under a class it ignores
-    const done = () => { if (live) setReady(true); };
-    import("./mobile/mobile.css").then(done, done);
-    return () => { live = false; };
-  }, [ui]);
-  // on <html> too, for the two things outside the shell's root: the page
-  // field behind an overscroll, and the boot script's first paint
-  useLayoutEffect(() => {
-    const root = document.documentElement;
-    if (ui === "mobile") root.dataset.ui = "mobile"; else delete root.dataset.ui;
-    return () => { delete root.dataset.ui; };
-  }, [ui]);
   const value = useMemo(() => ({
     ui,
     setUi: (m: UiMode) => { writeUi(m); setUiState(m); window.scrollTo(0, 0); },
   }), [ui]);
-  return (
-    <UiContext.Provider value={value}>
-      {ready ? children : <div className="empty">Loading…</div>}
-    </UiContext.Provider>
-  );
+  return <UiContext.Provider value={value}>{children}</UiContext.Provider>;
 }
 
 /**
  * THE LIVE BOARD'S APPEARANCE (beta/liveTheme.ts). The attribute is set before
- * paint and removed on the way out, so crossing into the lab hands <html>
- * over clean and the lab's own theme takes it. Original sets nothing.
+ * paint and removed on the way out. Original sets nothing.
  */
 function LiveThemes({ children }: { children: ReactNode }) {
   const [theme, setThemeState] = useState<LiveThemeId>(readLiveTheme);
@@ -173,7 +151,7 @@ function LiveThemes({ children }: { children: ReactNode }) {
   return <LiveThemeContext.Provider value={value}>{children}</LiveThemeContext.Provider>;
 }
 
-function BetaBoard({ base, look }: { base: string; look: Look }) {
+function BetaBoard({ base }: { base: string }) {
   const { meta, league, leagues } = useLeague();
   const loc = useLocation();
   const nav = useNavigate();
@@ -197,18 +175,13 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
   const teams = teamsQ.data;
   const identity = useIdentityState(league.key || "default", teams);
 
-  // `base` is this mount's address: the bare league for the live board,
-  // /<league>/lab for a trial look.
+  // `base` is the shell's address: the bare league.
   // The segment after it — "" only on the index, which is a redirect. The
   // league's own segment is not always the alias: a numeric-key address opens
   // the same league, so it is stripped by position, not by matching the alias.
-  const lab = look !== "live";
-  // the mobile-first UI: live board only, and only while it is switched on
-  const mobile = useUi()?.ui === "mobile" && !lab;
-  const seg = loc.pathname.split("/").filter(Boolean)[lab ? 2 : 1] ?? "";
-  // the same screen on the other mount, query intact: the masthead's way across
-  const across = `/${leagueSeg(league)}${lab ? "" : `/${LAB_SEG}`}${
-    loc.pathname.split("/").slice(lab ? 3 : 2).join("/") ? `/${loc.pathname.split("/").slice(lab ? 3 : 2).join("/")}` : ""}${loc.search}`;
+  // the mobile-first UI is the default; the previous one is a choice under More
+  const mobile = useUi()?.ui === "mobile";
+  const seg = loc.pathname.split("/").filter(Boolean)[1] ?? "";
 
   /* ---- the index is a REDIRECT, not a screen ----------------------------
      A reader who has claimed a franchise opens on his own roster; one who has
@@ -338,7 +311,7 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
 
   return (
     <IdentityContext.Provider value={identity}>
-      <div className={lab ? `v3 ${look}` : mobile ? "v3 mf" : "v3"}>
+      <div className={mobile ? "v3 mf" : "v3"}>
         <header className={`v3-mast${finding ? " finding" : ""}`}>
           {/* THE MOBILE-FIRST UI'S BACK STEP lives IN the bar, where a thumb
               already expects it, instead of on a row of its own under it.
@@ -364,16 +337,8 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
           ) : (
             <span className="lg flat">{league.name}</span>
           )}
-          <span className="tag">{lab ? "War Board" : "War Board Beta"}</span>
+          <span className="tag">War Board Beta</span>
           <MastSearch open={finding} onToggle={setFinding} icon={mobile} />
-          {/* THE WAY ACROSS, desktop only (beta.css): the same screen on the
-              other mount, so live and lab compare address for address. A
-              375px masthead has no room for it; More carries the row. */}
-          <a className="classic desk" href={`#${across}`}
-            onClick={e => {
-              if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
-              e.preventDefault(); nav(across);
-            }}>{lab ? "← Live board" : "C4 trial →"}</a>
         </header>
 
         {/* Every screen below a tab needs an on-screen way back: an iOS web clip
@@ -458,7 +423,7 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
                     the views this shell has no screen of that name for forward
                     to the matching one, path and query intact. */}
                 {CLASSIC_ONLY.map(seg => (
-                  <Route key={seg} path={`${seg}/*`} element={<ToBeta base={base} lab={lab} />} />
+                  <Route key={seg} path={`${seg}/*`} element={<ToBeta base={base} />} />
                 ))}
                 <Route path="*" element={<Navigate to={base} replace />} />
               </Routes>
@@ -467,7 +432,7 @@ function BetaBoard({ base, look }: { base: string; look: Look }) {
         </main>
 
         <nav className={`v3-nav${barAway ? " away" : ""}`} aria-label="Sections">
-          <div className="railtop">{meta.league}<b>{lab ? "War Board" : "War Board Beta"}</b></div>
+          <div className="railtop">{meta.league}<b>War Board Beta</b></div>
           {tabs.map(t => {
             const to = `${base}/${t.id}`;
             const on = active === t.id;
@@ -670,9 +635,9 @@ const CLASSIC_ONLY = [
   "trades", "playoffs",
 ];
 
-function ToBeta({ base, lab }: { base: string; lab: boolean }) {
+function ToBeta({ base }: { base: string }) {
   const loc = useLocation();
-  // strip the league (and the lab segment) by position, key or alias alike
-  const rest = loc.pathname.split("/").slice(lab ? 3 : 2).join("/");
+  // strip the league segment by position, key or alias alike
+  const rest = loc.pathname.split("/").slice(2).join("/");
   return <Navigate replace to={`${base}${classicToBeta(`/${rest}${loc.search}`)}`} />;
 }

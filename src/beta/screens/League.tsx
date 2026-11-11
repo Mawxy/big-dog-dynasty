@@ -5,8 +5,7 @@ import type {
 } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { jl } from "../../lib/data";
-import { useLeague, useLook } from "../../lib/context";
-import { useIdentity } from "../../lib/identity";
+import { useLeague } from "../../lib/context";
 import { fmt, mean, normCdf, ord } from "../../lib/stats";
 import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, latestSeasonOf, lineupOf, optimalLineup, pInfo, rosterSeasonOf,
@@ -336,10 +335,6 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      with the two lineups slot by slot — who is favored where. One open at a
      time; the full matchup page is a link inside the drawer. */
   const [openGame, setOpenGame] = useState<string | null>(null);
-  /* the lab's C4 look marks the reader's own game (C4_SPEC §4.3); the live
-     board renders no marker, so its output is unchanged */
-  const ident = useIdentity();
-  const meRid = useLook() === "c4" ? ident.rid : null;
   const phase = useSeasonPhase();
   const resultSeason = phase.resultSeason;
 
@@ -688,7 +683,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
               const ll = ls ? liveLine(x.rid, x.sd) : null;
               const mu = ll ? ll.mu : x.mu;
               return (
-                <div className={`side${right ? " r" : ""}${won ? " won" : ""}${meRid != null && x.rid === meRid ? " c4-me" : ""}`}>
+                <div className={`side${right ? " r" : ""}${won ? " won" : ""}`}>
                   <div className="nm">{nameOf(teams, x.rid)}</div>
                   <div className="fig">{x.pts != null ? fmt(x.pts, 1) : ls ? fmt(ls.pts, 1) : ml ?? DASH}</div>
                   {/* the side's projected total, pregame and live (Max,
@@ -725,7 +720,7 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
             const isOpen = openGame === key;
             return [
               <button key={key} type="button"
-                className={`lgx-game${isOpen ? " open" : ""}${meRid != null && (g.a.rid === meRid || g.b.rid === meRid) ? " c4-you" : ""}`}
+                className={`lgx-game${isOpen ? " open" : ""}`}
                 aria-expanded={isOpen}
                 onClick={() => setOpenGame(isOpen ? null : key)}>
                 {side(g.a, la, mlA, aWon, false, lmlA)}
@@ -1781,9 +1776,8 @@ export function PosLeaders({ leaders, settled, empty }: {
                 </RouteLink>
               : <span className="nm">{settled ? DASH : "\u00a0"}</span>}
             <div className="sub">
-              {/* the figure and the separator in their own spans so the C4 lab
-                  can ink a WAR figure as WAR and lift the figure out to the
-                  row's right edge; unstyled on the live board */}
+              {/* the figure, the separator and the note in their own spans:
+                  hooks for a stylesheet, unstyled today */}
               {row ? <><span className="lgx-pv">{row.value}</span><span className="lgx-sep">{" · "}</span><span className="lgx-pn">{row.note}</span></> : <span className="lgx-pn">{settled ? empty(pos) : "\u00a0"}</span>}
             </div>
           </div>

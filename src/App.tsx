@@ -5,22 +5,18 @@ import { BUST_PARAM, j, jl, retry, setBust, setLeagueBase, setVersion } from "./
 import { pageview } from "./lib/analytics";
 import { useJson } from "./lib/useJson";
 import { DEFAULT_CURVE, ModelContext, isCurve } from "./lib/model";
-import { CLASSIC_SEG, LAB_SEG, LeagueContext, classicToBeta, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
+import { CLASSIC_SEG, LeagueContext, classicToBeta, leagueSeg, legacyRegistry, resolveLeague, useLeague } from "./lib/context";
 import { useLeagueCaps } from "./lib/caps";
 import ErrorBoundary from "./components/ErrorBoundary";
 /**
- * ONE BOARD, TWO MOUNTS (Max, 2026-11-04). The beta shell answers the bare
- * league address — `/<league>/...` — and the same shell, screen for screen,
- * answers `/<league>/lab/...` wearing a trial look (C4 "Tale of the Tape").
- * The classic board is retired: every address it ever answered, and the
- * pre-league `#/players/2025` shapes before it, forwards through
- * `lib/context.classicToBeta` onto the live board's matching screen.
- *
- * Both mounts are lazy, and the lab is its own chunk (its stylesheet with
- * it), so a reader on the live board never downloads the trial.
+ * ONE BOARD (Max, 2026-11-11). The beta shell answers the bare league address
+ * — `/<league>/...`. The classic board is retired: every address it ever
+ * answered, and the pre-league `#/players/2025` shapes before it, forwards
+ * through `lib/context.classicToBeta` onto the board's matching screen. The
+ * redesign lab (`/<league>/lab/...`, the C4 trial) is gone too: its addresses
+ * drop the segment and land on the same screen.
  */
 const BetaShell = lazy(() => import("./beta/BetaShell"));
-const LabShell = lazy(() => import("./beta/lab/LabShell"));
 
 /** One GoatCounter pageview per route change (lib/analytics.ts). Inside the
  *  router so useLocation exists; renders nothing. The hash path is the page —
@@ -157,17 +153,11 @@ export default function App() {
       <HashRouter>
         <Track />
         <ModelProvider>
-          {/* One shell, two mounts. Static segments outrank the dynamic
-              :league/* below, so /lab and /classic are matched first. */}
+          {/* Static segments outrank the dynamic :league/* below, so /lab and
+              /classic are matched first. */}
           <Routes>
-            {/* the trial looks: the beta shell, re-skinned, screen for screen */}
-            <Route path={`/:league/${LAB_SEG}/*`} element={
-              <ErrorBoundary resetKey="lab">
-                <Suspense fallback={<div className="empty">Loading…</div>}>
-                  <LabShell />
-                </Suspense>
-              </ErrorBoundary>
-            } />
+            {/* the scrapped redesign lab: shared links drop the segment */}
+            <Route path="/:league/lab/*" element={<DropSegRedirect seg="lab" />} />
             {/* the retired classic board: forwards onto the live board */}
             <Route path={`/:league/${CLASSIC_SEG}/*`} element={<ClassicRedirect />} />
             {/* the beta shell's two old prefixes — shared links redirect */}

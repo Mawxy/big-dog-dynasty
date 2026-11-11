@@ -92,7 +92,7 @@ const NO_ABSENCES: Record<string, string> = {};
  */
 export default function Player({ pid }: { pid: string }) {
   const { meta, players, league } = useLeague();
-  // this mount's address (live board or lab); the full trades page is in-shell
+  // the shell's address; the full trades page is in-shell
   const shellBase = useShellBase();
   const nav = useNavigate();
   const [shard, setShard] = useState<PlayerShard | null | undefined>(undefined);

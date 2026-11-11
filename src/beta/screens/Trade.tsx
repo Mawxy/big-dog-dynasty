@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import type { PicksOwned, Team, Trade as TradeT, TradesPayload } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useCurrentPickClass, useLeagueCaps } from "../../lib/caps";
-import { useLeague, useLook } from "../../lib/context";
+import { useLeague } from "../../lib/context";
 import { fmt } from "../../lib/stats";
 import { POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
@@ -809,13 +809,6 @@ function measure(m: Measure, led: ReturnType<typeof tradeLedger>, warA: number, 
     : { a: led.a.effective[m], b: led.b.effective[m] };
 }
 
-/** the lab's tape bar (C4 only): `v`'s length as a share of the pair's span,
- *  measured up from the lower of zero and the two figures */
-function tapeW(v: number, a: number, b: number) {
-  const lo = Math.min(0, a, b), span = Math.max(a, b) - lo;
-  return span > 0 ? (v - lo) / span : 0;
-}
-
 /** how many candidates a measure lists */
 const FIX_N = 3;
 
@@ -861,7 +854,6 @@ function FavorBoard({ nameA, nameB, rows, fixes, onAdd }: {
      cheapest single adds that would land that measure even, each with its
      own + Add. EVEN has nothing to open and stays a label. */
   const [open, setOpen] = useState<Measure | null>(null);
-  const look = useLook();
   const name = (sd: Side) => (sd === "a" ? nameA : nameB);
   // the even zone: margin ±EVEN maps to center ± EVEN/2 of the bar's width
   const lo = 0.5 - EVEN / 2, hi = 0.5 + EVEN / 2;
@@ -914,24 +906,12 @@ function FavorBoard({ nameA, nameB, rows, fixes, onAdd }: {
                 {r.f(r.a)}
               </span>
               <span className="bar" role="cell">
-                {look === "c4" ? (
-                  /* THE LAB'S TAPE ROW (C4_SPEC §4.4): two bars, A's anchored
-                     right and B's left, each the side's figure over the larger
-                     of the pair. Measured from the lower of zero and the two
-                     figures, so a pair of negative WAR totals still gives the
-                     better side the longer bar. Live board: the favor bar. */
-                  <span className="c4-tape" role="img" aria-label={verdict}>
-                    <span className="c4-tb a"><i style={{ width: `${tapeW(r.a, r.a, r.b) * 100}%` }} /></span>
-                    <span className="c4-tb b"><i style={{ width: `${tapeW(r.b, r.a, r.b) * 100}%` }} /></span>
-                  </span>
-                ) : (
-                  <span className={`fb ${side}`} role="img" aria-label={verdict}>
-                    <span className="win" style={{ left: `${lo * 100}%`, width: `${(hi - lo) * 100}%` }} />
-                    {side !== "even" && <span className="fill" style={fill} />}
-                    <span className="mid" />
-                    <span className="split" style={{ left: `${at * 100}%` }} />
-                  </span>
-                )}
+                <span className={`fb ${side}`} role="img" aria-label={verdict}>
+                  <span className="win" style={{ left: `${lo * 100}%`, width: `${(hi - lo) * 100}%` }} />
+                  {side !== "even" && <span className="fill" style={fill} />}
+                  <span className="mid" />
+                  <span className="split" style={{ left: `${at * 100}%` }} />
+                </span>
               </span>
               <span className={`f b${side === "b" ? " win" : ""}`} role="cell">
                 {r.f(r.b)}

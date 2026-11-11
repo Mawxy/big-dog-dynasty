@@ -88,80 +88,13 @@
 
   --pad: 26px;          /* page gutter */
   --bar-track: var(--rule);
-
-  /* ---- C4 "Tale of the Tape" tokens (src/beta/lab/C4_SPEC.md §2.2) -------
-     Read only by the redesign lab (`.v3.c4`). Original values here; the three
-     other themes override them in the `[data-theme]` blocks below. */
-  --deep-ink: #eef2f6;   /* primary text on --deep bars */
-  --deep-dim: #7b8794;   /* labels and inactive tabs on bars */
-  --deep-acc: #f5c518;   /* links on bars — never --acc on --deep */
-  --slab-hi: #eef2f6;    /* high-contrast slab: active tab, "you" */
-  --slab-hi-ink: #05070a;
-  --slab-lo: #1b232c;    /* secondary slab: inactive tab, other side, chips */
-  --slab-lo-ink: #c3ccd6;
-  --loss: #3a4552;       /* losing bar in a tape row */
-  --war: #f5c518;        /* WAR fills — never borrows --acc */
-  --war-ink: #f5c518;    /* WAR figures as text */
-}
-
-/* ---- the lab's three other themes (C4_SPEC §2) ----------------------------
-   Set on <html> only while the redesign lab is mounted (beta/lab/LabShell.tsx)
-   and by index.html's boot script on a lab address, so the live board never
-   wears one. `original` has no block: :root above IS Original. Keep each
-   theme's --deep in step with beta/lab/theme.ts and the boot script. */
-:root[data-theme="newsprint"] {
-  --deep: #161616; --bg: #efe9dd; --band: #e5dccb; --zebra: #eae3d6; --sel: #ddd3c0;
-  --rule: #d0c5b0; --rule-2: #bfb39c; --hair: #e0d7c6;
-  --txt: #161616; --txt2: #3b362f; --dim: #685f4f; --dim2: #776e5d; --dim3: #9a907d;
-  --acc: #2445d6; --acc-ink: #ffffff; --acc-dim: #8a9de6;
-  --good: #1c6d45; --bad: #af3427; --drop: #a8474f; --warn: #9a5a12;
-  --qb: #7b3ec5; --rb: #1c6d45; --wr: #1d5dbc; --te: #9b481b;
-  --qb-mark: #7b3ec5; --rb-mark: #1c6d45; --wr-mark: #1d5dbc; --te-mark: #9b481b;
-  --honor-champ: #b8860b; --honor-mvp: #af3427; --honor-seed: #13807a;
-  --honor-star: #6b7a8c; --honor-bar: #9a907d;
-  --deep-ink: #efe9dd; --deep-dim: #b9ae98; --deep-acc: #7f9bff;
-  --slab-hi: #161616; --slab-hi-ink: #efe9dd; --slab-lo: #d6ccb8; --slab-lo-ink: #3b362f;
-  --loss: #c3b8a2; --war: #b8860b; --war-ink: #7f5900;
-  --war-pos: #1c6d45; --war-neg: #af3427;
-  color-scheme: light;
-}
-:root[data-theme="ringside"] {
-  --deep: #04070f; --bg: #0a0f1c; --band: #111a2c; --zebra: #0d1322; --sel: #16213a;
-  --rule: #1b2740; --rule-2: #2a3a5c; --hair: #111a2c;
-  --txt: #eef3fb; --txt2: #c2cde0; --dim: #7d8aa3; --dim2: #6c7891; --dim3: #56627a;
-  --acc: #3aa0ff; --acc-ink: #04070f; --acc-dim: #2a6fb0;
-  --good: #4fd08a; --bad: #ff6b75; --drop: #c58a90; --warn: #e8a35a;
-  --qb-mark: #b89bff; --rb-mark: #4fd08a; --wr-mark: #9cc8ff; --te-mark: #ff9a5c;
-  --honor-champ: #f5c518; --honor-mvp: #e03a4e; --honor-seed: #2fd3c8;
-  --honor-star: #9fb3c8; --honor-bar: #56627a;
-  --deep-ink: #eef3fb; --deep-dim: #7d8aa3; --deep-acc: #3aa0ff;
-  --slab-hi: #eef3fb; --slab-hi-ink: #04070f; --slab-lo: #1b2740; --slab-lo-ink: #c2cde0;
-  --loss: #34425e; --war: #f5c518; --war-ink: #f5c518;
-}
-:root[data-theme="vintage"] {
-  --deep: #1c2a44; --bg: #f3ead7; --band: #e9dec5; --zebra: #eee4cf; --sel: #e2d5b8;
-  --rule: #d8cba9; --rule-2: #c6b791; --hair: #e4d8bd;
-  --txt: #1c2a44; --txt2: #3a4560; --dim: #646054; --dim2: #736e60; --dim3: #978f7a;
-  --acc: #c2102d; --acc-ink: #ffffff; --acc-dim: #d9737f;
-  --good: #1c6f46; --bad: #8e1b2b; --drop: #a8474f; --warn: #9a5a12;
-  --qb: #7d3ec7; --rb: #1c6f46; --wr: #1e5ebe; --te: #9d491b;
-  --qb-mark: #7d3ec7; --rb-mark: #1c6f46; --wr-mark: #1e5ebe; --te-mark: #9d491b;
-  --honor-champ: #b8860b; --honor-mvp: #8e1b2b; --honor-seed: #13807a;
-  --honor-star: #5d6b80; --honor-bar: #978f7a;
-  --deep-ink: #f3ead7; --deep-dim: #aab4c8; --deep-acc: #ff7a7a;
-  --slab-hi: #1c2a44; --slab-hi-ink: #f3ead7; --slab-lo: #ddd0b2; --slab-lo-ink: #3a4560;
-  --loss: #cdbf9f; --war: #b8860b; --war-ink: #805a00;
-  --war-pos: #1c6f46; --war-neg: #8e1b2b;
-  color-scheme: light;
 }
 
 /* ---- the LIVE BOARD's themes (src/beta/liveTheme.ts, 2026-11-04) ----------
    Opt-in palettes for the board as it ships, picked under More → Appearance.
    Original stays the default and has no block: with no attribute, :root above
-   is the board exactly as it was. Ids carry a `live-` prefix so they can never
-   collide with the lab's (`original`, `newsprint`…), and the choice is saved
-   under its own key, so a lab pick never re-skins the live board or the other
-   way round.
+   is the board exactly as it was. Ids carry a `live-` prefix and the choice is
+   saved under its own key.
 
    Every block re-points the SAME tokens — no new names. Held to a stricter
    bar than Original: --txt2, --dim, --dim2, --acc and every signed colour
@@ -256,7 +189,7 @@
 :root[data-theme^="live-"] .weekcell .bar i { background: var(--dim3); }
 /* Defense vs position: the heat shades are inline data encoding (Defenses.tsx)
    and stay as drawn; only the dead-neutral cell — the one inked --txt2 — moves
-   to the board's raised surface, as the lab does, so its ink stays legible. */
+   to the board's raised surface, so its ink stays legible. */
 :root[data-theme^="live-"] .dvp-tbl td.dvp-cell[style*="var(--txt2)"] { background: var(--band) !important; }
 
 *, *::before, *::after { box-sizing: border-box; }

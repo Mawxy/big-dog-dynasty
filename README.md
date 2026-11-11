@@ -41,12 +41,12 @@ src/ (Vite + React 18 + TypeScript) reads data/**/*.json ─► GitHub Pages
   by its *founding* Sleeper league_id (Big Dog `814608002207334400`, alias
   `big-dog`), because Sleeper mints a new id every season; the current-season
   ids live in `data-refresh.yml` and must be updated by hand each September.
-- **One board, plus a redesign lab.** The phone-first board answers the bare
-  league address — `#/big-dog/...` — and the same screens, re-skinned, answer
-  `#/big-dog/lab/...` (the current trial is C4 "Tale of the Tape",
-  `src/beta/lab/C4_SPEC.md`, with four themes under More → Appearance). The
-  classic desktop board was retired on 2026-11-04: every old address,
-  `#/big-dog/classic/…`, `#/big-dog/beta/…` and the pre-league `#/stats/2025`
+- **One board.** The phone-first board answers the bare league address —
+  `#/big-dog/...` — in the mobile-first interface by default; the previous
+  look stays selectable under More → Interface. The classic desktop board was
+  retired on 2026-11-04 and the C4 redesign lab on 2026-11-11: every old
+  address, `#/big-dog/classic/…`, `#/big-dog/lab/…`, `#/big-dog/beta/…` and
+  the pre-league `#/stats/2025`
   included, redirects to the matching screen.
 - **The front end reads committed JSON, with one exception.** Everything is
   built by GitHub Actions and you never need Node locally — except live
