@@ -72,7 +72,7 @@ export default function TradeDetail() {
     return who(rid, t.season, s?.team ?? "").manager ?? s?.team.trim() ?? ownerOf(rid);
   };
   const playerTo = (pid: string) => betaPath(`/player/${pid}`);
-  const back = () => nav(betaPath("/trade?scope=history"));
+  const back = () => nav(betaPath("/transactions"));
 
   const trade = index?.byId.get(id) ?? null;
 
@@ -227,7 +227,7 @@ export default function TradeDetail() {
 function Head({ back, sub, who }: { back: () => void; sub?: string; who?: string }) {
   return (
     <div className="v3-head trl-head">
-      <button type="button" className="rail-back trl-back" onClick={back}>← Ledger</button>
+      <button type="button" className="rail-back trl-back" onClick={back}>← Transactions</button>
       <h1>{who ?? "Trade"}</h1>
       {sub && <span className="sub">{sub}</span>}
     </div>

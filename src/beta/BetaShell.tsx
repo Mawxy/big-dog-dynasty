@@ -34,6 +34,7 @@ import Movers from "./screens/Movers";
 import Trends from "./screens/Trends";
 import PlayerTrades from "./screens/PlayerTrades";
 import TeamTransactions from "./screens/TeamTransactions";
+import Transactions from "./screens/Transactions";
 import TradeDetail from "./screens/TradeDetail";
 import Recaps from "./screens/Recaps";
 import "./beta.css";
@@ -83,11 +84,12 @@ const TABS = [
 ];
 
 /** Which tab owns a destination that isn't itself a tab, so the bar always
- *  answers "where am I". The ledger is deliberately absent: it is no longer a
- *  destination but a scope of Trade, and its route redirects there. */
+ *  answers "where am I". Transactions is a More destination (Max, 2026-11-12):
+ *  the ledger left the Trade tab, and More is where its row lives. */
 const HUB_OF: Record<string, string> = {
   player: "players", claim: "team", drafts: "more", seasons: "more",
   history: "more", insights: "more", teams: "more", defenses: "more",
+  transactions: "more",
   playoffs: "league", recaps: "league",
 };
 
@@ -214,10 +216,17 @@ function BetaBoard({ base }: { base: string }) {
      row and a half of a standings table. It comes back on the first upward
      flick, so it is never more than one gesture away. */
   const [barAway, setBarAway] = useState(false);
+  /* BACK TO TOP (Max, 2026-11-12): a floating button once the reader is more
+     than a screen or so down a long board. One listener, the bar's own. On a
+     desktop it stays up while that is true; on a phone it rides the tab bar,
+     gone on the way down and back on the first upward flick, so it is never
+     sitting on a table's last column while the table is being read. */
+  const [far, setFar] = useState(false);
   const lastY = useRef(0);
   useEffect(() => {
     const onScroll = () => {
       const y = window.scrollY;
+      setFar(y > 700);
       const dy = y - lastY.current;
       // a threshold, so a jittery thumb doesn't strobe the bar
       if (Math.abs(dy) > 6) {
@@ -383,11 +392,12 @@ function BetaBoard({ base }: { base: string }) {
                 <Route path="rankings/:scope" element={<Navigate replace to={`${base}/players`} />} />
                 <Route path="trade" element={<Trade />} />
                 <Route path="trade/:id" element={<TradeDetail />} />
-                {/* THE LEDGER IS A SCOPE, NOT A SCREEN. Trade's History scope
-                    is the settled-trades record the ledger page was, so the old
-                    address lands on it with that scope already set rather than
-                    on a Trade screen showing an empty machine. */}
-                <Route path="ledger" element={<Navigate replace to={`${base}/trade?scope=history`} />} />
+                {/* TRANSACTIONS (Max, 2026-11-12): every trade and roster move,
+                    on a page of its own. The ledger was Trade's History scope;
+                    its old address lands here, and so does `trade?scope=history`
+                    (Trade redirects that itself, filters and all). */}
+                <Route path="transactions" element={<Transactions />} />
+                <Route path="ledger" element={<Navigate replace to={`${base}/transactions`} />} />
                 <Route path="more" element={<More />} />
                 {/* the mover hub, and the whole of one module: value | dynasty | market */}
                 <Route path="trends" element={<Trends />} />
@@ -478,11 +488,9 @@ function BetaBoard({ base }: { base: string }) {
             { id: "trends", label: "Trends", to: `${base}/trends`, lit: ["trends", "movers"] },
             /* the lineup builder's defense grid (Max, 2026-09-30) */
             { id: "defenses", label: "Defenses", to: `${base}/defenses` },
-            /* Ledger keeps its place in Explore and loses its page: it points
-               at Trade's History scope, the same address the `ledger` route
-               redirects to. It never lights, because the Trade tab above it
-               does — two lit rows would be two answers to "where am I". */
-            { id: "ledger", label: "Ledger", to: `${base}/trade?scope=history` },
+            /* the ledger's place in Explore, under the name of the page it
+               became: every trade and roster move (Max, 2026-11-12) */
+            { id: "transactions", label: "Transactions", to: `${base}/transactions` },
           ].map(x => (
             <a key={x.id} className={`sub desk${(("lit" in x ? x.lit : [x.id]) as string[]).includes(seg ?? "") ? " on" : ""}`}
               href={`#${x.to}`}
@@ -492,6 +500,21 @@ function BetaBoard({ base }: { base: string }) {
               }}>{x.label}</a>
           ))}
         </nav>
+
+        {/* Directly after the tab bar: the phone rule that hides it with the
+            bar is an adjacent-sibling one (mobile.css `.mf-top`). The
+            mobile-first UI only, like every control added since it became the
+            board. */}
+        {mobile && (
+          <button type="button" className={`mf-top${far ? " show" : ""}`}
+            aria-label="Back to top" aria-hidden={!far} tabIndex={far ? 0 : -1}
+            onClick={() => window.scrollTo({
+              top: 0,
+              behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+            })}>
+            <Icon id="up" />
+          </button>
+        )}
 
         {sheet && <LeagueSheet onClose={() => setSheet(false)} />}
       </div>

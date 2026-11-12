@@ -1493,6 +1493,15 @@ tfoot td.t, tfoot td.name { overflow: hidden; text-overflow: ellipsis; }
 
 /* the season count that follows a footer label, quiet and set back a little so
    "Armed Rodgery 2 yrs" reads as one label rather than two columns */
+/* THE LABEL AND ITS COUNT ARE TWO WORDS THAT WRAP (Max, 2026-11-12): where the
+   column has no room for both, the count starts under the label instead of
+   being cut to "5…". The gap is the flex gap, so a wrapped count sits flush
+   left rather than carrying a margin onto its own line. */
+.tot-lab { display: inline-flex; flex-wrap: wrap; align-items: baseline; column-gap: 9px; row-gap: 3px; max-width: 100%; }
+/* the label itself is one word and never breaks: a narrow column grows to it */
+.tot-lab > span:first-child { white-space: nowrap; }
+.tot-lab .tot-yrs { margin-left: 0; white-space: nowrap; }
+tfoot td.t:has(> .tot-lab), tfoot td.name:has(> .tot-lab) { white-space: normal; overflow: visible; text-overflow: clip; }
 .tot-yrs {
   margin-left: 9px;
   font: 600 11px/1 var(--cond); letter-spacing: .14em;

@@ -1,9 +1,10 @@
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type Ref } from "react";
 import type { Franchises, Trade as TradeT, TradeAsset, TradeSide, Values } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
 import { pInfo } from "../../lib/league";
 import { marketNow } from "../../lib/values";
+import { useSeasonPhase } from "../model";
 import { fmtWar, NUL, sgnWar } from "../ui";
 
 /**
@@ -209,17 +210,21 @@ const pad2 = (n: number) => String(n).padStart(2, "0");
  *    with the tier's drift since the deal when it moved
  *  - an unused slot keeps its word; FAAB is its amount
  */
-function AssetLine({ a, owner, playerTo }: {
+function AssetLine({ a, owner, playerTo, sub: withSub = true }: {
   a: TradeAsset;
   /** the manager whose pick it originally was */
   owner: (rid: number) => string;
   /** where a player name links, or nothing (the ledger card is one link) */
   playerTo?: (pid: string) => string;
+  /** the second line. Off on a closed transaction card, where an asset is its
+   *  name and nothing else; a pick that was made keeps its pick beside the
+   *  name there, because "what was traded" was the pick. */
+  sub?: boolean;
 }) {
   const { players } = useLeague();
   const [head, tail] = a.label.split(" → ");
   const pick = head.replace(/ \((not yet drafted|unused)\)$/, "");
-  if (a.kind === "faab") return <div className="trg-a"><span className="nm">{a.label}</span></div>;
+  if (a.kind === "faab") return <span className="trg-a"><span className="nm">{a.label}</span></span>;
   if (a.pid && (a.kind === "player" || tail)) {
     const [, pos, nfl] = pInfo(players, a.pid);
     const name = tail ?? head;
@@ -227,10 +232,13 @@ function AssetLine({ a, owner, playerTo }: {
       ? `${pick}${a.slot != null && a.rnd != null ? ` · ${a.rnd}.${pad2(a.slot)}` : ""}`
       : [pos, nfl].filter(Boolean).join(" · ");
     return (
-      <div className="trg-a">
-        <span className="nm">{playerTo ? <a href={`#${playerTo(a.pid)}`}>{name}</a> : name}</span>
-        {sub && <span className="sb">{sub}</span>}
-      </div>
+      <span className="trg-a">
+        <span className="nm">
+          {playerTo ? <a href={`#${playerTo(a.pid)}`}>{name}</a> : name}
+          {!withSub && a.kind === "pick" && <span className="pk"> {pick}</span>}
+        </span>
+        {withSub && sub && <span className="sb">{sub}</span>}
+      </span>
     );
   }
   const undrafted = / \(not yet drafted\)$/.test(head);
@@ -243,10 +251,10 @@ function AssetLine({ a, owner, playerTo }: {
     ? [a.orig != null ? `${owner(a.orig)}’s` : null, tier ? `proj. ${tier}` : null].filter(Boolean).join(" · ")
     : "slot unused";
   return (
-    <div className="trg-a pick">
+    <span className="trg-a pick">
       <span className="nm">{pick}</span>
-      {sub && <span className="sb">{sub}</span>}
-    </div>
+      {withSub && sub && <span className="sb">{sub}</span>}
+    </span>
   );
 }
 
@@ -325,6 +333,155 @@ export function TradeGrid({ t, ctx, who, owner, playerTo }: {
         </tr>
       </tbody>
     </table>
+  );
+}
+
+/* ========================================================================
+   WHETHER ANY FOOTBALL HAS BEEN PLAYED SINCE A TRADE
+   ======================================================================== */
+
+/**
+ * AT THE WEEK, NOT THE SEASON. Moved here from the ledger so the Transactions
+ * page and the Partner analyzer ask the same question the same way.
+ *
+ * A trade with no scored week behind it has no realized WAR, and 0.00 in
+ * that column reads as "returned nothing" rather than as "has not happened".
+ * The test was `Number(t.season) <= Number(latest)`, which is true of every
+ * trade made this season including one made this morning.
+ *
+ * `useSeasonPhase` reads the roster season's matchups file and states which
+ * week is in progress. The last SCORED week is the one before it; in the
+ * playoffs every regular week is scored, and in the offseason none of the
+ * roster season's are. A season older than the newest one with results is
+ * played outright, and a season newer than it is not; only the current one
+ * needs the week.
+ */
+export function usePlayed(): (t: TradeT) => boolean {
+  const phase = useSeasonPhase();
+  const lastScored = phase.offseason ? 0
+    : phase.playoffs ? phase.playoffStart - 1
+      : (phase.week ?? 1) - 1;
+  const { latest, loading, rosterSeason } = phase;
+  return useCallback((t: TradeT) => {
+    const s = Number(t.season), newest = Number(latest);
+    if (s !== newest) return s < newest;
+    // the week test only speaks for the season the phase was read from; while
+    // the file is in flight, or if the two disagree, the season answer stands
+    if (loading || rosterSeason !== latest) return true;
+    return Number(t.week) <= lastScored;
+  }, [latest, loading, rosterSeason, lastScored]);
+}
+
+/* ========================================================================
+   THE CARD — one trade on the Transactions page (Max, 2026-11-12)
+   ======================================================================== */
+
+/** the date without its year or week: the week band above the card carries those */
+const whenShort = (ts: number) => ts
+  ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })
+  : "—";
+
+/**
+ * ONE TRADE, CLOSED BY DEFAULT.
+ *
+ * The ledger printed every trade as an open grid, so a phone showed two deals
+ * a screen and a 158-trade history could not be scanned. A closed card is
+ * what moved and who got it, and nothing else. Tapping it opens the figures
+ * under the same two columns: realized WAR, projected WAR and KTC then → now,
+ * then the WAR edge with its owner and the way to the trade's own page.
+ *
+ * The top of the card is a real button (the disclosure); the link to the
+ * trade page lives in the opened part, because a link inside a button is
+ * neither. Sides are in roster-id order and nothing is inked, as on the grid.
+ */
+export function TradeCard({ t, ctx, who, owner, played, open, onToggle, marked, to, cardRef }: {
+  t: TradeT; ctx: GridCtx;
+  who: (rid: number, season: string, team: string) => Who;
+  owner: (rid: number) => string;
+  /** has a scored week passed since the deal */
+  played: boolean;
+  open: boolean; onToggle: () => void;
+  /** the card a `?load=` link named: the view's one accent */
+  marked?: boolean;
+  /** the trade's own page */
+  to: string;
+  cardRef?: Ref<HTMLElement>;
+}) {
+  const sides = ordered(t);
+  const at = ctx.at(t);
+  const edge = warEdge(sides, played);
+  const edgeOwner = edge.rid != null
+    ? who(edge.rid, t.season, edge.owner ?? "").manager ?? edge.owner
+    : edge.owner;
+  return (
+    <article ref={cardRef}
+      className={`txc${sides.length > 2 ? " n3" : ""}${open ? " open" : ""}${marked ? " on" : ""}`}>
+      <button type="button" className="txc-top" aria-expanded={open} onClick={onToggle}>
+        <span className="txc-hd">
+          <span className="when">
+            {whenShort(t.ts)}
+            {sides.length > 2 && <b> · 3-team</b>}
+          </span>
+          <span className="cue">
+            {open ? "Hide figures" : "Figures"}<span className="caret">{open ? "▴" : "▾"}</span>
+          </span>
+        </span>
+        <span className="txc-sides">
+          {sides.map(s => {
+            const x = who(s.rid, t.season, s.team);
+            return (
+              <span className="txc-side" key={s.rid}>
+                <span className="who" title={x.team}>{x.manager ?? x.team} got</span>
+                {s.got.map((a, i) => <AssetLine key={i} a={a} owner={owner} sub={open} />)}
+              </span>
+            );
+          })}
+        </span>
+      </button>
+      {open && (
+        <div className="txc-more">
+          <div className="txc-sides">
+            {sides.map(s => {
+              const r = sideRealized(s);
+              const then = at.side(s.rid).mkt;
+              const now = marketNow(s, ctx.vals, ctx.pickKtc, ctx.tep);
+              return (
+                <dl className="txc-figs" key={s.rid}>
+                  <dt>WAR</dt>
+                  <dd>{r == null ? NUL : fmtWar(r)}</dd>
+                  <dt>Proj</dt>
+                  <dd>{s.future == null ? NUL : sgnWar(s.future)}</dd>
+                  <dt>KTC</dt>
+                  <dd>
+                    {/* nothing either end: one dash, not "— → —". The two ends
+                        are each unbreakable, so a narrow column wraps between
+                        them rather than through a number. */}
+                    {then == null && now == null ? NUL : (
+                      <>
+                        <span className="nw">{then == null ? NUL : mkt(then)} →</span>{" "}
+                        <span className="nw">{now == null ? NUL : mkt(now)}</span>
+                      </>
+                    )}
+                    {then != null && now != null && <span className="d">{sgnMkt(now - then)} since</span>}
+                  </dd>
+                </dl>
+              );
+            })}
+          </div>
+          <div className="txc-foot">
+            {/* THE MARGIN NAMES ITS OWNER, or says why it has none. Never a
+                bare signed figure, and never inked: a record, not a verdict. */}
+            <span className="edge">
+              WAR edge
+              {edge.v == null
+                ? <> · {edge.note}</>
+                : <><b>{edge.v === 0 ? fmtWar(0) : `+${fmtWar(edge.v)}`}</b>{edgeOwner}</>}
+            </span>
+            <a className="go" href={`#${to}`}>Where it went ›</a>
+          </div>
+        </div>
+      )}
+    </article>
   );
 }
 

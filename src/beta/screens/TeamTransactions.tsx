@@ -230,7 +230,7 @@ export default function TeamTransactions() {
           <div className="v3-feed">
             {g.rows.map(t => (t.type === "trade"
               ? <TradeRow key={t.id} t={t} self={nameIn(t.season)}
-                  to={caps.trades ? betaPath(`/trade?load=${t.ts}`) : null} />
+                  to={caps.trades ? betaPath(`/transactions?load=${t.ts}`) : null} />
               : (
                 <div className="v3-act" key={t.id}>
                   <div className="when">
@@ -325,7 +325,7 @@ function TradeRow({ t, self, to }: { t: FranchiseTx; self: string; to: string | 
       <div className="when">
         <span>{tradeWhen(t.ts)}</span>
         <span>Trade</span>
-        {to && <span className="go">Ledger →</span>}
+        {to && <span className="go">Details →</span>}
       </div>
       <div className="v3-baskets">
         {basket(self, t.got)}

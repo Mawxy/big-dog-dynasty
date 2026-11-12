@@ -137,6 +137,8 @@ export function useMoved(rid?: number | null, fkey?: string | null) {
         && (mineKey == null || a.key === mineKey));
     return {
       trades: inWindow.length, biggest, moves, since,
+      /** every trade in the window, newest first — what "Show" opens */
+      list: inWindow.slice().sort((a, b) => b.ts - a.ts),
       // whether the "biggest" claim is actually sized by anything, or whether
       // every side of every trade in the window is unpriced
       sized: biggest ? size(biggest) > 0 : false,
@@ -166,7 +168,21 @@ export default function Moved({ rid, fkey, teamName }: {
 }) {
   const betaPath = useBetaPath();
   const recent = useMoved(rid, fkey);
+  /* SHOW, THEN SHOW ALL (Max, 2026-11-12). Each count's control opens its
+     window in place first: the week's other trades, or its roster moves. Once
+     that is open the same control becomes "Show all →" and leaves for the
+     Transactions page, already on that kind and that franchise. A count with
+     nothing more to open is "Show all →" from the start. */
+  const [openTrades, setOpenTrades] = useState(false);
   const [openMoves, setOpenMoves] = useState(false);
+  /** the window's trades not already on screen as the card above the counts */
+  const moreTrades = recent.list.filter(t => t !== recent.biggest);
+  const team = rid == null ? "" : `team=${rid}`;
+  /** every trade: the priced record where the league has one, else the
+   *  franchise's own log, else nowhere */
+  const allTrades = recent.priced ? betaPath(`/transactions${team ? `?${team}` : ""}`)
+    : rid != null ? betaPath(`/team/${rid}/transactions?kind=trade`) : null;
+  const allMoves = betaPath(`/transactions?kind=moves${team ? `&${team}` : ""}`);
   const windowFrom = new Date(recent.since)
     .toLocaleDateString(undefined, { month: "short", day: "numeric" });
   const who = rid == null ? "" : teamName ? `${teamName} ` : "This franchise ";
@@ -178,8 +194,11 @@ export default function Moved({ rid, fkey, teamName }: {
           own right edge is where every module on the board keeps its way out. */}
       <Band label={`Last ${WINDOW_DAYS} days`}
         note={`${rid == null ? "Trades and roster moves" : "This franchise's trades and roster moves"} since ${windowFrom}`}
-        right={rid != null && (
-          <RouteLink to={betaPath(`/team/${rid}/transactions`)} className="lgx-all">
+        right={(
+          /* a franchise's window opens its own log; the league's opens the
+             Transactions page (Max, 2026-11-12) */
+          <RouteLink to={betaPath(rid != null ? `/team/${rid}/transactions` : "/transactions")}
+            className="lgx-all">
             See all transactions →
           </RouteLink>
         )} />
@@ -191,7 +210,7 @@ export default function Moved({ rid, fkey, teamName }: {
         <div className="lgx-quiet">
           {rid == null ? "No trades" : `${who}made no trades`} in the last {WINDOW_DAYS} days.{" "}
           {recent.moves.length
-            ? `${recent.moves.length} roster move${recent.moves.length === 1 ? "" : "s"} went through — the count below opens them.`
+            ? `${recent.moves.length} roster move${recent.moves.length === 1 ? "" : "s"} went through — Show, below, opens them.`
             : rid == null
               ? "Nothing went through at all, which is a fact about the league rather than a gap in the data."
               : "No roster moves either."}
@@ -201,33 +220,32 @@ export default function Moved({ rid, fkey, teamName }: {
         <div className="lgx-count">
           <span className="k">Trades</span>
           <span className="v">{recent.trades}</span>
-          {/* the league ledger: every trade this league has ever made, scored —
-              filtered to the franchise when this module is. A league the
-              pipeline never scores has no ledger to open, so the row states
-              the count off the transaction log and stops there rather than
-              pointing at an empty screen. */}
-          {recent.priced && (
-            <RouteLink className="go"
-              to={betaPath(`/trade?scope=history${rid == null ? "" : `&team=${rid}`}`)}>
-              All →
-            </RouteLink>
+          {moreTrades.length > 0 && !openTrades ? (
+            <button type="button" className="go" aria-expanded={false}
+              onClick={() => setOpenTrades(true)}>
+              Show ▾
+            </button>
+          ) : allTrades && (
+            <RouteLink className="go" to={allTrades}>Show all →</RouteLink>
           )}
         </div>
         <div className="lgx-count">
           <span className="k">Roster moves</span>
           <span className="v">{recent.moves.length}</span>
-          {/* Opens IN PLACE rather than linking out. Waivers and free agents
-              have no destination of their own in this shell — the League screen
-              is where they have always been shown — and a link to a page that
-              does not exist is worse than a disclosure that does. */}
-          {recent.moves.length > 0 && (
-            <button type="button" className="go" aria-expanded={openMoves}
-              onClick={() => setOpenMoves(v => !v)}>
-              {openMoves ? "Close ▴" : "All ▾"}
+          {recent.moves.length > 0 && !openMoves ? (
+            <button type="button" className="go" aria-expanded={false}
+              onClick={() => setOpenMoves(true)}>
+              Show ▾
             </button>
+          ) : (
+            <RouteLink className="go" to={allMoves}>Show all →</RouteLink>
           )}
         </div>
       </div>
+      {openTrades && moreTrades.map(t => (
+        <BigTrade key={`${t.ts}:${t.sides.map(x => x.rid).join("-")}`} trade={t}
+          sized={recent.sized} priced={recent.priced} label="Trade" />
+      ))}
       {openMoves && (
         <div className="v3-feed">
           {recent.moves.map(a => (
@@ -312,8 +330,11 @@ export function MovedSeason({ rid, tx, season }: {
  * picks and would have read 0.0. So the card shows the two frozen figures the
  * file does publish, labeled "then" so they cannot be read as today's price.
  */
-export function BigTrade({ trade, sized, only, priced = true }: {
+export function BigTrade({ trade, sized, only, priced = true, label }: {
   trade: Trade; sized: boolean;
+  /** the card's own words, where it is one of several rather than the pick
+   *  of the window: the trades "Show" opens under the counts */
+  label?: string;
   /** the window's one trade — "Biggest" would claim a comparison that never happened */
   only?: boolean;
   /** whether this league HAS a scored ledger. Without one the card is a
@@ -328,12 +349,11 @@ export function BigTrade({ trade, sized, only, priced = true }: {
           week 1, and a card headed "2026 · WK 1" in August names a week that
           has not happened */}
       <span>{tradeWhen(trade.ts)}</span>
-      <span>{only ? "The trade" : sized ? "Biggest trade" : "Latest trade"}</span>
-      {/* `?load=<ts>` opens this deal's own row in the ledger — the Trade
-          screen consumes the param, flips itself to the history scope and
-          drops it. It is NOT the builder any more: the builder draws from
-          current rosters, so the label says where the tap lands. */}
-      {priced && <span className="go">Ledger →</span>}
+      <span>{label ?? (only ? "The trade" : sized ? "Biggest trade" : "Latest trade")}</span>
+      {/* `?load=<ts>` opens this deal's own card on the Transactions page,
+          figures showing — that page consumes the param and drops it. It is
+          NOT the builder: the builder draws from current rosters. */}
+      {priced && <span className="go">Details →</span>}
     </div>
   );
   const body: ReactNode = (
@@ -360,6 +380,6 @@ export function BigTrade({ trade, sized, only, priced = true }: {
     </>
   );
   return priced
-    ? <a className="v3-act lgx-trade" href={`#${betaPath(`/trade?load=${trade.ts}`)}`}>{body}</a>
+    ? <a className="v3-act lgx-trade" href={`#${betaPath(`/transactions?load=${trade.ts}`)}`}>{body}</a>
     : <div className="v3-act lgx-trade">{body}</div>;
 }

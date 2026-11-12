@@ -56,7 +56,7 @@ export const isRid = (key: string) => /^\d{1,3}$/.test(key);
 /**
  * A classic-board path, rewritten onto the beta shell's screens. Relative to
  * the shell's base, query string preserved: `/weekly/2025/6/3` ->
- * `/seasons/2025/6/3`, `/ledger` -> `/trade?scope=history`. A first segment
+ * `/seasons/2025/6/3`, `/ledger` -> `/transactions`. A first segment
  * this table does not name is already a beta path and passes through.
  */
 export function classicToBeta(p: string): string {
@@ -76,7 +76,7 @@ export function classicToBeta(p: string): string {
     case "standings": to = tail[0] ? join("seasons", [tail[0]]) : "/seasons"; break;
     case "playoffs": to = tail[0] ? join("seasons", [tail[0], "playoffs"]) : "/playoffs"; break;
     case "trades": to = "/trade"; break;
-    case "ledger": to = "/trade?scope=history"; break;
+    case "ledger": to = "/transactions"; break;
     case "teams":
       // /teams/<season>/<rid>[/<tab>] is a franchise; /teams/<season> was that
       // year's standings; /teams and /teams/all are the franchise board

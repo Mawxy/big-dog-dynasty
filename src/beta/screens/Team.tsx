@@ -902,9 +902,10 @@ export default function Team() {
   /** the section jumps — buttons, not anchors: the targets are refs */
   const jumps = (
     <>
+      {/* in page order: what moved sits above the roster (Max, 2026-11-12) */}
+      <button onClick={() => goto("moved")}>{past ? "Transactions" : "Recent activity"}</button>
       <button onClick={() => goto("roster")}>Roster</button>
       {shape && !past && <button onClick={() => goto("strengths")}>Strengths</button>}
-      <button onClick={() => goto("moved")}>{past ? "Transactions" : "Recent activity"}</button>
       <button onClick={() => goto("seasons")}>Seasons</button>
       <button onClick={() => goto("rivals")}>Head to head</button>
       <button onClick={() => goto("records")}>Record book</button>
@@ -1031,6 +1032,20 @@ export default function Team() {
               </div>
             )}
 
+            {/* ---- what moved ----
+                The League screen's module, scoped to this franchise (Max,
+                2026-09-08): its trades and roster moves over the last seven
+                days, the biggest deal as a card, and the Transactions link
+                pre-filtered to it. UNDER THE OUTLOOK AND ABOVE THE ROSTER
+                (Max, 2026-11-12; it sat after the strengths): a roster read
+                yesterday is not the roster on screen, so what changed comes
+                before the roster it changed. */}
+            <div ref={refs.moved}>
+              {past
+                ? <MovedSeason rid={rid} tx={franchise?.tx} season={viewSeason} />
+                : <Moved rid={rid} fkey={fkey} teamName={team.team} />}
+            </div>
+
             {/* The lens toggle sits above the roster, not in the masthead: it
                 scopes THIS screen's featured column, the rank figure above it
                 and the tier rule down in Strengths — and nothing else on the
@@ -1097,19 +1112,6 @@ export default function Team() {
                 <Seats rows={shape.benchRanks} n={n} lens={idxLens} />
               </div>
             )}
-
-            {/* ---- what moved ----
-                The League screen's module, scoped to this franchise (Max,
-                2026-09-08): its trades and roster moves over the last seven
-                days, the biggest deal as a card, and the ledger link
-                pre-filtered to it. After the strengths and before the
-                history, because a roster read yesterday is not the roster on
-                screen. */}
-            <div ref={refs.moved}>
-              {past
-                ? <MovedSeason rid={rid} tx={franchise?.tx} season={viewSeason} />
-                : <Moved rid={rid} fkey={fkey} teamName={team.team} />}
-            </div>
 
             {/* ---- the seasons ----
                 "How did my season go" (Max, 2026-09-15): the record, one row

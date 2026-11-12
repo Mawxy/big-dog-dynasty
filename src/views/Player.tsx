@@ -923,7 +923,13 @@ export default function Player({ pid }: { pid: string }) {
                             of the table and clipped to a single letter. */}
                         <tr className="tot">
                           <td className="t fig strong" colSpan={mobile ? 1 : 2}>
-                            Career<span className="tot-yrs">{tot.seasons} {tot.seasons === 1 ? "yr" : "yrs"}</span>
+                            {/* label and count wrap as two words: with no room
+                                beside "Career" the count drops under it rather
+                                than being cut to "5…" (Max, 2026-11-12) */}
+                            <span className="tot-lab">
+                              <span>Career</span>
+                              <span className="tot-yrs">{tot.seasons} {tot.seasons === 1 ? "yr" : "yrs"}</span>
+                            </span>
                           </td>
                           <td className="n fig">{tot.gp}</td>
                           <td className="n fig hm">{num(Math.round(tot.pts))}</td>
@@ -967,10 +973,12 @@ export default function Player({ pid }: { pid: string }) {
                                 to survive that */}
                             <td className="t name quiet" colSpan={mobile ? 1 : 2}
                               title={`${s.manager} — most recently ${s.team.trim()}`}>
-                              {s.manager}
-                              {/* the seasons themselves, not just how many:
-                                  a count cannot tell you WHICH years were his */}
-                              <span className="tot-yrs">{yearSpan(s.years)}</span>
+                              <span className="tot-lab">
+                                <span>{s.manager}</span>
+                                {/* the seasons themselves, not just how many:
+                                    a count cannot tell you WHICH years were his */}
+                                <span className="tot-yrs">{yearSpan(s.years)}</span>
+                              </span>
                             </td>
                             <td className="n fig quiet">{s.gp}</td>
                             <td className="n fig quiet hm">{num(Math.round(s.pts))}</td>
@@ -1071,7 +1079,11 @@ export default function Player({ pid }: { pid: string }) {
                       {pooled && seasons.length > 1 && (
                         <tfoot>
                           <tr className="tot">
-                            <td className="t fig strong">Career<span className="tot-yrs">{seasons.length} yrs</span></td>
+                            <td className="t fig strong">
+                              <span className="tot-lab">
+                                <span>Career</span><span className="tot-yrs">{seasons.length} yrs</span>
+                              </span>
+                            </td>
                             <td className="n fig">{pooled.g}</td>
                             {keys.map((k, j) => (
                               <td key={k} className={`n${j === 0 || k === "fp_diff_pg" ? " edge" : ""}`}>

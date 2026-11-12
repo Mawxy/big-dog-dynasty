@@ -1,39 +1,38 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
-import type { PicksOwned, Team, Trade as TradeT, TradesPayload } from "../../lib/types";
+import { useCallback, useMemo, useState } from "react";
+import { Navigate, useSearchParams } from "react-router-dom";
+import type { PicksOwned, Team } from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useCurrentPickClass, useLeagueCaps } from "../../lib/caps";
 import { useLeague } from "../../lib/context";
 import { fmt } from "../../lib/stats";
 import { POS_COLOR, rosterSeasonOf } from "../../lib/league";
 import { ROUND_ORD } from "../../lib/rosterModel";
-import { readTrades } from "../../lib/trades";
-import { tradeId } from "../../lib/tradeLineage";
 import { useMobile } from "../../lib/useWidth";
 import {
   makePickIndexer, tradeLedger,
   type PickIndexer, type SideLedger, type ValueBridge,
 } from "../../lib/tradeModel";
-import { tierOf, useAssets, usePickTiers, useSeasonPhase, type Asset } from "../model";
-import ScopeControl, { ALL_SEASONS, seasonSet, useScope, type ScopeSeason } from "../Scope";
+import { tierOf, useAssets, usePickTiers, type Asset } from "../model";
+import { ALL_SEASONS } from "../Scope";
 import {
   Band, DataError, fmtWar, IdLines, NUL,
   PosSpine, Sheet, SheetRow, useBetaPath,
 } from "../ui";
-import {
-  GRID_NOTE, snapKey, TradeGrid, useGridCtx, useWho, warEdge,
-} from "./tradeGrid";
+import Partners from "./Partners";
 import "./trade.css";
 
 /**
- * TRADE — one screen, two tenses.
+ * TRADE — the calculator, and the league's record as traders.
  *
  * BUILD is the machine: two franchises, several competing packages, priced in
- * every currency the board keeps. HISTORY is the league ledger — the whole
- * absorbed contents of `views/Ledger.tsx`, which is why `${base}/ledger` now
- * redirects here with `?scope=history`. A settled deal and a hypothetical one
- * are the same object in two tenses, so they are one screen on one axis rather
- * than two destinations a reader has to know the difference between.
+ * every currency the board keeps. PARTNER ANALYZER (`Partners.tsx`) is each
+ * franchise's trade stats and who it trades with.
+ *
+ * THE LEDGER IS NOT HERE ANY MORE (Max, 2026-11-12). It was this screen's
+ * History scope, on the argument that a settled deal and a hypothetical one
+ * are one object in two tenses. In use they are two jobs: the machine prices a
+ * what-if and the ledger records what happened. The record is the
+ * Transactions page (`Transactions.tsx`), and old ledger addresses redirect.
  *
  * TEAM-AGNOSTIC BY DEFAULT (decision #13, restored by Max 2026-09-02). The
  * panels open as "Side A gets / Side B gets" and draw from the whole priced
@@ -44,7 +43,7 @@ import "./trade.css";
  * way, NEITHER SIDE IS "YOU": there is no "my team" panel, no posture to tilt
  * by, and the two panels are typographically identical.
  *
- * BOTH SIDES STAY NEUTRAL, IN BOTH TENSES (SKILL §5). No figure on this screen
+ * BOTH SIDES STAY NEUTRAL (SKILL §5). No figure on this screen
  * is inked by who is ahead. Coloring one basket green and the other amber
  * implies a winner when the color is really just whose column it is, and the
  * sign already carries the direction.
@@ -71,108 +70,75 @@ const mkt = (v: number) => Math.round(v).toLocaleString();
  *  point is a real difference and a hundredth is noise. */
 const idx = (v: number) => fmt(v, 1);
 
-/** the date without its year — the season column beside it carries that */
-const whenShort = (ts: number) => ts
-  ? new Date(ts).toLocaleDateString(undefined, { month: "short", day: "numeric" })
-  : "—";
-
 /* ========================================================================
    THE SCREEN
    ======================================================================== */
 
 export default function Trade() {
   const { league } = useLeague();
-  /* BOTH TENSES ARE PIPELINE OUTPUT. History reads trades.json, which
-     `trade_analysis.py` writes for the default league only; Build prices a
-     package in DVI, CVI and KTC, none of which exist for a league the index
-     runs skip. In Pineapple Pizza the fetch 404d and "Trades didn't load"
-     replaced the entire screen — a dropped-connection message over a file that
-     was never going to exist. Both branches say which it is now. */
+  /* BUILD prices a package in DVI, CVI and KTC, none of which exist for a
+     league the index runs skip; the PARTNER ANALYZER reads trades.json, which
+     `trade_analysis.py` writes for the default league only. Each says which
+     it is rather than showing a dropped-connection message over a file that
+     was never going to exist. */
   const caps = useLeagueCaps();
-  const file = useJson<TradesPayload>(caps.trades ? "trades.json" : null);
-  // readTrades, not an inline Array.isArray: a trades.json written without its
-  // `trades` key left the classic ledger stuck on "Loading" forever.
-  const trades = useMemo(
-    () => (file.data ? readTrades(file.data).trades : null), [file.data]);
-
-  /**
-   * THE HISTORY AXIS IS SEASONS WITH TRADES, not played seasons.
-   *
-   * Every other screen's History is a settled season, so it takes the played
-   * list. The ledger's population is deals, and a deal made in the roster
-   * season has already happened — the current year's trades are the ones a
-   * reader is most likely to have come here for. Offering a season this league
-   * never traded in would be a filter that can only return nothing.
-   */
-  const seasonIds = useMemo(
-    () => [...new Set((trades ?? []).map(t => t.season))].sort().reverse(), [trades]);
-  // ALL HISTORY (Max, 2026-09-02): the History tab is every deal the league
-  // has made; a season is a filter on the ledger, beside the franchise filter.
-  const [scope, setScope] = useScope(seasonIds, { all: true });
-  const seasons = useMemo<ScopeSeason[]>(() => seasonIds.map(id => {
-    const n = (trades ?? []).filter(t => t.season === id).length;
-    return { id, note: `${n} trade${n === 1 ? "" : "s"}` };
-  }), [seasonIds, trades]);
-
-  /** the card a `?load=` link named — highlighted with the view's one accent
-   *  and scrolled to. Every card is open; this is a pointer, not a state. */
-  const [open, setOpen] = useState<string | null>(null);
-
-  /* The League screen's activity cards link in with `?load=<ts>`. That used to
-     drop the trade into the builder re-priced at today's values; it now opens
-     that deal's own row in the ledger, because the builder draws from CURRENT
-     rosters and a 2023 trade's players are mostly somewhere else by now. Scope,
-     season and the dropped param move in ONE replace, so the scope control and
-     this effect never fight over the query string. */
+  const betaPath = useBetaPath();
   const [params, setParams] = useSearchParams();
-  const wantTs = params.get("load");
-  useEffect(() => {
-    if (!wantTs || !trades) return;
-    const t = trades.find(x => String(x.ts) === wantTs);
-    if (t) setOpen(snapKey(t));
-    setParams(p => {
-      const n = new URLSearchParams(p);
-      n.delete("load");
-      if (t) { n.set("scope", "history"); n.set("season", ALL_SEASONS); }
-      return n;
-    }, { replace: true });
-  }, [wantTs, trades, setParams]);
+
+  /* THE LEDGER LEFT THIS SCREEN (Max, 2026-11-12). It was this tab's History
+     scope; it is the Transactions page now. Every old address still lands:
+     `?scope=history` with its season, team, match and player filters, and the
+     `?load=<ts>` link that opens one deal, are handed over as they came. */
+  if (params.get("scope") === "history" || params.get("load")) {
+    const n = new URLSearchParams(params);
+    n.delete("scope");
+    if (n.get("season") === ALL_SEASONS) n.delete("season");
+    const q = n.toString();
+    return <Navigate replace to={`${betaPath("/transactions")}${q ? `?${q}` : ""}`} />;
+  }
+
+  const view: "build" | "partners" = caps.trades && params.get("view") === "partners"
+    ? "partners" : "build";
+  const setView = (v: "build" | "partners") => setParams(p => {
+    const n = new URLSearchParams(p);
+    if (v === "partners") n.set("view", "partners"); else n.delete("view");
+    return n;
+  }, { replace: true });
 
   return (
     <>
       <div className="v3-head">
         <h1>Trade</h1>
         <span className="sub">
-          {scope.scope === "history"
-            ? "every deal, as the market saw it"
-            : "two franchises, no you"}
+          {view === "partners" ? "who trades, and with whom" : "two franchises, no you"}
         </span>
       </div>
-      {/* "Build" rather than "Current": a trade being assembled is not a state
-          the league is in. */}
-      <ScopeControl value={scope} onChange={setScope} seasons={seasons} currentLabel="Build" all />
+      {/* THE SCOPE CONTROL'S OWN MARKUP, so the two pills look and behave like
+          every other screen's — but this is not Current / History, so it does
+          not ride `?scope=`. "Build" rather than "Current": a trade being
+          assembled is not a state the league is in. */}
+      {caps.trades && (
+        <div className="v3-scopectl" role="group" aria-label="View">
+          <button type="button" className={view === "build" ? "on" : ""}
+            aria-pressed={view === "build"} onClick={() => setView("build")}>Build</button>
+          <button type="button" className={view === "partners" ? "on" : ""}
+            aria-pressed={view === "partners"} onClick={() => setView("partners")}>Partner analyzer</button>
+        </div>
+      )}
 
       {!caps.trades && !caps.indices ? (
-        /* A LEAGUE THE MACHINE HAS NO CURRENCIES FOR. Said once, for both
-           tenses: there is no ledger because nothing scores this league's
-           trades, and there is no builder because a package is priced in DVI,
-           CVI and a dynasty market this league does not play in. */
+        /* A LEAGUE THE MACHINE HAS NO CURRENCIES FOR: there is no builder
+           because a package is priced in DVI, CVI and a dynasty market this
+           league does not play in, and no analyzer because nothing scores
+           this league's trades. */
         <div className="tnote screen">
-          The trade machine and the ledger are not published for {league.name}. Both price a
-          package in this board's own currencies — DVI, CVI and projected WAR from the
-          nightly model runs, plus the dynasty market — and those runs cover the home league
-          only. The trades this league has made are in its transaction log, on each
-          franchise's own page under the last seven days.
+          The trade machine is not published for {league.name}. It prices a package in this
+          board's own currencies — DVI, CVI and projected WAR from the nightly model runs, plus
+          the dynasty market — and those runs cover the home league only. The trades this league
+          has made are in its transaction log, on each franchise's own page under the last seven
+          days.
         </div>
-      ) : file.error
-        ? <DataError what="Trades didn't load" />
-        : file.loading
-          ? <div className="empty">Loading trades…</div>
-          : scope.scope === "history"
-            ? <History trades={trades ?? []} season={scope.season} seasons={seasons}
-                setSeason={id => setScope({ scope: "history", season: id })}
-                open={open} setOpen={setOpen} />
-            : <Build />}
+      ) : view === "partners" ? <Partners /> : <Build />}
     </>
   );
 }
@@ -1119,339 +1085,5 @@ function Column({ name, rows, led, war }: {
         ))}
       </dl>
     </div>
-  );
-}
-
-/* ========================================================================
-   HISTORY — the league ledger
-   ======================================================================== */
-
-/**
- * Every trade the league has made, newest first, with no sort control anywhere.
- *
- * TWO FILTERS AND NO SORT (this is `views/Ledger.tsx`, absorbed). A ledger is a
- * chronology: a column that reorders it by size stops it being one, and "the
- * biggest trade of 2024" is a question the Value column already answers by eye.
- * Season and team are both sheets in the band (Max, 2026-09-02: History is
- * ALL history, and a year is a filter on it) — a list to pick from, not
- * something to cycle through. The season filter rides the URL's `season`
- * param so a filtered ledger is a link; the team filter is local.
- */
-function History({ trades, season, seasons, setSeason, open, setOpen }: {
-  trades: TradeT[];
-  /** a season id, or ALL_SEASONS */
-  season: string;
-  seasons: ScopeSeason[];
-  setSeason: (id: string) => void;
-  open: string | null; setOpen: (k: string | null) => void;
-}) {
-  const { league } = useLeague();
-  const betaPath = useBetaPath();
-  const nav = useNavigate();
-  /* THE PICK LADDER AS A MAP, ONCE PER FEED. `marketNow` built `new Map(
-     vals.picks.ktc)` on every call — once per SIDE per CARD, so a 150-trade
-     ledger allocated ~300 copies of an 84-entry map on every render of the
-     screen. `useGridCtx` builds it, the market feed and the at-trade read
-     once, here, and every card's grid prices against that. */
-  const ctx = useGridCtx();
-  const who = useWho();
-  const teams = useJson<Team[]>(`${rosterSeasonOf(league)}/teams.json`).data;
-  /** franchises in force — empty is every team. MULTI-SELECT like the season
-   *  filter: a trade shows if ANY picked franchise was a side of it.
-   *
-   *  SEEDED FROM `?team=<rid>[,<rid>]` (Max, 2026-09-08): the Team screen's
-   *  "All →" lands here already filtered to that franchise. Read once, at
-   *  mount — the filter stays local after that, as it always was, so toggling
-   *  a franchise does not rewrite the URL under the reader. */
-  const [params] = useSearchParams();
-  const [teamsOn, setTeamsOn] = useState<Set<number>>(() => new Set(
-    (params.get("team") ?? "").split(",").map(Number).filter(n => Number.isInteger(n) && n > 0)));
-  const toggleTeam = (rid: number) => setTeamsOn(prev => {
-    const next = new Set(prev);
-    if (next.has(rid)) next.delete(rid); else next.add(rid);
-    return next;
-  });
-  /** ANY OR ALL of the ticked franchises (Max, 2026-10-27). Any is a trade
-   *  with any ticked franchise on a side; all is a trade every ticked
-   *  franchise was a side of — tick two and it is the deals between those
-   *  two. Seeded from `?match=all`, local after that like the set itself. */
-  const [teamMatch, setTeamMatch] = useState<"any" | "all">(
-    () => (params.get("match") === "all" ? "all" : "any"));
-  /** ONE PLAYER (Max, 2026-10-27): every deal he moved in, as a player or as
-   *  the pick he became — a pick asset carries its drafted player's id, so
-   *  "2024 1st → Brock Bowers" is a Bowers trade. Seeded from `?player=`. */
-  const [playerOn, setPlayerOn] = useState<string | null>(() => params.get("player"));
-  const [filtering, setFiltering] = useState<"team" | "season" | "player" | null>(null);
-  /** the seasons in force — empty is every season. MULTI-SELECT (Max,
-   *  2026-09-02): a set, joined into the URL's `season` param. */
-  const picked = useMemo(() => seasonSet(season), [season]);
-  const allSeasons = picked.size === 0;
-  const seasonLabel = allSeasons ? "All seasons"
-    : picked.size <= 3 ? [...picked].join(" · ") : `${picked.size} seasons`;
-  const toggleSeason = (id: string) => {
-    const next = new Set(picked);
-    if (next.has(id)) next.delete(id); else next.add(id);
-    // keep the list's order (newest first) rather than tap order
-    setSeason(next.size ? seasons.map(s => s.id).filter(x => next.has(x)).join(",") : ALL_SEASONS);
-  };
-
-  /** the card a `?load=` link named, scrolled to once it renders */
-  const scrollTo = useCallback((el: HTMLElement | null) => {
-    el?.scrollIntoView({ block: "center" });
-  }, []);
-
-  /**
-   * WHETHER ANY FOOTBALL HAS BEEN PLAYED SINCE — AT THE WEEK, NOT THE SEASON.
-   *
-   * A trade with no scored week behind it has no realized WAR, and 0.00 in
-   * that column reads as "returned nothing" rather than as "has not happened".
-   * The test was `Number(t.season) <= Number(latest)`, which is true of every
-   * trade made this season including one made this morning: a deal struck in
-   * week 2 with week 1 the last scored week printed "WAR edge 0.00", the one
-   * thing the comment above `warEdge` says this column must never do.
-   *
-   * `useSeasonPhase` reads the roster season's matchups file — the same file
-   * the League screen and More already hold — and states which week is in
-   * progress. The last SCORED week is the one before it; in the playoffs every
-   * regular week is scored, and in the offseason none of the roster season's
-   * are. A season older than the newest one with results is played outright,
-   * and a season newer than it is not; only the current one needs the week.
-   */
-  const phase = useSeasonPhase();
-  const lastScored = phase.offseason ? 0
-    : phase.playoffs ? phase.playoffStart - 1
-      : (phase.week ?? 1) - 1;
-  const played = (t: TradeT) => {
-    const s = Number(t.season), newest = Number(phase.latest);
-    if (s !== newest) return s < newest;
-    // the week test only speaks for the season the phase was read from; while
-    // the file is in flight, or if the two disagree, the season answer stands
-    if (phase.loading || phase.rosterSeason !== phase.latest) return true;
-    return Number(t.week) <= lastScored;
-  };
-
-  const rows = useMemo(() => trades
-    .filter(t => (allSeasons || picked.has(t.season)) && t.sides.length >= 2)
-    .slice()
-    .sort((a, b) => b.ts - a.ts), [trades, picked, allSeasons]);
-  const allTeams = teamsOn.size === 0;
-  const both = teamMatch === "all" && teamsOn.size >= 2;
-  const shown = useMemo(() => rows.filter(t =>
-    (allTeams || (both
-      ? [...teamsOn].every(r => t.sides.some(s => s.rid === r))
-      : t.sides.some(s => teamsOn.has(s.rid))))
-    && (!playerOn || t.sides.some(s => s.got.some(a => a.pid === playerOn)))),
-  [rows, teamsOn, allTeams, both, playerOn]);
-  /** every player who has moved in a deal, by name, for the player sheet —
-   *  off the whole ledger, so the name of a filtered-in player resolves even
-   *  under a season filter that leaves none of his trades */
-  const traded = useMemo(() => {
-    const m = new Map<string, { name: string; n: number }>();
-    for (const t of trades) {
-      const seen = new Set<string>();
-      for (const s of t.sides) for (const a of s.got) {
-        if (!a.pid || seen.has(a.pid)) continue;
-        seen.add(a.pid);
-        const name = a.kind === "player" ? a.label : (a.label.split(" → ")[1] ?? a.label);
-        const e = m.get(a.pid);
-        if (e) e.n++; else m.set(a.pid, { name, n: 1 });
-      }
-    }
-    return m;
-  }, [trades]);
-  const playerName = playerOn ? traded.get(playerOn)?.name ?? "Player" : null;
-  const filtered = !allTeams || playerOn != null;
-  const nameOf = (rid: number) => teams?.find(t => t.roster_id === rid)?.team ?? `Team ${rid}`;
-  const ownerOf = (rid: number) => teams?.find(t => t.roster_id === rid)?.manager ?? nameOf(rid);
-  const teamName = allTeams ? null
-    // "between" names the two MANAGERS: two franchise names and a "vs" do
-    // not fit a filter button on a phone, and the manager is the handle a
-    // reader asking "what have these two done" is thinking in
-    : both && teamsOn.size === 2
-      ? [...teamsOn].map(r => teams?.find(t => t.roster_id === r)?.manager ?? nameOf(r)).join(" vs ")
-      : teamsOn.size <= 2 ? [...teamsOn].map(nameOf).join(" · ")
-      : `${teamsOn.size} teams${both ? " · all" : ""}`;
-
-  return (
-    <div className="trx-hist">
-      <Band
-        label={!filtered
-          ? `${rows.length} trade${rows.length === 1 ? "" : "s"}`
-          : `${shown.length} of ${rows.length}`}
-        right={
-          /* TWO FILTERS, SEASON THEN TEAM, and no sort: a ledger is a
-             chronology. Season lives in the URL (the scope's `season` param)
-             so a filtered ledger is a shareable link; team is local. */
-          <span className="trx-fils">
-            <button type="button" className={`trx-fil${allSeasons ? "" : " on"}`}
-              aria-haspopup="dialog" onClick={() => setFiltering("season")}>
-              {seasonLabel}<span className="caret">▾</span>
-            </button>
-            <button type="button" className={`trx-fil${allTeams ? "" : " on"}`}
-              aria-haspopup="dialog" onClick={() => setFiltering("team")}>
-              {teamName ?? "All teams"}<span className="caret">▾</span>
-            </button>
-            <button type="button" className={`trx-fil${playerOn ? " on" : ""}`}
-              aria-haspopup="dialog" onClick={() => setFiltering("player")}>
-              {playerName ?? "All players"}<span className="caret">▾</span>
-            </button>
-          </span>
-        } />
-      {/* THE LEDGER IS A FEED OF CARDS (Max, 2026-09-02), EACH ONE A GRID
-          (2026-10-27). Every trade is open: sides across, measures down —
-          what each side got, its realized WAR, its projected WAR, its KTC
-          then → now — with each label printed once rather than once per side.
-          The whole card is the way into the trade's own page, where every
-          asset is followed to where it sits today; the WAR edge stays on the
-          header line, naming its owner by manager. */}
-      <div className="trx-feed">
-        {shown.map(t => {
-          const k = snapKey(t);
-          const sides = t.sides.slice().sort((a, b) => a.rid - b.rid);
-          const edge = warEdge(sides, played(t));
-          const to = betaPath(`/trade/${tradeId(t)}`);
-          const owner = edge.rid != null
-            ? who(edge.rid, t.season, edge.owner ?? "").manager ?? edge.owner
-            : edge.owner;
-          return (
-            /* THE CARD IS THE LINK. Not an <a>: the grid inside is a table,
-               and a card-sized anchor around one reads as one giant link to a
-               screen reader. A row's contract instead — role, tab stop,
-               Enter — the same one TapRow keeps. */
-            <article className={`trx-card${open === k ? " on" : ""}`} key={k}
-              ref={open === k ? scrollTo : undefined}
-              role="link" tabIndex={0} aria-label={`Trade of ${whenShort(t.ts)} ${t.season}: where it all went`}
-              onClick={e => {
-                if (e.metaKey || e.ctrlKey) { window.open(`#${to}`, "_blank"); return; }
-                nav(to);
-              }}
-              onKeyDown={e => { if (e.key === "Enter") nav(to); }}>
-              <div className="trx-cardhd">
-                <span className="when">
-                  {whenShort(t.ts)}
-                  <b> · {t.season} · wk {t.week}{sides.length > 2 ? " · 3-team" : ""}</b>
-                </span>
-                {/* THE MARGIN NAMES ITS OWNER, on the same line. A signed WAR
-                    figure with nobody's name on it is the one thing this
-                    ledger must never print. A record, not a verdict: neither
-                    the figure nor the name is inked. */}
-                <span className="edge">
-                  <span className="k">WAR edge</span>
-                  {edge.v == null
-                    ? <span className="n">{edge.note}</span>
-                    : <>
-                      <span className="v">{edge.v === 0 ? fmtWar(0) : `+${fmtWar(edge.v)}`}</span>
-                      <span className="n">{owner}</span>
-                    </>}
-                </span>
-              </div>
-              <TradeGrid t={t} ctx={ctx} who={who} owner={ownerOf} />
-              <div className="trx-go">Where it went ›</div>
-            </article>
-          );
-        })}
-        {!shown.length && (
-          <div className="empty">
-            {playerOn || both
-              ? "No trades match these filters."
-              : allTeams
-                ? (allSeasons ? "No trades on record." : "No trades in those seasons.")
-                : `No ${allSeasons ? "" : `${seasonLabel} `}trades involving ${teamName}.`}
-          </div>
-        )}
-      </div>
-
-      <div className="tnote screen">{GRID_NOTE} Tap a trade for where everything in it went.</div>
-
-      {filtering === "season" && (
-        /* MULTI-SELECT: rows toggle and the sheet stays open, so two or three
-           seasons can be ticked in one visit; Close (or the scrim, or Escape)
-           is the way out. "All seasons" clears the set and closes, because
-           there is nothing left to pick after it. */
-        <Sheet label="Filter by season" title="Seasons · pick any" onClose={() => setFiltering(null)}>
-          <SheetRow on={allSeasons} mark={allSeasons ? "On" : undefined}
-            name="All seasons"
-            meta={`${trades.filter(t => t.sides.length >= 2).length} trades on record`}
-            onClick={() => { setSeason(ALL_SEASONS); setFiltering(null); }} />
-          {seasons.map(sn => {
-            const on = picked.has(sn.id);
-            return (
-              <SheetRow key={sn.id} on={on} mark={on ? "On" : undefined}
-                name={sn.id} meta={sn.note}
-                onClick={() => toggleSeason(sn.id)} />
-            );
-          })}
-        </Sheet>
-      )}
-      {filtering === "team" && teams && (
-        /* MULTI-SELECT, same grammar as the season sheet: rows toggle, the
-           sheet stays open, "All teams" clears and closes. A trade shows if
-           any ticked franchise was a side of it. */
-        <Sheet label="Filter by franchise" title="Franchises · pick any" onClose={() => setFiltering(null)}>
-          <SheetRow on={allTeams} mark={allTeams ? "On" : undefined}
-            name="All teams"
-            meta={`${rows.length} trade${rows.length === 1 ? "" : "s"}${allSeasons ? "" : ` in ${seasonLabel}`}`}
-            onClick={() => { setTeamsOn(new Set()); setFiltering(null); }} />
-          {/* HOW THE TICKED SET MATCHES. Two rows, always shown, so "between
-              these two only" is findable before the second team is ticked. */}
-          <SheetRow on={teamMatch === "any"} mark={teamMatch === "any" ? "On" : undefined}
-            name="Any ticked team" meta="A trade any of them was in"
-            onClick={() => setTeamMatch("any")} />
-          <SheetRow on={teamMatch === "all"} mark={teamMatch === "all" ? "On" : undefined}
-            name="Between ticked teams only" meta="Tick two: the deals between those two"
-            onClick={() => setTeamMatch("all")} />
-          {teams.slice().sort((a, b) => a.team.localeCompare(b.team)).map(t => {
-            const n = rows.filter(x => x.sides.some(s => s.rid === t.roster_id)).length;
-            const on = teamsOn.has(t.roster_id);
-            return (
-              <SheetRow key={t.roster_id} on={on} mark={on ? "On" : undefined}
-                name={t.team} meta={`${n} trade${n === 1 ? "" : "s"} · ${t.manager}`}
-                onClick={() => toggleTeam(t.roster_id)} />
-            );
-          })}
-        </Sheet>
-      )}
-      {filtering === "player" && (
-        <PlayerSheet traded={traded} on={playerOn}
-          onPick={pid => { setPlayerOn(pid); setFiltering(null); }}
-          onClose={() => setFiltering(null)} />
-      )}
-    </div>
-  );
-}
-
-/**
- * Pick ONE player. A search over everyone who has moved in a deal, most-traded
- * first; the list is cut at 60 like the builder's asset sheet, because a
- * sheet re-rendering several hundred rows per keystroke janks a phone.
- */
-function PlayerSheet({ traded, on, onPick, onClose }: {
-  traded: Map<string, { name: string; n: number }>;
-  on: string | null;
-  onPick: (pid: string | null) => void; onClose: () => void;
-}) {
-  const [q, setQ] = useState("");
-  const hits = useMemo(() => {
-    const needle = q.trim().toLowerCase();
-    return [...traded.entries()]
-      .filter(([, p]) => !needle || p.name.toLowerCase().includes(needle))
-      .sort((a, b) => b[1].n - a[1].n || a[1].name.localeCompare(b[1].name));
-  }, [traded, q]);
-  return (
-    <Sheet label="Filter by player" title="Player · pick one" onClose={onClose}>
-      <div className="trx-psearch">
-        <input type="search" autoFocus value={q} placeholder="Player"
-          aria-label="Search players who have been traded"
-          onChange={e => setQ(e.target.value)} />
-      </div>
-      <SheetRow on={on == null} mark={on == null ? "On" : undefined}
-        name="All players" onClick={() => onPick(null)} />
-      {hits.slice(0, 60).map(([pid, p]) => (
-        <SheetRow key={pid} on={pid === on} mark={pid === on ? "On" : undefined}
-          name={p.name} meta={`${p.n} trade${p.n === 1 ? "" : "s"}`}
-          onClick={() => onPick(pid)} />
-      ))}
-      {!hits.length && <div className="trx-pempty">No traded player matches “{q}”.</div>}
-    </Sheet>
   );
 }

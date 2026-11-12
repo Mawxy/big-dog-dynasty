@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
  * THE MOBILE-FIRST UI'S ICONS. Inline SVG on a 24px grid, one stroke weight,
  * `currentColor` throughout, so a tab's icon takes the tab's own ink and every
  * palette colours them for free. Drawn here rather than pulled from a library:
- * the set is nine glyphs and the board ships no icon dependency.
+ * the set is ten glyphs and the board ships no icon dependency.
  *
  * Decorative by contract (`aria-hidden`): every control that carries one also
  * carries its word or an aria-label.
@@ -59,6 +59,7 @@ const PATHS: Record<string, ReactNode> = {
     </>
   ),
   back: <path d="M14.5 5.5 8 12l6.5 6.5" />,
+  up: <path d="M5.5 14.5 12 8l6.5 6.5" />,
   close: <path d="M6 6l12 12M18 6 6 18" />,
 };
 

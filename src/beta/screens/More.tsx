@@ -273,11 +273,11 @@ export default function More() {
         <Row to={betaPath("/insights")} name="Insights"
           sub="Per-franchise outlooks, written from the preseason read"
           state={insights?.meta.generated ?? NUL} />
-        {/* THE LEDGER MOVED. It is the Trade tab's other half now — the machine
-            prices a hypothetical, the ledger prices what actually happened, and
-            they are one screen under two scopes. The row stays because More is
-            where a reader looks for "every trade ever"; only its address
-            changed. */}
+        {/* THE LEDGER IS THE TRANSACTIONS PAGE (Max, 2026-11-12). It spent two
+            months as the Trade tab's History scope; the machine prices a
+            hypothetical and this records what happened, and those turned out
+            to be two destinations. The row stays because More is where a
+            reader looks for "every trade ever". */}
         {/* WHAT THE LEDGER ACTUALLY DOES. The sub-line said "re-priced at
             today's values" and the ledger does the opposite on purpose: each
             side's market is FROZEN by the first nightly run that saw the deal
@@ -286,8 +286,8 @@ export default function More() {
             is the BUILDER's job — it draws from current rosters at current
             values — and the two tenses of this screen were described by one
             sentence that belonged to the other one. */}
-        <Row to={betaPath("/trade?scope=history")} name="Transaction ledger"
-          sub="Every trade in league history, priced on the day and scored since"
+        <Row to={betaPath("/transactions")} name="Transactions"
+          sub="Every trade, priced on the day and scored since, and every roster move"
           state={tradeState} />
         {/* THE TWO INDEX PAGES, mounted in this shell since the classic board
             was retired (2026-11-04). They carry the per-player component counts

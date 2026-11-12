@@ -155,6 +155,53 @@
   font: 400 16px/1 var(--ui);
 }
 
+/* ---- back to top (Max, 2026-11-12) ---------------------------------------
+   A round button over the bottom-right corner, shown once the page is well
+   scrolled (BetaShell sets `.show`). Under the tab bar and every sheet in the
+   stack, above the page. On a phone it sits just over the tab bar and leaves
+   with it on the way down; on a desktop it holds the corner. */
+.v3.mf .mf-top {
+  position: fixed; z-index: 35;
+  right: 16px;
+  bottom: calc(var(--navh) + env(safe-area-inset-bottom, 0px) + 14px);
+  display: grid; place-items: center;
+  width: 46px; height: 46px; padding: 0;
+  border: 0; border-radius: var(--r-pill);
+  background: var(--card); color: var(--txt);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .35), 0 0 0 1px var(--line);
+  cursor: pointer;
+  opacity: 0; transform: translateY(8px); pointer-events: none;
+  transition: opacity .18s ease, transform .18s ease;
+}
+.v3.mf .mf-top.show { opacity: 1; transform: none; pointer-events: auto; }
+.v3.mf .mf-top:hover { color: var(--acc); }
+.v3.mf .mf-top:active { background: var(--sel); }
+.v3.mf .mf-top:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
+@media (max-width: 899px) {
+  .v3.mf .v3-nav.away + .mf-top { opacity: 0; transform: translateY(8px); pointer-events: none; }
+}
+@media (min-width: 900px) {
+  .v3.mf .mf-top { right: 28px; bottom: 28px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .v3.mf .mf-top { transition: none; }
+}
+/* ROOM UNDER EVERY PAGE FOR THE BUTTON (Max, 2026-11-12). Scrolled all the way
+   down, the last lines of a page sat under it. The page now ends one button
+   (46px, plus its 14px offset and a little air) below its content, on top of
+   what the tab bar already takes on a phone. */
+.v3.mf { padding-bottom: calc(var(--navh) + env(safe-area-inset-bottom, 0px) + 14px + 46px + 12px); }
+@media (min-width: 900px) {
+  .v3.mf { padding-bottom: calc(28px + 46px + 12px); }
+}
+/* A LITTLE AIR ON THE RIGHT, ON A DESKTOP (Max, 2026-11-12). The board ran to
+   the window's edge, so a table's last figures sat against the scrollbar. The
+   split-rail pages (team, player) already spend a column on the rail, and a
+   few pixels off the other side cost them nothing. */
+@media (min-width: 900px) {
+  .v3.mf main { padding-right: 14px; }
+}
+
 /* ---- tab bar ------------------------------------------------------------- */
 
 .v3.mf .v3-nav {
@@ -1466,6 +1513,59 @@
 .v3.mf .trg-a .sb, .v3.mf .v3tbl.trg td .d { font: 400 12px/1.3 var(--ui); }
 .v3.mf .v3tbl.trg td .f { font: 600 13.5px/1.3 var(--ui); }
 .v3.mf .trx-go { padding: 6px 14px 0; font: 600 13px/1.3 var(--ui); color: var(--acc); }
+
+/* ==========================================================================
+   TRANSACTIONS and the PARTNER ANALYZER (screens/transactions.css)
+   ========================================================================== */
+
+.v3.mf .txc-wrap, .v3.mf .pax { padding-top: 0; }
+.v3.mf .txc-month { padding: 16px var(--v3pad) 8px; font: 700 13px/1.3 var(--ui); color: var(--txt2); }
+.v3.mf .txc-month .n { font: 400 12px/1.3 var(--ui); }
+/* every trade a card, the month band on the feed's own gutter */
+.v3.mf .txc-feed { padding: 0 var(--v3pad) 12px; }
+.v3.mf .txc-feed .txc-month { padding-left: 0; padding-right: 0; }
+.v3.mf .txc-group { gap: 10px; }
+.v3.mf .txc-group .txc-month { padding-bottom: 0; }
+.v3.mf .txc { border: 0; border-radius: var(--r-card); background: var(--card); overflow: hidden; }
+.v3.mf .txc.on { box-shadow: inset 0 0 0 2px var(--acc); }
+.v3.mf .txc-top { padding: 12px 14px; }
+.v3.mf .txc-top:hover { background: none; }
+.v3.mf .txc-top:active { background: var(--sel); }
+.v3.mf .txc-top:focus-visible { border-radius: var(--r-card); }
+.v3.mf .txc-hd { margin-bottom: 8px; }
+.v3.mf .txc-hd .when { font: 600 13px/1.5 var(--ui); }
+.v3.mf .txc-hd .cue { font: 400 12.5px/1.5 var(--ui); }
+.v3.mf .txc-side .who { font: 400 12.5px/1.45 var(--ui); }
+.v3.mf .txc-side + .txc-side, .v3.mf .txc-figs + .txc-figs { border-left-color: var(--line); }
+.v3.mf .txc-more { padding: 0 14px 2px; }
+.v3.mf .txc-more .txc-sides { padding-top: 10px; border-top-color: var(--line); }
+.v3.mf .txc-figs dt { font: 400 12px/1.55 var(--ui); }
+.v3.mf .txc-figs dd { font: 600 13px/1.4 var(--ui); }
+.v3.mf .txc-figs dd .d { font: 400 12px/1.35 var(--ui); }
+.v3.mf .txc-foot { min-height: var(--tap); }
+.v3.mf .txc-foot .edge { font: 400 12.5px/1.3 var(--ui); }
+.v3.mf .txc-foot .edge b { font: 600 13px/1.3 var(--ui); }
+.v3.mf .txc-foot .go { padding: 14px 0; font: 600 13px/1 var(--ui); }
+.v3.mf .txm-more { padding: 16px var(--v3pad) 12px; }
+/* ONE TRADE PER ROW AT EVERY WIDTH (Max, 2026-11-12). A desktop had two abreast
+   for an hour; a ledger reads down, and two columns made the order ambiguous. */
+.v3.mf .txm-more .n { font: 400 12.5px/1.3 var(--ui); }
+
+.v3.mf .v3tbl.pax-tbl td.pax-nm { font: 600 14.5px/1.3 var(--ui); }
+@media (max-width: 899px) {
+  /* five columns on a phone: the figures step down so the handles fit whole */
+  .v3.mf .v3tbl.pax-tbl td.n { font-size: 14px; }
+  .v3.mf .v3tbl.pax-tbl th { font-size: 12px; }
+}
+.v3.mf .v3tbl.pax-tbl td.pax-nm .sb { font: 400 12px/1.3 var(--ui); }
+.v3.mf .v3tbl.pax-tbl tr.pax-drawer > td { background: var(--card); border-bottom: 1px solid var(--line); }
+.v3.mf .pax-ph { font: 500 12px/1.5 var(--ui); }
+.v3.mf .pax-p { min-height: var(--tap); border-top: 1px solid var(--line); }
+.v3.mf .pax-p:hover { background: none; }
+.v3.mf .pax-p:active { background: var(--chip); }
+.v3.mf .pax-p .nm { font: 600 14px/1.3 var(--ui); }
+.v3.mf .pax-p .n { font: 600 13.5px/1.3 var(--ui); }
+.v3.mf .pax-none { font: 400 13px/1.4 var(--ui); }
 
 /* one trade, and where its pieces went */
 .v3.mf .trl-item { padding: 14px 0 10px; border-bottom: 1px solid var(--line); }
