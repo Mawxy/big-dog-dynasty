@@ -229,3 +229,17 @@
 /* the blank second line the index lenses carry so their rows match the Stats
    rows. The mobile-first UI shows it (mobile.css); the previous UI does not. */
 .v3tbl.roster td .mtx-ph { display: none; }
+
+/* ---- the row drawer ------------------------------------------------------
+   The Players board's drawer (`.plx-draw`, players.css), opened from a roster
+   row. Those two rules are scoped to `.plx-tbl` there, so the roster table
+   states them for itself: the open row takes the selected surface and the
+   drawer's cell gives up its padding to the drawer. The Super Flex row paints
+   its cells, so its open state has to as well. */
+.v3tbl.roster tbody tr.tap.plx-on { background: var(--sel); }
+.v3tbl.mtx-lineup tbody tr.mtx-sf.plx-on td { background: var(--sel); }
+.v3tbl.roster tbody tr.plx-drawrow > td {
+  padding: 0;
+  white-space: normal;
+  border-bottom: 1px solid var(--rule);
+}

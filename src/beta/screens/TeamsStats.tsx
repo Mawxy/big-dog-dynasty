@@ -10,7 +10,7 @@ import { fmt, ord, sd, sgn } from "../../lib/stats";
 import { useMobile } from "../../lib/useWidth";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, sgnWar, Spine, sortBy, TapRow, Th,
-  useSort,
+  useEvenRows, useSort,
 } from "../ui";
 import { ALL_SEASONS } from "../Scope";
 import { useFranchiseIndex } from "./League";
@@ -393,6 +393,8 @@ export default function TeamsStats({ season, played, phase }: {
      that has left the league has none. */
   const { hrefOf } = useFranchiseIndex(rosterSeasonOf(league));
   const mobile = useMobile("(max-width: 899px)");
+  // names wrap on this board, so its rows are measured to one height
+  const evenRows = useEvenRows();
   const allTime = season === ALL_SEASONS;
   const seasons = useMemo(() => (allTime ? played : [season]), [allTime, played, season]);
   const settled = useSettledSeasons();
@@ -518,7 +520,7 @@ export default function TeamsStats({ season, played, phase }: {
         : noBracket ? <div className="empty">{allTime ? "No bracket" : season} has been played yet — the postseason fills in once it is.</div>
         : !anyGames ? <div className="empty">No scored week in {season} yet — this fills in as the season is played.</div>
         : (
-        <table className="v3tbl plx-tbl tmx-stats">
+        <table ref={evenRows} className="v3tbl plx-tbl tmx-stats tmx-wrap">
           {!mobile && (
             <thead>
               <tr className="plx-grp">
@@ -546,9 +548,14 @@ export default function TeamsStats({ season, played, phase }: {
                   onTap={() => setOpen(open === r.fkey ? null : r.fkey)}>
                   <Spine rank={i + 1} />
                   <IdCell name={r.team} to={hrefOf(r.fkey) ?? undefined}
+                    /* NO GAME COUNT IN THE REGULAR SEASON (Max, 2026-11-12):
+                       every franchise has played the same number, so it said
+                       nothing twelve times. The bracket keeps it, because
+                       there the count is the result. */
                     sub={allTime
                       ? `${r.manager} · ${r.parts.length} season${r.parts.length === 1 ? "" : "s"}`
-                      : `${r.manager} · ${r.games} game${r.games === 1 ? "" : "s"}${r.byes ? " + bye" : ""}`} />
+                      : phase === "reg" ? r.manager
+                        : `${r.manager} · ${r.games} game${r.games === 1 ? "" : "s"}${r.byes ? " + bye" : ""}`} />
                   {mobile ? (
                     <td className="n plx-lead">
                       <span className="f hd">{cellOf(s.sort, r)}</span>

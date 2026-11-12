@@ -1,6 +1,6 @@
 import {
-  Fragment, createContext, useCallback, useContext, useEffect, useReducer,
-  useState, type Dispatch, type ReactNode, type SetStateAction,
+  Fragment, createContext, useCallback, useContext, useEffect, useLayoutEffect, useReducer,
+  useRef, useState, type Dispatch, type ReactNode, type SetStateAction,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { useShellBase } from "../lib/context";
@@ -313,6 +313,56 @@ export function TapRow({ to, onTap, className = "", children }: {
       {children}
     </tr>
   );
+}
+
+/* ---- rows of one height -------------------------------------------------- */
+
+/**
+ * EVERY ROW AS TALL AS THE TALLEST (Max, 2026-11-12).
+ *
+ * A table whose names WRAP rather than ellipsise has rows of whatever height
+ * each name happens to need, and a board of ragged rows is harder to scan than
+ * one that is uniformly a line taller. So the table is measured: the tallest
+ * body row sets `--rowh` on the table, and the stylesheet gives every row that
+ * height. A table with no wrapped name measures its ordinary row and nothing
+ * changes.
+ *
+ * Measured, not computed, because where a name wraps depends on the width the
+ * figures leave it, which changes with the viewport, the sort and the font
+ * that actually loaded. It runs after every render of the caller (twelve rows,
+ * one read), again when the table's width changes, and once more when the web
+ * fonts land. Drawer rows are not measured: they are not rows of the board.
+ *
+ * Returns the ref to hang on the <table>; the height rule lives with the
+ * table's own class (teams.css `.tmx-wrap`).
+ */
+export function useEvenRows() {
+  const ref = useRef<HTMLTableElement>(null);
+  useLayoutEffect(() => {
+    const tbl = ref.current;
+    if (!tbl) return;
+    let live = true;
+    const fit = () => {
+      if (!live) return;
+      tbl.style.removeProperty("--rowh");
+      let h = 0;
+      tbl.querySelectorAll<HTMLElement>("tbody > tr.tap, tbody > tr.v3row").forEach(tr => {
+        h = Math.max(h, tr.getBoundingClientRect().height);
+      });
+      if (h) tbl.style.setProperty("--rowh", `${Math.ceil(h)}px`);
+    };
+    fit();
+    let w = tbl.clientWidth;
+    const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => {
+      if (tbl.clientWidth === w) return;
+      w = tbl.clientWidth;
+      fit();
+    });
+    ro?.observe(tbl);
+    document.fonts?.ready.then(fit).catch(() => {});
+    return () => { live = false; ro?.disconnect(); };
+  });
+  return ref;
 }
 
 /* ---- a fetch that didn't land -------------------------------------------- */

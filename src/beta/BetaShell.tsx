@@ -33,6 +33,7 @@ import RecordBook from "./screens/RecordBook";
 import Movers from "./screens/Movers";
 import Trends from "./screens/Trends";
 import PlayerTrades from "./screens/PlayerTrades";
+import TeamTransactions from "./screens/TeamTransactions";
 import TradeDetail from "./screens/TradeDetail";
 import Recaps from "./screens/Recaps";
 import "./beta.css";
@@ -366,6 +367,7 @@ function BetaBoard({ base }: { base: string }) {
                 <Route path="league" element={<League />} />
                 <Route path="team" element={<Team />} />
                 <Route path="team/:rid" element={<TeamRoute />} />
+                <Route path="team/:rid/transactions" element={<TeamTransactions />} />
                 <Route path="claim" element={<Claim />} />
                 <Route path="players" element={<Players />} />
                 {/* THE SAME BOARD, ONE GRAIN UP. It sits under More rather

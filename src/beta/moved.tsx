@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type { Franchises, Trade, TradesPayload } from "../lib/types";
+import type { Franchises, FranchiseTx, Trade, TradesPayload } from "../lib/types";
 import { useJson } from "../lib/useJson";
 import { useLeagueCaps } from "../lib/caps";
 import { ridOf, seasonRowOf } from "../lib/seasons";
@@ -173,8 +173,16 @@ export default function Moved({ rid, fkey, teamName }: {
 
   return (
     <>
+      {/* THE WAY TO THE WHOLE LOG (Max, 2026-11-12): a franchise's window is
+          seven days of a history that runs to its first season, and the band's
+          own right edge is where every module on the board keeps its way out. */}
       <Band label={`Last ${WINDOW_DAYS} days`}
-        note={`${rid == null ? "Trades and roster moves" : "This franchise's trades and roster moves"} since ${windowFrom}`} />
+        note={`${rid == null ? "Trades and roster moves" : "This franchise's trades and roster moves"} since ${windowFrom}`}
+        right={rid != null && (
+          <RouteLink to={betaPath(`/team/${rid}/transactions`)} className="lgx-all">
+            See all transactions →
+          </RouteLink>
+        )} />
       {recent.biggest ? <BigTrade trade={recent.biggest} sized={recent.sized}
         only={recent.trades === 1} priced={recent.priced} /> : (
         /* A QUIET BAND, not an empty table. A week with no trades in it is a
@@ -247,6 +255,42 @@ export default function Moved({ rid, fkey, teamName }: {
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+/**
+ * ONE PAST SEASON'S TRANSACTIONS, on the Team screen where the seven-day
+ * window sits for the roster season (Max, 2026-11-12). A rolling week means
+ * nothing over a 2023 roster, so the band counts that season's trades and
+ * roster moves off the franchise's own log and hands the reader to the full
+ * list already filtered to the year.
+ */
+export function MovedSeason({ rid, tx, season }: {
+  rid: number; tx: FranchiseTx[] | null | undefined; season: string;
+}) {
+  const betaPath = useBetaPath();
+  const rows = (tx ?? []).filter(t => t.season === season);
+  const trades = rows.filter(t => t.type === "trade").length;
+  return (
+    <>
+      <Band label={`Transactions · ${season}`}
+        note="This franchise's trades and roster moves that season"
+        right={(
+          <RouteLink to={betaPath(`/team/${rid}/transactions?season=${season}`)} className="lgx-all">
+            See all transactions →
+          </RouteLink>
+        )} />
+      <div className="lgx-counts">
+        <div className="lgx-count">
+          <span className="k">Trades</span>
+          <span className="v">{tx ? trades : DASH}</span>
+        </div>
+        <div className="lgx-count">
+          <span className="k">Roster moves</span>
+          <span className="v">{tx ? rows.length - trades : DASH}</span>
+        </div>
+      </div>
     </>
   );
 }

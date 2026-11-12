@@ -14,7 +14,7 @@ import { starterSet } from "../model";
 import { useMobile } from "../../lib/useWidth";
 import {
   Band, DataError, fmtWar, IdCell, LensStrip, NUL, SheetRow, Spine, sortBy, TapRow, Th,
-  useBetaPath, useSort, useSticky,
+  useBetaPath, useEvenRows, useSort, useSticky,
 } from "../ui";
 import { leagueSeg } from "../../lib/context";
 import "./players.css";
@@ -268,6 +268,8 @@ function ValueBoard() {
      market. A league with neither has no board here, and it says so rather
      than spinning on "Loading…" over files that are never coming. */
   const caps = useLeagueCaps();
+  // names wrap on this board, so its rows are measured to one height
+  const evenRows = useEvenRows();
   const betaPath = useBetaPath();
   const rosterSeason = rosterSeasonOf(league);
 
@@ -492,7 +494,7 @@ function ValueBoard() {
         </div>
       ) : failed ? <DataError what="The board didn't load" />
         : !ready || !ordered ? <div className="empty">Loading…</div> : (
-        <table className="v3tbl plx-tbl plx-cur">
+        <table ref={evenRows} className="v3tbl plx-tbl plx-cur tmx-wrap">
           {!mobile && (
             <thead>
               <tr className="plx-grp">

@@ -547,7 +547,7 @@ function combine(
   };
 }
 
-function startsBy(mw: Matchups, teams: Team[], span?: WeekSpan | null) {
+export function startsBy(mw: Matchups, teams: Team[], span?: WeekSpan | null) {
   const ps = mw.playoff_start || 15;
   const name = new Map<number, string>(teams.map(t => [t.roster_id, t.team]));
   const per = new Map<string, Map<number, number>>();
@@ -2287,8 +2287,14 @@ function AllDrawer({ r, to, scores, loading }: {
   );
 }
 
-function HistDrawer({ r, season, to, weekly, loading, absent, playoffStart, wspan }: {
-  r: HistRow; season: string; to: string;
+/** What the season drawer reads off a row. Narrower than `HistRow` so the Team
+ *  screen's roster rows can open the same drawer (Max, 2026-11-12) without
+ *  building the leaderboard's whole row. */
+export type SeasonDrawerRow = Pick<HistRow, "name" | "pos" | "sdv" | "warG" | "finish" | "started" | "marks">
+  & { f: { gp?: number | null } };
+
+export function HistDrawer({ r, season, to, weekly, loading, absent, playoffStart, wspan }: {
+  r: SeasonDrawerRow; season: string; to: string;
   weekly: WeeklyRow[] | null;
   loading: boolean;
   /** week -> "BYE" / "DNP" for this player, from the season's absence.json */

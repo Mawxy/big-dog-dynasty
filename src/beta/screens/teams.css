@@ -53,3 +53,26 @@
 .tmx-lc { text-transform: none; }
 /* the week strip's third line is a result and an opponent, not a WAR */
 .tmx-stats .weekcell .war { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+
+/* ---- franchise names wrap, and the rows stay one height (Max, 2026-11-12) --
+   A franchise name is the row's subject and "St. Brown Ca…" is not one, so on
+   these two boards the name wraps instead of ellipsising. `break-word`, not
+   `anywhere`: a word moves to its own line before it is ever split.
+
+   Rows then differ in height by however many lines each name took, so the
+   table is measured (ui.tsx `useEvenRows`) and every row takes the tallest
+   one's height. A cell's `height` is a floor in a table, which is exactly the
+   job. Drawer rows are left alone. */
+.v3tbl.tmx-wrap .idc-n { white-space: normal; overflow: visible; text-overflow: clip; overflow-wrap: break-word; }
+.v3tbl.tmx-wrap tbody > tr.tap > td,
+.v3tbl.tmx-wrap tbody > tr.v3row > td { height: var(--rowh, auto); }
+
+/* ON A DESKTOP THE NAME COLUMN IS WHAT THE FIGURES LEAVE IT. The Stats board
+   has eleven of them, and under about 1150px of window they leave almost
+   nothing: wrapped, a name ran to five lines and split mid-word. So the column
+   has a floor that scales with the window. The phone has one figure cell and
+   needs none. */
+@media (min-width: 900px) {
+  .v3tbl.tmx-wrap td.idc { min-width: clamp(120px, 14vw, 200px); }
+}

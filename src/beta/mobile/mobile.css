@@ -1243,10 +1243,13 @@
 .v3.mf .plx-micro .o { font: 500 12px/1.2 var(--ui); color: var(--dim); }
 .v3.mf .plx-micro .o b { margin-left: 3px; font: 600 12px/1.2 var(--ui); color: var(--txt2); }
 .v3.mf .plx-marks .hmark-x, .v3.mf .plx-honors .hmark-x { font: 700 11px/1 var(--ui); color: var(--dim); }
-.v3.mf .plx-tbl tbody tr.tap.plx-on { background: var(--acc-wash); }
+.v3.mf .plx-tbl tbody tr.tap.plx-on,
+.v3.mf .v3tbl.roster tbody tr.tap.plx-on,
+.v3.mf .v3tbl.mtx-lineup tbody tr.mtx-sf.plx-on td { background: var(--acc-wash); }
 
 /* the row's drawer: a card under the row it belongs to */
 .v3.mf .plx-tbl tbody tr.plx-drawrow > td,
+.v3.mf .v3tbl.roster tbody tr.plx-drawrow > td,
 .v3.mf .v3tbl.tms-tbl tbody tr.tms-drawrow > td { border-bottom: 1px solid var(--line); }
 .v3.mf .plx-draw {
   margin: 8px 12px 12px; padding: 14px 16px 16px;
@@ -1576,6 +1579,11 @@
      ("FantasyCalc"), and at most six columns, so they take a wider one. */
   .v3.mf .v3tbl.plx-tbl { --figw: clamp(64px, calc((100vw - 528px) / 9), 88px); --figc: 34px; }
   .v3.mf .v3tbl.plx-tbl.plx-cur { --figw: clamp(88px, calc((100vw - 528px) / 6), 108px); --figc: 46px; }
+  /* THE TEAMS STATS BOARD HAS ELEVEN FIGURE COLUMNS, not nine (Max,
+     2026-11-12): on the nine-column budget they took 84px each at a 1280
+     window and left the franchise name about 100px, which is three wrapped
+     lines. Same rule, its own divisor. */
+  .v3.mf .v3tbl.plx-tbl.tmx-stats { --figw: clamp(64px, calc((100vw - 528px) / 11.5), 88px); }
   .v3.mf .v3tbl.plx-tbl { --figp: calc((var(--figw) - var(--figc)) / 2); }
   .v3.mf .v3tbl.plx-tbl thead tr.plx-cols th.n {
     min-width: var(--figw); padding-left: 4px; padding-right: var(--figp);
