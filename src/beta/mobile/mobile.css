@@ -816,6 +816,12 @@
 }
 .v3.mf .tlink { color: var(--acc); }
 .v3.mf .tlink:hover { text-decoration: none; }
+/* THE DRAFT BOARD'S NAMES ARE NOT ACCENT LINKS (Max, 2026-11-12). style.css
+   already sets them to --txt, and the rule above outranked it by coming later,
+   so every name on the board took the accent: blue on Midnight, over cells
+   that are themselves tinted by position. A whole board in the accent is no
+   accent at all. The name is still the link; it just reads as a name. */
+.v3.mf .dcell .nm.tlink { color: var(--txt); }
 
 /* ---- figure strip (classic views): a two-up grid of cards ----------------- */
 
