@@ -1,15 +1,23 @@
 import { Fragment, useMemo, useState } from "react";
-import type { Franchises, Team, Trade as TradeT, TradesPayload } from "../../lib/types";
+import type {
+  Franchises, ProjectionsFile, Team, Trade as TradeT, TradesPayload,
+} from "../../lib/types";
 import { useJson } from "../../lib/useJson";
 import { useLeague } from "../../lib/context";
+import { useLeagueCaps } from "../../lib/caps";
+import { useCvi, useDvi } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
-import { rosterSeasonOf } from "../../lib/league";
+import { lineupOf, rosterSeasonOf } from "../../lib/league";
+import {
+  AGING_FROM, TIER_N, rosterShapes, teamNeeds, type IndexEntry, type NeedSeat, type TeamNeeds,
+} from "../../lib/rosterModel";
+import { fmt, ord } from "../../lib/stats";
 import { readTrades } from "../../lib/trades";
 import { RouteLink } from "../../components/RouteLink";
 import {
   Band, DataError, fmtWar, NUL, sgnWar, sortBy, TapRow, Th, useBetaPath, useSort,
 } from "../ui";
-import { sideRealized, usePlayed } from "./tradeGrid";
+import { hasUnmadePick, sideRealized, usePlayed } from "./tradeGrid";
 import "./transactions.css";
 
 /**
@@ -31,14 +39,36 @@ import "./transactions.css";
  * changes most years and says nothing here the manager does not.
  *
  * WHAT THE WAR COLUMNS COVER, and the caption says so: two-team trades where a
- * scored week has passed and BOTH sides hold something with a return to judge
- * (a side of unmade picks has none yet). A three-team deal has no single
- * "other side", so it counts as a trade and stays out of the WAR. These are
- * the ledger's own rules (`sideRealized`, `usePlayed`), not a second opinion.
+ * scored week has passed and EVERY PICK IN THE DEAL HAS BEEN MADE (Max,
+ * 2026-11-13). The ledger judges a side as soon as any of it has converted,
+ * which here charged a manager for a 2027 1st as if it had returned nothing:
+ * 29 of the 129 trades then in the WAR had a pick still to be drafted. So a
+ * trade with one undrafted pick on either side waits, whole, until the last
+ * pick is used. It still counts in Trades, which is a count of deals made.
+ * A three-team deal has no single "other side", so it counts as a trade and
+ * stays out of the WAR. `usePlayed` and `sideRealized` are the ledger's own.
+ *
+ * NEEDS AND SURPLUS (Max, 2026-11-13: "it should also show team needs",
+ * shown per manager). Who to call is half a trade question and the record
+ * above answers only the other half. So each current manager's row says, by
+ * position, where his starting lineup is short and where his bench is deep,
+ * and his drawer names the seats: `teamNeeds`, which is the team page's
+ * Strengths ranks under the team page's own tier rule, not a second model.
+ * Read in CVI, the value of a seat THIS season, because a need is a hole in
+ * the lineup a manager sets on Sunday; DVI would call a contender's
+ * 31-year-old WR1 a need. Today's rosters, so a manager who has left has
+ * none, and a league without the indices shows the record alone.
+ *
+ * AND AGING, BETWEEN THE TWO (Max, 2026-11-13: "Bijan al-Gaib needs younger
+ * receivers and rbs"). His own row read "Needs none" with a 30-year-old RB2
+ * and a 29-year-old WR3 in it, because a rank of this season's value cannot
+ * see a birthday. So a starting seat that is not a need today and is held by
+ * a player past his position's age line is a third list, and every seat in
+ * the drawer carries its holder's age, so a partner shopping for youth can
+ * tell a surplus 23-year-old from a surplus 33-year-old.
  *
  * NOTHING IS INKED. A signed net is direction, not a grade: the same realized
- * WAR is one manager's in and another's out, and a draft pick that has not
- * been made is not in either yet.
+ * WAR is one manager's in and another's out.
  */
 
 /**
@@ -49,6 +79,8 @@ import "./transactions.css";
  */
 const SAME_PERSON: Record<string, string> = { Craftzz: "taird" };
 const person = (manager: string) => SAME_PERSON[manager] ?? manager;
+/** the order the caption names the age lines in: the board's own */
+const AGING_ORDER = ["QB", "RB", "WR", "TE"];
 
 interface Pair { n: number; judged: number; net: number }
 interface Stat {
@@ -83,7 +115,7 @@ function build(
       s.n++;
       who.forEach((o, j) => { if (j !== i) pair(s, o.name).n++; });
     });
-    if (t.sides.length !== 2 || !played(t)) continue;
+    if (t.sides.length !== 2 || !played(t) || hasUnmadePick(t)) continue;
     const ra = sideRealized(t.sides[0]), rb = sideRealized(t.sides[1]);
     if (ra == null || rb == null) continue;
     const [sa, sb] = who;
@@ -97,7 +129,8 @@ function build(
 }
 
 export default function Partners() {
-  const { league } = useLeague();
+  const { league, meta } = useLeague();
+  const caps = useLeagueCaps();
   const betaPath = useBetaPath();
   const identity = useIdentity();
   const file = useJson<TradesPayload>("trades.json");
@@ -106,6 +139,31 @@ export default function Partners() {
   const played = usePlayed();
   const trades = useMemo(() => (file.data ? readTrades(file.data).trades : null), [file.data]);
   const fr = frQ.data;
+  // the Strengths population, as the team page loads it
+  const proj = useJson<ProjectionsFile>(caps.projections ? "projections.json" : null).data;
+  const dvi = useDvi();
+  const cvi = useCvi();
+
+  /** each current manager's needs and surplus, off today's rosters. Null
+   *  where the league publishes no indices: the record stands without it. */
+  const needs = useMemo(() => {
+    if (!proj || !teams?.length || !dvi || !cvi) return null;
+    const flatDvi: Record<string, IndexEntry> = {};
+    for (const [pid, r] of Object.entries(dvi.players))
+      flatDvi[pid] = { value: r.dvi, posRank: r.pos_rank };
+    const flatCvi: Record<string, IndexEntry> = {};
+    for (const [pid, r] of Object.entries(cvi.players))
+      flatCvi[pid] = { value: r.cvi, posRank: r.pos_rank };
+    const shapes = rosterShapes(proj.players, teams,
+      { cvi: flatCvi, dvi: flatDvi }, lineupOf(meta));
+    const age = new Map(proj.players.map(p => [p.pid, p.age]));
+    const m = new Map<string, TeamNeeds>();
+    for (const t of teams) {
+      const sh = shapes.get(t.roster_id);
+      if (sh) m.set(person(t.manager), teamNeeds(sh, teams.length, "cvi", pid => age.get(pid)));
+    }
+    return m;
+  }, [proj, teams, dvi, cvi, meta]);
 
   /** who ran a roster slot in a season: that season's row for the slot, else
    *  the slot's latest, else the franchise name the trade itself carries */
@@ -173,7 +231,8 @@ export default function Partners() {
   return (
     <div className="pax">
       <Band label={`${total} trade${total === 1 ? "" : "s"} · ${rows.length} managers`}
-        note="All seasons · tap a manager for their partners" />
+        note={needs ? "All seasons · tap a manager for needs and partners"
+          : "All seasons · tap a manager for their partners"} />
       <table className="v3tbl pax-tbl">
         <thead>
           <tr>
@@ -190,6 +249,7 @@ export default function Partners() {
             const isOpen = openName === r.name;
             const partners = [...(r.st?.partners ?? [])]
               .sort((a, b) => b[1].n - a[1].n || a[0].localeCompare(b[0]));
+            const nd = needs?.get(r.name);
             return (
               <Fragment key={r.name}>
                 <TapRow className={isOpen ? "pax-on" : ""} onTap={() => setPicked(isOpen ? null : r.name)}>
@@ -197,6 +257,16 @@ export default function Partners() {
                     {r.name}
                     {/* under the name, not beside it (Max, 2026-11-12) */}
                     {r.former && <span className="sb">former</span>}
+                    {/* three lines on every row once any row has them, so the
+                        table keeps one row height; a former manager's last two
+                        are empty because he has no roster to read */}
+                    {needs && !r.former && <PosLine label="Needs" seats={nd?.needs} />}
+                    {needs && (r.former
+                      ? <span className="pax-nd">{"\u00a0"}</span>
+                      : <PosLine label="Aging" seats={nd?.aging} />)}
+                    {needs && (r.former
+                      ? <span className="pax-nd">{"\u00a0"}</span>
+                      : <PosLine label="Surplus" seats={nd?.surplus} />)}
                   </td>
                   <td className="n">{r.f.n}</td>
                   <td className="n">{r.f.in == null ? NUL : fmtWar(r.f.in)}</td>
@@ -206,6 +276,16 @@ export default function Partners() {
                 {isOpen && (
                   <tr className="pax-drawer">
                     <td colSpan={5}>
+                      {nd && (
+                        <>
+                          <SeatBlock label="Needs · starters" seats={nd.needs}
+                            none={`No starting seat in the bottom ${TIER_N}.`} to={betaPath} />
+                          <SeatBlock label="Aging · starters" seats={nd.aging}
+                            none="No other starter past his position’s age line." to={betaPath} />
+                          <SeatBlock label="Surplus · second string" seats={nd.surplus}
+                            none={`No second-string seat in the top ${TIER_N}.`} to={betaPath} />
+                        </>
+                      )}
                       {r.st && partners.length ? (
                         <>
                           <div className="pax-ph">
@@ -237,14 +317,67 @@ export default function Partners() {
           })}
         </tbody>
       </table>
+      {needs && (
+        <div className="tnote screen">
+          Needs are the starting seats where a manager ranks in the bottom {TIER_N} of the
+          league, seat against the same seat, by CVI (the value this season of whoever wins
+          the seat). Aging is every other starting seat held by a player at or past the age
+          where his position turns down: {AGING_ORDER.map(p => `${p} ${AGING_FROM[p]}`).join(", ")}.
+          The seat is fine today and wants a younger body soon. Surplus is the second-string
+          seats in the top {TIER_N}: a player better than the seat he sits in. Rank is of
+          the {teams?.length ?? 0} rosters. Today’s rosters, and the same seats and ranks as
+          the Strengths section of each team page.
+        </div>
+      )}
       <div className="tnote screen">
         A trade counts for the manager who made it, so a franchise that changed hands is two
         rows (a manager who only changed handles is one). WAR in is what a manager’s side of their trades has produced while starting for
         them. WAR out is what the other side’s has. Both cover two-team trades where a scored
-        week has passed and each side holds something with a return to judge, so a side of
-        unmade picks is not in either yet, and a three-team deal counts as a trade only. A
+        week has passed and every pick in the deal has been made, so a trade with a pick
+        still to be drafted waits until it is, and a three-team deal counts as a trade only. A
         record, not a verdict: no figure is inked.
       </div>
     </div>
+  );
+}
+
+/** the positions a list of seats covers, in seat order, once each: the row's
+ *  one-line read, with the seats themselves a tap away in the drawer */
+function PosLine({ label, seats }: { label: string; seats: NeedSeat[] | undefined }) {
+  const pos = [...new Set((seats ?? []).map(s => s.pos))];
+  return (
+    <span className="pax-nd">
+      <b>{label}</b> {pos.length ? pos.join(" ") : <i>none</i>}
+    </span>
+  );
+}
+
+/** one list of seats in the drawer, on the partner list's own grid: the seat
+ *  and who holds it, his age, his CVI, and the seat's rank in the league */
+function SeatBlock({ label, seats, none, to }: {
+  label: string; seats: NeedSeat[]; none: string; to: (p: string) => string;
+}) {
+  return (
+    <>
+      <div className="pax-ph pax-seat">
+        <span>{label}</span>
+        <span className="n">Age</span>
+        <span className="n">CVI</span>
+        <span className="n">Rank</span>
+      </div>
+      {seats.length ? seats.map(s => {
+        const body = (
+          <>
+            <span className="nm"><b className="st">{s.label}</b>{s.pid ? s.name : "empty"}</span>
+            <span className="n">{s.age == null ? NUL : Math.floor(s.age)}</span>
+            <span className="n">{s.pid ? fmt(s.value, 1) : NUL}</span>
+            <span className="n">{ord(s.rank)}</span>
+          </>
+        );
+        return s.pid
+          ? <RouteLink key={s.label} className="pax-p pax-seat" to={to(`/player/${s.pid}`)}>{body}</RouteLink>
+          : <div key={s.label} className="pax-p pax-seat pax-static">{body}</div>;
+      }) : <div className="pax-none">{none}</div>}
+    </>
   );
 }

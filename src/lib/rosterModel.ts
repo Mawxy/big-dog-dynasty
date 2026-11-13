@@ -305,3 +305,86 @@ export function rosterShapes(
   });
   return out;
 }
+
+/** How many seats at either end the tier rule marks. A count rather than a
+ *  share, because it is the shape the league already has: four seats that win
+ *  you the position and four that need help. One figure for the team page's
+ *  Strengths rule and the Partner analyzer's needs, so the two cannot drift. */
+export const TIER_N = 4;
+
+/**
+ * The age a position starts being read as AGING, on `Projection.age` (age on
+ * Sep 1 of the roster season).
+ *
+ * QB, RB and WR are not picked by hand: each is where the site's own aging
+ * fit (scripts/aging_curves.py -> nfl_history/aging_curves.json, fitted
+ * 2026-08-10 on 2012-2025) opens its LAST age bucket, the one with the
+ * steepest decline and the lowest availability: RB `ge27`, WR `ge29`,
+ * QB `ge34`. That file is not published to the site, so the three figures are
+ * copied here; if the fit moves its buckets, move these.
+ *
+ * TE IS HAND-SET. The fit has two TE buckets and the older one opens at 26,
+ * which is most of the league's starters and no line at all. 30 is a judgment.
+ */
+export const AGING_FROM: Record<string, number> = { QB: 34, RB: 27, WR: 29, TE: 30 };
+
+/** one seat as a trade read: who holds it, what he is worth, where it ranks */
+export interface NeedSeat {
+  label: string; pos: string;
+  pid: string | null; name: string;
+  value: number; rank: number;
+  /** the holder's age, where the caller could say */
+  age?: number;
+}
+export interface TeamNeeds {
+  /** STARTING seats ranked in the bottom `TIER_N` of the league */
+  needs: NeedSeat[];
+  /** STARTING seats that are NOT a need today and are held by a player at or
+   *  past his position's `AGING_FROM` age: fine now, on borrowed time */
+  aging: NeedSeat[];
+  /** SECOND-STRING seats ranked in the top `TIER_N`: depth to deal from */
+  surplus: NeedSeat[];
+}
+
+/**
+ * A roster's needs and surplus (Max, 2026-11-13), read straight off its
+ * `RosterShape` with the team page's own tier rule and no second model.
+ *
+ * A NEED is a starting seat in the bottom `TIER_N`: the red seats on the team
+ * page. An empty starting seat ranks last, so a hole is a need.
+ *
+ * SURPLUS is a second-string seat in the top `TIER_N`, not a strong starter.
+ * A manager's QB1 being 2nd in the league is a strength he plays every week;
+ * his QB3 being 2nd among QB3s is a player better than the seat he sits in,
+ * which is the one a partner can ask for. An empty bench seat is never surplus.
+ *
+ * AGING is the third read (Max, 2026-11-13: his own roster "needs younger
+ * receivers and RBs" and had no need on the board). A starting seat that
+ * ranks fine today and is held by a player at or past `AGING_FROM` for his
+ * position: the seat a manager has to refill soon, which no rank of this
+ * season's value can see. Kept apart from `needs` on purpose, so a seat is in
+ * one list or the other: a 38-year-old in a bottom-four seat is a need.
+ *
+ * One currency, the caller's. Every list keeps seat order (QB, RB, WR, TE).
+ * `ageOf` is the caller's because a shape carries no ages; without it there
+ * is no aging read and no age on a seat.
+ */
+export function teamNeeds(
+  shape: RosterShape, n: number, key: RankRow["key"],
+  ageOf?: (pid: string) => number | undefined,
+): TeamNeeds {
+  const cells = (rows: RankRow[]) => (rows.find(r => r.key === key) ?? rows[0])?.cells ?? [];
+  const seat = (c: RankCell): NeedSeat => ({
+    label: c.label, pos: c.label.replace(/\d+$/, ""),
+    pid: c.pid, name: c.name, value: c.value, rank: c.rank,
+    age: c.pid ? ageOf?.(c.pid) : undefined,
+  });
+  const isNeed = (c: RankCell) => c.rank > n - TIER_N;
+  const starters = cells(shape.ranks);
+  return {
+    needs: starters.filter(isNeed).map(seat),
+    aging: starters.filter(c => !isNeed(c)).map(seat)
+      .filter(s => s.age != null && s.age >= (AGING_FROM[s.pos] ?? Infinity)),
+    surplus: cells(shape.benchRanks).filter(c => c.pid && c.rank <= TIER_N).map(seat),
+  };
+}

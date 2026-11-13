@@ -124,6 +124,12 @@ const isRealized = (a: TradeAsset) => a.kind === "player" || !!converted(a);
 export const sideRealized = (s: TradeSide): number | null =>
   s.got.some(isRealized) ? s.war : null;
 
+/** Does this trade still hold a pick nobody has drafted with? The ledger
+ *  judges a side as soon as any of it has converted; a reader who wants the
+ *  whole deal settled first (the Partner analyzer, Max 2026-11-13) asks this. */
+export const hasUnmadePick = (t: TradeT): boolean =>
+  t.sides.some(s => s.got.some(a => a.kind === "pick" && !converted(a)));
+
 /**
  * A trade's sides in a STABLE order — roster id ascending.
  *

@@ -152,4 +152,27 @@
 .pax-ph .n, .pax-p .n { text-align: right; }
 .pax-p .n { font: 600 13px/1.3 var(--mono); font-variant-numeric: tabular-nums; color: var(--txt2); }
 .pax-all { display: block; padding: 10px 0 2px 12px; }
+/* needs and surplus by position, under the handle: labels, not figures, so
+   the condensed face; never wrapped, so every row keeps one height */
+.v3tbl.pax-tbl td.pax-nm .pax-nd {
+  display: block; white-space: nowrap; overflow: hidden;
+  font: 600 10.5px/1.5 var(--cond); letter-spacing: .1em; text-transform: uppercase;
+  color: var(--txt2);
+}
+.pax-nd b { font-weight: 600; color: var(--dim); margin-right: 3px; }
+.pax-nd i { font-style: normal; color: var(--dim); }
+/* a seat in the drawer: the seat's label in its own fixed step, then who
+   holds it, so the names start on one line down the list */
+.pax-p .nm .st {
+  display: inline-block; width: 42px;
+  font: 600 11px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase; color: var(--dim);
+}
+/* a seat row has a third figure, the holder's age, so its own columns */
+.pax-ph.pax-seat, .pax-p.pax-seat { grid-template-columns: minmax(0, 1fr) 34px 48px 56px; }
+/* an empty seat goes nowhere */
+.pax-p.pax-static { cursor: default; }
+.pax-p.pax-static:hover { background: none; }
+.pax-p.pax-static .nm { color: var(--dim); }
+/* a block that follows another takes a little air above its header */
+.pax-p + .pax-ph, .pax-none + .pax-ph { padding-top: 12px; }
 .pax-none { padding: 10px 0 4px 12px; font: 400 12.5px/1.4 var(--sans); color: var(--dim); }

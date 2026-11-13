@@ -22,7 +22,7 @@ import {
   POS_CHIPS, POS_COLOR, SLOT_LABEL, lineupOf, optimalLineup, rosterSeasonOf,
 } from "../../lib/league";
 import { ktcOf } from "../../lib/values";
-import { ROUND_ORD, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
+import { ROUND_ORD, TIER_N, rosterShapes, type IndexEntry, type RankRow } from "../../lib/rosterModel";
 import { rankMap, tierOf, usePickTiers, useTeamValues } from "../model";
 import Moved, { MovedSeason } from "../moved";
 import TeamSeasons from "./TeamSeasons";
@@ -100,11 +100,6 @@ const surname = (name: string) => {
   const parts = name.trim().split(/\s+/);
   return parts.length > 1 ? parts.slice(1).join(" ") : name;
 };
-
-/** How many seats at either end the tier rule marks. A count rather than a
- *  share, because it is the shape the league already has: four seats that win
- *  you the position and four that need help. */
-const TIER_N = 4;
 
 /** A route segment as a non-negative integer, or null for a bogus one. The
  *  house pattern, replicated from App.tsx's `intParam` rather than imported —
