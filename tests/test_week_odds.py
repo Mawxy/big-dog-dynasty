@@ -186,6 +186,26 @@ class TestNoLookahead(unittest.TestCase):
         wk = self.upcoming({"b": {"wk": {"4": 10.0}}}, set_={"1": ["a"], "2": ["b"]})
         self.assertEqual(wk["1"]["mu"], 0.0)
 
+    def test_a_set_lineup_with_a_bye_starter_falls_back_to_the_best_lineup(self):
+        """Sleeper carries last week's lineup into the new week. `a` is set and
+        on bye, `c` sits on the bench with a line, so the roster is priced on
+        its best projected lineup rather than on a zero."""
+        wk = self.upcoming(
+            {"b": {"wk": {"4": 10.0}}, "c": {"wk": {"4": 12.0}}},
+            set_={"1": ["a"], "2": ["b"]},
+            teams=[{"roster_id": 1, "players": ["a", "c"]}, {"roster_id": 2, "players": ["b"]}])
+        self.assertEqual(wk["1"]["mu"], 12.0)
+
+    def test_a_set_lineup_whose_starters_all_have_lines_is_priced_as_set(self):
+        """The manager's choice stands when it is a real one: `a` is set with a
+        line of 8 and `c` on the bench projects 12, and `a` is still the one
+        priced (form 21 over three games against his line)."""
+        wk = self.upcoming(
+            {"a": {"wk": {"4": 8.0}}, "b": {"wk": {"4": 10.0}}, "c": {"wk": {"4": 12.0}}},
+            set_={"1": ["a"], "2": ["b"]},
+            teams=[{"roster_id": 1, "players": ["a", "c"]}, {"roster_id": 2, "players": ["b"]}])
+        self.assertAlmostEqual(wk["1"]["mu"], 3 / 7 * 21 + 4 / 7 * 8, places=1)
+
     def test_the_line_still_picks_the_lineup(self):
         """Hot form does not bench the man projected higher: `a` averaged 21 and
         `c` has never played, but `c` holds the better line, so `c` starts and

@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type {
   BracketFile, Drafts, EloFile, Franchises, MatrixFile, Matchups, PlayersMin,
   SleeperProjFile, SummaryRow, Team, Values, WeekOdds, Weekly,
@@ -27,7 +27,7 @@ import {
 } from "../../lib/liveScores";
 import Moved from "../moved";
 import TeamRecords from "./TeamRecords";
-import { RecapBand } from "./Recaps";
+import { RecapBand, useHasRecap } from "./Recaps";
 import { playedSlotCount, playedWeeks, weekFigures, weekGames, weekRows } from "../week";
 import {
   DynTable, dynNote, GapTable, MarketTable, marketNote, MODULE_MIN_VALUE,
@@ -328,7 +328,13 @@ function resultsWeekdays(now = new Date()) {
   return d === "Tue" || d === "Wed";
 }
 
-function WeekBands({ rosterSeason }: { rosterSeason: string }) {
+function WeekBands({ rosterSeason, standings }: {
+  rosterSeason: string;
+  /** the Standings module, placed by this component because its position
+   *  follows the recap's (see the return) */
+  standings: ReactNode;
+}) {
+  const hasRecap = useHasRecap();
   const { players, meta, league } = useLeague();
   const betaPath = useBetaPath();
   /* THE OPEN CARD (Max, 2026-09-09): tapping a game opens a drawer under it
@@ -797,12 +803,11 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
       )}
     </>
   );
+  /* THE WEEKLY RECAP (Max, 2026-10-07): the newest article, above the
+     figures it is about. Draws nothing when none is published. */
+  const recapBlock = <RecapBand />;
   const lastWeekBlock = (
     <>
-      {/* THE WEEKLY RECAP (Max, 2026-10-07): the newest article, directly
-          above the figures it is about. Draws nothing when none is published. */}
-      <RecapBand />
-
       <Band label={lastWeek ? `Last week · ${lwSeason} wk ${lastWeek.wk}` : "Last week"}
         note="Regular season" />
       {/* FOUR EVEN CELLS over the four position blocks below (`.lgx-even`),
@@ -858,10 +863,18 @@ function WeekBands({ rosterSeason }: { rosterSeason: string }) {
      Eastern, the finished week is the news: the recap and the Last week
      figures lead the screen, above This week. From Thursday, when the next
      week kicks off, they drop back under it. Read off the reader's clock in
-     the league's time zone, so the switch lands at midnight ET everywhere. */
+     the league's time zone, so the switch lands at midnight ET everywhere.
+
+     STANDINGS FOLLOW THE RECAP (Max, 2026-11-17). While the recap leads the
+     screen, Standings is the next thing under it, ahead of Last week and This
+     week. When the recap drops back down, Standings goes back to the bottom
+     of this group. A league or a week with no recap published keeps Standings
+     at the bottom either way. */
   return lastWeekFirst
-    ? <>{lastWeekBlock}{thisWeekBlock}</>
-    : <>{thisWeekBlock}{lastWeekBlock}</>;
+    ? hasRecap
+      ? <>{recapBlock}{standings}{lastWeekBlock}{thisWeekBlock}</>
+      : <>{lastWeekBlock}{thisWeekBlock}{standings}</>
+    : <>{thisWeekBlock}{recapBlock}{lastWeekBlock}{standings}</>;
 }
 
 /* ---- the matchup drawer ------------------------------------------------- */
@@ -1593,11 +1606,11 @@ function CurrentView({ rosterSeason }: { rosterSeason: string }) {
 
   return (
     <>
-      {/* ---- 1. this week / last week ------------------------------------ */}
-      <WeekBands rosterSeason={rosterSeason} />
-
-      {/* ---- 1b. standings ----------------------------------------------- */}
-      <Standings rosterSeason={rosterSeason} />
+      {/* ---- 1. this week / last week, and standings ---------------------
+          WeekBands places Standings: directly under the recap while the recap
+          leads the screen, below both week modules otherwise. */}
+      <WeekBands rosterSeason={rosterSeason}
+        standings={<Standings rosterSeason={rosterSeason} />} />
 
       {/* ---- 2. playoff race --------------------------------------------- */}
       <Band label={`Playoff race · ${rosterSeason}`}

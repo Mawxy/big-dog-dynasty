@@ -69,6 +69,12 @@ function RecapItem({ r, open, onToggle, kicker }: {
   );
 }
 
+/** whether League's band has a recap to draw, so the screen can order the
+ *  modules around it (same file, same cache as the band itself) */
+export function useHasRecap() {
+  return !!useRecapFile().data?.recaps?.[0];
+}
+
 /** League's band: the newest recap, collapsed until tapped */
 export function RecapBand() {
   const betaPath = useBetaPath();

@@ -24,8 +24,9 @@ TWO SOURCES, one per situation:
     dump) and each starter's own form to that point.
   * UPCOMING weeks have no lineup yet, so each roster fields its best legal
     lineup by projected points under the league's roster_positions, or the
-    lineup its manager has set in the live week. Those starters are then priced
-    the same way: form shrunk toward the week's line, and zero with no line.
+    lineup its manager has set in the live week, as long as every starter in
+    it has a line for that week. Those starters are then priced the same way:
+    form shrunk toward the week's line, and zero with no line.
 
 THE PROJECTION IS THE PRIOR. A starter's mean is his own form shrunk toward
 HIS SLEEPER PROJECTION, not toward his position's average — so week 1 is pure
@@ -358,6 +359,20 @@ def season_odds(season, ld, raw_root, sproj):
                 rid = t["roster_id"]
                 mus, vs = [], []
                 set_l = (set_lineups or {}).get(str(rid))
+                # A SET LINEUP WITH A STARTER WHO HAS NO LINE IS NOT PRICED AS
+                # SET (Max, 2026-11-17). When a week ends Sleeper rolls to the
+                # next one and carries every lineup forward, bye players and
+                # all, so until the manager touches it the "set" lineup is last
+                # week's. Each bye starter was a zero in the mean: on
+                # 2026-11-17 the week 11 lines had four teams 28 to 56 points
+                # low, one game's favorite flipped (65% published, 33% on best
+                # lineups), and the season sim moved playoff odds by up to 17
+                # points off those lines. Such a roster fields its best
+                # projected lineup instead, the same as a future week. A lineup
+                # whose starters all have a line is still priced as set.
+                if set_l and any(pid and pid != "0" and not week_val(pid)
+                                 for pid in set_l):
+                    set_l = None
                 if set_l:
                     for pid in set_l:
                         if not pid or pid == "0":   # empty lineup slot
