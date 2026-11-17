@@ -1264,6 +1264,32 @@
 .v3.mf .rcp-tbl td { border-top: 1px solid var(--line); font: 400 13px/1.35 var(--ui); }
 .v3.mf .rcp-tbl td.r { font: 600 14px/1.2 var(--ui); }
 .v3.mf .rcp-tbl tbody tr:nth-child(odd) td { background: none; }
+/* AN ARTICLE TABLE FITS A PHONE (Max, 2026-11-17). recaps.css tightens these
+   tables under 640px so nothing needs a sideways scroll, but this layer's
+   own `.v3.mf tbody td` padding (8px a side) and the type sizes above undid
+   it: a five-column table (Team, Opponent and three figures) ran 13px past
+   its wrap at 393px and the wrap clipped the last column. So the squeeze is
+   restated here, where it wins: 5px between columns, names at 12.5px and
+   figures at 13px, and one more step down at 380px and under (12px is the
+   type floor). The outer cells keep the 12px inner pad of the gutter rule.
+   Measured on all 43 tables in the ten published recaps: none overflows at
+   360, 375 or 393px. If one ever does, the wrap scrolls instead of cutting
+   the column off. */
+@media (max-width: 640px) {
+  .v3.mf .rcp-tblwrap { overflow-x: auto; }
+  .v3.mf main .rcp-body .rcp-tbl > * > tr > * { padding-left: 5px; padding-right: 5px; }
+  .v3.mf main .rcp-body .rcp-tbl > * > tr > :first-child { padding-left: 12px; }
+  .v3.mf main .rcp-body .rcp-tbl > * > tr > :last-child { padding-right: 12px; }
+  .v3.mf .rcp-tbl td.t { font-size: 12.5px; }
+  .v3.mf .rcp-tbl td.r { font-size: 13px; }
+}
+@media (max-width: 380px) {
+  .v3.mf main .rcp-body .rcp-tbl > * > tr > * { padding-left: 4px; padding-right: 4px; }
+  .v3.mf main .rcp-body .rcp-tbl > * > tr > :first-child { padding-left: 12px; }
+  .v3.mf main .rcp-body .rcp-tbl > * > tr > :last-child { padding-right: 12px; }
+  .v3.mf .rcp-tbl td.t { font-size: 12px; }
+  .v3.mf .rcp-tbl td.r { font-size: 12.5px; }
+}
 .v3.mf .rcp-foot { font: 400 12.5px/1.4 var(--ui); color: var(--dim); }
 
 /* ==========================================================================
