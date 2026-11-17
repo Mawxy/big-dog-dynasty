@@ -35,6 +35,22 @@
 .pm-clr:hover { color: var(--txt); }
 .pm-clr:focus-visible { outline: 2px solid var(--acc); outline-offset: 2px; }
 
+/* ---- the week band, as the fold control ---------------------------------
+   The board's .band with its padding handed to the button inside it, so the
+   whole strip is the tap target. Clear week stays a sibling at the right
+   edge. */
+.pm-wkband { padding: 0; align-items: stretch; flex-wrap: nowrap; gap: 0; }
+.pm-wk {
+  flex: 1 1 auto; min-width: 0;
+  display: flex; align-items: baseline; justify-content: space-between; gap: 14px;
+  padding: 7px 22px; background: transparent; border: 0;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.pm-wk .caret { display: inline-block; width: 16px; }
+.pm-wk:hover .band-label { color: var(--txt2); }
+.pm-wk:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.pm-wkband .pm-clr { flex: 0 0 auto; padding: 0 22px 0 6px; }
+
 /* ---- the games ----------------------------------------------------------
    Two columns of cards on a desktop, one on a phone. THE GUTTER (Max,
    2026-10-07): the two columns are split by an 18px --deep channel with a
@@ -61,10 +77,25 @@
 .pm-side.r { flex-direction: row-reverse; text-align: right; padding: 9px var(--v3pad) 9px 12px; }
 .pm-side:hover { background: var(--sel); }
 .pm-side:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+/* the stacked identity: the name, and the running record under it */
+.pm-side .id { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
 .pm-side .nm {
   font: 600 13.5px/1.25 var(--sans); color: var(--txt);
   overflow-wrap: anywhere; text-wrap: balance;
 }
+.pm-side .rc {
+  font: 600 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim);
+}
+.pm-side.won .rc { color: var(--txt2); }
+/* the odds stack at the inner edge: win chance, and the projected score under
+   it, so the two scores face each other across the "vs" */
+.pm-side .od { flex: 0 0 auto; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.pm-side.r .od { align-items: flex-start; }
+.pm-side .ps {
+  font: 600 11.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim);
+}
+.pm-side.won .ps { color: var(--txt2); }
+.pm-side.r .id { align-items: flex-end; }
 .pm-side .wp {
   flex: 0 0 auto; font: 600 13px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--dim);
 }
@@ -90,4 +121,9 @@
   .pm-side { padding: 9px 10px 9px 16px; }
   .pm-side.r { padding: 9px 16px 9px 10px; }
   .pm-side .nm { font-size: 13px; }
+}
+/* the band's own phone breakpoint (style.css): label over note, 14px gutter */
+@media (max-width: 640px) {
+  .pm-wk { flex-direction: column; align-items: flex-start; gap: 2px; padding: 7px 14px; }
+  .pm-wkband .pm-clr { padding: 0 14px 0 6px; }
 }

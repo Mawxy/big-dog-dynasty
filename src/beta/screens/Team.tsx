@@ -6,6 +6,7 @@ import type {
 } from "../../lib/types";
 import { useMobile } from "../../lib/useWidth";
 import QuickJump from "../../components/QuickJump";
+import OutlookPanel from "../../components/OutlookPanel";
 import TeamAvatar from "../../components/TeamAvatar";
 import { HonorSprite } from "../../components/HonorMarks";
 import TeamHonorMarks, { TeamHonorLegend } from "../../components/TeamHonorMarks";
@@ -1023,11 +1024,8 @@ export default function Team() {
               /* the verdict panel: prose that interprets the figures, on
                  --panel behind the accent rule, the same object as the
                  player page's Model read */
-              <div className="verdict">
-                <div className="k">{insights?.meta.season} outlook</div>
-                <div className="meta">{insight.head} · written {insights?.meta.generated}</div>
-                <div className="body">{insight.text}</div>
-              </div>
+              <OutlookPanel key={rid} insight={insight}
+                season={insights?.meta.season} generated={insights?.meta.generated} />
             )}
 
             {/* ---- what moved ----

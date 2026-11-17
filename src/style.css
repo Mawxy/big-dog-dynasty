@@ -1615,6 +1615,31 @@ tbody tr.stint td.stint-wk { padding-left: 22px; font: 400 12px/1.4 var(--sans);
 }
 .verdict .body { font: 400 13.5px/1.6 var(--sans); color: var(--txt2); margin-top: 8px; text-wrap: pretty; }
 
+/* the outlook's verdict panel FOLDS (components/OutlookPanel; Max,
+   2026-11-17): kicker, headline, the figures line and a "Read" line are one
+   button, and the prose opens under it in place. The recap's grammar on the
+   verdict's surface. The panel's padding moves onto the button so the whole
+   head is the tap target. */
+.verdict.vfold { padding: 0; }
+.vfold-head {
+  display: flex; flex-direction: column; align-items: flex-start; width: 100%;
+  padding: 12px 16px 13px;
+  background: transparent; color: inherit; border: 0; font: inherit; text-align: left; cursor: pointer;
+}
+.vfold-head:hover { background: var(--sel); }
+.vfold-head:focus-visible { outline: 2px solid var(--acc); outline-offset: -2px; }
+.verdict .hl {
+  font: 700 20px/1.15 var(--cond); letter-spacing: .02em; text-transform: uppercase; color: var(--txt);
+  text-wrap: balance; margin-top: 7px;
+}
+.verdict .hl + .meta { margin-top: 5px; }
+.verdict .more {
+  font: 600 10.5px/1 var(--cond); letter-spacing: .12em; text-transform: uppercase; color: var(--acc);
+  margin-top: 9px;
+}
+.vfold-head:hover .more { color: var(--txt); }
+.verdict.vfold .body { margin-top: 0; padding: 0 16px 14px; }
+
 /* ---- week grid: 14 fixed cells, 7 per row --------------------------------
    A bye reads BYE at 75% opacity; a genuinely missing week reads — at 40%.
    Different facts, different treatments. */

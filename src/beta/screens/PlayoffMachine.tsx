@@ -28,6 +28,21 @@ import "./playoffs.css";
  *
  * Nothing is saved. The picks live in this screen and reset when it is left,
  * which is the honest scope for a what-if.
+ *
+ * THE RECORD UNDER EACH SIDE (Max, 2026-11-17): every team in every game
+ * carries its record on the line under its name, and the record is the
+ * RUNNING one: the standings today plus every game locked through that week.
+ * Lock a Week 12 win and that side reads one win better there and in every
+ * week after it, so the picks add up in front of the reader instead of only
+ * in the table above. A game left open adds nothing to either side.
+ *
+ * THE PROJECTED SCORE (Max, 2026-11-17): under each side's win chance is the
+ * score the line projects for it (odds.json `mu`, the projected lineup), so a
+ * 79% reads as 141.2 against 118.6 rather than as a bare percentage. It stays
+ * up when the game is locked: a lock sets the winner, not the points.
+ *
+ * WEEKS FOLD (Max, 2026-11-17): the week band is the collapse control for
+ * its games. A folded week keeps its locks and still says how many it holds.
  */
 
 type Fill = "proj" | "ppg" | "war";
@@ -61,6 +76,8 @@ export default function PlayoffMachine() {
     [mwQ.data, oddsQ.data]);
   const [picks, setPicks] = useState<Picks>({});
   const [fill, setFill] = useState<Fill | null>(null);
+  /** the weeks folded shut; every week starts open */
+  const [shut, setShut] = useState<Record<number, boolean>>({});
   // the table re-runs off a deferred copy, so a tap paints the pick at once
   // and the ~10,000-season run lands a beat later instead of blocking it
   const dPicks = useDeferredValue(picks);
@@ -87,6 +104,29 @@ export default function PlayoffMachine() {
     const t = st.ties[rid];
     return `${st.wins[rid]}-${st.losses[rid]}${t ? `-${t}` : ""}`;
   };
+
+  /* the running record, per week: today's standings plus every lock through
+     that week, in schedule order */
+  const runRec = useMemo(() => {
+    const out: Record<number, Record<number, string>> = {};
+    if (!st) return out;
+    const w = { ...st.wins }, l = { ...st.losses };
+    for (const wk of st.weeks) {
+      for (const g of st.games) {
+        if (g.wk !== wk) continue;
+        const won = picks[g.id];
+        if (won == null) continue;
+        w[won] += 1;
+        l[won === g.a ? g.b : g.a] += 1;
+      }
+      out[wk] = {};
+      for (const rid of st.rids) {
+        const t = st.ties[rid];
+        out[wk][rid] = `${w[rid]}-${l[rid]}${t ? `-${t}` : ""}`;
+      }
+    }
+    return out;
+  }, [st, picks]);
 
   const ppg = useMemo(() => {
     const m: Record<number, number> = {};
@@ -203,38 +243,61 @@ export default function PlayoffMachine() {
       <div className="tnote screen pm-note">
         Seed is the order of average finish. Proj W-L is the average final win total, rounded. The line under each
         figure is the change from the model with nothing locked. A locked game still draws its
-        scores, so points for, the tiebreak, moves the way it would.
+        scores, so points for, the tiebreak, moves the way it would. In each game, the figure under a
+        side's win chance is its projected score.
       </div>
 
       {/* ---- the games --------------------------------------------------- */}
       {st?.weeks.map(wk => {
         const games = st.games.filter(g => g.wk === wk);
         const locked = games.filter(g => picks[g.id] != null).length;
+        const isShut = !!shut[wk];
         return (
           <section key={wk}>
-            <Band label={`Week ${wk}`}
-              note={locked ? `${locked} of ${games.length} locked` : "Tap a team to lock the win"}
-              right={locked ? <button type="button" className="pm-clr" onClick={() => clearWeek(wk)}>Clear week</button> : undefined} />
-            <div className="pm-games">
+            {/* the band is the fold control; Clear week sits beside it, not
+                inside it, because a button cannot hold a button */}
+            <div className="band pm-wkband">
+              <button type="button" className="pm-wk" aria-expanded={!isShut}
+                onClick={() => setShut(s => ({ ...s, [wk]: !s[wk] }))}>
+                <span className="band-label">
+                  <span className="caret" style={{ color: isShut ? "var(--dim)" : "var(--acc)" }}>
+                    {isShut ? "▸" : "▾"}
+                  </span>
+                  Week {wk}
+                </span>
+                <span className="band-note">
+                  {locked ? `${locked} of ${games.length} locked`
+                    : isShut ? `${games.length} games` : "Tap a team to lock the win"}
+                </span>
+              </button>
+              {locked ? <button type="button" className="pm-clr" onClick={() => clearWeek(wk)}>Clear week</button> : null}
+            </div>
+            {!isShut && <div className="pm-games">
               {games.map(g => {
                 const w = picks[g.id];
-                const side = (rid: number, wp: number, right: boolean) => (
+                const side = (rid: number, wp: number, mu: number, right: boolean) => (
                   <button type="button"
                     className={`pm-side${right ? " r" : ""}${w === rid ? " won" : w != null ? " lost" : ""}`}
                     aria-pressed={w === rid} onClick={() => toggle(g, rid)}>
-                    <span className="nm">{name(rid)}</span>
-                    <span className="wp">{w === rid ? "Win" : w != null ? "Loss" : pct(wp)}</span>
+                    <span className="id">
+                      <span className="nm">{name(rid)}</span>
+                      <span className="rc">{runRec[wk]?.[rid] ?? rec(rid)}</span>
+                    </span>
+                    <span className="od">
+                      <span className="wp">{w === rid ? "Win" : w != null ? "Loss" : pct(wp)}</span>
+                      <span className="ps">{mu.toFixed(1)}</span>
+                    </span>
                   </button>
                 );
                 return (
                   <div className="pm-game" key={g.id}>
-                    {side(g.a, g.wpA, false)}
+                    {side(g.a, g.wpA, g.ma, false)}
                     <span className="pm-vs">vs</span>
-                    {side(g.b, 1 - g.wpA, true)}
+                    {side(g.b, 1 - g.wpA, g.mb, true)}
                   </div>
                 );
               })}
-            </div>
+            </div>}
           </section>
         );
       })}

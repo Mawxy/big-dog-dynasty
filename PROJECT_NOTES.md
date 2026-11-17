@@ -134,6 +134,10 @@ fetch_values.py / fetch_ecr.py ──> data/values.json, values_history.json, ec
   projections and hand-edited twice since (`fb5463c6`, 2026-09-08; `b4e7e99a`,
   2026-10-14).
   Decide: script, preseason ritual, or remove the band.
+  Each team entry is `headline`, `head`, `text`. `headline` (Max, 2026-11-17)
+  is the one line the team page shows before the outlook is opened
+  (`components/OutlookPanel`), so every insight update writes one per team; an
+  entry without it draws open.
 - **Index loaders are cache-keyed per league + season list** (`data.indexKey`) —
   honors, career, teamHonors, records, postseason, winshare, weekpoints, usage.
   The module-level promise used to be keyed on nothing, so whichever caller

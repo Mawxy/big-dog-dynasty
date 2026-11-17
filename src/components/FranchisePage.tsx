@@ -18,6 +18,7 @@ import TScroll from "./TScroll";
 import { PlayerLink } from "./PlayerLink";
 import QuickJump from "./QuickJump";
 import TeamStrengths from "./TeamStrengths";
+import OutlookPanel from "./OutlookPanel";
 
 const POS_ORDER = ["QB", "RB", "WR", "TE"];
 const posIdx = (p: string) => { const i = POS_ORDER.indexOf(p); return i < 0 ? POS_ORDER.length : i; };
@@ -673,11 +674,8 @@ export default function FranchisePage({ fkey, players, tab }:
             </div>
 
             {insight && (
-              <div className="verdict">
-                <div className="k">{insights?.meta.season} outlook</div>
-                <div className="meta">{insight.head} · written {insights?.meta.generated}</div>
-                <div className="body">{insight.text}</div>
-              </div>
+              <OutlookPanel key={fkey} insight={insight}
+                season={insights?.meta.season} generated={insights?.meta.generated} />
             )}
 
             {/* ---- roster ----

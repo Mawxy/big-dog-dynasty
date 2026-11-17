@@ -548,10 +548,13 @@ export interface PlayerShard extends BankedRow {
   usage?: Record<string, import("./usage").UsagePhases>;
 }
 
-/** data/insights.json — written per-franchise outlooks, keyed by roster_id */
+/** data/insights.json — written per-franchise outlooks, keyed by roster_id.
+ *  `headline` is the one line the team page shows before the outlook is
+ *  opened (components/OutlookPanel); absent in outlooks written before
+ *  2026-11-17, which draw open. */
 export interface Insights {
   meta: { generated: string; season: number; note: string };
-  teams: Record<string, { head: string; text: string }>;
+  teams: Record<string, { head: string; headline?: string; text: string }>;
 }
 
 /** data/dvi.json — Dynasty Value Index, one 0-100 figure per player.
