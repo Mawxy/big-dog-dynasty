@@ -6,7 +6,8 @@ they parallelize past Sleeper's ~1000/min per-IP cap).
 
   --mode signals : the ONLY discoverer. Snowballs the user<->league graph, keeps
                    on-format (superflex/12-team) leagues, and records roster% /
-                   start% / taxi% from a rolling window of roster snapshots.
+                   taxi% from a rolling window of roster snapshots and start%
+                   from the lineups of FINISHED weeks (see finished_week_obs).
                    Publishes data/crawl_leagues.json (the counted league IDs) as
                    the hand-off, and data/league_signals.json.
                    With --league-type redraft it crawls settings.type 0 leagues
@@ -412,6 +413,155 @@ def make_heartbeat(t0, counters):
     return hb
 
 
+# ------------------------------------------------- start%: finished weeks ---
+# START RATE IS READ FROM WEEKS THAT ARE OVER (Max, 2026-11-14).
+#
+# It used to be read off the live /rosters call on every visit, which had two
+# faults. A lineup read before Sunday is largely LAST week's lineup, so a
+# player coming off a bye read as benched and one going into a bye as started
+# (Caleb Williams, on bye in week 10, "started" in 81% of redraft leagues). And
+# an abandoned roster kept voting: STALE_MSG_DAYS is a LEAGUE-level test, so
+# one active manager kept eleven dead rosters in the sample. A dead roster
+# still starts its week-1 studs and benches whoever broke out after the draft,
+# which is exactly backwards for a usage signal: Isaiah Likely, the TE3 in
+# points, read 70% started, and about a fifth of redraft rosters and an eighth
+# of dynasty ones were still starting players who had been out five weeks.
+#
+# So the lineup now comes from /league/<lid>/matchups/<week> for a week that
+# is finished, joined to who actually played it, and a roster's week only
+# votes if somebody was plainly setting that lineup.
+SKILL_POS = ("QB", "RB", "WR", "TE")
+STATS_URL = ("https://api.sleeper.app/stats/nfl/{season}/{week}"
+             "?season_type=regular&position[]=QB&position[]=RB&position[]=WR&position[]=TE")
+# the box-score keys sleeper_pull.row_played accepts as proof of a snap
+_OFF_STATS = ("pass_att", "pass_yd", "pass_cmp", "rush_att", "rush_yd",
+              "rec", "rec_tgt", "rec_yd", "fum", "pass_sack")
+REG_WEEKS = 18
+# start_rate_now is the latest finished week's rate, but only once that week
+# has been read in at least this share of the leagues in the live window: the
+# crawl takes days to come round, and the first few hundred leagues of a new
+# week are not yet the sample the week before it is.
+NOW_WEEK_COVERAGE = 0.5
+
+
+def stat_played(row):
+    """The played rule, on one row of the weekly stats feed: snaps OR a stat
+    line, never one alone, and never `gms_active` (PROJECT_NOTES, "Sleeper
+    stats-feed signatures"). The same test as sleeper_pull.row_played, restated
+    here because that module imports the WAR engine and the crawl runs on the
+    standard library; a test holds the two together."""
+    st = (row or {}).get("stats") or {}
+    return bool(st.get("gp") or st.get("off_snp") or st.get("def_snp")
+                or st.get("st_snp") or st.get("tm_off_snp")
+                or st.get("tm_def_snp") or st.get("tm_st_snp")
+                or any(st.get(k) for k in _OFF_STATS))
+
+
+def played_set(rows):
+    """{pid} who played, from one week of the stats feed. No record at all is
+    an inactive or a bye, so absence is the answer for everyone else."""
+    return {str(r["player_id"]) for r in (rows or [])
+            if isinstance(r, dict) and r.get("player_id") and stat_played(r)}
+
+
+def finished_through(season_type, week):
+    """The last regular-season week that is in the books. Sleeper's `week` is
+    the week being played, so everything before it is finished."""
+    if season_type != "regular" or not week:
+        return 0
+    return max(0, min(int(week) - 1, REG_WEEKS))
+
+
+def prior_week(pid, week, pid_team, byes):
+    """The week before `week` in which this player's club had a game, or None
+    in week 1. A bye is not an absence, so it is stepped over."""
+    w = week - 1
+    if w >= 1 and byes.get(pid_team.get(pid)) == w:
+        w -= 1
+    return w if w >= 1 else None
+
+
+def roster_week_dead(starters, week, played, pid_team, byes, pid_pos):
+    """Why this roster's finished week does not vote, or None if it does.
+
+    A week votes when somebody was plainly setting the lineup. It does not if
+    the roster
+      "bye"    started a player whose club was on bye that week,
+      "empty"  left a starting slot empty (Sleeper writes "0"), or
+      "out"    started a player who did not play that week AND did not play
+               his club's game before it. One missed week is a surprise
+               Sunday scratch and is not held against a live manager; two
+               running is a lineup nobody is looking at.
+    PER ROSTER, PER WEEK: no standing verdict and no strike count. A live
+    manager who slips once loses that one week and nothing more.
+
+    "out" is only asked of QB/RB/WR/TE, the positions the stats feed is read
+    for; a kicker or a defense is never evidence either way. `played` is
+    {week: {pid}}; a week whose set is missing cannot convict anybody.
+    """
+    if not starters:
+        return "empty"
+    for pid in starters:
+        if not pid or pid == "0":
+            return "empty"
+        if byes.get(pid_team.get(pid)) == week:
+            return "bye"
+    now = played.get(week)
+    if now is None:
+        return None
+    for pid in starters:
+        if pid_pos.get(pid) not in SKILL_POS or pid in now:
+            continue
+        prev = prior_week(pid, week, pid_team, byes)
+        before = played.get(prev) if prev else None
+        if before is not None and pid not in before:
+            return "out"
+    return None
+
+
+def finished_week_obs(matchups, week, played, pid_team, byes, pid_pos):
+    """One league's finished week as start% observations.
+
+    -> (obs, live, dead): obs is [(pid, started)] for every player on a roster
+    whose week votes, `live` and `dead` count the roster-weeks on each side.
+    A player on his own bye is skipped, as before: he could not be started,
+    so the week says nothing about whether anyone wanted to. A roster with no
+    players that week (the league had not drafted) is neither live nor dead.
+    """
+    obs, live, dead = [], 0, 0
+    for mu in matchups or []:
+        if not isinstance(mu, dict):
+            continue
+        players = [p for p in (mu.get("players") or []) if p]
+        if not players:
+            continue
+        starters = mu.get("starters") or []
+        if roster_week_dead(starters, week, played, pid_team, byes, pid_pos):
+            dead += 1
+            continue
+        live += 1
+        started = set(starters)
+        for pid in players:
+            if byes.get(pid_team.get(pid)) == week:
+                continue
+            obs.append((pid, pid in started))
+    return obs, live, dead
+
+
+def now_week(wk_n, window):
+    """Which finished week start_rate_now is quoted from: the latest one read
+    in at least NOW_WEEK_COVERAGE of the leagues in the live window, else the
+    one before it on the same test. `wk_n` is {week: leagues read}. None when
+    no finished week has that much behind it yet (the first days after a week
+    turns over with nothing older to fall back on), and the caller falls back
+    to what it has."""
+    need = max(1, NOW_WEEK_COVERAGE * window)
+    for w in sorted((int(w) for w in wk_n), reverse=True):
+        if wk_n[str(w)] >= need:
+            return w
+    return None
+
+
 # ------------------------------------------------------------ mode: signals ---
 def mode_signals(args, t0):
     sd = Path(args.state)
@@ -423,25 +573,63 @@ def mode_signals(args, t0):
     frontier = deque(jload(sd / "frontier.json", []) or args.seeds
                      or (REDRAFT_SEEDS if args.league_type == "redraft" else DEFAULT_SEEDS))
     snapshots = jload(sd / "snapshots.json", {})   # lid -> {ts, players, starters, taxi}
-    # season-long start% accumulator: usage = started-weeks / rostered-weeks.
-    # Each weekly re-crawl of a league adds one observation, so a single injured
-    # week barely moves it (and a half-season absence rightly lowers it). Unlike
-    # roster%/taxi% (windowed to "now"), this accumulates all season, reset at
-    # rollover.
+    # season-long start% accumulator: usage = started-weeks / rostered-weeks,
+    # one observation per player per LIVE roster per FINISHED week (see
+    # finished_week_obs). A single injured week barely moves it (and a
+    # half-season absence rightly lowers it). Unlike roster%/taxi% (windowed to
+    # "now"), this accumulates all season, reset at rollover.
+    finished = finished_through(args.season_type, args.week)
     acc_raw = jload(sd / "start_acc.json", {})
     if acc_raw.get("season") != args.season:
-        acc_raw = {"season": args.season, "acc": {}}
+        # a new season accumulates finished weeks from its first
+        acc_raw = {"season": args.season, "acc": {}, "basis": "finished-weeks",
+                   "from_week": 1}
     start_acc = acc_raw["acc"]                      # pid -> [started_obs, rostered_obs]
+    committed = jload(ROOT / args.signals_out, {})
     if not start_acc:
-        start_acc.update(recover_start_acc(jload(ROOT / args.signals_out, {}), args.season))
+        start_acc.update(recover_start_acc(committed, args.season))
         if start_acc:
             print(f"[signals] cold start: recovered start% for {len(start_acc)} players "
                   f"from {args.signals_out}", file=sys.stderr, flush=True)
+            # the registry went with the cache, so no league remembers which
+            # weeks it has read; each resumes at the latest finished week
+            # (below) and what the file says about the accumulator stands
+            basis = committed.get("start_basis") or {}
+            if basis.get("kind") == "finished-weeks":
+                acc_raw.update(basis="finished-weeks",
+                               from_week=basis.get("from_week") or max(1, finished))
+            else:
+                acc_raw.pop("basis", None)
+    # `from_week` is the first week the accumulator holds FINISHED-week data
+    # for. An accumulator from before 2026-11-14 holds mid-week snapshot
+    # observations; it is kept (the backfill that replaces it is a separate,
+    # explicit step) and finished weeks are appended from the latest one.
+    if acc_raw.get("basis") != "finished-weeks":
+        acc_raw.update(basis="finished-weeks", from_week=max(1, finished))
+    wk_acc = acc_raw.setdefault("wk_acc", {})       # week -> pid -> [started, rostered]
+    wk_n = acc_raw.setdefault("wk_n", {})           # week -> leagues read
+    tally = acc_raw.setdefault("roster_weeks", {"live": 0, "dead": 0})
+    # THE BACKFILL (--start-backfill): rebuild the season from week 1 instead
+    # of appending clean weeks to a contaminated accumulator. The accumulator
+    # is REPLACED, and every league is sent back to re-read each finished week,
+    # about nine calls a league the first time round. Idempotent: once the
+    # accumulator starts at week 1 the flag does nothing, so it can sit in a
+    # workflow for the days the rebuild takes.
+    if getattr(args, "start_backfill", False) and acc_raw.get("from_week") != 1:
+        start_acc.clear(); wk_acc.clear(); wk_n.clear()
+        tally.update(live=0, dead=0)
+        acc_raw["from_week"] = 1
+        for m in registry.values():
+            m["wk"] = 0
+        print(f"[signals] start% backfill: accumulator cleared, {len(registry)} "
+              f"leagues will re-read weeks 1-{finished}", file=sys.stderr, flush=True)
+    from_week = acc_raw["from_week"]
     # bye handling: a player on bye can't start, so that week isn't a fair usage
     # observation — skip it. Only needed in-season.
-    pid_team, byes = {}, {}
+    pid_team, pid_pos, byes = {}, {}, {}
     if args.season_type == "regular":
         pid_team = load_player_teams(sd)
+        pid_pos = {pid: p.get("pos") for pid, p in load_players_nfl(sd).items()}
         # Written by sleeper_pull into the DEFAULT league's season dir. The map
         # itself is the league-independent NFL schedule, so reading it from
         # there is right — but it moved under data/leagues/<founding_id>/ and
@@ -449,6 +637,54 @@ def mode_signals(args, t0):
         # silently a no-op: byes counted as "chose not to start him" and every
         # start_rate came back low.
         byes = jload(DataDir(ROOT / "data") / str(args.season) / "byes.json", {})  # {team: week}
+    # who played each finished week: one global call a week, kept for the
+    # season (a finished week does not change). A week the feed will not
+    # answer for is None for this run: its lineups are not read, and the
+    # league's week counter stays where it is until the feed is back.
+    played_f = sd / "played.json"
+    played_raw = jload(played_f, {})
+    if played_raw.get("season") != args.season:
+        played_raw = {"season": args.season, "weeks": {}}
+    played = {int(w): set(pids) for w, pids in played_raw["weeks"].items()}
+
+    def played_for(week):
+        if week not in played:
+            rows = get(STATS_URL.format(season=args.season, week=week))
+            if rows:
+                played[week] = played_set(rows)
+                played_raw["weeks"][str(week)] = sorted(played[week])
+                jdump(played_f, played_raw)
+            else:
+                played[week] = None
+                print(f"::warning title=No stats for a finished week::{args.season} "
+                      f"week {week}: the stats feed returned nothing, so its lineups "
+                      f"are not read this run", flush=True)
+        return played[week]
+
+    def read_finished(lid, last):
+        """This league's unread finished weeks -> (per-week results, new `wk`).
+        Nothing is applied here: a rate limit or the deadline can land between
+        two weeks, and the caller only folds the result in once it has all of
+        it, so a league that is put back is read again from the same place."""
+        start = finished if last is None else last + 1
+        start = max(start, from_week, 1)
+        out, upto = [], last
+        for w in range(start, finished + 1):
+            now = played_for(w)
+            if now is None:
+                break                               # resume here next visit
+            for pw in (w - 1, w - 2):               # the weeks "out" looks back on
+                if pw >= 1:
+                    played_for(pw)
+            ctx = {k: v for k, v in played.items() if v is not None}
+            if deadline and time.time() >= deadline:
+                raise DeadlineReached(f"--max-minutes {args.max_minutes:g} "
+                                      f"spent inside league {lid}")
+            out.append((w, finished_week_obs(get(f"/league/{lid}/matchups/{w}"),
+                                             w, ctx, pid_team, byes, pid_pos)))
+            upto = w
+        return out, upto
+
     seen_users = {}                                # transient per run
     require_sf = not args.any_qb
     # re-enqueue counted leagues whose snapshots have gone stale, for refresh
@@ -458,6 +694,7 @@ def mode_signals(args, t0):
     n_visited = n_counted = n_stale = 0
     counters = lambda: {"visited": n_visited, "counted": n_counted,
                         "stale": n_stale,
+                        "roster-weeks": tally["live"], "dead": tally["dead"],
                         "registry": len(registry), "frontier": len(frontier)}
     hb = make_heartbeat(t0, counters)
     print(f"[signals:{args.league_type}] seeds={list(frontier)[:3]}... "
@@ -474,21 +711,42 @@ def mode_signals(args, t0):
             for pid in set(s.get("players") or []): rostered[pid] += 1
             for pid in set(s.get("starters") or []): started_now[pid] += 1
             for pid in set(s.get("taxi") or []): taxied[pid] += 1
+        # START RATE NOW is the most recent finished week over live rosters,
+        # not the mid-week lineup. A player that week has no line for (his
+        # bye, or nobody live held him) takes his season rate; only with no
+        # finished week read at all (week 1, the offseason) does the live
+        # snapshot stand in, which is what it always was then.
+        nw = now_week(wk_n, n)
+        week_now = wk_acc.get(str(nw), {}) if nw else {}
         players = {}
         for pid in rostered:
             sa = start_acc.get(pid, [0, 0])           # season usage, not this week
+            season_rate = round(sa[0] / sa[1], 4) if sa[1] else 0.0
+            wn = week_now.get(pid)
+            if wn and wn[1]:
+                now_rate = round(wn[0] / wn[1], 4)
+            elif nw and sa[1]:
+                now_rate = season_rate
+            else:
+                now_rate = round(started_now[pid] / rostered[pid], 4)
             players[pid] = {
                 "roster_rate": round(rostered[pid] / n, 4),
-                "start_rate": round(sa[0] / sa[1], 4) if sa[1] else 0.0,  # season avg (primary)
-                "start_obs": sa[1],                                       # weeks backing it
-                "start_rate_now": round(started_now[pid] / rostered[pid], 4),  # current snapshot fallback
+                "start_rate": season_rate,                                # season avg (primary)
+                "start_obs": sa[1],                                       # roster-weeks backing it
+                "start_rate_now": now_rate,
                 "taxi_rate": round(taxied[pid] / n, 4)}
-        jdump(sd / "start_acc.json", {"season": args.season, "acc": start_acc})
+        jdump(sd / "start_acc.json", acc_raw)
         jdump(ROOT / args.signals_out,
               {"generated": datetime.date.today().isoformat(), "season": args.season,
                "season_type": args.season_type, "week": args.week, "leagues": n,
                "league_type": args.league_type,
                "format": {"teams": args.teams or "any", "superflex_only": require_sf},
+               # what start_rate is made of: finished weeks from `from_week`
+               # on, `now_week` the one start_rate_now quotes, and how many
+               # roster-weeks voted against how many were dropped as dead
+               "start_basis": {"kind": "finished-weeks", "from_week": from_week,
+                               "now_week": nw, "roster_weeks": tally["live"],
+                               "dead_roster_weeks": tally["dead"]},
                "players": players})
         # UNION with what is already committed, never replace it.
         #
@@ -575,6 +833,8 @@ def mode_signals(args, t0):
                     snapshots.pop(lid, None)
             registry[lid] = {"counts": counts, "stale": stale,
                              "last_signals": time.time(),
+                             # the last finished week whose lineups were read
+                             "wk": (m or {}).get("wk"),
                              "tep": tep_class(league),
                              "last_trades": (m or {}).get("last_trades"),
                              "last_drafts": (m or {}).get("last_drafts")}
@@ -607,18 +867,30 @@ def mode_signals(args, t0):
                 n_counted += 1
                 snapshots[lid] = {"ts": time.time(), "players": list(here_p),
                                   "starters": list(here_s), "taxi": list(here_t)}
-                # one weekly usage observation per rostered player — regular
-                # season only, and skipping anyone on BYE this week (a bye isn't
-                # a fair "chose not to start him" observation)
-                if args.season_type == "regular":
-                    for pid in here_p:
-                        tm = pid_team.get(pid)
-                        if tm and byes.get(tm) == args.week:
-                            continue
-                        a = start_acc.setdefault(pid, [0, 0])
-                        a[1] += 1                    # rostered, available
-                        if pid in here_s:
-                            a[0] += 1                # started
+                # START%: the finished weeks this league has not been read
+                # for yet, one call each. Read first and folded in after, so
+                # a stop between two weeks leaves nothing half-counted.
+                if finished >= 1:
+                    weeks, upto = read_finished(lid, registry[lid].get("wk"))
+                    for w, (obs, live, dead) in weeks:
+                        tally["live"] += live
+                        tally["dead"] += dead
+                        # the two latest weeks are kept apart as well, for
+                        # start_rate_now
+                        per = wk_acc.setdefault(str(w), {}) if w >= finished - 1 else None
+                        if per is not None:
+                            wk_n[str(w)] = wk_n.get(str(w), 0) + 1
+                        for pid, started in obs:
+                            a = start_acc.setdefault(pid, [0, 0])
+                            a[1] += 1                # rostered on a live roster
+                            a[0] += started          # ...and started
+                            if per is not None:
+                                b = per.setdefault(pid, [0, 0])
+                                b[1] += 1
+                                b[0] += started
+                    registry[lid]["wk"] = upto
+                    for old in [w for w in wk_acc if int(w) < finished - 1]:
+                        wk_acc.pop(old, None); wk_n.pop(old, None)
                 if n_counted % CHECKPOINT_EVERY == 0:
                     flush()
                 if args.commit_every and n_counted % args.commit_every == 0:
@@ -1484,6 +1756,11 @@ def main():
     ap.add_argument("--commit-every", type=int, default=0,
                     help="signals/drafts: git commit+push outputs every N counted "
                          "leagues (0 = only at end)")
+    ap.add_argument("--start-backfill", action="store_true",
+                    help="signals: REBUILD the season's start%% from week 1. Clears "
+                         "the accumulator and re-reads every finished week of every "
+                         "counted league (about nine calls a league mid-season). "
+                         "Does nothing once the accumulator already starts at week 1.")
     ap.add_argument("--log-every", type=float, default=10.0)
     ap.add_argument("--signals-out", default="data/league_signals.json")
     ap.add_argument("--leagues-out", default="data/crawl_leagues.json")

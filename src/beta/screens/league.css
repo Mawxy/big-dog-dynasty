@@ -105,11 +105,10 @@
   font: 600 10.5px/1 var(--mono); font-variant-numeric: tabular-nums; color: var(--acc);
   white-space: nowrap;
 }
-/* the label says what the figure is: WAR, est WAR, live WAR */
-.lgx-drawer .sd-side .w .wl {
-  margin-left: 4px;
-  font: 600 9px/1 var(--cond); letter-spacing: .1em; text-transform: uppercase;
-  color: var(--dim2);
+/* the head says once what the stacked figures are (Max, 2026-11-15); the
+   rows used to label their own WAR line and no longer do */
+.lgx-drawer .sd-head .sd-key {
+  font: 400 10.5px/1.2 var(--sans); color: var(--dim); text-align: right;
 }
 .lgx-drawer .sd-side .w.live { font-style: italic; }
 .lgx-drawer .sd-side .w.nul { color: var(--dim3); }

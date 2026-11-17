@@ -68,7 +68,11 @@ def snap_weight(week):
 
 
 def start_value(s, week):
-    """Blend season-average and current-snapshot start% per the week schedule."""
+    """Blend season-average and most-recent-week start% per the week schedule.
+
+    `start_rate_now` is the crawl's latest FINISHED week over live rosters
+    (sleeper_crawl.finished_week_obs), and the live roster snapshot only while
+    the season has no finished week. "Snapshot" below is that figure."""
     season, now, obs = s.get("start_rate"), s.get("start_rate_now"), s.get("start_obs", 0)
     if now is None and season is None:
         return None

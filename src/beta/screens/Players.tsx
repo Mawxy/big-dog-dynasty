@@ -389,7 +389,8 @@ interface RowBase {
   pos: string;
   /** line 2 of the identity cell, before the position rank. WHO HE WAS WITH,
    *  in the scope the row is stating. Current: the franchise that holds him.
-   *  History: the franchise he started for, falling back to the one that
+   *  History: the franchise he started for, or "2TM" (3TM, ...) when the
+   *  scope has him with more than one (`affilOf`), falling back to the one that
    *  rostered him when he was never started, and to "FA" when nobody held him.
    *  The drawer's "Started for" is the narrower fact and keeps its own dash. */
   affil: string | null;
@@ -453,7 +454,7 @@ interface HistRow extends RowBase {
   /** rank within position by that season's POINTS — the finish, not this
    *  board's current ordering */
   finish: number;
-  started: { team: string; starts: number } | null;
+  started: StartedFor | null;
 }
 /** the postseason, one year or pooled — the Playoffs phase's row */
 interface PostRow extends RowBase {
@@ -492,10 +493,14 @@ const PHASES: { id: Phase; label: string }[] = [
  * Ownership at season's end is a different fact and the easy one — teams.json
  * states it — but "who did he play for" is answered by the lineups, not by who
  * happened to be holding him in January. matchups.json carries each week's
- * starters, so this counts regular-season starts per roster and takes the
- * plurality: a player traded in week 8 started for two franchises and is
- * credited to the one that started him more, which is the honest single answer
- * a one-line sub-line can hold.
+ * starters, so this counts regular-season starts per roster.
+ *
+ * `team` / `starts` are the plurality franchise, and `all` is every franchise
+ * that started him, in the order he first started for each. The plurality
+ * alone used to be the row's sub-line, which left a player traded mid-season
+ * under the team that had traded him away until the new one caught up on
+ * starts (Max, 2026-11-14: Olave read as Baby Billys' after the deal). The
+ * row now counts the franchises instead and prints "2TM" (`affilOf`).
  *
  * A player who was rostered all year and never started returns nothing, not a
  * franchise with zero starts. The DRAWER renders the em dash for him, because
@@ -547,10 +552,19 @@ function combine(
   };
 }
 
+export interface StartedFor {
+  /** the plurality franchise and its starts */
+  team: string; starts: number;
+  /** every franchise that started him, in the order he first started for
+   *  each. `withHolder` may append the franchise holding him now, at 0. */
+  all: { team: string; starts: number }[];
+}
+
 export function startsBy(mw: Matchups, teams: Team[], span?: WeekSpan | null) {
   const ps = mw.playoff_start || 15;
   const name = new Map<number, string>(teams.map(t => [t.roster_id, t.team]));
-  const per = new Map<string, Map<number, number>>();
+  // roster -> [starts, first week started]
+  const per = new Map<string, Map<number, [number, number]>>();
   for (const [rid, list] of Object.entries(mw.teams)) {
     const r = Number(rid);
     for (const e of list) {
@@ -559,19 +573,47 @@ export function startsBy(mw: Matchups, teams: Team[], span?: WeekSpan | null) {
       for (const pid of e[4] ?? []) {
         // Sleeper writes "0" into a lineup slot nobody filled
         if (!pid || pid === "0") continue;
-        const m = per.get(pid) ?? new Map<number, number>();
-        m.set(r, (m.get(r) ?? 0) + 1);
+        const m = per.get(pid) ?? new Map<number, [number, number]>();
+        const c = m.get(r);
+        m.set(r, c ? [c[0] + 1, Math.min(c[1], e[0])] : [1, e[0]]);
         per.set(pid, m);
       }
     }
   }
-  const out = new Map<string, { team: string; starts: number }>();
+  const out = new Map<string, StartedFor>();
   for (const [pid, m] of per) {
     let best = -1, n = 0;
-    for (const [r, c] of m) if (c > n) { n = c; best = r; }
-    if (best >= 0) out.set(pid, { team: name.get(best) ?? `#${best}`, starts: n });
+    for (const [r, [c]] of m) if (c > n) { n = c; best = r; }
+    if (best < 0) continue;
+    const all = [...m]
+      .sort((a, b) => a[1][1] - b[1][1] || b[1][0] - a[1][0])
+      .map(([r, [c]]) => ({ team: name.get(r) ?? `#${r}`, starts: c }));
+    out.set(pid, { team: name.get(best) ?? `#${best}`, starts: n, all });
   }
   return out;
+}
+
+/**
+ * THE SEASON BEING PLAYED ALSO COUNTS WHO HOLDS HIM NOW. A player traded last
+ * week has eight starts for his old franchise and none yet for his new one, so
+ * the lineups alone still name the team that traded him away. The live roster
+ * is the missing franchise; it joins the list at 0 starts. Free agency is not
+ * a team: a player who was dropped keeps the one franchise he started for.
+ */
+export function withHolder(st: StartedFor | null, holder: string | null | undefined): StartedFor | null {
+  if (!st || !holder || st.all.some(t => t.team === holder)) return st;
+  return { ...st, all: [...st.all, { team: holder, starts: 0 }] };
+}
+
+/**
+ * The sub-line's team for a season or a week window. One franchise is its
+ * name. More than one is "2TM", "3TM", the Pro Football Reference convention
+ * (Max, 2026-11-14), because any single name would be wrong for part of the
+ * scope. Never started: whoever held him, then "FA".
+ */
+export function affilOf(st: StartedFor | null, held: string | null | undefined): string {
+  if (!st) return held ?? "FA";
+  return st.all.length > 1 ? `${st.all.length}TM` : st.all[0]?.team ?? st.team;
 }
 
 /* ========================================================================
@@ -996,11 +1038,15 @@ export default function Players() {
        rosters in a settled year; the live ones in the year being played, which
        is the season this fallback was asked for. */
     const held = ownerOf(hTeamQ.data);
+    // the season being played: teams.json there is the live rosters
+    const liveSeason = String(oneSeason) === String(rosterSeason);
     // WAR is optional in the row tuple and a row missing it arithmetics into
     // NaN, which sorts unpredictably. Drop the row rather than zeroing it.
     const all = src.filter(r => typeof r[6] === "number").map((r): Row => {
       const [pid, p, gp, pts, ppg, , war, sdv] = r;
-      const st = started.get(pid) ?? null;
+      const st = liveSeason
+        ? withHolder(started.get(pid) ?? null, held[pid])
+        : started.get(pid) ?? null;
       /* The two records for THIS season. `recs` is still null on the first
          render after a scope change, which is why both columns are nullable
          figures rather than a zeroed record: "not read yet" and "never won a
@@ -1013,7 +1059,7 @@ export default function Players() {
         pid, name: pInfo(players, pid)[0], pos: p,
         // never started, still somebody's: the roster, then free agency. Only
         // the drawer's "Started for" is allowed to come up empty here.
-        affil: st?.team ?? held[pid] ?? "FA",
+        affil: affilOf(st, held[pid]),
         sdv: typeof sdv === "number" ? sdv : null,
         warG: gp ? war / gp : null,
         finish: finish.get(pid) ?? 0,
@@ -1046,7 +1092,7 @@ export default function Players() {
        cannot inflate. Every player the season scored is listed; the reader can
        see the sample and decide. */
     return all;
-  }, [sumQ.data, hTeamQ.data, mwQ.data, players, recs, honors, wins, oneSeason,
+  }, [sumQ.data, hTeamQ.data, mwQ.data, players, recs, honors, wins, oneSeason, rosterSeason,
     wspan, wkQ.data]);
 
   /* ---- STATS: every settled season at once ------------------------------
@@ -2346,10 +2392,15 @@ export function HistDrawer({ r, season, to, weekly, loading, absent, playoffStar
           v={loading ? <span className="nul">…</span> : best == null ? NUL : fmt(best.pts, 1)}
           sub={loading ? "reading the week scores"
             : best == null ? "no scored week" : `week ${best.week}`} />
-        {/* THE SAME FACT the row's sub-line carries, from the same derivation —
-            most regular-season starts, not end-of-season ownership. */}
-        <Fig k="Started for" v={r.started?.team ?? NUL} word
-          sub={r.started ? `${r.started.starts} start${r.started.starts === 1 ? "" : "s"}` : "never started"} />
+        {/* THE SAME FACT the row's sub-line carries, from the same derivation:
+            regular-season starts, not end-of-season ownership. A 2TM player
+            lists each franchise with its starts, so the tag has an answer
+            behind it. */}
+        {r.started && r.started.all.length > 1
+          ? <Fig k="Started for" v={`${r.started.all.length}TM`} word
+              sub={r.started.all.map(t => `${t.team} ${t.starts}`).join(" · ")} />
+          : <Fig k="Started for" v={r.started?.team ?? NUL} word
+              sub={r.started ? `${r.started.starts} start${r.started.starts === 1 ? "" : "s"}` : "never started"} />}
       </div>
       {/* THE SEASON, WEEK BY WEEK — the fourteen-cell strip (SKILL §5), back in
           the drawer (Max, 2026-09-03). It was left to the player page on the

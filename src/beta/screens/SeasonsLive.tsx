@@ -352,9 +352,9 @@ export function LiveMatchup({ season, wk, rid, mw, weekly, teams, nameOf }: {
         {bench(b)}
       </div>
       <div className="tnote screen">
-        Est WAR is an estimate: the pipeline has not scored this week yet. It is the same formula — the
+        A WAR figure marked ≈ is an estimate: the pipeline has not scored this week yet. It is the same formula — the
         win-probability shift of his points over his position's replacement level — with the week's baselines
-        estimated; live WAR means his game is still on and the figure is moving with it. A man who has not kicked
+        estimated; in italic, his game is still on and the figure is moving with it. A man who has not kicked
         off has no figure. The official WAR replaces all of it once the nightly build scores the week.
         {" "}<RouteLink to={betaPath(`/seasons/${season}/${wk}`)} className="lgx-all">← Week {wk}</RouteLink>
       </div>

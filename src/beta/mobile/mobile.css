@@ -923,6 +923,32 @@
 .v3.mf .rail-war .bar, .v3.mf .pid-ladder .rail-war .bar { height: 10px; border-radius: 5px; overflow: hidden; }
 .v3.mf .rail-war .bar i { border-radius: 5px; }
 .v3.mf .rail-war.proj { background: none; }
+/* SOLID IS PLAYED, OUTLINE IS PROJECTED (Max, 2026-11-15). Every rung drew
+   the same solid bar and the only cue left was a row tint this UI removes
+   (the rule above), so 2027 and 2028 read as seasons he had played. A
+   projection is now an UNFILLED bar, and its figure takes the "≈" mark
+   (Player.tsx). The outline is the figure column's own ink, so "≈ 0.59"
+   and the bar it measures are one colour. */
+.v3.mf .rail-war .bar i.tail {
+  box-sizing: border-box; background: none; border: 1.5px solid var(--txt2);
+}
+/* THE SEASON BEING PLAYED: banked solid, the rest of the season tacked on as
+   the outline, so the full length is the pace. The join is square and only
+   the bar's two outer ends are rounded. */
+/* "≈ 0.89" is a mark and a space wider than "0.89" */
+.v3.mf .rail-war { grid-template-columns: 36px 1fr 50px; }
+.v3.mf .rail-war .bar i.fill:not(:last-child) { border-radius: 5px 0 0 5px; }
+.v3.mf .rail-war .bar i.tail:not(:first-child) { border-radius: 0 5px 5px 0; border-left: 0; }
+/* ...and its row prints both figures: banked in the solid segment's ink, the
+   pace where every other rung's figure sits. The extra track is on every
+   rung of the ladder, so the bars all start and end on the same lines. The
+   232px desktop rail has no room for it and keeps the pace alone (the row's
+   tooltip states both). */
+.v3.mf .pid-ladder .rail-ladder.two .rail-war { grid-template-columns: 44px 1fr 44px 54px; }
+.v3.mf .pid-ladder .rail-war .v2 {
+  display: block; text-align: right;
+  font: 600 13.5px/1 var(--ui); font-variant-numeric: tabular-nums;
+}
 
 /* honor legend */
 .v3.mf .hmark-legend {
@@ -1092,7 +1118,40 @@
 .v3.mf .lgx-drawer .sd-side .v { font: 600 14px/1 var(--ui); }
 .v3.mf .lgx-drawer .sd-side .p { font: 500 11.5px/1 var(--ui); color: var(--dim); }
 .v3.mf .lgx-drawer .sd-side .w { font: 600 11.5px/1 var(--ui); }
-.v3.mf .lgx-drawer .sd-side .w .wl { font: 500 10.5px/1 var(--ui); color: var(--dim); }
+/* SLOT BY SLOT ON A PHONE (Max, 2026-11-15). The figure stack's widest line
+   was "+0.28 est WAR", which left a name about 60px, and the name block broke
+   anywhere, so "Christian McCaffrey" set as "Christi / an / McCaf / frey" and
+   the game line ran to four. Three changes: the estimate is a "≈" (League.tsx
+   WarFig), the name is first over last with no break inside a word, and the
+   game line ("W @DAL 46–40") holds one line. The game line takes a row of
+   its own under the name AND the figures, so "@CIN 7–3 · 8:56 1st" has the
+   whole side to fit in rather than what the figures leave. */
+.v3.mf .lgx-drawer .sd-row:not(.sd-tot) .sd-side {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "nm vs" "gm gm";
+  align-items: center; column-gap: 6px; row-gap: 2px;
+}
+.v3.mf .lgx-drawer .sd-row:not(.sd-tot) .sd-side.r {
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-areas: "vs nm" "gm gm";
+}
+/* the name block dissolves so its two lines are the side's own grid items */
+.v3.mf .lgx-drawer .sd-row:not(.sd-tot) .sd-side .nm {
+  display: contents; overflow-wrap: normal; word-break: keep-all; text-wrap: wrap;
+}
+.v3.mf .lgx-drawer .sd-row:not(.sd-tot) .sd-side .n1 { grid-area: nm; min-width: 0; }
+.v3.mf .lgx-drawer .sd-row:not(.sd-tot) .sd-side .vs { grid-area: vs; }
+.v3.mf .lgx-drawer .sd-side .n1 .fn,
+.v3.mf .lgx-drawer .sd-side .n1 .ln { display: block; overflow-wrap: normal; word-break: keep-all; }
+/* a one-word name keeps its second line, so the rows stay one height */
+.v3.mf .lgx-drawer .sd-side .n1 .ln:empty::before { content: "\00a0"; }
+.v3.mf .lgx-drawer .sd-row:not(.sd-tot) .sd-side .n2 { grid-area: gm; white-space: nowrap; }
+/* the spine gives a few px back to each side at phone width (52px at 390,
+   where it was 58): a live line such as "vs WAS 28–24 · 12:45 4th" is the
+   longest thing a side has to hold on one line */
+.v3.mf .lgx-drawer .sd-row { grid-template-columns: minmax(0, 1fr) clamp(52px, 13.4vw, 76px) minmax(0, 1fr); }
+.v3.mf .lgx-drawer .sd-head { flex-wrap: wrap; }
+.v3.mf .lgx-drawer .sd-head .sd-key { font: 400 12px/1.2 var(--ui); color: var(--dim); }
 .v3.mf .lgx-drawer .sd-mid { background: none; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
 .v3.mf .lgx-drawer .sd-mid .slot { font: 600 11px/1 var(--ui); color: var(--dim); }
 .v3.mf .lgx-drawer .sd-mid .edge { font: 600 12px/1 var(--ui); }
@@ -1377,6 +1436,13 @@
    holds its line too, so every row is the Stats row's height. */
 .v3.mf .v3tbl.roster td .mtx-ph { display: block; }
 .v3.mf .v3tbl.roster td .idc-s.r:empty::before { content: "\00a0"; }
+/* DRAFT CAPITAL: ONE FIGURE, AND THE SUB-LINE WRAPS (Max, 2026-11-14). The
+   band dropped its WAR / Pts / GP columns (Team.tsx), so the Player column
+   has the width back and "to Un-killable Cockroaches · proj. late" is set in
+   full: a team name wraps, it is never ellipsised. */
+.v3.mf .v3tbl.roster.mtx-picks td .idc-s:not(.r) {
+  white-space: normal; overflow: visible; text-overflow: clip; text-wrap: pretty;
+}
 .v3.mf .v3-lens .lens-rk { margin-left: 5px; color: var(--acc); }
 
 /* strengths: a row per seat, a rounded bar per index */
@@ -1731,7 +1797,6 @@
 .v3.mf .dtbl td.lbl .caret { font-size: 12px; }
 .v3.mf .v3tbl td.sp .mv { font-size: 12px; }
 .v3.mf .plx-marks .hmark-x, .v3.mf .plx-honors .hmark-x { font-size: 12px; }
-.v3.mf .lgx-drawer .sd-side .w .wl { font-size: 12px; }
 .v3.mf .plx-spread .v { font-size: 12px; }
 .v3.mf .v3-mast .lg .caret, .v3.mf .v3-scopectl .caret { font-size: 12px; opacity: 1; }
 /* the fold toggle is a text button wherever it sits */

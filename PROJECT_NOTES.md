@@ -287,6 +287,27 @@ the next run carries on. The commit steps in `crawl-signals*.yml` and
 20% in one step holds too, and warns on every run until someone lowers `FLOOR` for
 one run.
 
+**Start rate is read from FINISHED weeks, and a dead roster's week does not vote**
+(Max, 2026-11-14; `sleeper_crawl.finished_week_obs`). The signals lanes used to take
+a start observation off the live `/rosters` call on every visit: before Sunday that
+is largely last week's lineup, and `STALE_MSG_DAYS` is a league-level test, so one
+active manager kept eleven abandoned rosters in the sample (about 20% of redraft and
+12% of dynasty rosters at week 10). Now each counted league's
+`/league/<lid>/matchups/<week>` is read once per finished week (the registry keeps
+the last week read as `wk`), joined to that week's played set (one global stats call
+a week, cached in the state dir as `played.json`, the snaps-OR-stat-line rule above).
+A roster-week is dropped if it started a player on bye, left a slot empty, or started
+a QB/RB/WR/TE who did not play that week and did not play his club's game before it.
+The verdict is per roster per week, with no strikes. `start_rate` is still
+started / rostered over the season, `start_obs` is now live roster-weeks, and
+`start_rate_now` is the latest finished week that at least half the window's leagues
+have been read for (the live snapshot only while no finished week exists). The file
+states its own basis in `start_basis` (`from_week`, `now_week`, live and dead
+roster-weeks). `roster_rate` and `taxi_rate` are unchanged, on the live window.
+`--start-backfill` rebuilds the season from week 1 (the accumulator is replaced and
+every league re-reads each finished week); it is **not** in either workflow, and
+until it is run the accumulator holds snapshot-era observations before `from_week`.
+
 ### Hand-run scripts (no workflow)
 
 `project_points.py` (the points-first model, §12; needs
@@ -543,8 +564,8 @@ regular&position[]=...` (and the per-player `stats/nfl/player/<id>` endpoint):
 
 ## Tests
 
-`python -m unittest discover -s tests` (stdlib, no network) — **857 tests in
-31 files**; `npm test` runs `tests/tradeModel.test.ts`,
+`python -m unittest discover -s tests` (stdlib, no network) — **917 tests in
+32 files**; `npm test` runs `tests/tradeModel.test.ts`,
 `tests/tradeLineage.test.ts` and `tests/betaWeek.test.ts` (**53 tests**,
 `node --test`, Node ≥ 22.18). CI (`tests.yml`) runs both and **pins 5 expected
 skips** — four in `test_outcomes.py` gated on `sleeper_data/`, one in
@@ -574,6 +595,7 @@ those files exist, so the local result is 857 / 0 skipped.
 | `test_shard_players.py` | shard contents; atomic in-place writes |
 | `test_franchise.py` | `POS_OVERRIDE`, `FRANCHISE_BAR`, the shape of the result |
 | `test_outcomes.py` | outcome crawl's champion / pick-holding / placement / chain logic (four tests gated); `crawl_guard`, in-memory and against a real git repo; the signals deadline, draft contributions and walk, and the trade-shard merge count |
+| `test_start_rate.py` | start rate from finished weeks: the played-set join (and its parity with `sleeper_pull.row_played`), the dead roster-week rule (bye, empty slot, out two weeks running, a bye is not an absence), one read per league per finished week, `start_rate_now` from the finished week, the `--start-backfill` rebuild and its idempotence, nothing counted twice after a stop mid-league |
 | `test_slot_value.py` | median not mean; hit rate vs the position's bar (one test gated) |
 | `test_fetch_values.py` | history freshness guard (deltas must not flatten to 0), the date-based trim, a matched count under the floor counts as failed, the non-numeric key scrub, prices expiring 30 days after the last quote |
 | `test_fetch_ecr.py` | ECR scrape parsing, same-name twins; a redirected, empty or short format is skipped and the previous one kept |

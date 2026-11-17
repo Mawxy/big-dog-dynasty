@@ -1564,6 +1564,16 @@ tbody tr.stint td.stint-wk { padding-left: 22px; font: 400 12px/1.4 var(--sans);
 .rail-war .yr { font: 600 12.5px/1 var(--cond); letter-spacing: .04em; color: var(--dim); font-variant-numeric: tabular-nums; }
 .rail-war .bar { height: 7px; }
 .rail-war .bar i { display: block; height: 100%; }
+/* The bar is one or two segments since 2026-11-15 (views/Player.tsx): `.fill`
+   for what was played, `.tail` for what is projected, drawn as an outline so
+   the band note ("solid played, outline projected") is true in every look.
+   The mobile-first UI restyles the outline and adds the second figure
+   (mobile.css); this look keeps one figure per rung. */
+.rail-war .bar { display: flex; }
+.rail-war .bar i { flex: 0 0 auto; }
+.rail-war .bar i.tail { box-sizing: border-box; background: none; border: 1px solid var(--dim); }
+.rail-war .bar i.fill + i.tail { border-left: 0; }
+.rail-war .v2 { display: none; }
 .rail-war .v { font: 600 12.5px/1 var(--cond); text-align: right; color: var(--txt2); font-variant-numeric: tabular-nums; }
 /* played seasons pick the week grid below; projected years have no weeks and
    stay inert. `mark` is the season showing, matching the franchise ladder. */

@@ -427,7 +427,16 @@ export default function Player({ pid }: { pid: string }) {
     ? years.map((y, i) => [y, paceOf(i) ?? path[i] ?? 0] as [number, number])
     : [];
   const ladder = [...projected.slice().reverse(), ...played.slice().reverse()];
-  const ladderMax = Math.max(0.001, ...ladder.map(([, w]) => Math.max(0, w)));
+  /** THE SEASON BEING PLAYED, where the ladder has a rung for it: that rung
+   *  is drawn in two segments, banked then the rest as projected (Max,
+   *  2026-11-15). Null in the offseason, when every projected rung is a plain
+   *  projection. */
+  const curYear = inseason && path.length && years[0] === inseason.season && paceOf(0) != null
+    ? years[0] : null;
+  // the current rung is as long as the longer of its two figures: a pace
+  // below banked (the rest of the season projects negative) still fits
+  const ladderMax = Math.max(0.001,
+    ...ladder.map(([y, w]) => Math.max(0, w, y === curYear ? banked : 0)));
   /** the Career WAR tile: league seasons only, exactly the career table's
    *  total (2026 banked included), never the NFL-only rungs */
   const careerWar = tot ? tot.war : null;
@@ -523,7 +532,7 @@ export default function Player({ pid }: { pid: string }) {
    *  the league map, then the bare pid, so a row is never silently short. */
   /** the career WAR ladder, newest first — the rows only; the caller frames it */
   const ladderRows = ladder.length > 0 && (
-    <div className="rail-ladder">
+    <div className={`rail-ladder${curYear != null ? " two" : ""}`}>
       {ladder.map(([y, w]) => {
         const isProj = projected.some(([py]) => py === y);
         // Three kinds of row, and only one of them is pickable.
@@ -537,16 +546,22 @@ export default function Player({ pid }: { pid: string }) {
         // was never rostered in is NFL context, like a pre-league year
         const pick = !isProj && leagueWarOf.has(y);
         const on = pick && String(y) === wkSeason;
+        const cur = y === curYear;
+        // the two segments, in WAR: what is solid, and what is tacked on
+        const solid = cur ? Math.max(0, banked) : isProj ? 0 : Math.max(0, w);
+        const tail = isProj ? Math.max(0, w - solid) : 0;
+        const pct = (x: number) => `${Math.round(x / ladderMax * 1000) / 10}%`;
         return (
           <div key={y} role={pick ? "button" : undefined}
             tabIndex={pick ? 0 : undefined}
             title={pick ? `Open ${y} in the career table`
+              : cur ? `${fmtWar(banked)} banked · ≈ ${fmtWar(w)} pace · ${outlookNote(inseason!)}`
               : isProj
-                ? (inseason && y === inseason.season ? outlookNote(inseason) : undefined)
+                ? (inseason && y === inseason.season ? outlookNote(inseason) : `${y} — projected`)
                 : inLeague
                   ? `${y} — not on a league roster; NFL WAR, not counted in league figures`
                   : `${y} — before the league began; NFL WAR, not counted in league figures`}
-            className={`rail-war${isProj ? " proj" : pick ? " pick" : " pre"}${on ? " mark" : ""}`}
+            className={`rail-war${isProj ? " proj" : pick ? " pick" : " pre"}${cur ? " cur" : ""}${on ? " mark" : ""}`}
             onClick={pick ? () => openSeason(String(y), true) : undefined}
             onKeyDown={pick ? e => {
               if (e.key === "Enter" || e.key === " ") {
@@ -554,13 +569,27 @@ export default function Player({ pid }: { pid: string }) {
               }
             } : undefined}>
             <span className="yr">{y}</span>
+            {/* SOLID IS PLAYED, OUTLINE IS PROJECTED (Max, 2026-11-15). A played
+                year is one solid segment and a future year one outlined one
+                (`.tail`). The season being played is both on one bar: banked
+                WAR solid, then the rest of the season as projected tacked on
+                as an outline, so the bar's full length is the pace. A segment
+                with nothing to draw is not rendered: banked at or below zero
+                has no solid part, and a pace below banked has no outline (it
+                is never drawn backwards). */}
             <span className="bar">
-              <i style={{
-                width: `${Math.round(Math.max(0, w) / ladderMax * 100)}%`,
-                background: isProj ? "var(--dim)" : barColor(w),
-              }} />
+              {solid > 0 && <i className="fill" style={{ width: pct(solid), background: barColor(cur ? banked : w) }} />}
+              {tail > 0 && <i className="tail" style={{ width: pct(tail) }} />}
             </span>
-            <span className="v">{fmtWar(w)}</span>
+            {/* the current rung prints both figures, each in its segment's ink:
+                banked beside the pace. Every rung carries the cell so the
+                bars start and end on the same lines down the ladder. */}
+            {curYear != null && (
+              <span className="v2" style={cur ? { color: barColor(banked) } : undefined}>
+                {cur ? fmtWar(banked) : ""}
+              </span>
+            )}
+            <span className="v">{isProj ? `≈ ${fmtWar(w)}` : fmtWar(w)}</span>
           </div>
         );
       })}
@@ -664,7 +693,7 @@ export default function Player({ pid }: { pid: string }) {
                 <div className="band">
                   <span className="band-label">Career WAR</span>
                   <span className="band-note">
-                    Projected years above played · tap a season to open it
+                    Solid played · outline projected · tap a season to open it
                     {inseason && <> · <span title={outlookNote(inseason)}>{outlookLabel(inseason)}</span></>}
                   </span>
                 </div>

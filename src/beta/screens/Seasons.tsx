@@ -244,7 +244,7 @@ function nflWeek(games: NflGames | null | undefined, clubs: Record<string, strin
   const board: Scoreboard | null = g ? Object.fromEntries(Object.entries(g).map(([club, [opp, home, pts, oppPts, date]]) => {
     const done = pts != null && oppPts != null;
     const res = done ? `${pts > oppPts ? "W" : pts < oppPts ? "L" : "T"} ${pts}–${oppPts}` : "";
-    return [club, { state: done ? "post" as const : "pre" as const, remaining: 0, opp, home: !!home, date, detail: res }];
+    return [club, { state: done ? "post" as const : "pre" as const, remaining: 0, opp, home: !!home, date, detail: res, pts, oppPts }];
   })) : null;
   const clubOf = (pid: string) => clubs?.[pid] || pInfo(players, pid)[2] || "";
   const line = (pid: string) => {
@@ -573,8 +573,9 @@ function Matchup({ season, wk, rid, mw, odds, weekly, nameOf, ptsOf, proj, nfl }
     <>
       <Band label={`${nameOf(g.a.rid)} vs ${nameOf(g.b.rid)}`} note={`${season} · week ${wk} · final`} />
       <Games season={season} wk={wk} games={[g]} mw={mw} odds={odds} weekly={weekly} nameOf={nameOf} ptsOf={ptsOf} solo nfl={nfl} />
-      <Band label="Lineups" note={!scored ? "no per-player scoring on file for this game"
-        : proj ? "points, the projection at kickoff under them, then WAR" : "slot by slot · points, then WAR"} />
+      {/* what the stacked figures are is said once, in the slot drawer's own
+          head (Max, 2026-11-15), so the band no longer repeats it */}
+      <Band label="Lineups" note={!scored ? "no per-player scoring on file for this game" : undefined} />
       {scored && (
         <div className="ssx-lineups">
           <SlotDrawer

@@ -28,7 +28,7 @@ import Moved, { MovedSeason } from "../moved";
 import TeamSeasons from "./TeamSeasons";
 import TeamRivals from "./TeamRivals";
 import TeamRecords from "./TeamRecords";
-import { HistDrawer, startsBy } from "./Players";
+import { HistDrawer, startsBy, withHolder } from "./Players";
 import {
   Band, DataError, IdCell, LensStrip, NUL, sgnWar, Spine, TapRow, useBetaPath,
   type IdTag,
@@ -863,7 +863,10 @@ export default function Team() {
           sdv: typeof line?.[7] === "number" ? line[7] : null,
           warG: line && gp ? line[6] / gp : null,
           finish: drawerIdx.finish.get(r.pid) ?? 0,
-          started: drawerIdx.started?.get(r.pid) ?? null,
+          // in the season being played this roster holds him, whether or not
+          // it has started him yet (the Players board's 2TM rule)
+          started: withHolder(drawerIdx.started?.get(r.pid) ?? null,
+            !past && String(statsSeason) === String(rosterSeason) ? team?.team : null),
           marks: marks?.length ? honorTotals([{ season: statsSeason, keys: marks }]) : undefined,
         }}
         weekly={wkQ.data?.[r.pid] ?? null} loading={wkQ.loading}
@@ -1153,17 +1156,26 @@ function RosterTable({ band, lens, betaPath, pace, open, onToggle, drawer }: {
   drawer: (r: RosterRow) => ReactNode;
 }) {
   const stats = lens === "stats";
+  /* DRAFT CAPITAL CARRIES ONE FIGURE (Max, 2026-11-14). A pick has no WAR, no
+     points and no games, and no index either, so under every lens the band was
+     three columns of em dashes with its sub-line cut off to make room for
+     them. It is now `#`, `Player`, `Market` whatever the lens says, which
+     also means its rows cannot change height on a lens switch. */
+  const picks = band.key === "pk";
+  const cols = picks ? 3 : 5;
   return (
     <>
       <Band label={band.label} total={band.total} note={band.note} />
-      <table className={`v3tbl roster${band.cls ? ` ${band.cls}` : ""}`}>
+      <table className={`v3tbl roster${band.cls ? ` ${band.cls}` : ""}${picks ? " mtx-picks" : ""}`}>
         <thead>
           <tr>
             <th className="c sp">{band.spLabel}</th>
             <th className="t">Player</th>
             {/* the column budget is positional (beta.css), so the Stats
                 lens's three columns ride the same three classes */}
-            {stats ? <>
+            {picks ? (
+              <th className="n mkt" title="KTC pick price for the tier the pick projects to">Market</th>
+            ) : stats ? <>
               <th className="n lens" title="Realized regular-season WAR, per game under it">WAR</th>
               <th className="n war" title="Fantasy points, per game under it">Pts</th>
               <th className="n mkt" title="Games played, lineup starts for this franchise under it">GP</th>
@@ -1196,7 +1208,14 @@ function RosterTable({ band, lens, betaPath, pace, open, onToggle, drawer }: {
                     a footnote to the index; decision #12's "market trails" now
                     rides the column ORDER and nothing else. Size lives on
                     `.v3tbl.roster td .f` in team.css. */}
-                {stats ? (() => {
+                {picks ? (
+                  /* the same blank second line as every other figure cell, so
+                     a pick whose sub-line fits is the height of a player row */
+                  <td className="n">
+                    <span className="f">{r.market == null ? NUL : r.market.toLocaleString()}</span>
+                    <div className="idc-s r mtx-ph" aria-hidden="true">{"\u00a0"}</div>
+                  </td>
+                ) : stats ? (() => {
                   /* THE SEASON AS PLAYED: each figure over its rate. WAR per
                      game at two places, like every WAR figure (WAR_DP). */
                   const st = r.st;
@@ -1246,14 +1265,14 @@ function RosterTable({ band, lens, betaPath, pace, open, onToggle, drawer }: {
                 <TapRow onTap={() => onToggle(pid)} className={`${cls}${on ? " plx-on" : ""}`}>{body}</TapRow>
                 {on && (
                   <tr className="plx-drawrow">
-                    <td colSpan={5}>{drawer(r)}</td>
+                    <td colSpan={cols}>{drawer(r)}</td>
                   </tr>
                 )}
               </Fragment>
             );
           })}
           {!band.rows.length && (
-            <tr><td colSpan={5} className="t"><span className="f q">{band.empty}</span></td></tr>
+            <tr><td colSpan={cols} className="t"><span className="f q">{band.empty}</span></td></tr>
           )}
         </tbody>
       </table>

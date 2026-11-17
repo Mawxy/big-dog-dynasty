@@ -676,10 +676,20 @@ horizon moves every published figure and is a separate argument from changing
 the model.
 
 **start% is the subtle one.** It blends the crawl's season average with the
-current snapshot on a schedule that trusts the snapshot early (when data is
+most recent week on a schedule that trusts the recent week early (when data is
 thin) and shifts to the season average by week 8, so one injured week never
 tanks a value. Injured-flagged players skip the start component entirely while
-the snapshot still dominates.
+the recent week still dominates.
+
+Both halves are read from **finished weeks** (since 2026-11-14): each league's
+lineups as they were actually set for a week that is over, joined to who played
+it. A roster's week is left out when nobody was plainly setting that lineup: it
+started a player on bye, left a slot empty, or started someone who had not
+played in two straight games. An abandoned roster still starts its week-1
+studs and benches whoever broke out after the draft, so counting it understated
+exactly the players a usage signal exists to find. The verdict is per roster,
+per week. The "most recent week" is the latest finished one, not the lineup as
+it stands mid-week, which before Sunday is mostly last week's.
 
 **Six curves, one file.** `index_models.py` computes DVI and CVI under every
 curve from one load and writes them together (~180 KB) so a model flip is free

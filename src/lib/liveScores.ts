@@ -345,6 +345,11 @@ export interface GameClock {
   /** ESPN's short status — "Final", "Q3 4:12", "Halftime" — for a game
    *  under way or over; the kickoff is formatted from `date` before */
   detail: string;
+  /** the score, this club's points first; null before kickoff and where the
+   *  source carries none. The slot drawer's game line prints it
+   *  ("W @DAL 46–40"). */
+  pts?: number | null;
+  oppPts?: number | null;
 }
 export type Scoreboard = Record<string, GameClock>;
 
@@ -357,7 +362,7 @@ interface EspnScoreboard {
     competitions?: {
       date?: string;
       status?: { period?: number; clock?: number; type?: { state?: string; shortDetail?: string } };
-      competitors?: { homeAway?: string; team?: { abbreviation?: string } }[];
+      competitors?: { homeAway?: string; score?: string | number; team?: { abbreviation?: string } }[];
     }[];
   }[];
 }
@@ -385,13 +390,19 @@ export async function fetchScoreboard(
     const codes = (c.competitors ?? []).map(t => ({
       code: t.team?.abbreviation ? (ESPN_TO_SLEEPER[t.team.abbreviation] ?? t.team.abbreviation) : null,
       home: t.homeAway === "home",
+      // ESPN serves the score as a string, and "0" before kickoff
+      score: state === "pre" || t.score == null || t.score === "" || !isFinite(Number(t.score))
+        ? null : Number(t.score),
     }));
     const date = c.date ?? ev.date ?? "";
     const detail = c.status?.type?.shortDetail ?? "";
     for (const t of codes) {
       if (!t.code) continue;
-      const other = codes.find(o => o !== t)?.code ?? "";
-      out[t.code] = { state, remaining, opp: other, home: t.home, date, detail };
+      const o = codes.find(x => x !== t);
+      out[t.code] = {
+        state, remaining, opp: o?.code ?? "", home: t.home, date, detail,
+        pts: t.score, oppPts: o?.score ?? null,
+      };
     }
   }
   return out;

@@ -911,10 +911,15 @@ export function asSetSlots(lineup: string[], starters: string[] | null | undefin
 }
 
 /**
- * A SLOT'S WAR, under its points (Max, 2026-09-28). In the accent, and
- * LABELLED with what it is (Max, 2026-09-28: no "≈", say it in words): "WAR"
- * for the pipeline's own figure, "est WAR" for an estimate (lib/liveWar),
- * "live WAR" while his game is still on and the figure is moving with it.
+ * A SLOT'S WAR, under its points (Max, 2026-09-28). In the accent. AN
+ * ESTIMATE TAKES THE SITE'S "≈" (Max, 2026-11-15: "use the estimated symbol"),
+ * which reverses the 09-28 call to say it in words: "+0.28 est WAR" was the
+ * widest line in the figure stack and left a name about 60px on a phone. So
+ * "+0.28" is the pipeline's own figure, "≈ +0.28" an estimate (lib/liveWar),
+ * and the same in italic while his game is still on and the figure is moving.
+ * The drawer's head says once what the stack is; the tooltip still says which.
+ *
+ * `warLabel` is the same fact in words, for a tooltip (SeasonsLive).
  */
 export const warLabel = (est?: "est" | "live") =>
   est === "live" ? "live WAR" : est ? "est WAR" : "WAR";
@@ -924,7 +929,7 @@ function WarFig({ v, est }: { v: number | null; est?: "est" | "live" }) {
     <span className={`w${est ? ` ${est}` : ""}`}
       title={est === "live" ? "estimated on points so far — his game is still on"
         : est ? "estimated — the pipeline scores the week once it is over" : "WAR for the week"}>
-      {sgnWar(v)}<span className="wl">{warLabel(est)}</span>
+      {est ? "≈ " : ""}{sgnWar(v)}
     </span>
   );
 }
@@ -963,15 +968,33 @@ function SlotTag({ slot }: { slot: string }) {
  * point is a push and takes no side. Pregame the figures are Sleeper's
  * per-week projections; played, they are the points. The foot sums both.
  */
-/** a player's NFL game this week, for the line under his name: "vs PHI ·
- *  Sun 1:00 PM" before kickoff, "@ KC · Q3 4:12" during, "vs PHI · Final"
- *  after; "Bye" when the board has no game for his team */
-function gameLine(team: string, board: Scoreboard | null): string {
+/** a player's NFL game this week, for the line under his name (Max,
+ *  2026-11-15: "W @DAL 46-40"). Short enough to hold ONE line on a phone:
+ *    final    "W @DAL 46–40" / "L vs KC 17–20": result, opponent, the score
+ *             with his own club first
+ *    live     "@CIN 7–3 · 8:56 1st": no result yet, the score so far, the clock
+ *    pregame  "@CIN · Sun 1:00 PM"
+ *    no game  "Bye"
+ *  No space after "@", as he typed it. His own club is not in the line; the
+ *  caller prints it only where there is no game to print. */
+export function gameLine(team: string, board: Scoreboard | null): string {
   if (!board) return "";
   const g = board[team];
   if (!g) return "Bye";
-  const who = `${g.home ? "vs" : "@"} ${g.opp}`;
-  if (g.state !== "pre") return `${who} · ${g.detail || (g.state === "post" ? "Final" : "Live")}`;
+  const who = g.home ? `vs ${g.opp}` : `@${g.opp}`;
+  const pts = g.pts, opp = g.oppPts;
+  const score = pts != null && opp != null ? `${pts}–${opp}` : "";
+  if (g.state === "post") {
+    if (pts == null || opp == null) return `${who} · Final`;
+    return `${pts > opp ? "W" : pts < opp ? "L" : "T"} ${who} ${score}`;
+  }
+  if (g.state === "in") {
+    // ESPN's "8:56 - 1st" loses its dash, and its two long states are cut to
+    // fit the one line beside a two-digit score: "Half", "End 3rd"
+    const clock = (g.detail || "Live").replace(/\s+-\s+/, " ")
+      .replace(/^Halftime$/i, "Half").replace(/^End of /i, "End ");
+    return `${who}${score ? ` ${score}` : ""} · ${clock}`;
+  }
   const d = g.date ? new Date(g.date) : null;
   const when = d && !isNaN(d.getTime())
     ? d.toLocaleString(undefined, { weekday: "short", hour: "numeric", minute: "2-digit" })
@@ -1015,14 +1038,27 @@ export function SlotDrawer({ a, b, played, live = false, unpriced = false, playe
     const [name, , today] = pInfo(players, pid);
     const team = clubOf?.(pid) || today;
     const gl = gameLine(team, board);
+    /* FIRST NAME OVER LAST NAME (Max, 2026-11-15). Two spans, so the
+       mobile-first UI can set them as two lines ("Christian" / "McCaffrey",
+       "KC" / "Concepcion Jr.") and never break inside a word; the old look
+       leaves them inline. A one-word name still carries the second span, so
+       every row keeps the two lines. */
+    const cut = name.indexOf(" ");
+    const first = cut < 0 ? name : name.slice(0, cut);
+    const rest = cut < 0 ? "" : name.slice(cut + 1);
+    /* the club tag goes where the game line cannot stand in for it: a bye,
+       or no scoreboard at all. With a game the line is "W @DAL 46–40". */
+    const tag = team && !board?.[team] ? team : "";
     return (
       <>
         {/* the name is his page (Max, 2026-09-21) */}
-        <RouteLink to={betaPath(`/player/${pid}`)} className="n1">{name}</RouteLink>
-        {(team || gl) && (
+        <RouteLink to={betaPath(`/player/${pid}`)} className="n1">
+          <span className="fn">{first}</span>{" "}<span className="ln">{rest}</span>
+        </RouteLink>
+        {(tag || gl) && (
           <span className="n2">
-            {team && <span className="tg">{team}</span>}
-            {team && gl ? " · " : ""}{gl}
+            {tag && <span className="tg">{tag}</span>}
+            {tag && gl ? " · " : ""}{gl}
           </span>
         )}
       </>
@@ -1050,6 +1086,8 @@ export function SlotDrawer({ a, b, played, live = false, unpriced = false, playe
     return { v: got.reduce((t, x) => t + (x.war as number), 0), est };
   };
   const wtA = war ? warTot(a) : null, wtB = war ? warTot(b) : null;
+  // an estimate anywhere on the board, for the head's "≈ estimated"
+  const estAny = war && [...a.slots, ...b.slots].some(x => x.pid && x.war != null && x.warEst);
   // the totals' projections, and whether a side finished short of its own
   const hasProj = a.slots.some(x => x.proj != null) || b.slots.some(x => x.proj != null);
   const projA = a.slots.reduce((t, x) => t + (x.proj ?? 0), 0);
@@ -1074,6 +1112,15 @@ export function SlotDrawer({ a, b, played, live = false, unpriced = false, playe
         <span className="k">{played ? "Slot by slot · final" : live ? "Slot by slot · live"
           : unpriced ? "As set · no projection published" : "Slot by slot · projected"}
           </span>
+        {/* WHAT THE STACK IS, ONCE (Max, 2026-11-15): the rows no longer label
+            their WAR line, so the head names the three figures in the order
+            they stack, and the mark an estimate takes */}
+        {war && !unpriced && (
+          <span className="sd-key">
+            {["Points", hasProj ? "projection" : null, "WAR"].filter(Boolean).join(" · ")}
+            {estAny ? " · ≈ estimated" : ""}
+          </span>
+        )}
         {to && <RouteLink to={to} className="lgx-all">Full matchup →</RouteLink>}
       </div>
       {Array.from({ length: n }, (_, i) => {
