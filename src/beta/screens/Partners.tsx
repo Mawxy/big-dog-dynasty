@@ -9,7 +9,7 @@ import { useCvi, useDvi } from "../../lib/useIndices";
 import { useIdentity } from "../../lib/identity";
 import { lineupOf, rosterSeasonOf } from "../../lib/league";
 import {
-  AGING_FROM, TIER_N, rosterShapes, teamNeeds, type IndexEntry, type NeedSeat, type TeamNeeds,
+  AGING_FROM, TIER_N, leagueNeeds, rosterShapes, type IndexEntry, type NeedSeat, type PosGroup, type TeamNeeds,
 } from "../../lib/rosterModel";
 import { fmt, ord } from "../../lib/stats";
 import { readTrades } from "../../lib/trades";
@@ -51,9 +51,16 @@ import "./transactions.css";
  * NEEDS AND SURPLUS (Max, 2026-11-13: "it should also show team needs",
  * shown per manager). Who to call is half a trade question and the record
  * above answers only the other half. So each current manager's row says, by
- * position, where his starting lineup is short and where his bench is deep,
- * and his drawer names the seats: `teamNeeds`, which is the team page's
- * Strengths ranks under the team page's own tier rule, not a second model.
+ * position, where his starting lineup is short, where it is strong and where
+ * his bench is deep, and his drawer names the seats.
+ *
+ * BY LEAGUE RANK AT THE POSITION (Max, 2026-11-17). The first rule read needs
+ * seat by seat, bottom four only, and said Crustufer had no need at running
+ * back with the 6th-best RB1 and the 8th-best RB2: "just not true". So a
+ * position's starting seats are ranked together against the league
+ * (`leagueNeeds`): the bottom half is a NEED, the top four a STRENGTH, and
+ * the drawer prints the position's rank over the seats that make it. The
+ * seat ranks under it are still the team page's Strengths ranks.
  * Read in CVI, the value of a seat THIS season, because a need is a hole in
  * the lineup a manager sets on Sunday; DVI would call a contender's
  * 31-year-old WR1 a need. Today's rosters, so a manager who has left has
@@ -62,8 +69,8 @@ import "./transactions.css";
  * AND AGING, BETWEEN THE TWO (Max, 2026-11-13: "Bijan al-Gaib needs younger
  * receivers and rbs"). His own row read "Needs none" with a 30-year-old RB2
  * and a 29-year-old WR3 in it, because a rank of this season's value cannot
- * see a birthday. So a starting seat that is not a need today and is held by
- * a player past his position's age line is a third list, and every seat in
+ * see a birthday. So a starter at a position that is not a need today, past
+ * his position's age line, is a third list, and every seat in
  * the drawer carries its holder's age, so a partner shopping for youth can
  * tell a surplus 23-year-old from a surplus 33-year-old.
  *
@@ -157,10 +164,11 @@ export default function Partners() {
     const shapes = rosterShapes(proj.players, teams,
       { cvi: flatCvi, dvi: flatDvi }, lineupOf(meta));
     const age = new Map(proj.players.map(p => [p.pid, p.age]));
+    const byRid = leagueNeeds(shapes, "cvi", pid => age.get(pid));
     const m = new Map<string, TeamNeeds>();
     for (const t of teams) {
-      const sh = shapes.get(t.roster_id);
-      if (sh) m.set(person(t.manager), teamNeeds(sh, teams.length, "cvi", pid => age.get(pid)));
+      const nd = byRid.get(t.roster_id);
+      if (nd) m.set(person(t.manager), nd);
     }
     return m;
   }, [proj, teams, dvi, cvi, meta]);
@@ -257,16 +265,19 @@ export default function Partners() {
                     {r.name}
                     {/* under the name, not beside it (Max, 2026-11-12) */}
                     {r.former && <span className="sb">former</span>}
-                    {/* three lines on every row once any row has them, so the
-                        table keeps one row height; a former manager's last two
-                        are empty because he has no roster to read */}
-                    {needs && !r.former && <PosLine label="Needs" seats={nd?.needs} />}
+                    {/* four lines on every row once any row has them, so the
+                        table keeps one row height; a former manager's last
+                        three are empty because he has no roster to read */}
+                    {needs && !r.former && <PosLine label="Needs" pos={nd?.needs.map(g => g.pos)} />}
                     {needs && (r.former
                       ? <span className="pax-nd">{"\u00a0"}</span>
-                      : <PosLine label="Aging" seats={nd?.aging} />)}
+                      : <PosLine label="Strengths" pos={nd?.strengths.map(g => g.pos)} />)}
                     {needs && (r.former
                       ? <span className="pax-nd">{"\u00a0"}</span>
-                      : <PosLine label="Surplus" seats={nd?.surplus} />)}
+                      : <PosLine label="Aging" pos={nd?.aging.map(x => x.pos)} />)}
+                    {needs && (r.former
+                      ? <span className="pax-nd">{"\u00a0"}</span>
+                      : <PosLine label="Surplus" pos={nd?.surplus.map(x => x.pos)} />)}
                   </td>
                   <td className="n">{r.f.n}</td>
                   <td className="n">{r.f.in == null ? NUL : fmtWar(r.f.in)}</td>
@@ -278,12 +289,14 @@ export default function Partners() {
                     <td colSpan={5}>
                       {nd && (
                         <>
-                          <SeatBlock label="Needs · starters" seats={nd.needs}
-                            none={`No starting seat in the bottom ${TIER_N}.`} to={betaPath} />
+                          <GroupBlocks label="Need" groups={nd.needs} of={teams?.length ?? 0}
+                            none="No position in the bottom half of the league." to={betaPath} />
+                          <GroupBlocks label="Strength" groups={nd.strengths} of={teams?.length ?? 0}
+                            none={`No position in the top ${TIER_N}.`} to={betaPath} />
                           <SeatBlock label="Aging · starters" seats={nd.aging}
                             none="No other starter past his position’s age line." to={betaPath} />
                           <SeatBlock label="Surplus · second string" seats={nd.surplus}
-                            none={`No second-string seat in the top ${TIER_N}.`} to={betaPath} />
+                            none={`No second-string seat in the top ${TIER_N} outside a need.`} to={betaPath} />
                         </>
                       )}
                       {r.st && partners.length ? (
@@ -319,13 +332,15 @@ export default function Partners() {
       </table>
       {needs && (
         <div className="tnote screen">
-          Needs are the starting seats where a manager ranks in the bottom {TIER_N} of the
-          league, seat against the same seat, by CVI (the value this season of whoever wins
-          the seat). Aging is every other starting seat held by a player at or past the age
-          where his position turns down: {AGING_ORDER.map(p => `${p} ${AGING_FROM[p]}`).join(", ")}.
-          The seat is fine today and wants a younger body soon. Surplus is the second-string
-          seats in the top {TIER_N}: a player better than the seat he sits in. Rank is of
-          the {teams?.length ?? 0} rosters. Today’s rosters, and the same seats and ranks as
+          Needs and Strengths are by league rank at the position. A position’s starting seats
+          are taken together (QB1 and QB2, RB1 and RB2, WR1 to WR3, TE1) by CVI, the value this
+          season of whoever wins the seat, and ranked against the {teams?.length ?? 0} rosters.
+          A Need is a position in the bottom half of the league; a Strength is one in the
+          top {TIER_N}. Aging is a starter at any other position at or past the age where his
+          position turns down: {AGING_ORDER.map(p => `${p} ${AGING_FROM[p]}`).join(", ")}.
+          The seat is fine today and wants a younger body soon. Surplus is a second-string
+          seat in the top {TIER_N} at a position that is not a need: a player better than the
+          seat he sits in. Today’s rosters. The seat ranks in each drawer are the same as
           the Strengths section of each team page.
         </div>
       )}
@@ -343,12 +358,28 @@ export default function Partners() {
 
 /** the positions a list of seats covers, in seat order, once each: the row's
  *  one-line read, with the seats themselves a tap away in the drawer */
-function PosLine({ label, seats }: { label: string; seats: NeedSeat[] | undefined }) {
-  const pos = [...new Set((seats ?? []).map(s => s.pos))];
+function PosLine({ label, pos: list }: { label: string; pos: string[] | undefined }) {
+  const pos = [...new Set(list ?? [])];
   return (
     <span className="pax-nd">
       <b>{label}</b> {pos.length ? pos.join(" ") : <i>none</i>}
     </span>
+  );
+}
+
+/** needs or strengths in the drawer: one block per position, headed by the
+ *  position's own rank in the league, over the starting seats that make it */
+function GroupBlocks({ label, groups, of, none, to }: {
+  label: string; groups: PosGroup[]; of: number; none: string; to: (p: string) => string;
+}) {
+  if (!groups.length) return <SeatBlock label={`${label}s · starters`} seats={[]} none={none} to={to} />;
+  return (
+    <>
+      {groups.map(g => (
+        <SeatBlock key={g.pos} label={`${label} · ${g.pos} ${ord(g.rank)} of ${of}`}
+          seats={g.seats} none={none} to={to} />
+      ))}
+    </>
   );
 }
 

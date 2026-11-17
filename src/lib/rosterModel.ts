@@ -308,8 +308,9 @@ export function rosterShapes(
 
 /** How many seats at either end the tier rule marks. A count rather than a
  *  share, because it is the shape the league already has: four seats that win
- *  you the position and four that need help. One figure for the team page's
- *  Strengths rule and the Partner analyzer's needs, so the two cannot drift. */
+ *  you the position and four that need help. The team page's Strengths rule,
+ *  and the top band (strengths, surplus) of the Partner analyzer's
+ *  `leagueNeeds`; a NEED there is the bottom half of the league, not this. */
 export const TIER_N = 4;
 
 /**
@@ -336,55 +337,113 @@ export interface NeedSeat {
   /** the holder's age, where the caller could say */
   age?: number;
 }
+/** one POSITION on a roster as a trade read: its starting seats together,
+ *  and where that group ranks in the league */
+export interface PosGroup {
+  pos: string;
+  /** the starting seats at the position, summed in the caller's currency */
+  value: number;
+  /** that sum against the same sum on every other roster, 1 = best */
+  rank: number;
+  /** the starting seats themselves, in seat order, each with its own rank */
+  seats: NeedSeat[];
+}
 export interface TeamNeeds {
-  /** STARTING seats ranked in the bottom `TIER_N` of the league */
-  needs: NeedSeat[];
-  /** STARTING seats that are NOT a need today and are held by a player at or
+  /** every position, in seat order (QB, RB, WR, TE) */
+  groups: PosGroup[];
+  /** positions whose starters rank in the BOTTOM HALF of the league */
+  needs: PosGroup[];
+  /** positions whose starters rank in the top `TIER_N` */
+  strengths: PosGroup[];
+  /** STARTING seats at a position that is NOT a need, held by a player at or
    *  past his position's `AGING_FROM` age: fine now, on borrowed time */
   aging: NeedSeat[];
-  /** SECOND-STRING seats ranked in the top `TIER_N`: depth to deal from */
+  /** SECOND-STRING seats ranked in the top `TIER_N`, at a position that is
+   *  not a need: depth to deal from */
   surplus: NeedSeat[];
 }
 
 /**
- * A roster's needs and surplus (Max, 2026-11-13), read straight off its
- * `RosterShape` with the team page's own tier rule and no second model.
+ * Every roster's needs, strengths, aging seats and surplus, BY LEAGUE RANK AT
+ * THE POSITION (Max, 2026-11-17).
  *
- * A NEED is a starting seat in the bottom `TIER_N`: the red seats on the team
- * page. An empty starting seat ranks last, so a hole is a need.
+ * The first rule (2026-11-13) read needs seat by seat: a need was a starting
+ * seat in the bottom `TIER_N`. That called Crustufer's running backs no need
+ * with the 6th-best RB1 and the 8th-best RB2 in the league, and called them a
+ * surplus on the strength of his RB4. "Just not true": a room that is 6th and
+ * 8th is below the middle of the league wherever the bottom four starts.
  *
- * SURPLUS is a second-string seat in the top `TIER_N`, not a strong starter.
- * A manager's QB1 being 2nd in the league is a strength he plays every week;
- * his QB3 being 2nd among QB3s is a player better than the seat he sits in,
- * which is the one a partner can ask for. An empty bench seat is never surplus.
+ * So the unit is the POSITION, not the seat. A position's starting seats are
+ * summed in the caller's currency (QB1 and QB2, RB1 and RB2, WR1 to WR3, TE1)
+ * and that sum is ranked against the same sum on every other roster.
  *
- * AGING is the third read (Max, 2026-11-13: his own roster "needs younger
- * receivers and RBs" and had no need on the board). A starting seat that
- * ranks fine today and is held by a player at or past `AGING_FROM` for his
- * position: the seat a manager has to refill soon, which no rank of this
- * season's value can see. Kept apart from `needs` on purpose, so a seat is in
- * one list or the other: a 38-year-old in a bottom-four seat is a need.
+ *   NEED      the position ranks in the bottom half of the league
+ *   STRENGTH  the position ranks in the top `TIER_N`
+ *
+ * The two bands are not symmetric on purpose. Being worse than most of the
+ * league at a position is a need whether it is 7th or 12th; being a strength
+ * is a higher bar than not being a need, so 5th and 6th are neither.
+ *
+ * AGING is still the third read (Max, 2026-11-13: his own roster "needs
+ * younger receivers and RBs"): a starter at a position that is not a need,
+ * at or past `AGING_FROM` for his position. A seat is in one list or the
+ * other, so an old starter at a need position is a need.
+ *
+ * SURPLUS is still a second-string seat in the top `TIER_N` (a player better
+ * than the seat he sits in), but never at a position that is a need: depth
+ * behind starters who rank in the bottom half is the roster's own next
+ * starter, not something to deal from.
  *
  * One currency, the caller's. Every list keeps seat order (QB, RB, WR, TE).
  * `ageOf` is the caller's because a shape carries no ages; without it there
  * is no aging read and no age on a seat.
  */
-export function teamNeeds(
-  shape: RosterShape, n: number, key: RankRow["key"],
+export function leagueNeeds(
+  shapes: Map<number, RosterShape>, key: RankRow["key"],
   ageOf?: (pid: string) => number | undefined,
-): TeamNeeds {
+): Map<number, TeamNeeds> {
   const cells = (rows: RankRow[]) => (rows.find(r => r.key === key) ?? rows[0])?.cells ?? [];
+  const posOf = (label: string) => label.replace(/\d+$/, "");
   const seat = (c: RankCell): NeedSeat => ({
-    label: c.label, pos: c.label.replace(/\d+$/, ""),
+    label: c.label, pos: posOf(c.label),
     pid: c.pid, name: c.name, value: c.value, rank: c.rank,
     age: c.pid ? ageOf?.(c.pid) : undefined,
   });
-  const isNeed = (c: RankCell) => c.rank > n - TIER_N;
-  const starters = cells(shape.ranks);
-  return {
-    needs: starters.filter(isNeed).map(seat),
-    aging: starters.filter(c => !isNeed(c)).map(seat)
-      .filter(s => s.age != null && s.age >= (AGING_FROM[s.pos] ?? Infinity)),
-    surplus: cells(shape.benchRanks).filter(c => c.pid && c.rank <= TIER_N).map(seat),
-  };
+  const n = shapes.size;
+  // each roster's starting seats, grouped by position in seat order
+  const groupsOf = new Map<number, PosGroup[]>();
+  for (const [rid, shape] of shapes) {
+    const by = new Map<string, PosGroup>();
+    for (const c of cells(shape.ranks)) {
+      const pos = posOf(c.label);
+      const g = by.get(pos) ?? { pos, value: 0, rank: 0, seats: [] };
+      // an empty seat adds nothing: the hole shows up as a smaller sum
+      g.value += c.pid ? c.value : 0;
+      g.seats.push(seat(c));
+      by.set(pos, g);
+    }
+    groupsOf.set(rid, [...by.values()]);
+  }
+  // rank each position's sum across the league, ties sharing the better rank
+  const sums = new Map<string, number[]>();
+  for (const gs of groupsOf.values())
+    for (const g of gs) sums.set(g.pos, [...(sums.get(g.pos) ?? []), g.value]);
+  for (const gs of groupsOf.values())
+    for (const g of gs) g.rank = 1 + sums.get(g.pos)!.filter(v => v > g.value + 1e-9).length;
+
+  const out = new Map<number, TeamNeeds>();
+  for (const [rid, shape] of shapes) {
+    const groups = groupsOf.get(rid)!;
+    const needs = groups.filter(g => g.rank > n / 2);
+    const needPos = new Set(needs.map(g => g.pos));
+    out.set(rid, {
+      groups, needs,
+      strengths: groups.filter(g => g.rank <= TIER_N),
+      aging: groups.filter(g => !needPos.has(g.pos)).flatMap(g => g.seats)
+        .filter(s => s.age != null && s.age >= (AGING_FROM[s.pos] ?? Infinity)),
+      surplus: cells(shape.benchRanks)
+        .filter(c => c.pid && c.rank <= TIER_N && !needPos.has(posOf(c.label))).map(seat),
+    });
+  }
+  return out;
 }
