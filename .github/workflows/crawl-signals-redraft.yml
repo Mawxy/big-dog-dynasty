@@ -47,7 +47,10 @@ jobs:
         run: |
           EXTRA=""
           [ -n "$MAX" ] && EXTRA="--max-leagues $MAX"
-          python scripts/sleeper_crawl.py --mode signals --league-type redraft \
+          # --start-backfill (Max, 2026-11-16): rebuild this season's start% from
+          # week 1 on finished-week lineups. It clears the accumulator ONCE, then
+          # does nothing on every later run, so it is safe to leave in.
+          python scripts/sleeper_crawl.py --mode signals --league-type redraft --start-backfill \
             --state .crawl-state/signals-redraft --max-minutes 300 --commit-every 1000 $EXTRA
       - name: Commit signals + league list
         # success() || failure(), not always(): a cancelled run may have died

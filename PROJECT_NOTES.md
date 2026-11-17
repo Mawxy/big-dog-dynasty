@@ -305,8 +305,10 @@ have been read for (the live snapshot only while no finished week exists). The f
 states its own basis in `start_basis` (`from_week`, `now_week`, live and dead
 roster-weeks). `roster_rate` and `taxi_rate` are unchanged, on the live window.
 `--start-backfill` rebuilds the season from week 1 (the accumulator is replaced and
-every league re-reads each finished week); it is **not** in either workflow, and
-until it is run the accumulator holds snapshot-era observations before `from_week`.
+every league re-reads each finished week). Max asked for it on 2026-11-16 and it is
+in both signals workflows: the first run after the push clears the accumulator, every
+league re-reads weeks 1 on as its cooldown comes round (up to about a week), and the
+flag is a no-op from then on. `start_basis.from_week` reads 1 once it has taken.
 
 ### Hand-run scripts (no workflow)
 
