@@ -17,7 +17,6 @@ import { RetryScope, Sheet, SheetRow, useBetaPath } from "./ui";
 import {
   LiveThemeContext, applyLiveTheme, readLiveTheme, writeLiveTheme, type LiveThemeId,
 } from "./liveTheme";
-import { UiContext, readUi, useUi, writeUi, type UiMode } from "./mobile/uiMode";
 import { Icon } from "./mobile/icons";
 import League from "./screens/League";
 import Team from "./screens/Team";
@@ -38,8 +37,8 @@ import Transactions from "./screens/Transactions";
 import TradeDetail from "./screens/TradeDetail";
 import Recaps from "./screens/Recaps";
 import "./beta.css";
-/* the mobile-first UI's layer, after the base sheet it refines. Static, not a
-   chunk of its own: it is the default interface, so the shell ships with it */
+/* the board's visual layer, after the base sheet it refines. Static, not a
+   chunk of its own: it is the only interface, so the shell ships with it */
 import "./mobile/mobile.css";
 
 /* The deep destinations More points at are the classic board's views, mounted
@@ -109,32 +108,11 @@ export default function BetaShell() {
   const shell = useMemo(() => ({ base }), [base]);
   return (
     <LiveThemes>
-      <UiModes>
-        <ShellContext.Provider value={shell}>
-          <RetryScope><BetaBoard base={base} /></RetryScope>
-        </ShellContext.Provider>
-      </UiModes>
+      <ShellContext.Provider value={shell}>
+        <RetryScope><BetaBoard base={base} /></RetryScope>
+      </ShellContext.Provider>
     </LiveThemes>
   );
-}
-
-/**
- * THE INTERFACE SWITCH (mobile/uiMode.ts): the mobile-first UI, which is the
- * default, or the previous one, on the same address. Saved on this device and
- * changed under More.
- *
- * The mobile-first stylesheet ships with the shell (imported above), so the
- * board never paints in the other interface first. Every rule in it is scoped
- * under `.v3.mf`, so a reader on the previous UI carries it and nothing there
- * reads it.
- */
-function UiModes({ children }: { children: ReactNode }) {
-  const [ui, setUiState] = useState<UiMode>(readUi);
-  const value = useMemo(() => ({
-    ui,
-    setUi: (m: UiMode) => { writeUi(m); setUiState(m); window.scrollTo(0, 0); },
-  }), [ui]);
-  return <UiContext.Provider value={value}>{children}</UiContext.Provider>;
 }
 
 /**
@@ -182,8 +160,6 @@ function BetaBoard({ base }: { base: string }) {
   // The segment after it — "" only on the index, which is a redirect. The
   // league's own segment is not always the alias: a numeric-key address opens
   // the same league, so it is stripped by position, not by matching the alias.
-  // the mobile-first UI is the default; the previous one is a choice under More
-  const mobile = useUi()?.ui === "mobile";
   const seg = loc.pathname.split("/").filter(Boolean)[1] ?? "";
 
   /* ---- the index is a REDIRECT, not a screen ----------------------------
@@ -316,17 +292,25 @@ function BetaBoard({ base }: { base: string }) {
   // where ← Back goes when there is nothing behind it: this screen's hub
   const hub = `${base}${active ? `/${active}` : ""}`;
   // a screen below a tab gets an on-screen way back (the player page carries
-  // its own) — one test, read by both interfaces' back controls
+  // its own)
   const showBack = !tabs.some(t => t.id === seg) && seg !== "" && seg !== "player";
 
   return (
     <IdentityContext.Provider value={identity}>
-      <div className={mobile ? "v3 mf" : "v3"}>
+      {/* ONE INTERFACE (Max, 2026-11-17): the mobile-first UI is the board.
+          The previous look and its switch are gone. `mf` stays on the root
+          because every rule in mobile.css is scoped under `.v3.mf`. */}
+      <div className="v3 mf">
         <header className={`v3-mast${finding ? " finding" : ""}`}>
-          {/* THE MOBILE-FIRST UI'S BACK STEP lives IN the bar, where a thumb
-              already expects it, instead of on a row of its own under it.
-              Same rule and same target as the `.v3-back` row below. */}
-          {mobile && showBack && (
+          {/* THE BACK STEP lives IN the bar, where a thumb already expects
+              it. Every screen below a tab needs an on-screen way back: an iOS
+              web clip has no browser chrome at all. The player page is the
+              exception, it carries its own ← Back in the split rail, and two
+              of them on one screen is a question about which one is real.
+              ON A SHARED DEEP LINK THERE IS NO BACK: the router's history
+              index is 0, so nav(-1) leaves the board or does nothing. The hub
+              is the step up the reader wanted. */}
+          {showBack && (
             <a className="mf-back" href={`#${hub}`} aria-label="Back"
               onClick={e => {
                 e.preventDefault();
@@ -348,23 +332,8 @@ function BetaBoard({ base }: { base: string }) {
             <span className="lg flat">{league.name}</span>
           )}
           <span className="tag">War Board Beta</span>
-          <MastSearch open={finding} onToggle={setFinding} icon={mobile} />
+          <MastSearch open={finding} onToggle={setFinding} />
         </header>
-
-        {/* Every screen below a tab needs an on-screen way back: an iOS web clip
-            has no browser chrome at all. The player page is the exception — it
-            carries its own ← Back in the split rail, and two of them on one
-            screen is a question about which one is real.
-            ON A SHARED DEEP LINK THERE IS NO BACK: the router's history index is
-            0, so nav(-1) leaves the board or does nothing. The hub is the step
-            up the reader wanted. */}
-        {showBack && !mobile && (
-          <a className="v3-back" href={`#${hub}`}
-            onClick={e => {
-              e.preventDefault();
-              if (window.history.state?.idx === 0) nav(hub); else nav(-1);
-            }}>← Back</a>
-        )}
 
         <main>
           <ErrorBoundary resetKey={loc.pathname}>
@@ -465,7 +434,7 @@ function BetaBoard({ base }: { base: string }) {
                 onPointerUp={cancelHold} onPointerLeave={cancelHold}
                 onPointerCancel={cancelHold} onPointerMove={moveHold}
                 onContextMenu={t.id === "league" ? e => e.preventDefault() : undefined}>
-                {mobile && <Icon id={t.id} />}
+                <Icon id={t.id} />
                 {t.label}
                 {"dot" in t && t.dot && <span className="dot" />}
               </a>
@@ -502,19 +471,15 @@ function BetaBoard({ base }: { base: string }) {
         </nav>
 
         {/* Directly after the tab bar: the phone rule that hides it with the
-            bar is an adjacent-sibling one (mobile.css `.mf-top`). The
-            mobile-first UI only, like every control added since it became the
-            board. */}
-        {mobile && (
-          <button type="button" className={`mf-top${far ? " show" : ""}`}
-            aria-label="Back to top" aria-hidden={!far} tabIndex={far ? 0 : -1}
-            onClick={() => window.scrollTo({
-              top: 0,
-              behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-            })}>
-            <Icon id="up" />
-          </button>
-        )}
+            bar is an adjacent-sibling one (mobile.css `.mf-top`). */}
+        <button type="button" className={`mf-top${far ? " show" : ""}`}
+          aria-label="Back to top" aria-hidden={!far} tabIndex={far ? 0 : -1}
+          onClick={() => window.scrollTo({
+            top: 0,
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+          })}>
+          <Icon id="up" />
+        </button>
 
         {sheet && <LeagueSheet onClose={() => setSheet(false)} />}
       </div>
@@ -543,10 +508,8 @@ function BetaBoard({ base }: { base: string }) {
  * library and is not getting one for this, and the ⌕ glyph that would avoid one
  * is missing from most of the stack's faces — a tofu box is worse than a label.
  */
-function MastSearch({ open, onToggle, icon }: {
+function MastSearch({ open, onToggle }: {
   open: boolean; onToggle: (v: boolean) => void;
-  /** the mobile-first UI draws the control as a glyph; the label stays in aria */
-  icon?: boolean;
 }) {
   const box = useRef<HTMLDivElement>(null);
   // QuickJump owns its field, so the reveal focuses it through the DOM rather
@@ -575,7 +538,7 @@ function MastSearch({ open, onToggle, icon }: {
       <button type="button" className="findbtn"
         aria-expanded={open} aria-label={open ? "Close search" : "Search"}
         onClick={() => onToggle(!open)}>
-        {icon ? <Icon id={open ? "close" : "search"} size={22} /> : open ? "Close" : "Search"}
+        <Icon id={open ? "close" : "search"} size={22} />
       </button>
     </div>
   );

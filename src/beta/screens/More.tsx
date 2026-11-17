@@ -7,7 +7,6 @@ import { rookieDraftRecorded } from "../../lib/seasons";
 import { hardRefresh } from "../../lib/data";
 import { useLeague } from "../../lib/context";
 import { LIVE_THEMES, useLiveTheme, type LiveThemeId } from "../liveTheme";
-import { UI_MODES, useUi } from "../mobile/uiMode";
 import { latestSeasonOf, rosterSeasonOf } from "../../lib/league";
 import { useIdentity } from "../../lib/identity";
 import { MODEL_NOTE, splitCurve, STREAM_NOTE, useModel } from "../../lib/model";
@@ -125,9 +124,6 @@ export default function More() {
   const [openMeth, setOpenMeth] = useState(false);
 
   const liveTheme = useLiveTheme();
-  const uiMode = useUi();
-  // the mobile-first UI picks a theme in a sheet; the previous UI keeps its list
-  const mobileUi = uiMode?.ui === "mobile";
   const [picking, setPicking] = useState(false);
   const curTheme = LIVE_THEMES.find(t => t.id === liveTheme?.theme) ?? LIVE_THEMES[0];
 
@@ -331,41 +327,15 @@ export default function More() {
         )}
       </div>
 
-      {/* INTERFACE — the mobile-first UI (the default) or the previous one
-          (mobile/uiMode.ts). Two layouts over the same screens and the same
-          data; a tap switches instantly, nothing reloads, and every palette
-          below works under both. */}
-      {uiMode && (
-        <>
-          <Band label="Interface" note="Two layouts for the same board — saved on this device" />
-          <div className="v3-more" role="radiogroup" aria-label="Interface">
-            {UI_MODES.map(m => {
-              const on = uiMode.ui === m.id;
-              return (
-                <button key={m.id} type="button" role="radio" aria-checked={on}
-                  className={`mox-row mox-theme${on ? " on" : ""}`}
-                  onClick={() => uiMode.setUi(m.id)}>
-                  <span className="mox-nm">
-                    <span className="mox-n1">{m.name}</span>
-                    <span className="mox-n2">{m.note}</span>
-                  </span>
-                  <span className="mox-st">{on ? "On" : "Off"}</span>
-                </button>
-              );
-            })}
-          </div>
-        </>
-      )}
       {/* APPEARANCE ON THE LIVE BOARD (beta/liveTheme.ts). Opt-in: Original is
           the board as it ships and stays the default. Same row anatomy as the
           status rows, with the swatch strip in the figure slot; the selected
           row carries the rank spine rather than a second accent figure, so the
           projection model stays this screen's one gold value. */}
-      {/* THEME ON THE MOBILE-FIRST UI (Max, 2026-11-11): one row that opens
-          the picker (`ThemeSheet`, below), so this screen stays one row long
-          however many palettes there are. The previous UI keeps the list
-          under it, unchanged. */}
-      {liveTheme && mobileUi && (
+      {/* THEME (Max, 2026-11-11): one row that opens the picker
+          (`ThemeSheet`, below), so this screen stays one row long however
+          many palettes there are. */}
+      {liveTheme && (
         <>
           <Band label="Appearance" note="Saved on this device" />
           <div className="v3-more">
@@ -386,30 +356,6 @@ export default function More() {
             <ThemeSheet theme={liveTheme.theme} onPick={liveTheme.setTheme}
               onClose={() => setPicking(false)} />
           )}
-        </>
-      )}
-      {liveTheme && !mobileUi && (
-        <>
-          <Band label="Appearance" note={`${LIVE_THEMES.length} palettes, ${LIVE_THEMES.filter(t => t.dark).length} dark and ${LIVE_THEMES.filter(t => !t.dark).length} light — saved on this device`} />
-          <div className="v3-more" role="radiogroup" aria-label="Theme">
-            {LIVE_THEMES.map(t => {
-              const on = liveTheme.theme === t.id;
-              return (
-                <button key={t.id} type="button" role="radio" aria-checked={on}
-                  className={`mox-row mox-theme${on ? " on" : ""}`}
-                  onClick={() => liveTheme.setTheme(t.id)}>
-                  <span className="mox-nm">
-                    <span className="mox-n1">{t.name}</span>
-                    <span className="mox-n2">{t.note}</span>
-                  </span>
-                  <span className="mox-st">{on ? "On" : t.dark ? "Dark" : "Light"}</span>
-                  <span className="mox-sw" aria-hidden="true">
-                    {t.swatch.map((c, i) => <i key={i} style={{ "--c": c } as CSSProperties} />)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
         </>
       )}
       <Band label="This board" note="Settings, provenance, and the way back" />

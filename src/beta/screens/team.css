@@ -227,7 +227,7 @@
 .v3-lens .lens-rk { margin-left: 6px; font-weight: 700; font-variant-numeric: tabular-nums; }
 
 /* the blank second line the index lenses carry so their rows match the Stats
-   rows. The mobile-first UI shows it (mobile.css); the previous UI does not. */
+   rows. Hidden here and shown by mobile.css, which is always on. */
 .v3tbl.roster td .mtx-ph { display: none; }
 
 /* ---- the row drawer ------------------------------------------------------

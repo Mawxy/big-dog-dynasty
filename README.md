@@ -42,8 +42,8 @@ src/ (Vite + React 18 + TypeScript) reads data/**/*.json ─► GitHub Pages
   `big-dog`), because Sleeper mints a new id every season; the current-season
   ids live in `data-refresh.yml` and must be updated by hand each September.
 - **One board.** The phone-first board answers the bare league address —
-  `#/big-dog/...` — in the mobile-first interface by default; the previous
-  look stays selectable under More → Interface. The classic desktop board was
+  `#/big-dog/...` — in the mobile-first interface, the only one since
+  2026-11-17. The classic desktop board was
   retired on 2026-11-04 and the C4 redesign lab on 2026-11-11: every old
   address, `#/big-dog/classic/…`, `#/big-dog/lab/…`, `#/big-dog/beta/…` and
   the pre-league `#/stats/2025`

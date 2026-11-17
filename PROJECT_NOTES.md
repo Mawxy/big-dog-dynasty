@@ -645,28 +645,30 @@ DraftDetail, History, Insights, FranchisePage, QuickJump, PlayerLink,
 PlayerBoard) keep writing classic paths and use this. Both read the mount's
 `base` from **`ShellContext`**. `useLeaguePath` and `useShell` are gone.
 
-### The interface — mobile-first by default (2026-11-11)
+### The interface — mobile-first, the only one (2026-11-17)
 
-Two interfaces over the same shell, routes and screens, switched under More →
-Interface and saved per device (`warboard.v3.ui`, `beta/mobile/uiMode.ts`):
+One interface. The mobile-first UI began as a trial on 2026-11-10, became the
+default on 2026-11-11, and has been the only interface since 2026-11-17 (Max),
+when the previous look and the More → Interface switch were removed along
+with `beta/mobile/uiMode.ts`. A saved `warboard.v3.ui` on a device is ignored.
 
-- **`mobile` — the default.** Root `<div class="v3 mf">`. App bar with an
-  in-bar back step, icon tab bar (`mobile/icons.tsx`), and the visual layer in
-  `mobile/mobile.css`, every rule scoped under `.v3.mf` on top of `beta.css`
-  and the screen sheets. `BetaShell` imports it statically, so it ships with
-  the shell. One family (Public Sans), 44px minimum targets, 12px type floor,
-  one gutter. Rules and audit: `scratch/mobile_first_ui_2026-11-10.md` and
-  `scratch/mobile_first_ui_20_rules_2026-11-10.md`.
-- **`classic` — "Previous".** Root `<div class="v3">`: `beta.css` and the
-  screen sheets alone. Kept selectable for now.
+Root is always `<div class="v3 mf">`. App bar with an in-bar back step, icon
+tab bar (`mobile/icons.tsx`), and the visual layer in `mobile/mobile.css`,
+every rule scoped under `.v3.mf` on top of `beta.css` and the screen sheets.
+`BetaShell` imports it statically, so it ships with the shell. One family
+(Public Sans), 44px minimum targets, 12px type floor, one gutter. Rules and
+audit: `scratch/mobile_first_ui_2026-11-10.md` and
+`scratch/mobile_first_ui_20_rules_2026-11-10.md`.
 
-A device with no saved choice gets `mobile`; a saved `classic` is honored.
+`beta.css` and the screen sheets still hold the previous look's values for
+everything `mobile.css` overrides. Those rules are dead weight, not a second
+interface, and folding the two layers into one is not done.
 
-**Theme picker (2026-11-11, mobile-first only).** More → Appearance is one
+**Theme picker (2026-11-11).** More → Appearance is one
 "Theme" row that opens `ThemeSheet` (`screens/More.tsx`, styles `.thx-*` in
 `mobile.css`): small colour chips, four across, grouped dark and light. A chip
 is the palette's board and accent colours. A tap applies at once and the sheet
-stays up. The previous UI keeps its list of rows.
+stays up.
 
 **Sixteen palettes, eight dark and eight light.** Dark: Original, Midnight,
 Ember, Royal, Turf, Rosewood, Blackout, Graphite. Light: Press box, Chalk,
@@ -743,7 +745,7 @@ the Draft plot's axis ticks, a scale at one place so the labels fit. Every chart
 library — adding one is a deliberate reversal). `hm` hides columns ≤640px;
 records mode on mobile. GoatCounter pageviews, queued until the collector
 loads. Design system in the `war-board-design-system` skill, which
-describes the previous look and not yet the mobile-first interface.
+describes the previous look, removed 2026-11-17, and not yet the mobile-first interface.
 
 ## Known caveats (tracked)
 

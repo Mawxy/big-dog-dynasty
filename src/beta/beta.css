@@ -694,17 +694,6 @@
 }
 .v3-idbox button.ghost { background: none; border-color: var(--rule); color: var(--dim); }
 
-/* ---- back affordance ----------------------------------------------------
-   An iOS web clip has no browser chrome, so every screen below a tab needs its
-   own way back. This is that, and it is a real <a> so it is also a link. */
-.v3-back {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 9px var(--v3pad) 0;
-  font: 600 11px/1 var(--cond); letter-spacing: .14em; text-transform: uppercase;
-  color: var(--dim);
-}
-.v3-back:hover { color: var(--txt2); text-decoration: none; }
-
 /* ==========================================================================
    DESKTOP — the enriched shell, same IA.
    The bar becomes a persistent left rail and More's contents are exposed under

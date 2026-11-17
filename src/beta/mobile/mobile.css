@@ -1,11 +1,11 @@
 /* ==========================================================================
    THE MOBILE-FIRST UI (Max, 2026-11-10) — the board, designed for a thumb.
 
-   The board's default interface since 2026-11-11; the previous one stays
-   selectable under More → Interface (mobile/uiMode.ts). The shell adds the
-   class `mf` to its root while this mode is on, and EVERY rule here is scoped
-   under `.v3.mf`, so the sheet does nothing to the previous UI. BetaShell
-   imports it statically, after beta.css, so it ships with the shell.
+   The board's default interface since 2026-11-11 and its only one since
+   2026-11-17, when the previous look and the More → Interface switch were
+   removed. The shell's root always carries the class `mf`, and EVERY rule
+   here is scoped under `.v3.mf`. BetaShell imports it statically, after
+   beta.css, so it ships with the shell.
 
    WHAT THIS LAYER IS. The same screens, routes and components as the current
    UI, so every feature is here by construction. It replaces the chrome and
@@ -638,8 +638,7 @@
    be tried in a row. A chip is the two colours that make a palette, its
    board (--pb) and its accent (--pa), split on a diagonal and taken from the
    theme's own swatch literals because it shows a palette that is not the one
-   applied. The chosen chip takes a neutral ring and a bold name. This
-   interface only: the previous UI keeps its list. */
+   applied. The chosen chip takes a neutral ring and a bold name. */
 .v3.mf .thx { padding: 0 var(--v3pad) 18px; }
 .v3.mf .thx-k {
   display: flex; align-items: baseline; gap: 6px;

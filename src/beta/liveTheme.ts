@@ -16,8 +16,8 @@ import { createContext, useContext } from "react";
  * with style.css and index.html.
  *
  * Sixteen since 2026-11-11, eight dark and eight light. Keep the dark ones
- * together and the light ones together: the picker groups by `dark`, and the
- * previous UI's list reads this array top to bottom.
+ * together and the light ones together: the picker groups by `dark` and
+ * reads this array top to bottom.
  */
 export const LIVE_THEMES = [
   { id: "original", name: "Original", note: "Gold on carbon — the board as it ships", dark: true,
