@@ -150,4 +150,17 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
-      - uses: actions/deploy-pages@v4
+      # deploy-pages looks the artifact up through the run's artifact API right
+      # after the upload, and that listing lags. Under load it intermittently
+      # reports "No artifacts named github-pages were found" for an artifact
+      # that exists. One retry after a short wait covers the lag; a real
+      # failure still fails on the second attempt.
+      - id: deploy
+        uses: actions/deploy-pages@v4
+        continue-on-error: true
+      - name: Wait for the Pages artifact to register
+        if: steps.deploy.outcome == 'failure'
+        run: sleep 30
+      - name: Retry deploy
+        if: steps.deploy.outcome == 'failure'
+        uses: actions/deploy-pages@v4
